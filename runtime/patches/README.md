@@ -27,7 +27,8 @@ kit as `addons/amxts/tools/licenses`, with Binaryen's, Bun's and LLVM's
 Applies to AssemblyScript at tag `v0.28.20`, over `src/` and `std/`. It is
 what lets a plugin be plain TypeScript: `number` as JavaScript's number,
 unions of string literals, closures, optional properties and `undefined`,
-`?.`, `??`, destructuring, `async`/`await`, overloads, object types in place,
+`?.`, `??`, destructuring, `Record` and index signatures with `in`, `delete`,
+`Object.keys` and `for...in`, `async`/`await`, overloads, object types in place,
 return types read off the body, `Date` in the server's time zone.
 
 After changing `src/` or `std/` in `runtime/deps/assemblyscript`, rebuild it

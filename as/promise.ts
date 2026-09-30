@@ -561,12 +561,6 @@ class __AnyJob extends __Job {
 	return __co_any<T>(changetype<PromiseBase[]>(values));
 }
 
-/** @hidden a tuple Promise.all fills in, one settled promise at a time. */
-// @ts-ignore: decorator
-@global class __Tuple {
-	__set(index: i32, source: PromiseBase): void {}
-}
-
 class __TupleState {
 	constructor(public target: PromiseBase, public tuple: __Tuple, public remaining: i32) {}
 }
@@ -583,7 +577,7 @@ class __TupleJob extends __Job {
 			state.target.__reject(source.__reason as Error);
 			return;
 		}
-		state.tuple.__set(this.index, source);
+		state.tuple.__setRaw(this.index, changetype<usize>(source.__ref), source.__bits);
 		if (--state.remaining == 0) state.target.__fulfillRaw(state.tuple, 0, true);
 	}
 }
@@ -591,153 +585,6 @@ class __TupleJob extends __Job {
 function __co_allOf(target: PromiseBase, tuple: __Tuple, sources: PromiseBase[]): void {
 	const state = new __TupleState(target, tuple, sources.length);
 	for (let i = 0; i < sources.length; i++) sources[i].__react(new __TupleJob(state, sources[i], i));
-}
-
-/** @hidden what Promise.all of 2 promises of different types gives. */
-// @ts-ignore: decorator
-@global class __Tuple2<A, B> extends __Tuple {
-	/** @hidden filled in by __set: the constructor never runs. */
-	constructor(public _0: A, public _1: B) {
-		super();
-	}
-
-	get length(): i32 {
-		return 2;
-	}
-
-	__set(index: i32, source: PromiseBase): void {
-		if (index == 0) this._0 = changetype<Promise<A>>(source).__value();
-		else this._1 = changetype<Promise<B>>(source).__value();
-	}
-}
-
-/** @hidden what Promise.all of 3 promises of different types gives. */
-// @ts-ignore: decorator
-@global class __Tuple3<A, B, C> extends __Tuple {
-	/** @hidden filled in by __set: the constructor never runs. */
-	constructor(public _0: A, public _1: B, public _2: C) {
-		super();
-	}
-
-	get length(): i32 {
-		return 3;
-	}
-
-	__set(index: i32, source: PromiseBase): void {
-		if (index == 0) this._0 = changetype<Promise<A>>(source).__value();
-		else if (index == 1) this._1 = changetype<Promise<B>>(source).__value();
-		else this._2 = changetype<Promise<C>>(source).__value();
-	}
-}
-
-/** @hidden what Promise.all of 4 promises of different types gives. */
-// @ts-ignore: decorator
-@global class __Tuple4<A, B, C, D> extends __Tuple {
-	/** @hidden filled in by __set: the constructor never runs. */
-	constructor(public _0: A, public _1: B, public _2: C, public _3: D) {
-		super();
-	}
-
-	get length(): i32 {
-		return 4;
-	}
-
-	__set(index: i32, source: PromiseBase): void {
-		if (index == 0) this._0 = changetype<Promise<A>>(source).__value();
-		else if (index == 1) this._1 = changetype<Promise<B>>(source).__value();
-		else if (index == 2) this._2 = changetype<Promise<C>>(source).__value();
-		else this._3 = changetype<Promise<D>>(source).__value();
-	}
-}
-
-/** @hidden what Promise.all of 5 promises of different types gives. */
-// @ts-ignore: decorator
-@global class __Tuple5<A, B, C, D, E> extends __Tuple {
-	/** @hidden filled in by __set: the constructor never runs. */
-	constructor(public _0: A, public _1: B, public _2: C, public _3: D, public _4: E) {
-		super();
-	}
-
-	get length(): i32 {
-		return 5;
-	}
-
-	__set(index: i32, source: PromiseBase): void {
-		if (index == 0) this._0 = changetype<Promise<A>>(source).__value();
-		else if (index == 1) this._1 = changetype<Promise<B>>(source).__value();
-		else if (index == 2) this._2 = changetype<Promise<C>>(source).__value();
-		else if (index == 3) this._3 = changetype<Promise<D>>(source).__value();
-		else this._4 = changetype<Promise<E>>(source).__value();
-	}
-}
-
-/** @hidden what Promise.all of 6 promises of different types gives. */
-// @ts-ignore: decorator
-@global class __Tuple6<A, B, C, D, E, F> extends __Tuple {
-	/** @hidden filled in by __set: the constructor never runs. */
-	constructor(public _0: A, public _1: B, public _2: C, public _3: D, public _4: E, public _5: F) {
-		super();
-	}
-
-	get length(): i32 {
-		return 6;
-	}
-
-	__set(index: i32, source: PromiseBase): void {
-		if (index == 0) this._0 = changetype<Promise<A>>(source).__value();
-		else if (index == 1) this._1 = changetype<Promise<B>>(source).__value();
-		else if (index == 2) this._2 = changetype<Promise<C>>(source).__value();
-		else if (index == 3) this._3 = changetype<Promise<D>>(source).__value();
-		else if (index == 4) this._4 = changetype<Promise<E>>(source).__value();
-		else this._5 = changetype<Promise<F>>(source).__value();
-	}
-}
-
-/** @hidden what Promise.all of 7 promises of different types gives. */
-// @ts-ignore: decorator
-@global class __Tuple7<A, B, C, D, E, F, G> extends __Tuple {
-	/** @hidden filled in by __set: the constructor never runs. */
-	constructor(public _0: A, public _1: B, public _2: C, public _3: D, public _4: E, public _5: F, public _6: G) {
-		super();
-	}
-
-	get length(): i32 {
-		return 7;
-	}
-
-	__set(index: i32, source: PromiseBase): void {
-		if (index == 0) this._0 = changetype<Promise<A>>(source).__value();
-		else if (index == 1) this._1 = changetype<Promise<B>>(source).__value();
-		else if (index == 2) this._2 = changetype<Promise<C>>(source).__value();
-		else if (index == 3) this._3 = changetype<Promise<D>>(source).__value();
-		else if (index == 4) this._4 = changetype<Promise<E>>(source).__value();
-		else if (index == 5) this._5 = changetype<Promise<F>>(source).__value();
-		else this._6 = changetype<Promise<G>>(source).__value();
-	}
-}
-
-/** @hidden what Promise.all of 8 promises of different types gives. */
-// @ts-ignore: decorator
-@global class __Tuple8<A, B, C, D, E, F, G, H> extends __Tuple {
-	/** @hidden filled in by __set: the constructor never runs. */
-	constructor(public _0: A, public _1: B, public _2: C, public _3: D, public _4: E, public _5: F, public _6: G, public _7: H) {
-		super();
-	}
-
-	get length(): i32 {
-		return 8;
-	}
-
-	__set(index: i32, source: PromiseBase): void {
-		if (index == 0) this._0 = changetype<Promise<A>>(source).__value();
-		else if (index == 1) this._1 = changetype<Promise<B>>(source).__value();
-		else if (index == 2) this._2 = changetype<Promise<C>>(source).__value();
-		else if (index == 3) this._3 = changetype<Promise<D>>(source).__value();
-		else if (index == 4) this._4 = changetype<Promise<E>>(source).__value();
-		else if (index == 5) this._5 = changetype<Promise<F>>(source).__value();
-		else if (index == 6) this._6 = changetype<Promise<G>>(source).__value();
-		else this._7 = changetype<Promise<H>>(source).__value();
-	}
 }
 
 /** @hidden Promise.all of 2 promises of different types. */

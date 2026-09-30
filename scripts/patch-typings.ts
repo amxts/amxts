@@ -99,13 +99,20 @@ if (numberDate !== date) {
 // TypeScript's utility types, which the shipped typings leave out: a module
 // types its options in amxts.config.ts as `menus?: Partial<MenuCoreOptions>`
 // (as/amxts.d.ts). Only the editor reads them - asc never sees those lines.
+// A Record with any string or number for a key may not have the one asked
+// for, and the compiler reads a missing one as undefined: its values are
+// `T | undefined`, as TypeScript's noUncheckedIndexedAccess types them.
+// Keys that are all known (`Record<"red" | "blue", T>`) are all there.
+const record = 'declare type Record<K extends keyof any, T> = string extends K ? { [key: string]: T | undefined } : number extends K ? { [key: number]: T | undefined } : { [P in K]: T };';
+const plainRecord = 'declare type Record<K extends keyof any, T> = { [P in K]: T };';
+if (text.includes(plainRecord)) text = text.replace(plainRecord, record);
 const utilities = [
 	'/** amxts: TypeScript\'s utility types, for the editor. */',
 	'declare type Partial<T> = { [P in keyof T]?: T[P] };',
 	'declare type Required<T> = { [P in keyof T]-?: T[P] };',
 	'declare type Readonly<T> = { readonly [P in keyof T]: T[P] };',
 	'declare type Pick<T, K extends keyof T> = { [P in K]: T[P] };',
-	'declare type Record<K extends keyof any, T> = { [P in K]: T };',
+	record,
 	'',
 ].join('\n');
 if (!text.includes(utilities)) {
@@ -179,6 +186,46 @@ if (!text.includes(numberInterface)) {
 	}
 	text = text.replace(found, numberInterface);
 	console.log('typings: Number is an interface with toFixed for the editor');
+}
+
+// Object.keys, values and entries, which our AssemblyScript has for a Record
+// and for an object's fields (runtime/patches) and the shipped typings do not.
+const objectIs = '  static is<T>(value1: T, value2: T): bool;\n';
+const objectKeys = [
+	'  /** The object\'s keys: a Record\'s in the order they were added, an object\'s fields in the order declared. */',
+	'  static keys(object: object): string[];',
+	'  /** A Record\'s values, in the order their keys were added; an object\'s fields. */',
+	'  static values<T>(object: { [key: string]: T | undefined }): T[];',
+	'  /** A Record\'s keys and values, as `[key, value]` pairs in the order the keys were added. */',
+	'  static entries<T>(object: { [key: string]: T | undefined }): [string, T][];',
+	'',
+].join('\n');
+if (!text.includes(objectKeys)) {
+	if (!text.includes(objectIs)) {
+		process.stderr.write(`typings: Object.is was not found in ${typings} - AssemblyScript changed it\n`);
+		process.exit(1);
+	}
+	text = text.replace(objectIs, objectIs + objectKeys);
+	console.log('typings: Object has keys, values and entries for the editor');
+}
+
+// The tuple classes of our AssemblyScript's library (runtime/patches): what
+// a plugin writes `[string, number]` is one, and the hood's Promise.all fills
+// them in (as/promise.ts). A plugin never names them.
+const tupleLetters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+const tuples = [
+	'/** @hidden amxts: the tuples of the library - a plugin writes `[A, B]`. */',
+	'declare abstract class __Tuple { __setRaw(index: i32, ref: usize, bits: u64): void }',
+	...[2, 3, 4, 5, 6, 7, 8].map((count) => {
+		const letters = tupleLetters.slice(0, count);
+		const fields = letters.map((letter, i) => `_${i}: ${letter}`).join('; ');
+		return `/** @hidden */ declare class __Tuple${count}<${letters.join(', ')}> extends __Tuple { constructor(${letters.map((letter, i) => `_${i}: ${letter}`).join(', ')}); ${fields}; readonly length: i32 }`;
+	}),
+	'',
+].join('\n');
+if (!text.includes(tuples)) {
+	text = `${text.replace(/\n*$/, '\n')}\n${tuples}`;
+	console.log('typings: the library\'s tuple classes for the editor');
 }
 
 writeFileSync(typings, text);

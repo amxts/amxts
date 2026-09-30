@@ -861,11 +861,7 @@
 				"amxts/no-restricted-syntax": [
 					"error",
 					"TSEnumDeclaration[const=true]",
-					"TSExportAssignment",
-					{
-						"selector": "ForInStatement",
-						"message": "for...in is not supported: use for (const item of array), or a Map: for (const key of map.keys())."
-					}
+					"TSExportAssignment"
 				]
 			}
 		}

@@ -194,7 +194,7 @@ export function run(): i32 {
 	expect(run()).toBe(73);
 });
 
-test('for...in says what to write instead', async () => {
+test('for...in over an array says what to write instead', async () => {
 	const { error } = await compile(`
 export function run(): i32 {
 	const list = [1, 2];
@@ -203,6 +203,5 @@ export function run(): i32 {
 	return count;
 }
 `, false);
-	expect(error).toContain('\'for...in\' is not supported');
-	expect(error).toContain('for (const key of map.keys())');
+	expect(error).toContain('walk an array or a Map with for...of');
 });
