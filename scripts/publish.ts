@@ -495,7 +495,7 @@ async function main(args: string[]) {
 			`  PowerShell:  $env:NPM_CONFIG_REGISTRY = "${LOCAL_REGISTRY}"`,
 			`  bash:        export NPM_CONFIG_REGISTRY=${LOCAL_REGISTRY}`,
 			'',
-			'  npm create amxts@latest my-test        (or pnpm create amxts, bun create amxts)',
+			'  npm create amxts@latest my-test        (or: pnpm create amxts@latest my-test, bun x create-amxts@latest my-test)',
 			'  cd my-test',
 			'  npx amxts dev',
 			'',
