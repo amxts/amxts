@@ -254,6 +254,20 @@ for (const [owner, added] of [
 	console.log(`typings: ${owner.replace(/^declare class | \{\n$/g, '')} walks with for...of for the editor`);
 }
 
+// Math.max and Math.min of any number of values, a spread list too, which our
+// AssemblyScript compiles (runtime/patches): `Math.max(...scores)`.
+for (const name of ['max', 'min']) {
+	const two = `  ${name}(value1: T, value2: T): T; // TODO: rest\n`;
+	const rest = `  ${name}(...values: T[]): T;\n`;
+	if (text.includes(rest)) continue;
+	if (!text.includes(two)) {
+		process.stderr.write(`typings: Math.${name} was not found in ${typings} - AssemblyScript changed it\n`);
+		process.exit(1);
+	}
+	text = text.replace(two, rest);
+	console.log(`typings: Math.${name} takes any number of values for the editor`);
+}
+
 // JSON, which our AssemblyScript's library has (runtime/patches), typed: what
 // JSON.parse reads is the T it is given or goes to.
 const json = [
