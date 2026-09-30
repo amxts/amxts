@@ -138,3 +138,66 @@ export function run(): i32 {
 	expect(error).toBe('');
 	expect(run()).toBe(11);
 });
+
+test('an arrow with a body has its return type read off every return, its own variables too', async () => {
+	const { error, run } = await compile(`
+class Point { x: number = 1; }
+export function run(): f64 {
+	const make = () => {
+		const p = new Point();
+		p.x = 4;
+		return p;
+	};
+	const doubled = [1, 2].map((n) => {
+		const d = n * 2;
+		return d;
+	});
+	const pick = (flag: boolean) => {
+		if (flag) return 10;
+		return 20;
+	};
+	return make().x + doubled[1] + pick(false);
+}
+`);
+	expect(error).toBe('');
+	expect(run()).toBe(4 + 4 + 20);
+});
+
+test('cond ? null : value is the value or null, returned or kept in a variable', async () => {
+	const { error, run } = await compile(`
+class Box { v: number = 3; }
+function pick(flag: boolean) {
+	const box = new Box();
+	return flag ? null : box;
+}
+export function run(): f64 {
+	const kept = true ? null : new Box();
+	const box = pick(false);
+	return (box != null ? box.v : 0) + (kept == null ? 10 : 0) + (pick(true) == null ? 100 : 0);
+}
+`);
+	expect(error).toBe('');
+	expect(run()).toBe(113);
+});
+
+test('a class field holding an arrow needs no type', async () => {
+	const { error, run } = await compile(`
+class Timer {
+	ticks = 0;
+	onTick = () => {
+		this.ticks++;
+	};
+	value = () => 5;
+	twice = (n: number) => {
+		return n * 2;
+	};
+}
+export function run(): f64 {
+	const timer = new Timer();
+	timer.onTick();
+	return timer.ticks + timer.value() + timer.twice(3);
+}
+`);
+	expect(error).toBe('');
+	expect(run()).toBe(1 + 5 + 6);
+});
