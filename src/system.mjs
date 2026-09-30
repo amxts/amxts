@@ -14,6 +14,7 @@
 // Plain JavaScript: the build (scripts/system.ts) and the amxts command, through
 // cli-api, both read it.
 import { existsSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -123,11 +124,25 @@ export function executable(name, system = HOST_SYSTEM) {
 	return system === 'windows' ? `${name}.exe` : name;
 }
 
+/** The package that carries wamrc for this machine: the core's optional dependency for its system. */
+export const WAMRC_PACKAGE = `@amxts/wamrc-${process.platform}-${process.arch}`;
+
+/** Where that package would put wamrc, whether or not it is installed; null when it resolves nowhere. */
+function packagedWamrc() {
+	try {
+		return join(dirname(createRequire(import.meta.url).resolve(`${WAMRC_PACKAGE}/package.json`)), executable('wamrc'));
+	} catch {
+		return null;
+	}
+}
+
 /**
- * wamrc as the core has it for this machine: AMXTS_WAMRC, else the one built
- * in runtime/deps/wamr (a multi-config build puts it in Release/, a Makefile
+ * wamrc as the core has it for this machine: AMXTS_WAMRC, else the one of
+ * its package for this system (an installed core), else the one built in
+ * runtime/deps/wamr (a multi-config build puts it in Release/, a Makefile
  * build beside it), else the one `bun run build:linux` made in
  * runtime/build/linux. Either system's wamrc compiles for either system.
+ * A checkout links the package's folder, which has no wamrc of its own.
  * @param {Record<string, string | undefined>} [env]
  * @returns {string} its path, which may not exist
  */
@@ -135,6 +150,6 @@ export function wamrcPath(env = process.env) {
 	if (env.AMXTS_WAMRC) return env.AMXTS_WAMRC;
 	const name = executable('wamrc');
 	const build = join(CORE, 'runtime/deps/wamr/wamr-compiler/build');
-	const candidates = [join(build, 'Release', name), join(build, name), ...(HOST_SYSTEM === 'linux' ? [join(CORE, 'runtime/build/linux', name)] : [])];
+	const candidates = [packagedWamrc(), join(build, 'Release', name), join(build, name), ...(HOST_SYSTEM === 'linux' ? [join(CORE, 'runtime/build/linux', name)] : [])].filter(file => file !== null);
 	return candidates.find(file => existsSync(file)) ?? candidates[0];
 }

@@ -38,7 +38,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import { compilePlugin, includePath } from './compile';
 import { followConsoles, projectContainers, runCommand } from './docker-server';
 import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, projectPlugins, sourcesFor } from './project';
-import { describeSystem, serverSystem, wamrcPath } from './system';
+import { describeSystem, serverSystem, WAMRC_PACKAGE, wamrcPath } from './system';
 import { c, log } from './ui';
 
 function fail(message: string, hint?: string): void {
@@ -118,7 +118,7 @@ if (!existsSync(asc_)) {
 }
 
 if (!existsSync(wamrc)) {
-	fail(`wamrc is missing: ${wamrc}`, 'CONTRIBUTING.md says how to build it.');
+	fail(`wamrc is missing: ${wamrc}`, `It comes with @amxts/core as ${WAMRC_PACKAGE}, an optional dependency: install the project's dependencies again, optional ones included. A checkout of the core builds it - CONTRIBUTING.md.`);
 	process.exit(1);
 }
 
