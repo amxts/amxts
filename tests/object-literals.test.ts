@@ -64,5 +64,26 @@ export function text(): string {
 			expect(error).toBe('');
 			expect(text()).toBe('5 1');
 		});
+
+		test('an interface of fields that extends another is built by a literal, and goes where the base does', async () => {
+			const { error, text } = await compile({
+				'shapes.ts': `
+export interface Base { x: number }
+`,
+				'probe.ts': `
+import { Base } from "./shapes";
+interface Point extends Base { y: number }
+interface Point3 extends Point { z: number }
+function xOf(base: Base): number { return base.x; }
+export function text(): string {
+	const point: Point = { x: 1, y: 2 };
+	const deep: Point3 = { x: 4, y: 5, z: 6 };
+	return (point.y + deep.z + xOf(point) + xOf(deep)).toString();
+}
+`,
+			}, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('13');
+		});
 	});
 }
