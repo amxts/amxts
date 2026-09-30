@@ -36,10 +36,11 @@
 // at the first failure, saying what went out. npm asks for the one-time
 // password; --otp passes one.
 //
-// The local registry is Verdaccio (npx verdaccio@6) on localhost:4873, its
-// config and storage in dist-npm/verdaccio/: the @amxts packages and
-// create-amxts live there, everything else comes from npm through it.
-// --reset empties it first, so the same version can go in again.
+// The local registry is Verdaccio 6 from npm (installed into
+// dist-npm/verdaccio-tool/), started in the background with no window, on
+// localhost:4873; its config, storage and log are in dist-npm/verdaccio/. The
+// @amxts packages and create-amxts live there, everything else comes from npm
+// through it. --reset empties it first, so the same version can go in again.
 import type { Manifest } from './release-check';
 import type { System } from './system';
 import { spawn, spawnSync } from 'node:child_process';
@@ -55,6 +56,8 @@ const OUT = join(CORE, 'dist-npm');
 const STAGE = join(OUT, 'stage');
 const PACKS = join(OUT, 'packs');
 const VERDACCIO = join(OUT, 'verdaccio');
+/** Verdaccio itself, installed once: out of the storage --reset empties. */
+const VERDACCIO_TOOL = join(OUT, 'verdaccio-tool');
 const LOCAL_REGISTRY = 'http://localhost:4873/';
 const REPO = process.env.AMXTS_RELEASE_REPO ?? 'amxts/amxts';
 const WINDOWS = process.platform === 'win32';
@@ -154,15 +157,15 @@ function warn(text: string) {
  * these packages is `^<version>`, and every other spec of one of them must
  * already be that - the packages share one version.
  */
-function publishedManifest(manifest: any, version = VERSION) {
+function publishedManifest(manifest: any) {
 	const out = structuredClone(manifest);
-	if (out.version !== version) throw new PublishError(`${out.name} is ${out.version}, the core is ${version}: the packages share one version`);
+	if (out.version !== VERSION) throw new PublishError(`${out.name} is ${out.version}, the core is ${VERSION}: the packages share one version`);
 	for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
 		for (const [name, spec] of Object.entries<string>(out[field] ?? {})) {
 			const local = /^(?:file|link):/.test(spec);
 			if (local && !NAMES.has(name)) throw new PublishError(`${out.name}: ${field} ${name} is ${spec}, a folder that is not one of the packages`);
-			if (local) out[field][name] = `^${version}`;
-			else if (NAMES.has(name) && spec !== `^${version}`) throw new PublishError(`${out.name}: ${field} ${name} is ${spec}, not ^${version}`);
+			if (local) out[field][name] = `^${VERSION}`;
+			else if (NAMES.has(name) && spec !== `^${VERSION}`) throw new PublishError(`${out.name}: ${field} ${name} is ${spec}, not ^${VERSION}`);
 		}
 	}
 	return out;
@@ -375,6 +378,8 @@ auth:
 uplinks:
   npmjs:
     url: https://registry.npmjs.org/
+    # npm's tarballs pass through, not kept: two installs at once would both store one
+    cache: false
 packages:
   '@amxts/*':
     access: $all
@@ -407,7 +412,7 @@ async function registryUp() {
 function stopRegistry() {
 	if (!existsSync(PID_FILE)) return false;
 	const pid = Number(readFileSync(PID_FILE, 'utf8'));
-	// npx starts it through a shell: the whole tree goes, its process group on Linux.
+	// Its process group on Linux, its tree on Windows.
 	if (WINDOWS) {
 		spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
 	} else {
@@ -430,11 +435,14 @@ async function startRegistry(reset: boolean) {
 	writeFileSync(join(VERDACCIO, 'config.yaml'), VERDACCIO_CONFIG);
 	const log = openSync(join(VERDACCIO, 'verdaccio.log'), 'a');
 	console.log(`starting Verdaccio on ${LOCAL_REGISTRY} (its log: ${join(VERDACCIO, 'verdaccio.log')})`);
-	const child = spawn('npx', ['--yes', 'verdaccio@6', '--config', join(VERDACCIO, 'config.yaml'), '--listen', '4873'], {
+	const bin = join(VERDACCIO_TOOL, 'node_modules/verdaccio/bin/verdaccio');
+	if (!existsSync(bin)) run('npm', ['install', 'verdaccio@6', '--prefix', VERDACCIO_TOOL, '--no-audit', '--no-fund'], { quiet: true });
+	// Node itself, detached and without a shell: on Windows a detached shell has
+	// no console, and whatever it starts would open a window of its own.
+	const child = spawn('node', [bin, '--config', join(VERDACCIO, 'config.yaml'), '--listen', '4873'], {
 		cwd: VERDACCIO,
 		detached: true,
 		stdio: ['ignore', log, log],
-		shell: WINDOWS,
 		windowsHide: true,
 	});
 	child.unref();
@@ -446,15 +454,18 @@ async function startRegistry(reset: boolean) {
 	throw new PublishError(`Verdaccio did not answer on ${LOCAL_REGISTRY} in 3 minutes: see ${join(VERDACCIO, 'verdaccio.log')}`);
 }
 
-/** A token for the local registry: its user `amxts`, made on first use. */
+/** A token for the local registry: its user `amxts`, made on first use, the token kept beside its storage. */
 async function localToken(): Promise<string> {
+	const saved = join(VERDACCIO, 'token');
+	if (existsSync(saved)) return readFileSync(saved, 'utf8').trim();
 	const response = await fetch(`${LOCAL_REGISTRY}-/user/org.couchdb.user:amxts`, {
 		method: 'PUT',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify({ name: 'amxts', password: 'amxts-local', type: 'user', roles: [] }),
 	});
 	const body = await response.json() as { token?: string; error?: string };
-	if (!body.token) throw new PublishError(`the local registry gave no token: ${body.error ?? response.status}`);
+	if (!body.token) throw new PublishError(`the local registry gave no token: ${body.error ?? response.status} - bun run publish:local --reset starts it afresh`);
+	writeFileSync(saved, body.token);
 	return body.token;
 }
 
