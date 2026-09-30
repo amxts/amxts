@@ -224,6 +224,27 @@ if (!text.includes(numberCallable)) {
 	console.log('typings: Number(value) converts for the editor');
 }
 
+// JSON, which our AssemblyScript's library has (runtime/patches), typed: what
+// JSON.parse reads is the T it is given or goes to.
+const json = [
+	'/** JSON text: `JSON.parse<T>(text)` and `JSON.stringify(value)`. */',
+	'declare namespace JSON {',
+	'  /**',
+	'   * The value JSON text holds, as a T - an object of T\'s fields, an array, a Record, text, a number or a boolean:',
+	'   * `JSON.parse<Settings>(text)`, `JSON.parse(text) as Settings`. A SyntaxError where the text is not JSON, a',
+	'   * TypeError where it is not a T.',
+	'   */',
+	'  function parse<T>(text: string): T;',
+	'  /** The value as JSON text; `space` indents it - that many spaces, or the text itself. A field left undefined is left out. */',
+	'  function stringify(value: unknown, replacer?: null, space?: number | string): string;',
+	'}',
+	'',
+].join('\n');
+if (!text.includes(json)) {
+	text = `${text.replace(/\n*$/, '\n')}\n${json}`;
+	console.log('typings: JSON for the editor');
+}
+
 // ReferenceError, which our AssemblyScript's library has (runtime/patches): a
 // variable read before its declaration has run throws one.
 const typeError = 'declare class TypeError extends Error { }\n';

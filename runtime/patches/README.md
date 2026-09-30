@@ -28,7 +28,8 @@ Applies to AssemblyScript at tag `v0.28.20`, over `src/` and `std/`. It is
 what lets a plugin be plain TypeScript: `number` as JavaScript's number,
 unions of string literals, closures, optional properties and `undefined`,
 `?.`, `??`, destructuring, `Record` and index signatures with `in`, `delete`,
-`Object.keys` and `for...in`, `async`/`await`, overloads, object types in place,
+`Object.keys` and `for...in`, `try`/`catch`/`finally`, typed `JSON`, text joined
+with a number by `+`, `async`/`await`, overloads, object types in place,
 return types read off the body, `Date` in the server's time zone.
 
 After changing `src/` or `std/` in `runtime/deps/assemblyscript`, rebuild it
