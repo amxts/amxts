@@ -66,5 +66,21 @@ export function run(): number {
 			expect(error).toBe('');
 			expect(exports.run()).toBe(123 + 2 * 1000 + 1 * 100000);
 		});
+
+		test('an object literal of a generic interface with methods', async () => {
+			const { error, exports } = await probe({ 'probe.ts': `
+interface Mapper<T> {
+	scale: T;
+	map(value: T): T;
+}
+function apply(mapper: Mapper<number>, value: number): number { return mapper.map(value) * mapper.scale; }
+export function run(): number {
+	const text: Mapper<string> = { scale: "!", map: (value) => value + "?" };
+	return apply({ scale: 10, map: (value) => value + 1 }, 2) + text.map("a").length;
+}
+` }, optimize ? ['-O3'] : []);
+			expect(error).toBe('');
+			expect(exports.run()).toBe(32);
+		});
 	});
 }

@@ -9156,7 +9156,7 @@ index f5d9b7c..81527b0 100644
 +  }
 +}
 diff --git a/src/resolver.ts b/src/resolver.ts
-index 9576a47..3b8ebeb 100644
+index 9576a47..d1fd13d 100644
 --- a/src/resolver.ts
 +++ b/src/resolver.ts
 @@ -36,7 +36,9 @@ import {
@@ -10222,7 +10222,7 @@ index 9576a47..3b8ebeb 100644
          );
        }
  
-@@ -3749,6 +4336,1003 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3749,6 +4336,1009 @@ export class Resolver extends DiagnosticEmitter {
      return instance;
    }
  
@@ -10560,7 +10560,7 @@ index 9576a47..3b8ebeb 100644
 +   * each of its fields and accessors, and for each method a field that holds
 +   * the function the literal gives (`__fn_run`) and the method that calls it.
 +   * Returns the literal to compile in its place, of that class, its keys of
-+   * methods renamed to their fields; null for a generic interface.
++   * methods renamed to their fields; null where the class cannot be made.
 +   */
 +  hiddenClassOf(node: ObjectLiteralExpression, iface: Class): ObjectLiteralExpression | null {
 +    if (this.hiddenLiterals.has(node)) {
@@ -10572,7 +10572,7 @@ index 9576a47..3b8ebeb 100644
 +    let file = this.program.filesByName.get(range.source.internalPath);
 +    let members = iface.members;
 +    let ifacePrototype = iface.prototype;
-+    if (!file || !members || iface.typeArguments || ifacePrototype.kind != ElementKind.InterfacePrototype) return null;
++    if (!file || !members || ifacePrototype.kind != ElementKind.InterfacePrototype) return null;
 +    let preset = (type: Type): NamedTypeNode => {
 +      let typeNode = Node.createNamedType(Node.createSimpleTypeName(type.toString(), range), [], false, range);
 +      typeNode.presetType = type;
@@ -10619,9 +10619,15 @@ index 9576a47..3b8ebeb 100644
 +      }
 +    }
 +    let className = "__hidden" + (this.lateShapeCount++).toString();
++    // `Handler<number>`: the class implements that instance of the interface
++    let typeArguments = iface.typeArguments;
++    let typeArgumentNodes = new Array<TypeNode>();
++    if (typeArguments) {
++      for (let i = 0, k = typeArguments.length; i < k; ++i) typeArgumentNodes.push(preset(typeArguments[i]));
++    }
 +    let declaration = Node.createClassDeclaration(
 +      Node.createIdentifierExpression(className, range), null, CommonFlags.None, null, null,
-+      [ Node.createNamedType(Node.createSimpleTypeName(ifacePrototype.name, range), [], false, range) ],
++      [ Node.createNamedType(Node.createSimpleTypeName(ifacePrototype.name, range), typeArgumentNodes, false, range) ],
 +      declarations, range
 +    );
 +    if (!this.program.initializeHiddenClass(declaration, <File>file, <InterfacePrototype>ifacePrototype)) return null;
@@ -11226,7 +11232,7 @@ index 9576a47..3b8ebeb 100644
    ensureOneTypeArgument(
      /** The type to resolve. */
      node: NamedTypeNode,
-@@ -3769,3 +5353,55 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3769,3 +5359,55 @@ export class Resolver extends DiagnosticEmitter {
      return typeArgumentNodes[0];
    }
  }
