@@ -73,14 +73,6 @@ It asks for the package manager, the folder, the modules, lint and the
 server's folder, writes a project with a first plugin and its test, and
 installs everything.
 
-> [!WARNING]
-> The packages are not on npm yet. Until they are, create a project from a
-> clone of this repository, with [amxts-cli](https://github.com/amxts/amxts-cli)
-> (the `amxts` command) and the official modules cloned beside it; it links
-> the core and the modules instead of installing them:
-> `node <core>/bin/amxts.mjs init my-server --local`.
-> See [getting started](https://amxts.github.io/docs/getting-started/quick-start#a-project).
-
 Then, in the project:
 
 ```sh

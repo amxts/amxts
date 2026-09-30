@@ -74,13 +74,6 @@ npm create amxts@latest    # or: pnpm create amxts, yarn create amxts, bun creat
 Команда спрашивает менеджер пакетов, папку, модули, линт и папку сервера,
 пишет проект с первым плагином и его тестом и всё устанавливает.
 
-> [!WARNING]
-> Пакетов в npm пока нет. До тех пор проект создаётся из клона этого
-> репозитория, рядом с которым склонированы [amxts-cli](https://github.com/amxts/amxts-cli)
-> (команда `amxts`) и официальные модули; он подключает ядро и модули
-> ссылками, а не ставит их: `node <core>/bin/amxts.mjs init my-server --local`.
-> Подробнее — в [начале работы](https://amxts.github.io/ru/docs/getting-started/quick-start#проект).
-
 Дальше, в проекте:
 
 ```sh
