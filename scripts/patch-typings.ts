@@ -211,10 +211,38 @@ if (!text.includes(objectKeys)) {
 	console.log('typings: Object has keys, values and entries for the editor');
 }
 
+// String(value) and Boolean(value), JavaScript's conversions, which our
+// AssemblyScript compiles (runtime/patches): the shipped typings declare them
+// as classes, which no call signature joins - so each becomes an interface,
+// which a function of its name joins, with String's statics in the namespace
+// String already has.
+const stringStatics = [
+	'  static fromCharCode(ls: i32, hs?: i32): string;',
+	'  static fromCharCodes(arr: i32[]): string;',
+	'  static fromCodePoint(code: i32): string;',
+	'  static fromCodePoints(arr: i32[]): string;',
+	'  static raw(parts: TemplateStringsArray, ...args: any[]): string;',
+];
+const stringCallable = 'declare function String(value?: unknown): string;';
+const booleanCallable = 'declare function Boolean(value?: unknown): boolean;';
+if (!text.includes(stringCallable)) {
+	const parts = ['declare class String {', 'declare class Boolean {', ...stringStatics];
+	const missing = parts.find(part => !text.includes(part + '\n'));
+	if (missing) {
+		process.stderr.write(`typings: "${missing.trim()}" not found in ${typings} - AssemblyScript changed it\n`);
+		process.exit(1);
+	}
+	for (const line of stringStatics) text = text.replace(line + '\n', '');
+	const namespace = ['declare namespace String {', ...stringStatics.map(line => line.replace('static', 'function')), '}'];
+	text = text
+		.replace('declare class String {', [stringCallable, ...namespace, 'interface String {'].join('\n'))
+		.replace('declare class Boolean {', [booleanCallable, 'interface Boolean {'].join('\n'));
+	console.log('typings: String(value) and Boolean(value) convert for the editor');
+}
+
 // Number(value), JavaScript's conversion, which our AssemblyScript compiles
 // (runtime/patches): the shipped typings' Number is F64's statics, which a
-// call signature joins. String(value) and Boolean(value) are classes there,
-// which none can join: they stay `${value}` and `!!value`.
+// call signature joins.
 const numberStatics = 'declare const Number: typeof F64;';
 const numberCallable = 'declare const Number: typeof F64 & ((value?: string | number | boolean | null) => number);';
 if (!text.includes(numberCallable)) {
