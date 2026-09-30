@@ -41,6 +41,7 @@ import { followConsoles, projectContainers, runCommand } from './docker-server';
 import { FileContents, sourceIn, sourcesIn } from './file-contents';
 import { pluginCache } from './plugin-cache';
 import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, projectPlugins, sourcesFor } from './project';
+import { sharedModulesBuild } from './shared-modules';
 import { describeSystem, serverSystem, WAMRC_PACKAGE, wamrcPath } from './system';
 import { c, log, progress, since } from './ui';
 
@@ -521,3 +522,12 @@ for (const folder of watched) {
 // A save made while the first build ran is built now.
 for (const file of watchedSources()) heard.add(file);
 void flush();
+
+// A start that took every plugin from the cache has compiled nothing yet, and
+// a plugin's compile begins with the modules it uses analysed
+// (scripts/shared-modules.ts): that is done now, while nobody waits, rather
+// than on the first save.
+if (cache.counts.misses === 0) {
+	const sources = sourcesFor(CORE_PLUGINS);
+	for (const plugin of ownPlugins()) await sharedModulesBuild(CORE_PLUGINS, sources.entry(plugin.source)).catch(() => {});
+}
