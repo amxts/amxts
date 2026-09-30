@@ -1,6 +1,10 @@
 // The tooltips of as/promise.types.d.ts, in both languages: scripts/apply-docs.ts writes the
 // one AMXTS_DOCS_LANG picks into the JSDoc above each element.
 export default {
+	'Awaited': {
+		en: `The value \`await\` gives of a promise or of a plain value - TypeScript's own name for it, which \`await 5\` and \`for await\` look up.`,
+		ru: `Значение, которое \`await\` даёт от промиса или обычного значения, — собственное имя TypeScript, которое ищут \`await 5\` и \`for await\`.`,
+	},
 	'Promise': {
 		en: `The statics that take a list of promises: \`all\`, \`allSettled\`, \`race\` and \`any\`.`,
 		ru: `Статические методы, которые принимают список промисов: \`all\`, \`allSettled\`, \`race\` и \`any\`.`,
