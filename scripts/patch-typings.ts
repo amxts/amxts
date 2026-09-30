@@ -246,6 +246,47 @@ if (!text.includes(stringCallable)) {
 	console.log('typings: String(value) and Boolean(value) convert for the editor');
 }
 
+// Regular expressions, which our AssemblyScript has (runtime/patches): the
+// shipped typings have an empty RegExp. String's methods that take one are
+// the RegExp's underneath.
+const regExpStub = 'interface RegExp {}';
+const regExpTypes = [
+	'declare class RegExp {',
+	'  constructor(pattern: string, flags?: string);',
+	'  readonly source: string;',
+	'  readonly flags: string;',
+	'  readonly global: boolean;',
+	'  readonly ignoreCase: boolean;',
+	'  readonly multiline: boolean;',
+	'  readonly dotAll: boolean;',
+	'  readonly sticky: boolean;',
+	'  lastIndex: number;',
+	'  test(text: string): boolean;',
+	'  exec(text: string): RegExpExecArray | null;',
+	'  toString(): string;',
+	'}',
+	'interface RegExpExecArray extends Array<string> {',
+	'  index: number;',
+	'  input: string;',
+	'}',
+	'interface String {',
+	'  match(regexp: RegExp): RegExpExecArray | null;',
+	'  matchAll(regexp: RegExp): RegExpExecArray[];',
+	'  replace(regexp: RegExp, replacement: string | ((match: string, ...groups: string[]) => string)): string;',
+	'  replaceAll(regexp: RegExp, replacement: string | ((match: string, ...groups: string[]) => string)): string;',
+	'  search(regexp: RegExp): number;',
+	'  split(separator: RegExp, limit?: number): string[];',
+	'}',
+].join('\n');
+if (!text.includes(regExpTypes)) {
+	if (!text.includes(regExpStub)) {
+		process.stderr.write(`typings: "${regExpStub}" not found in ${typings} - AssemblyScript changed it\n`);
+		process.exit(1);
+	}
+	text = text.replace(regExpStub, regExpTypes);
+	console.log('typings: RegExp and the String methods that take one, for the editor');
+}
+
 // Number(value), JavaScript's conversion, which our AssemblyScript compiles
 // (runtime/patches): the shipped typings' Number is F64's statics, which a
 // call signature joins.
