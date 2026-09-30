@@ -11099,7 +11099,7 @@ index 85c59ff..203868e 100644
  
  export declare namespace console {
 diff --git a/std/assembly/date.ts b/std/assembly/date.ts
-index 7d273e1..abd95b0 100644
+index 7d273e1..abdb34d 100644
 --- a/std/assembly/date.ts
 +++ b/std/assembly/date.ts
 @@ -29,15 +29,16 @@ export class Date {
@@ -11152,14 +11152,14 @@ index 7d273e1..abd95b0 100644
 -    return this.epochMillis;
 +  @inline getTime(): f64 {
 +    return <f64>this.epochMillis;
-+  }
-+
-+  setTime(time: f64): f64 {
-+    this.setEpoch(<i64>time);
-+    return time;
    }
  
 -  setTime(time: i64): i64 {
++  setTime(time: f64): f64 {
++    this.setEpoch(<i64>time);
++    return time;
++  }
++
 +  private setEpoch(time: i64): void {
      if (invalidDate(time)) throw new RangeError(E_INVALIDDATE);
  
@@ -11260,6 +11260,105 @@ index 7d273e1..abd95b0 100644
    }
  
    toISOString(): string {
+@@ -255,6 +310,9 @@ export class Date {
+     return `${week}${day}${month}${yr < 0 ? "-" : ""}${year} ${hours}:${mins}:${secs} GMT`;
+   }
+ 
++  // amxts: the local date, time and both, as JavaScript writes them - the
++  // server's time zone (getTimezoneOffset), written as its offset only:
++  // `Tue Sep 30 2026 15:07:00 GMT+0300`.
+   toDateString(): string {
+     // TODO: use u64 static data instead 4 chars
+     // also use stream itoa variants.
+@@ -267,9 +325,9 @@ export class Date {
+         "Jul ", "Aug ", "Sep ", "Oct ", "Nov ", "Dec "
+       ];
+ 
+-    let mo = this.month;
+-    let da = this.day;
+-    let yr = this.year;
++    let yr = dateFromEpoch(this.localMillis());
++    let mo = _month;
++    let da = _day;
+     let wd = dayOfWeek(yr, mo, da);
+     let year = stringify(abs(yr), 4);
+     let month = unchecked(months[mo - 1]);
+@@ -279,19 +337,48 @@ export class Date {
+     return `${week}${month}${day}${yr < 0 ? " -" : " "}${year}`;
+   }
+ 
+-  // Note: it uses UTC time instead local time (without timezone offset)
+   toTimeString(): string {
+-    let hours = stringify(this.getUTCHours());
+-    let mins = stringify(this.getUTCMinutes());
+-    let secs = stringify(this.getUTCSeconds());
+-    // TODO: add timezone
+-    return `${hours}:${mins}:${secs}`;
++    let hours = stringify(this.getHours());
++    let mins = stringify(this.getMinutes());
++    let secs = stringify(this.getSeconds());
++    let offset = -this.getTimezoneOffset();
++    let sign = offset < 0 ? "-" : "+";
++    offset = abs(offset);
++    return `${hours}:${mins}:${secs} GMT${sign}${stringify(offset / 60)}${stringify(offset % 60)}`;
+   }
+ 
+-  // Note: it uses UTC datetime instead local datetime (without timezone offset)
+   toString(): string {
+     return `${this.toDateString()} ${this.toTimeString()}`;
+   }
++
++  // amxts: the local date and time as a language writes them - `en-US`
++  // (`9/30/2026, 3:07:00 PM`) when none is named, `en-GB`, `de`, `fr`, `ru`
++  // and the rest of `en`; a language not known here is written as `en-US`.
++  toLocaleDateString(locales: string = "en-US"): string {
++    let yr = dateFromEpoch(this.localMillis());
++    let mo = _month;
++    let da = _day;
++    let year = yr.toString();
++    let style = localeStyle(locales);
++    if (style == LOCALE_US) return `${mo}/${da}/${year}`;
++    if (style == LOCALE_GB || style == LOCALE_FR) return `${stringify(da)}/${stringify(mo)}/${year}`;
++    if (style == LOCALE_DE) return `${da}.${mo}.${year}`;
++    return `${stringify(da)}.${stringify(mo)}.${year}`;
++  }
++
++  toLocaleTimeString(locales: string = "en-US"): string {
++    let hours = this.getHours();
++    let mins = stringify(this.getMinutes());
++    let secs = stringify(this.getSeconds());
++    if (localeStyle(locales) != LOCALE_US) return `${stringify(hours)}:${mins}:${secs}`;
++    let hour12 = hours % 12 == 0 ? 12 : hours % 12;
++    return `${hour12}:${mins}:${secs} ${hours < 12 ? "AM" : "PM"}`;
++  }
++
++  toLocaleString(locales: string = "en-US"): string {
++    let separator = localeStyle(locales) == LOCALE_FR ? " " : ", ";
++    return `${this.toLocaleDateString(locales)}${separator}${this.toLocaleTimeString(locales)}`;
++  }
+ }
+ 
+ function epochMillis(
+@@ -371,3 +458,19 @@ function stringify(value: i32, padding: i32 = 2): string {
+ function join(year: i32, month: i32, day: i32, ms: i64): i64 {
+   return daysSinceEpoch(year, month, day) * MILLIS_PER_DAY + euclidRem(ms, MILLIS_PER_DAY);
+ }
++
++// amxts: how a language writes a date - see Date#toLocaleDateString.
++const LOCALE_US = 0; // 9/30/2026, 3:07:00 PM
++const LOCALE_GB = 1; // 30/09/2026, 15:07:00
++const LOCALE_DE = 2; // 30.9.2026, 15:07:00
++const LOCALE_RU = 3; // 30.09.2026, 15:07:00
++const LOCALE_FR = 4; // 30/09/2026 15:07:00
++
++function localeStyle(locales: string): i32 {
++  let language = locales.toLowerCase();
++  if (language.startsWith("ru") || language.startsWith("uk") || language.startsWith("be") || language.startsWith("kk")) return LOCALE_RU;
++  if (language.startsWith("de")) return LOCALE_DE;
++  if (language.startsWith("fr")) return LOCALE_FR;
++  if (language == "en" || language.startsWith("en-us") || !language.startsWith("en")) return LOCALE_US;
++  return LOCALE_GB;
++}
 diff --git a/std/assembly/error.ts b/std/assembly/error.ts
 index f4ea058..5f6e74c 100644
 --- a/std/assembly/error.ts

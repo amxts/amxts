@@ -93,6 +93,11 @@ let numberDate = date
 	.replace('getTime(): i64;', 'getTime(): f64;')
 	.replace('setTime(value: i64): i64;', 'setTime(value: f64): f64;');
 if (!numberDate.includes('getTimezoneOffset')) numberDate = numberDate.replace('  getUTCMilliseconds(): i32;\n', `  getUTCMilliseconds(): i32;\n\n${localGetters}`);
+// The local date and time as a language writes them: `en-US` when none is named.
+const localeText = ['toLocaleString', 'toLocaleDateString', 'toLocaleTimeString']
+	.map(name => `\n  ${name}(locales?: string): string;`)
+	.join('');
+if (!numberDate.includes('toLocaleString')) numberDate = numberDate.replace('  toTimeString(): string;', `  toTimeString(): string;${localeText}`);
 if (numberDate !== date) {
 	text = text.slice(0, dateStart) + numberDate + text.slice(dateEnd);
 	console.log('typings: Date takes and gives number for the editor');
@@ -157,7 +162,8 @@ for (const [owner, index, item] of [
 	['declare abstract class TypedArray<T>', '  [key: number]: T;\n', 'T'],
 	['declare class Array<T>', '  [key: number]: T;\n', 'T'],
 	['declare class StaticArray<T>', '  [key: number]: T;\n', 'T'],
-	['declare class String', '  [key: i32]: string;\n', 'string'],
+	// String is an interface once String(value) is callable - see below
+	[text.includes('declare class String ') ? 'declare class String' : 'interface String', '  [key: i32]: string;\n', 'string'],
 ]) {
 	const start = text.indexOf(`${owner} `);
 	const at = text.indexOf(index, start);
@@ -169,7 +175,7 @@ for (const [owner, index, item] of [
 	const iterator = `  [Symbol.iterator](): IterableIterator<${item}>;\n`;
 	if (text.slice(start, end).includes(iterator)) continue;
 	text = text.slice(0, at + index.length) + iterator + text.slice(at + index.length);
-	console.log(`typings: ${owner.replace(/^declare (abstract )?class /, '')} has an iterator for for...of in the editor`);
+	console.log(`typings: ${owner.replace(/^(declare (abstract )?class|interface) /, '')} has an iterator for for...of in the editor`);
 }
 
 // Number is a type alias in the shipped typings, and TypeScript 7 wants the

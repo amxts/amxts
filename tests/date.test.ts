@@ -30,6 +30,27 @@ test('without a time zone the local time is this machine\'s, as JavaScript\'s Da
 	expect(await localParts('2026-09-29T21:45:10.500Z')).toBe(expected.join(' '));
 });
 
+test('a date as text: local, and as a language writes it, as JavaScript writes them', async () => {
+	const moment = Date.parse('2026-07-01T09:05:03.000Z');
+	const server = await loadPlugin(PLUGIN, { timeZone: 'Europe/Berlin' });
+	const alice = server.join('Alice');
+	alice.command(`date_text ${moment}`);
+
+	// JavaScript's own, in the same zone; the zone's name in brackets is not written
+	const date = new Date(moment);
+	const zone = { timeZone: 'Europe/Berlin' };
+	const expected = [
+		'Wed Jul 01 2026 11:05:03 GMT+0200',
+		'Wed Jul 01 2026',
+		'11:05:03 GMT+0200',
+		date.toLocaleString('en-US', zone),
+		date.toLocaleDateString('en-US', zone),
+		date.toLocaleTimeString('en-US', zone),
+		...['en-GB', 'de-DE', 'fr-FR', 'ru-RU'].map(locale => date.toLocaleString(locale, zone)),
+	];
+	expect(alice.console.split('|')).toEqual(expected.map(line => line.replace(/\u202f/g, ' ')));
+});
+
 test('new Date() is now', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
