@@ -39,6 +39,20 @@ export function combinators(): void {
 	both();
 }
 
+async function plainValues() {
+	const five = await 5;
+	const [slow, plain] = await Promise.all([tick("p", 10), 7]);
+	let total = 0;
+	for await (const value of [tick("q", 20), tick("r", 10)]) total += value;
+	for await (const text of ["a", "b"]) console.log(`for await: ${text}`);
+	console.log(`plain: ${five} ${slow} ${plain} ${total}`);
+}
+
+/** await of a value that is not a promise, Promise.all with one, for await over a list. */
+export function plain(): void {
+	plainValues();
+}
+
 async function fails(message: string) {
 	await sleep(10);
 	if (message.length > 0) return Promise.reject<number>(new Error(message));

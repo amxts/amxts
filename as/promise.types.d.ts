@@ -22,6 +22,9 @@ declare global {
 	/** The value a promise gives, or the value itself. */
 	type __PromiseValue<T> = T extends impl.Promise<infer U> ? U : T;
 
+	/** What `await` gives - TypeScript's own name for it, which `await 5` and `for await` look up. */
+	type Awaited<T> = __PromiseValue<T>;
+
 	/** The statics that take a list of promises: `all`, `allSettled`, `race` and `any`. */
 	// oxlint-disable-next-line no-redeclare -- merged into the class below, as statics
 	namespace Promise {

@@ -71,6 +71,12 @@ describe('semantics', () => {
 		expect(host.log.indexOf('y after 10')).toBeLessThan(host.log.indexOf('x after 30'));
 	});
 
+	test('await takes a plain value, Promise.all too, and for await awaits each item', () => {
+		const host = run('plain', 100);
+		expect(host.log).toContain('for await: b');
+		expect(host.log).toContain('plain: 5 20 7 60');
+	});
+
 	test('Promise.all of different types gives a tuple, read by destructuring', () => {
 		const host = run('tuples', 100);
 		expect(host.log).toContain('all mixed: 40 s');
