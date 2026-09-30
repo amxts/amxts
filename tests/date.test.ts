@@ -48,7 +48,7 @@ test('a date as text: local, and as a language writes it, as JavaScript writes t
 		date.toLocaleTimeString('en-US', zone),
 		...['en-GB', 'de-DE', 'fr-FR', 'ru-RU'].map(locale => date.toLocaleString(locale, zone)),
 	];
-	expect(alice.console.split('|')).toEqual(expected.map(line => line.replace(/\u202f/g, ' ')));
+	expect(alice.console.split('|')).toEqual(expected.map(line => line.replace(/\u202F/g, ' ')));
 });
 
 test('new Date() is now', async () => {
