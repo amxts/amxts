@@ -1,0 +1,68 @@
+/**
+ * Object literals and object types as TypeScript has them: a literal whose
+ * values say their types needs no type of its own, `{ x: number }` written
+ * in two files is one type, and a plain object of the same fields goes into
+ * an interface of them. At the default optimization and at -O3.
+ */
+// @ts-ignore - bun:test types not available during type checking
+import { describe, expect, test } from 'bun:test';
+import { probe } from './probe';
+
+async function compile(files: Record<string, string>, optimize: boolean) {
+	const { error, exports, string } = await probe(files, optimize ? ['-O3'] : []);
+	return { error, exports, text: () => (error ? '' : string(exports.text())) };
+}
+
+for (const optimize of [false, true]) {
+	describe(optimize ? '-O3' : 'default', () => {
+		test('an object literal without a type: numbers, text, booleans, arrays, nested literals, new', async () => {
+			const { error, text } = await compile({ 'probe.ts': `
+class Weapon { constructor(public name: string) {} }
+export function text(): string {
+	const point = { x: 1, y: -2.5 };
+	const config = { title: "Shop", enabled: true, tags: ["a", "b"], size: { w: 3, h: 4 }, weapon: new Weapon("ak47") };
+	point.x += 10;
+	return point.x.toString() + point.y.toString() + config.title + config.enabled.toString()
+		+ config.tags.join("") + (config.size.w * config.size.h).toString() + config.weapon.name + JSON.stringify(point);
+}
+` }, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('11-2.5Shoptrueab12ak47{"x":11,"y":-2.5}');
+		});
+
+		test('an object type written in two files is one type', async () => {
+			const { error, text } = await compile({
+				'probe.ts': `
+import { describe } from "./other";
+export function text(): string {
+	const here: { x: number; y: number } = { x: 1, y: 2 };
+	return describe(here) + describe({ x: 3, y: 4 });
+}
+`,
+				'other.ts': `
+export function describe(point: { x: number; y: number }): string {
+	return point.x.toString() + ":" + point.y.toString();
+}
+`,
+			}, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('1:23:4');
+		});
+
+		test('a literal of the same fields goes into an interface of them, a variable of the literal too', async () => {
+			const { error, text } = await compile({ 'probe.ts': `
+interface Point { x: number; y: number }
+function length(point: Point): number {
+	return Math.sqrt(point.x * point.x + point.y * point.y);
+}
+export function text(): string {
+	const corner = { x: 3, y: 4 };
+	const points: Point[] = [corner];
+	return length(corner).toString() + " " + points.length.toString();
+}
+` }, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('5 1');
+		});
+	});
+}
