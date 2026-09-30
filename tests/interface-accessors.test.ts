@@ -1,7 +1,8 @@
 /**
  * An interface's accessors, `get size(): number` and `set size(value)`: a
- * class implements them with a getter or a field. At the default
- * optimization and at -O3.
+ * class implements them with a getter or a field; and an object literal of
+ * an interface with methods and accessors. At the default optimization and
+ * at -O3.
  */
 // @ts-ignore - bun:test types not available during type checking
 import { describe, expect, test } from 'bun:test';
@@ -36,6 +37,34 @@ export function run(): number {
 ` }, optimize ? ['-O3'] : []);
 			expect(error).toBe('');
 			expect(exports.run()).toBe(7 * 100 + 13);
+		});
+
+		test('an object literal of an interface with methods and accessors', async () => {
+			const { error, exports } = await probe({ 'probe.ts': `
+interface Handler {
+	name: string;
+	get priority(): number;
+	run(times: number): number;
+	stop(): void;
+}
+let stopped = 0;
+function start(handler: Handler): number {
+	handler.stop();
+	return handler.run(2) + handler.priority + handler.name.length;
+}
+export function run(): number {
+	const base = 10;
+	const handler: Handler = {
+		name: "abc",
+		priority: 100,
+		run: (times) => times * base,
+		stop() { stopped++; },
+	};
+	return start(handler) + start({ name: "", priority: 0, run: (times: number) => times, stop: () => {} }) * 1000 + stopped * 100000;
+}
+` }, optimize ? ['-O3'] : []);
+			expect(error).toBe('');
+			expect(exports.run()).toBe(123 + 2 * 1000 + 1 * 100000);
 		});
 	});
 }
