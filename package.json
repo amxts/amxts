@@ -35,6 +35,40 @@
 	"bin": {
 		"amxts": "bin/amxts.mjs"
 	},
+	"files": [
+		"README.ru.md",
+		"as",
+		"bin",
+		"lint",
+		"src",
+		"scripts/apply-docs.ts",
+		"scripts/asc.ts",
+		"scripts/auto-imports.ts",
+		"scripts/build-wasm.ts",
+		"scripts/check.ts",
+		"scripts/compile.ts",
+		"scripts/docker-server.ts",
+		"scripts/docs",
+		"scripts/includes.ts",
+		"scripts/player-fields.ts",
+		"scripts/plugin-natives.ts",
+		"scripts/prepare.ts",
+		"scripts/project.ts",
+		"scripts/run.ts",
+		"scripts/shared-modules.ts",
+		"scripts/system.ts",
+		"scripts/tracked-fs.ts",
+		"scripts/typed-configs.ts",
+		"scripts/ui.ts",
+		"includes/*.inc",
+		"includes/order.txt",
+		"includes/sources.json",
+		"amxmodx/base/include",
+		"runtime/host/amxts.inc",
+		"runtime/licenses",
+		"runtime/natives.txt",
+		"runtime/patches"
+	],
 	"engines": {
 		"node": ">=20.12"
 	},
@@ -51,6 +85,9 @@
 		"release:windows": "bun scripts/release.ts windows",
 		"release:linux": "bun scripts/release.ts linux",
 		"release:publish": "bun scripts/release.ts publish",
+		"publish:npm": "bun scripts/publish.ts npm",
+		"publish:local": "bun scripts/publish.ts local",
+		"publish:check": "bun scripts/publish-check.ts",
 		"test": "bun test --smol tests",
 		"test:fast": "bun test tests/code-style tests/entities tests/flags tests/generated-table tests/hooks tests/include-parser tests/includes",
 		"test:server": "bun --smol scripts/test-server.ts",
@@ -60,10 +97,17 @@
 		"lint": "oxlint && oxfmt --check",
 		"lint:fix": "oxfmt && oxlint --fix --silent || oxlint --fix --silent || oxlint --fix"
 	},
+	"publishConfig": {
+		"access": "public"
+	},
 	"dependencies": {
 		"@amxts/cli": "file:../amxts-cli/packages/cli",
 		"bun": "^1.4.2",
 		"typescript": "^5.6.0"
+	},
+	"optionalDependencies": {
+		"@amxts/wamrc-linux-x64": "file:packages/wamrc/linux-x64",
+		"@amxts/wamrc-win32-x64": "file:packages/wamrc/win32-x64"
 	},
 	"devDependencies": {
 		"@amxts/config-core": "file:../amxts-modules/config-core",

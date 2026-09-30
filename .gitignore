@@ -37,3 +37,6 @@ dist-docs-types/
 
 # amxts prepare: the editor config a project extends
 .amxts/
+
+# bun run publish:npm, publish:local, publish:check: the packed packages and the local registry
+dist-npm/

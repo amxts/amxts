@@ -14,6 +14,12 @@ folder into the kit as `addons/amxts/tools/licenses/`, with amxts' own
 | `AMXX-LICENSE.txt`, `GPL-3.0.txt` | [AMX Mod X](https://github.com/alliedmodders/amxmodx) - GPL-3.0-or-later with AMX Mod X's exceptions: its module SDK is linked into the module and its includes build the host plugin, so both are distributed under GPL-3.0-or-later (their sources in this repository are MIT) | the `amxts_amxx` module, `amxts_host.amxx` |
 | `LLVM-LICENSE.TXT` | [LLVM](https://github.com/llvm/llvm-project) 18.1.8, linked into `wamrc` statically - Apache-2.0 with LLVM exceptions | `wamrc` |
 
+The npm packages carry them too. `@amxts/core` has this folder, AMX Mod X's
+includes (`amxmodx/base/include`, under `AMXX-LICENSE.txt`), and the patched
+AssemblyScript in `runtime/deps/assemblyscript` with its own `LICENSE` and
+`NOTICE` and those of Binaryen and long beside them; `@amxts/wamrc-<system>`
+has `WAMR-LICENSE` and `LLVM-LICENSE.TXT` beside its `wamrc`.
+
 The patches are the record of what amxts changes in AssemblyScript and WAMR.
 When one of these projects moves to another release, its license here is
 taken again from that release.
