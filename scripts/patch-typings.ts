@@ -224,6 +224,34 @@ if (!text.includes(numberCallable)) {
 	console.log('typings: Number(value) converts for the editor');
 }
 
+// A Map's entries and forEach, a Set's forEach, and for...of over both, which
+// our AssemblyScript has (runtime/patches): the loop walks a Map's entries
+// and a Set's values.
+for (const [owner, added] of [
+	['declare class Map<K,V> {\n', [
+		'  /** The entries, `[key, value]`, in the order the keys were added. */',
+		'  entries(): [K, V][];',
+		'  /** Calls `fn` with each value and key, in the order the keys were added. */',
+		'  forEach(fn: (value: V, key: K, map: Map<K, V>) => void): void;',
+		'  [Symbol.iterator](): IterableIterator<[K, V]>;',
+		'',
+	].join('\n')],
+	['declare class Set<K> {\n', [
+		'  /** Calls `fn` with each value, in the order they were added. */',
+		'  forEach(fn: (value: K, value2: K, set: Set<K>) => void): void;',
+		'  [Symbol.iterator](): IterableIterator<K>;',
+		'',
+	].join('\n')],
+]) {
+	if (text.includes(owner + added)) continue;
+	if (!text.includes(owner)) {
+		process.stderr.write(`typings: "${owner.trim()}" was not found in ${typings} - AssemblyScript changed it\n`);
+		process.exit(1);
+	}
+	text = text.replace(owner, owner + added);
+	console.log(`typings: ${owner.replace(/^declare class | \{\n$/g, '')} walks with for...of for the editor`);
+}
+
 // JSON, which our AssemblyScript's library has (runtime/patches), typed: what
 // JSON.parse reads is the T it is given or goes to.
 const json = [

@@ -1,0 +1,78 @@
+/**
+ * Map and Set as JavaScript has them: `for...of` over a Map's entries and a
+ * Set's values, `entries()` and `forEach`, and `map.get` of a missing key
+ * giving undefined. At the default optimization and at -O3.
+ */
+// @ts-ignore - bun:test types not available during type checking
+import { describe, expect, test } from 'bun:test';
+import { probe } from './probe';
+
+async function compile(body: string, optimize: boolean) {
+	const { error, exports, string } = await probe({ 'probe.ts': body }, optimize ? ['-O3'] : []);
+	return { error, exports, run: () => (error ? 0 : exports.run() as number), text: () => (error ? '' : string(exports.text())) };
+}
+
+for (const optimize of [false, true]) {
+	describe(optimize ? '-O3' : 'default', () => {
+		test('for...of walks a Map\'s entries and a Set\'s values, in the order added', async () => {
+			const { error, text } = await compile(`
+export function text(): string {
+	const kills = new Map<string, number>();
+	kills.set("b", 2);
+	kills.set("a", 1);
+	const names = new Set<string>();
+	names.add("x");
+	names.add("y");
+	let out = "";
+	for (const [name, count] of kills) out += name + count.toString();
+	for (const entry of kills.entries()) out += entry[0];
+	for (const name of names) out += name;
+	kills.forEach((count, name) => { out += name + (count * 10).toString(); });
+	names.forEach((name) => { out += name.toUpperCase(); });
+	return out;
+}
+`, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('b2a1baxyb20a10XY');
+		});
+
+		test('map.get of a missing key is undefined: ?? takes the default, has is not needed', async () => {
+			const { error, text } = await compile(`
+class Player { constructor(public name: string) {} }
+export function text(): string {
+	const scores = new Map<string, number>();
+	scores.set("ann", 5);
+	const players = new Map<number, Player>();
+	players.set(1, new Player("ann"));
+	const flags = new Map<string, boolean>();
+	flags.set("off", false);
+	const found = players.get(1);
+	const missing = players.get(2);
+	return [
+		(scores.get("ann") ?? 0).toString(), (scores.get("bob") ?? 0).toString(), (scores.get("bob") === undefined).toString(),
+		players.get(1)!.name, found!.name, (missing == null).toString(), (players.get(3)?.name ?? "none"),
+		(flags.get("off") ?? true).toString(), (flags.get("gone") ?? true).toString(),
+	].join(",");
+}
+`, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('5,0,true,ann,ann,true,none,false,true');
+		});
+
+		test('an object read with map.get and used as there is checked where it runs', async () => {
+			const { error, exports } = await probe({ 'probe.ts': `
+class Player { constructor(public id: number) {} }
+const players = new Map<string, Player>();
+players.set("ann", new Player(4));
+export function run(): f64 {
+	const ann = players.get("ann");
+	return ann.id + players.get("ann").id;
+}
+export function missing(): f64 { return players.get("ben").id; }
+` }, optimize ? ['-O3'] : []);
+			expect(error).toBe('');
+			expect(exports.run()).toBe(8);
+			expect(() => exports.missing()).toThrow();
+		});
+	});
+}

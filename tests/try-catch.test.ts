@@ -171,7 +171,7 @@ export function text(): string {
 			expect(text()).toBe('12 at 2');
 		});
 
-		test('what the library throws is caught: an index out of range, a missing key, toFixed', async () => {
+		test('what the library throws is caught: an index out of range, JSON that is not, toFixed', async () => {
 			const { error, text } = await compile(`
 function name(run: () => void): string {
 	try {
@@ -183,12 +183,11 @@ function name(run: () => void): string {
 }
 export function text(): string {
 	const list = [1, 2];
-	const map = new Map<string, number>();
-	return name(() => { list[5]; }) + "," + name(() => { map.get("x"); }) + "," + name(() => { (1).toFixed(101); });
+	return name(() => { list[5]; }) + "," + name(() => { JSON.parse<number>("{"); }) + "," + name(() => { (1).toFixed(101); });
 }
 `, optimize);
 			expect(error).toBe('');
-			expect(text()).toBe('RangeError,Error,RangeError');
+			expect(text()).toBe('RangeError,SyntaxError,RangeError');
 		});
 
 		test('a null where an object must be and a variable read before its declaration are errors a catch takes', async () => {
