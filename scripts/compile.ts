@@ -121,15 +121,21 @@ export async function compilePlugin(plugin: Plugin, natives: PluginNative[] = []
 	// the moment its file changes, and must never see half of one; and a
 	// plugin that fails keeps the last good build.
 	const part = `${plugin.output}.part`;
-	const compile = spawnSync(plugin.wamrc, [
+	const wamrc = (level: string[]) => spawnSync(plugin.wamrc, [
 		'--target=i386',
 		`--target-abi=${TARGET_ABI[plugin.system ?? HOST_SYSTEM]}`,
 		`--native-signatures=${plugin.signatures}`,
-		...(plugin.quick ? ['--opt-level=0'] : []),
+		...level,
 		'-o',
 		part,
 		wasm,
 	], { encoding: 'utf-8' });
+	let compile = wamrc(plugin.quick ? ['--opt-level=0'] : []);
+	// At -O0 a big function keeps a big stack frame, and for a frame over
+	// 4 KB LLVM calls _chkstk on Windows, which the module's loader does not
+	// have ("resolve symbol _chkstk failed"): such a plugin - menu-core is
+	// one - is compiled again at wamrc's own level. The .aot names the symbol.
+	if (plugin.quick && compile.status === 0 && readFileSync(part).includes('_chkstk')) compile = wamrc([]);
 
 	const out = `${compile.stdout}${compile.stderr}`;
 
