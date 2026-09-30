@@ -39,7 +39,7 @@ import { compilePlugin, includePath } from './compile';
 import { followConsoles, projectContainers, runCommand } from './docker-server';
 import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, projectPlugins, sourcesFor } from './project';
 import { describeSystem, serverSystem, WAMRC_PACKAGE, wamrcPath } from './system';
-import { c, log } from './ui';
+import { c, log, progress, since } from './ui';
 
 function fail(message: string, hint?: string): void {
 	log.error(message.trim());
@@ -197,8 +197,11 @@ const includes = new Map<string, string>();
 async function compile(plugins: Target[]): Promise<string[] | null> {
 	const built: string[] = [];
 
-	for (const { source, name, pkg } of plugins) {
+	for (const [i, { source, name, pkg }] of plugins.entries()) {
 		const natives: PluginNative[] = [];
+		const kind = pkg ? 'module · ' : '';
+		const started = performance.now();
+		const step = progress(`compiling ${c.bold(name)} ${c.dim(`${kind}${i + 1}/${plugins.length}`)}`);
 		const problem = await compilePlugin({
 			source,
 			output: join(outDir, `${name}.aot`),
@@ -208,7 +211,11 @@ async function compile(plugins: Target[]): Promise<string[] | null> {
 			wamrc,
 			signatures,
 			system: target.system,
-		}, natives);
+		}, natives).catch((error) => {
+			step.end();
+			throw error;
+		});
+		step.end(problem ? undefined : `compiled ${c.bold(name)} ${c.dim(`${kind}${since(started)}`)}`);
 
 		if (problem) {
 			fail(`${c.bold(name)} does not compile:\n${readable(problem)}\n`, keepWatching ? 'The server keeps the last good build.' : undefined);
@@ -405,12 +412,17 @@ async function run(plugins: Target[], verb: string): Promise<boolean> {
 	const started = performance.now();
 	const owners = moduleOwners();
 	const fresh = owners.filter(owner => !listed?.includes(owner.name) && !plugins.some(plugin => plugin.name === owner.name));
-	const built = await compile([...fresh, ...plugins]);
+	const targets = [...fresh, ...plugins];
+	// Nothing built before: every one of them goes through both compilers.
+	if (targets.length > 0 && !targets.some(each => existsSync(join(outDir, `${each.name}.aot`)))) {
+		log.info('The first build compiles every plugin and module to machine code: it takes about a minute.');
+	}
+	const built = await compile(targets);
 	if (!built) return false;
 	writeList(owners);
 
 	const names = built.map(file => file.replace(/\.aot$/, '')).join(', ');
-	const head = `${verb} ${c.bold(names)} ${c.dim(`(${((performance.now() - started) / 1000).toFixed(1)}s, for ${describeSystem(target)})`)}`;
+	const head = `${verb} ${c.bold(names)} ${c.dim(`(${since(started)}, for ${describeSystem(target)})`)}`;
 	const time = keepWatching ? `${c.dim(new Date().toLocaleTimeString())} ` : '';
 
 	log.success(`${time}${head} → ${deploy ? await deployAndReload(built) : shown(outDir)}`);

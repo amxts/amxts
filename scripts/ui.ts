@@ -40,6 +40,28 @@ export const log = {
 	hint: (text: string) => process.stderr.write(`${String(text).split('\n').map(line => `  ${c.dim(line)}`).join('\n')}\n`),
 };
 
+/** Seconds since `started` (a `performance.now()`), as a report shows them: `3.1s`. */
+export function since(started: number): string {
+	return `${((performance.now() - started) / 1000).toFixed(1)}s`;
+}
+
+/**
+ * A step that takes a while, said as it starts - `◇ compiling hello` - and
+ * ended with the line that says it is done, or with none when an error says
+ * it instead. In a terminal the step's line is rewritten by its end; in a log
+ * (CI, a pipe) the start is a line of its own.
+ */
+export function progress(text: string) {
+	const live = Boolean(process.stdout.isTTY) && !process.env.CI;
+	process.stdout.write(`${c.cyan('◇')} ${text}${live ? '' : '\n'}`);
+	return {
+		end(done?: string) {
+			if (live) process.stdout.write('\r\x1B[2K');
+			if (done) log.success(done);
+		},
+	};
+}
+
 /**
  * An error, printed as the user should see it: its first line, then the rest
  * of it - or its `hint`, what to do about it; the stack only with --debug.
