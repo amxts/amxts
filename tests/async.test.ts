@@ -74,7 +74,7 @@ describe('semantics', () => {
 	test('await takes a plain value, Promise.all too, and for await awaits each item', () => {
 		const host = run('plain', 100);
 		expect(host.log).toContain('for await: b');
-		expect(host.log).toContain('plain: 5 20 7 60');
+		expect(host.log).toContain('plain: 5 20 7 60 3');
 	});
 
 	test('Promise.all of different types gives a tuple, read by destructuring', () => {

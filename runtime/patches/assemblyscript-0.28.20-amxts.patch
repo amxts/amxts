@@ -9156,7 +9156,7 @@ index f5d9b7c..81527b0 100644
 +  }
 +}
 diff --git a/src/resolver.ts b/src/resolver.ts
-index 9576a47..6e1b143 100644
+index 9576a47..3b8ebeb 100644
 --- a/src/resolver.ts
 +++ b/src/resolver.ts
 @@ -36,7 +36,9 @@ import {
@@ -10222,7 +10222,7 @@ index 9576a47..6e1b143 100644
          );
        }
  
-@@ -3749,6 +4336,1000 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3749,6 +4336,1003 @@ export class Resolver extends DiagnosticEmitter {
      return instance;
    }
  
@@ -10295,9 +10295,12 @@ index 9576a47..6e1b143 100644
 +      let listType = this.resolveExpression(argument, ctxFlow, Type.auto, reportMode);
 +      if (!listType) return failed;
 +      let listClass = listType.getClass();
-+      let settled = listClass && listClass.prototype == this.program.arrayPrototype && listClass.typeArguments
-+        ? this.settledTypeOf(listClass.typeArguments[0])
-+        : null;
++      let isArray = listClass != null && listClass.prototype == this.program.arrayPrototype && listClass.typeArguments != null;
++      let settled = isArray ? this.settledTypeOf(assert(listClass).typeArguments![0]) : null;
++      // `Promise.all(numbers)`: a list of values, not promises, is settled already
++      if (!settled && isArray && method == "all") {
++        return this.lowerTo("__co_allValues", [ assert(listClass).typeArguments![0] ], node.args, node, reportMode);
++      }
 +      if (!settled) {
 +        if (reportMode == ReportMode.Report) {
 +          this.error(
@@ -11223,7 +11226,7 @@ index 9576a47..6e1b143 100644
    ensureOneTypeArgument(
      /** The type to resolve. */
      node: NamedTypeNode,
-@@ -3769,3 +5350,55 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3769,3 +5353,55 @@ export class Resolver extends DiagnosticEmitter {
      return typeArgumentNodes[0];
    }
  }

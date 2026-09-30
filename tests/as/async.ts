@@ -45,7 +45,9 @@ async function plainValues() {
 	let total = 0;
 	for await (const value of [tick("q", 20), tick("r", 10)]) total += value;
 	for await (const text of ["a", "b"]) console.log(`for await: ${text}`);
-	console.log(`plain: ${five} ${slow} ${plain} ${total}`);
+	const numbers = [1, 2, 3];
+	const copied = await Promise.all(numbers);
+	console.log(`plain: ${five} ${slow} ${plain} ${total} ${copied.length}`);
 }
 
 /** await of a value that is not a promise, Promise.all with one, for await over a list. */

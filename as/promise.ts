@@ -433,6 +433,14 @@ class __AllJob<T> extends __Job {
 	return promise;
 }
 
+/** @hidden Promise.all of a list of values, not promises: settled with a copy of the list. */
+// @ts-ignore: decorator
+@global function __co_allValues<T>(values: T[]): Promise<T[]> {
+	const promise = __co_promise<T[]>();
+	promise.__resolveWith(values.slice());
+	return promise;
+}
+
 /** A promise's outcome, as Promise.allSettled gives it for each. */
 // @ts-ignore: decorator
 @global export class PromiseSettledResult<T> {
