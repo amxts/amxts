@@ -65,6 +65,26 @@ export function text(): string {
 			expect(text()).toBe('5 1');
 		});
 
+		test('a literal of the same fields in another order goes into an interface too, and keeps its order', async () => {
+			const { error, text } = await compile({ 'probe.ts': `
+interface Point { x: number; y: number }
+interface Named { x: number; y: number; label?: string }
+function describe(point: Point): string {
+	return point.x.toString() + "," + point.y.toString();
+}
+function labelOf(named: Named): string {
+	return named.label ?? "none";
+}
+export function text(): string {
+	const corner = { y: 4, x: 3 };
+	const named = { label: "a", y: 2, x: 1 };
+	return describe(corner) + " " + labelOf(named) + " " + JSON.stringify(corner) + " " + Object.keys(named).join("");
+}
+` }, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('3,4 a {"y":4,"x":3} labelyx');
+		});
+
 		test('an interface of fields that extends another is built by a literal, and goes where the base does', async () => {
 			const { error, text } = await compile({
 				'shapes.ts': `
