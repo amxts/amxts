@@ -1,5 +1,5 @@
 diff --git a/src/ast.ts b/src/ast.ts
-index da649de..22ece81 100644
+index da649de..29e6d32 100644
 --- a/src/ast.ts
 +++ b/src/ast.ts
 @@ -125,6 +125,25 @@ export const enum NodeKind {
@@ -43,7 +43,7 @@ index da649de..22ece81 100644
    /** Tests if this type has a generic component matching one of the given type parameters. */
    hasGenericComponent(typeParameterNodes: TypeParameterNode[]): bool {
      if (this.kind == NodeKind.NamedType) {
-@@ -914,6 +941,64 @@ export class NamedTypeNode extends TypeNode {
+@@ -914,6 +941,67 @@ export class NamedTypeNode extends TypeNode {
      super(NodeKind.NamedType, isNullable, range);
    }
  
@@ -105,10 +105,13 @@ index da649de..22ece81 100644
 +  /** amxts: `typeof config` - the type of what a name holds (Resolver.resolveNamedType). */
 +  typeQuery: Expression | null = null;
 +
++  /** amxts: a type already known - a field of a shape made from resolved values (Resolver.lateShapeOf). */
++  presetType: Type | null = null;
++
    /** Checks if this type node has type arguments. */
    get hasTypeArguments(): bool {
      let typeArguments = this.typeArguments;
-@@ -942,6 +1027,25 @@ export class FunctionTypeNode extends TypeNode {
+@@ -942,6 +1030,25 @@ export class FunctionTypeNode extends TypeNode {
    ) {
      super(NodeKind.FunctionType, isNullable, range);
    }
@@ -134,7 +137,7 @@ index da649de..22ece81 100644
  }
  
  /** Represents a tuple type. */
-@@ -1005,6 +1109,12 @@ export class ParameterNode extends Node {
+@@ -1005,6 +1112,12 @@ export class ParameterNode extends Node {
  
    /** Implicit field declaration, if applicable. */
    implicitFieldDeclaration: FieldDeclaration | null = null;
@@ -147,7 +150,7 @@ index da649de..22ece81 100644
    /** Common flags indicating specific traits. */
    flags: CommonFlags = CommonFlags.None;
  
-@@ -1159,6 +1269,9 @@ export abstract class Expression extends Node { }
+@@ -1159,6 +1272,9 @@ export abstract class Expression extends Node { }
  
  /** Represents an identifier expression. */
  export class IdentifierExpression extends Expression {
@@ -157,7 +160,7 @@ index da649de..22ece81 100644
    constructor(
      /** Textual name. */
      public text: string,
-@@ -1248,6 +1361,13 @@ export class BinaryExpression extends Expression {
+@@ -1248,6 +1364,13 @@ export class BinaryExpression extends Expression {
    ) {
      super(NodeKind.Binary, range);
    }
@@ -171,7 +174,7 @@ index da649de..22ece81 100644
  }
  
  /** Represents a call expression. */
-@@ -1265,6 +1385,9 @@ export class CallExpression extends Expression {
+@@ -1265,6 +1388,9 @@ export class CallExpression extends Expression {
      super(NodeKind.Call, range);
    }
  
@@ -181,7 +184,7 @@ index da649de..22ece81 100644
    /** Gets the type arguments range for reporting. */
    get typeArgumentsRange(): Range {
      let typeArguments = this.typeArguments;
-@@ -1333,6 +1456,9 @@ export class ElementAccessExpression extends Expression {
+@@ -1333,6 +1459,9 @@ export class ElementAccessExpression extends Expression {
    ) {
      super(NodeKind.ElementAccess, range);
    }
@@ -191,7 +194,7 @@ index da649de..22ece81 100644
  }
  
  /** Represents a float literal expression. */
-@@ -1442,6 +1568,13 @@ export class ObjectLiteralExpression extends LiteralExpression {
+@@ -1442,6 +1571,13 @@ export class ObjectLiteralExpression extends LiteralExpression {
    ) {
      super(LiteralKind.Object, range);
    }
@@ -205,7 +208,7 @@ index da649de..22ece81 100644
  }
  
  /** Represents an omitted expression, e.g. within an array literal. */
-@@ -1478,6 +1611,12 @@ export class PropertyAccessExpression extends Expression {
+@@ -1478,6 +1614,12 @@ export class PropertyAccessExpression extends Expression {
    ) {
      super(NodeKind.PropertyAccess, range);
    }
@@ -218,7 +221,7 @@ index da649de..22ece81 100644
  }
  
  /** Represents a regular expression literal expression. */
-@@ -1864,6 +2003,14 @@ export class ClassDeclaration extends DeclarationStatement {
+@@ -1864,6 +2006,14 @@ export class ClassDeclaration extends DeclarationStatement {
    /** Index signature, if present. */
    indexSignature: IndexSignatureNode | null = null;
  
@@ -233,7 +236,7 @@ index da649de..22ece81 100644
    get isGeneric(): bool {
      let typeParameters = this.typeParameters;
      return typeParameters != null && typeParameters.length > 0;
-@@ -1894,6 +2041,9 @@ export class DoStatement extends Statement {
+@@ -1894,6 +2044,9 @@ export class DoStatement extends Statement {
    ) {
      super(NodeKind.Do, range);
    }
@@ -243,7 +246,7 @@ index da649de..22ece81 100644
  }
  
  /** Represents an empty statement, i.e., a semicolon terminating nothing. */
-@@ -2040,6 +2190,42 @@ export class FieldDeclaration extends VariableLikeDeclarationStatement {
+@@ -2040,6 +2193,42 @@ export class FieldDeclaration extends VariableLikeDeclarationStatement {
    ) {
      super(NodeKind.FieldDeclaration, name, decorators, flags, type, initializer, range);
    }
@@ -286,7 +289,7 @@ index da649de..22ece81 100644
  }
  
  /** Represents a `for` statement. */
-@@ -2058,6 +2244,9 @@ export class ForStatement extends Statement {
+@@ -2058,6 +2247,9 @@ export class ForStatement extends Statement {
    ) {
      super(NodeKind.For, range);
    }
@@ -296,7 +299,7 @@ index da649de..22ece81 100644
  }
  
  /** Represents a `for..of` statement. */
-@@ -2236,6 +2425,9 @@ export class MethodDeclaration extends FunctionDeclaration {
+@@ -2236,6 +2428,9 @@ export class MethodDeclaration extends FunctionDeclaration {
  
  /** Represents a `namespace` declaration. */
  export class NamespaceDeclaration extends DeclarationStatement {
@@ -306,7 +309,7 @@ index da649de..22ece81 100644
    constructor(
      /** Simple name being declared. */
      name: IdentifierExpression,
-@@ -2418,6 +2610,9 @@ export class WhileStatement extends Statement {
+@@ -2418,6 +2613,9 @@ export class WhileStatement extends Statement {
    ) {
      super(NodeKind.While, range);
    }
@@ -316,7 +319,7 @@ index da649de..22ece81 100644
  }
  
  /** Finds the first decorator matching the specified kind. */
-@@ -2449,3 +2644,42 @@ export function isTypeOmitted(type: TypeNode): bool {
+@@ -2449,3 +2647,42 @@ export function isTypeOmitted(type: TypeNode): bool {
    }
    return false;
  }
@@ -375,7 +378,7 @@ index f876049..8d02018 100644
  function builtin_isArray(ctx: BuiltinFunctionContext): ExpressionRef {
    let compiler = ctx.compiler;
 diff --git a/src/compiler.ts b/src/compiler.ts
-index f99bd5a..1c4d4ab 100644
+index f99bd5a..25dc79a 100644
 --- a/src/compiler.ts
 +++ b/src/compiler.ts
 @@ -49,6 +49,7 @@ import {
@@ -4055,7 +4058,7 @@ index f99bd5a..1c4d4ab 100644
      // handle normal arrays
      let element = this.resolver.lookupExpression(expression, flow, this.currentType);
      if (!element) return module.unreachable();
-@@ -8618,6 +11265,26 @@ export class Compiler extends DiagnosticEmitter {
+@@ -8618,6 +11265,27 @@ export class Compiler extends DiagnosticEmitter {
  
      // Check that contextual type is a class (TODO: hidden class for interfaces?)
      let classReference = contextualType.getClass();
@@ -4071,6 +4074,7 @@ index f99bd5a..1c4d4ab 100644
 +    // amxts: where nothing gives it a type, the one its values say - see
 +    // Parser.inferLiteralType
 +    let inferred = expression.inferredType;
++    if (!classReference && !inferred) inferred = this.resolver.lateShapeOf(expression, this.currentFlow);
 +    if (!classReference && inferred) {
 +      let flow = this.currentFlow;
 +      let type = this.resolver.resolveType(inferred, flow, flow.sourceFunction, cloneMap(flow.contextualTypeArguments));
@@ -4082,7 +4086,7 @@ index f99bd5a..1c4d4ab 100644
      if (!classReference) {
        this.error(
          DiagnosticCode.Type_0_is_not_assignable_to_type_1,
-@@ -8625,6 +11292,8 @@ export class Compiler extends DiagnosticEmitter {
+@@ -8625,6 +11293,8 @@ export class Compiler extends DiagnosticEmitter {
        );
        return module.unreachable();
      }
@@ -4091,7 +4095,7 @@ index f99bd5a..1c4d4ab 100644
      let classType = classReference.type;
      this.currentType = classType.nonNullableType;
      if (classReference.kind == ElementKind.Interface) {
-@@ -8689,6 +11358,11 @@ export class Compiler extends DiagnosticEmitter {
+@@ -8689,6 +11359,11 @@ export class Compiler extends DiagnosticEmitter {
      let deferredProperties = new Array<Property>();
      for (let i = 0; i < numNames; ++i) {
        let memberName = names[i].text;
@@ -4103,7 +4107,7 @@ index f99bd5a..1c4d4ab 100644
        let member = classReference.getMember(memberName);
        if (!member || member.kind != ElementKind.PropertyPrototype) {
          this.error(
-@@ -8736,9 +11410,55 @@ export class Compiler extends DiagnosticEmitter {
+@@ -8736,9 +11411,55 @@ export class Compiler extends DiagnosticEmitter {
        }
  
        let propertyType = propertyInstance.type;
@@ -4160,7 +4164,7 @@ index f99bd5a..1c4d4ab 100644
        ], setterInstance.identifierNode, true);
        if (this.currentType != Type.void) { // in case
          expr = module.drop(expr);
-@@ -9128,6 +11848,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9128,6 +11849,9 @@ export class Compiler extends DiagnosticEmitter {
      let resolver = this.resolver;
      let target = resolver.lookupExpression(expression, flow, ctxType); // reports
      if (!target) return module.unreachable();
@@ -4170,7 +4174,7 @@ index f99bd5a..1c4d4ab 100644
      let thisExpression = resolver.currentThisExpression;
      if (target.hasDecorator(DecoratorFlags.Unsafe)) this.checkUnsafe(expression);
  
-@@ -9209,7 +11932,12 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9209,7 +11933,12 @@ export class Compiler extends DiagnosticEmitter {
              Constraints.ConvImplicit | Constraints.IsThis
            );
          }
@@ -4184,7 +4188,7 @@ index f99bd5a..1c4d4ab 100644
        }
        case ElementKind.FunctionPrototype: {
          let functionPrototype = <FunctionPrototype>target;
-@@ -9236,6 +11964,18 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9236,6 +11965,18 @@ export class Compiler extends DiagnosticEmitter {
            return module.unreachable();
          }
  
@@ -4203,7 +4207,7 @@ index f99bd5a..1c4d4ab 100644
          let offset = this.ensureRuntimeFunction(functionInstance);
          return this.options.isWasm64
            ? module.i64(i64_low(offset), i64_high(offset))
-@@ -9258,6 +11998,11 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9258,6 +11999,11 @@ export class Compiler extends DiagnosticEmitter {
      let ifThen = expression.ifThen;
      let ifElse = expression.ifElse;
  
@@ -4215,7 +4219,7 @@ index f99bd5a..1c4d4ab 100644
      let condExpr = this.compileExpression(expression.condition, Type.bool);
      let condExprTrueish = this.makeIsTrueish(condExpr, this.currentType, expression.condition);
      // Try to eliminate unnecesssary branches if the condition is constant
-@@ -9272,11 +12017,13 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9272,11 +12018,13 @@ export class Compiler extends DiagnosticEmitter {
  
      let outerFlow = this.currentFlow;
      let ifThenFlow = outerFlow.forkThen(condExpr);
@@ -4229,7 +4233,7 @@ index f99bd5a..1c4d4ab 100644
      this.currentFlow = ifElseFlow;
      let ifElseExpr = this.compileExpression(ifElse, contextualType == Type.auto ? ifThenType : contextualType);
      let ifElseType = this.currentType;
-@@ -9828,7 +12575,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9828,7 +12576,7 @@ export class Compiler extends DiagnosticEmitter {
            contextualType == Type.void
              ? Type.i32
              : contextualType.isFloatValue
@@ -4238,7 +4242,7 @@ index f99bd5a..1c4d4ab 100644
                : contextualType,
            Constraints.None
          );
-@@ -9847,7 +12594,12 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9847,7 +12595,12 @@ export class Compiler extends DiagnosticEmitter {
            return module.unreachable();
          }
  
@@ -4252,7 +4256,7 @@ index f99bd5a..1c4d4ab 100644
  
          switch (this.currentType.kind) {
            case TypeKind.Bool:
-@@ -9887,10 +12639,13 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9887,10 +12640,13 @@ export class Compiler extends DiagnosticEmitter {
        case Token.TypeOf: {
          return this.compileTypeof(expression, contextualType, constraints);
        }
@@ -4267,7 +4271,7 @@ index f99bd5a..1c4d4ab 100644
          );
          return module.unreachable();
        }
-@@ -10220,6 +12975,31 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10220,6 +12976,31 @@ export class Compiler extends DiagnosticEmitter {
        case TypeKind.U64: return module.binary(BinaryOp.NeI64, expr, module.i64(0));
        case TypeKind.Isize:
        case TypeKind.Usize: {
@@ -4299,7 +4303,7 @@ index f99bd5a..1c4d4ab 100644
          return type.size == 64
            ? module.binary(BinaryOp.NeI64, expr, module.i64(0))
            : expr;
-@@ -10323,10 +13103,59 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10323,10 +13104,59 @@ export class Compiler extends DiagnosticEmitter {
      }
    }
  
@@ -4359,7 +4363,7 @@ index f99bd5a..1c4d4ab 100644
      if (type == stringType) {
        return expr;
      }
-@@ -10364,7 +13193,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10364,7 +13194,7 @@ export class Compiler extends DiagnosticEmitter {
                type.nonNullableType,
                reportNode
              ),
@@ -4368,7 +4372,7 @@ index f99bd5a..1c4d4ab 100644
            );
          }
          let toStringReturnType = toStringSignature.returnType;
-@@ -10436,85 +13265,664 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10436,85 +13266,664 @@ export class Compiler extends DiagnosticEmitter {
      );
    }
  
@@ -5104,7 +5108,7 @@ index f99bd5a..1c4d4ab 100644
    }
  
    /** Makes a call to `abort`, if present, otherwise creates a trap. */
-@@ -10555,7 +13963,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10555,7 +13964,7 @@ export class Compiler extends DiagnosticEmitter {
      let range = codeLocation.range;
      let source = range.source;
      return module.block(null, [
@@ -5113,7 +5117,7 @@ index f99bd5a..1c4d4ab 100644
          abortInstance.internalName, [
            messageExpr,
            filenameExpr,
-@@ -10563,11 +13971,59 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10563,11 +13972,59 @@ export class Compiler extends DiagnosticEmitter {
            module.i32(source.columnAt())
          ],
          TypeRef.None
@@ -5174,7 +5178,7 @@ index f99bd5a..1c4d4ab 100644
    /** Makes a runtime non-null check, e.g. on `<Type>possiblyNull` or `possiblyNull!`. */
    makeRuntimeNonNullCheck(
      /** Expression being checked. */
-@@ -10575,7 +14031,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10575,7 +14032,9 @@ export class Compiler extends DiagnosticEmitter {
      /** Type of the expression. */
      type: Type,
      /** Report node. */
@@ -5185,7 +5189,7 @@ index f99bd5a..1c4d4ab 100644
    ): ExpressionRef {
      let module = this.module;
      let flow = this.currentFlow;
-@@ -10584,10 +14042,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10584,10 +14043,7 @@ export class Compiler extends DiagnosticEmitter {
      if (!flow.canOverflow(expr, type)) flow.setLocalFlag(tempIndex, LocalFlags.Wrapped);
      flow.setLocalFlag(tempIndex, LocalFlags.NonNull);
  
@@ -5197,7 +5201,7 @@ index f99bd5a..1c4d4ab 100644
  
      if (type.isExternalReference) {
        let nonNullExpr = module.local_get(tempIndex, type.toRef());
-@@ -10629,10 +14084,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10629,10 +14085,7 @@ export class Compiler extends DiagnosticEmitter {
      let temp = flow.getTempLocal(type);
      let tempIndex = temp.index;
  
@@ -5209,7 +5213,7 @@ index f99bd5a..1c4d4ab 100644
  
      if (!toType.isNullableReference || flow.isNonnull(expr, type)) {
        // Simplify if the value cannot be `null`. If toType is non-nullable, a
-@@ -10725,3 +14177,497 @@ function mangleImportName(
+@@ -10725,3 +14178,497 @@ function mangleImportName(
      );
    }
  }
@@ -8775,7 +8779,7 @@ index 157351c..b93668a 100644
 +  return value != null && value.kind == NodeKind.Literal && (<LiteralExpression>value).literalKind == LiteralKind.String;
 +}
 diff --git a/src/program.ts b/src/program.ts
-index f5d9b7c..fac461f 100644
+index f5d9b7c..c860c22 100644
 --- a/src/program.ts
 +++ b/src/program.ts
 @@ -965,6 +965,9 @@ export class Program extends DiagnosticEmitter {
@@ -8861,7 +8865,22 @@ index f5d9b7c..fac461f 100644
    /** Processes a single overridden member by this class in a base class. */
    private doProcessOverride(
      thisClass: ClassPrototype,
-@@ -3331,6 +3385,13 @@ export class File extends Element {
+@@ -2032,6 +2086,14 @@ export class Program extends DiagnosticEmitter {
+   }
+ 
+   /** Initializes a class declaration. */
++  /**
++   * amxts: a shape made while compiling (Resolver.lateShapeOf): a class of
++   * fields in `file`, which extends and implements nothing.
++   */
++  initializeLateShape(declaration: ClassDeclaration, file: File): bool {
++    return this.initializeClass(declaration, file, [], []) != null;
++  }
++
+   private initializeClass(
+     /** The declaration to initialize. */
+     declaration: ClassDeclaration,
+@@ -3331,6 +3393,13 @@ export class File extends Element {
    /* @override */
    lookup(name: string, isType: bool = false): Element | null {
      let element = this.getMember(name);
@@ -8875,7 +8894,7 @@ index f5d9b7c..fac461f 100644
      if (element) return element;
      return this.program.lookup(name); // has no meaningful parent
    }
-@@ -3638,6 +3699,13 @@ export class Global extends VariableLikeElement {
+@@ -3638,6 +3707,13 @@ export class Global extends VariableLikeElement {
      );
      this.decoratorFlags = decoratorFlags;
    }
@@ -8889,7 +8908,7 @@ index f5d9b7c..fac461f 100644
  }
  
  /** A function parameter. */
-@@ -3687,6 +3755,43 @@ export class Local extends VariableLikeElement {
+@@ -3687,6 +3763,43 @@ export class Local extends VariableLikeElement {
    declaredByFlow(flow: Flow): bool {
      return this.parent == flow.targetFunction;
    }
@@ -8933,7 +8952,7 @@ index f5d9b7c..fac461f 100644
  }
  
  /** A yet unresolved function prototype. */
-@@ -3816,6 +3921,20 @@ export class Function extends TypedElement {
+@@ -3816,6 +3929,20 @@ export class Function extends TypedElement {
    /** Counting id of anonymous inner functions. */
    nextAnonymousId: i32 = 0;
  
@@ -8954,7 +8973,7 @@ index f5d9b7c..fac461f 100644
    /** Constructs a new concrete function. */
    constructor(
      /** Name incl. type parameters, i.e. `foo<i32>`. */
-@@ -4188,6 +4307,21 @@ export class Property extends VariableLikeElement {
+@@ -4188,6 +4315,21 @@ export class Property extends VariableLikeElement {
    setterInstance: Function | null = null;
    /** Field memory offset, if a (layed out) instance field. */
    memoryOffset: i32 = -1;
@@ -8977,20 +8996,21 @@ index f5d9b7c..fac461f 100644
    /** Constructs a new property prototype. */
    constructor(
 diff --git a/src/resolver.ts b/src/resolver.ts
-index 9576a47..8d55be9 100644
+index 9576a47..ac1b669 100644
 --- a/src/resolver.ts
 +++ b/src/resolver.ts
-@@ -36,7 +36,8 @@ import {
+@@ -36,7 +36,9 @@ import {
    IndexSignature,
    isTypedElement,
    InterfacePrototype,
 -  DeclaredElement
 +  DeclaredElement,
-+  DecoratorFlags
++  DecoratorFlags,
++  File
  } from "./program";
  
  import {
-@@ -56,12 +57,15 @@ import {
+@@ -56,12 +58,15 @@ import {
    IdentifierExpression,
    CallExpression,
    ElementAccessExpression,
@@ -9006,7 +9026,7 @@ index 9576a47..8d55be9 100644
    IntegerLiteralExpression,
    UnaryPrefixExpression,
    UnaryPostfixExpression,
-@@ -77,7 +81,11 @@ import {
+@@ -77,7 +82,12 @@ import {
    NewExpression,
    ArrayLiteralExpression,
    ArrowKind,
@@ -9015,11 +9035,12 @@ index 9576a47..8d55be9 100644
 +  Source,
 +  isPluginSource,
 +  optionalChainLink,
-+  ClassDeclaration
++  ClassDeclaration,
++  DeclarationStatement
  } from "./ast";
  
  import {
-@@ -166,6 +174,8 @@ export class Resolver extends DiagnosticEmitter {
+@@ -166,6 +176,8 @@ export class Resolver extends DiagnosticEmitter {
      switch (node.kind) {
        case NodeKind.NamedType: {
          resolved = this.resolveNamedType(<NamedTypeNode>node, flow, ctxElement, ctxTypes, reportMode);
@@ -9028,10 +9049,14 @@ index 9576a47..8d55be9 100644
          break;
        }
        case NodeKind.FunctionType: {
-@@ -199,6 +209,32 @@ export class Resolver extends DiagnosticEmitter {
+@@ -199,6 +211,36 @@ export class Resolver extends DiagnosticEmitter {
      let typeArgumentNodes = node.typeArguments;
      let isSimpleType = !nameNode.next;
  
++    // amxts: a type already known - see lateShapeOf
++    let presetType = node.presetType;
++    if (presetType) return presetType;
++
 +    // amxts: `typeof config` - the type of the variable or field a name reads
 +    let typeQuery = node.typeQuery;
 +    if (typeQuery) {
@@ -9061,7 +9086,7 @@ index 9576a47..8d55be9 100644
      // Look up in contextual types if a simple type
      if (isSimpleType) {
        let simpleName = nameNode.identifier.text;
-@@ -214,6 +250,11 @@ export class Resolver extends DiagnosticEmitter {
+@@ -214,6 +256,11 @@ export class Resolver extends DiagnosticEmitter {
          }
          if (node.isNullable) {
            if (type.isReference) return type.asNullable();
@@ -9073,7 +9098,7 @@ index 9576a47..8d55be9 100644
            if (reportMode == ReportMode.Report) {
              this.error(
                DiagnosticCode.Type_0_cannot_be_nullable,
-@@ -324,7 +365,8 @@ export class Resolver extends DiagnosticEmitter {
+@@ -324,7 +371,8 @@ export class Resolver extends DiagnosticEmitter {
            ctxElement,
            ctxTypes = cloneMap(ctxTypes), // update
            node,
@@ -9083,7 +9108,7 @@ index 9576a47..8d55be9 100644
          );
          if (!typeArguments) return null;
        } else if (typeArgumentNodes && typeArgumentNodes.length > 0) {
-@@ -470,17 +512,31 @@ export class Resolver extends DiagnosticEmitter {
+@@ -470,17 +518,31 @@ export class Resolver extends DiagnosticEmitter {
      /** How to proceed with eventual diagnostics. */
      reportMode: ReportMode = ReportMode.Report
    ): Type | null {
@@ -9122,7 +9147,7 @@ index 9576a47..8d55be9 100644
    }
  
    private resolveBuiltinNotNullableType(
-@@ -542,6 +598,15 @@ export class Resolver extends DiagnosticEmitter {
+@@ -542,6 +604,15 @@ export class Resolver extends DiagnosticEmitter {
      return element;
    }
  
@@ -9138,7 +9163,7 @@ index 9576a47..8d55be9 100644
    /** Resolves an array of type arguments to concrete types. */
    resolveTypeArguments(
      /** Type parameter nodes present. */
-@@ -557,7 +622,14 @@ export class Resolver extends DiagnosticEmitter {
+@@ -557,7 +628,14 @@ export class Resolver extends DiagnosticEmitter {
      /** Alternative report node in case of empty type arguments. */
      alternativeReportNode: Node | null = null,
      /** How to proceed with eventual diagnostics. */
@@ -9154,7 +9179,7 @@ index 9576a47..8d55be9 100644
    ): Type[] | null {
      let minParameterCount = 0;
      let maxParameterCount = 0;
-@@ -596,8 +668,8 @@ export class Resolver extends DiagnosticEmitter {
+@@ -596,8 +674,8 @@ export class Resolver extends DiagnosticEmitter {
            )
          : this.resolveType( // reports
              assert(typeParameters[i].defaultType),
@@ -9165,7 +9190,7 @@ index 9576a47..8d55be9 100644
              cloneMap(ctxTypes), // don't update
              reportMode
            );
-@@ -663,6 +735,70 @@ export class Resolver extends DiagnosticEmitter {
+@@ -663,6 +741,70 @@ export class Resolver extends DiagnosticEmitter {
      return this.resolveFunction(prototype, null, new Map(), reportMode);
    }
  
@@ -9236,7 +9261,7 @@ index 9576a47..8d55be9 100644
    private inferGenericTypeArguments(
      node: Expression,
      prototype: FunctionPrototype,
-@@ -677,6 +813,20 @@ export class Resolver extends DiagnosticEmitter {
+@@ -677,6 +819,20 @@ export class Resolver extends DiagnosticEmitter {
  
      let contextualTypeArguments = cloneMap(ctxFlow.contextualTypeArguments);
  
@@ -9257,7 +9282,7 @@ index 9576a47..8d55be9 100644
      // fill up contextual types with auto for each generic component
      let numTypeParameters = typeParameterNodes.length;
      let typeParameterNames = new Set<string>();
-@@ -717,6 +867,19 @@ export class Resolver extends DiagnosticEmitter {
+@@ -717,6 +873,19 @@ export class Resolver extends DiagnosticEmitter {
        let argumentExpression = i < numArguments
          ? argumentNodes[i]
          : parameterNodes[i].initializer;
@@ -9277,7 +9302,7 @@ index 9576a47..8d55be9 100644
        if (!argumentExpression) {
          // optional but not have initializer should be handled in the other place
          if (parameterNodes[i].parameterKind == ParameterKind.Optional) {
-@@ -744,7 +907,24 @@ export class Resolver extends DiagnosticEmitter {
+@@ -744,7 +913,24 @@ export class Resolver extends DiagnosticEmitter {
          typeNode = (<NamedTypeNode> typeNode).typeArguments![0];
        }
        if (typeNode.hasGenericComponent(typeParameterNodes)) {
@@ -9303,7 +9328,7 @@ index 9576a47..8d55be9 100644
          if (type) {
            this.propagateInferredGenericTypes(
              typeNode,
-@@ -915,7 +1095,11 @@ export class Resolver extends DiagnosticEmitter {
+@@ -915,7 +1101,11 @@ export class Resolver extends DiagnosticEmitter {
        let classReference = type.getClassOrWrapper(this.program);
        if (classReference) {
          let wrappedType = classReference.wrappedType;
@@ -9316,7 +9341,7 @@ index 9576a47..8d55be9 100644
        }
        return type;
      }
-@@ -1067,8 +1251,10 @@ export class Resolver extends DiagnosticEmitter {
+@@ -1067,8 +1257,10 @@ export class Resolver extends DiagnosticEmitter {
      const resolvingExpressions = this.resolvingExpressions;
      if (resolvingExpressions.has(node)) return null;
      resolvingExpressions.add(node);
@@ -9328,7 +9353,7 @@ index 9576a47..8d55be9 100644
      return resolved;
    }
  
-@@ -1253,6 +1439,19 @@ export class Resolver extends DiagnosticEmitter {
+@@ -1253,6 +1445,19 @@ export class Resolver extends DiagnosticEmitter {
      /** How to proceed with eventual diagnostics. */
      reportMode: ReportMode = ReportMode.Report
    ): Type | null {
@@ -9348,7 +9373,7 @@ index 9576a47..8d55be9 100644
      switch (node.kind) {
        case NodeKind.True:
        case NodeKind.False: return Type.bool;
-@@ -1434,6 +1633,12 @@ export class Resolver extends DiagnosticEmitter {
+@@ -1434,6 +1639,12 @@ export class Resolver extends DiagnosticEmitter {
        }
      }
  
@@ -9361,7 +9386,7 @@ index 9576a47..8d55be9 100644
      // Look up the member within
      switch (target.kind) {
        case ElementKind.ClassPrototype:
-@@ -1544,6 +1749,9 @@ export class Resolver extends DiagnosticEmitter {
+@@ -1544,6 +1755,9 @@ export class Resolver extends DiagnosticEmitter {
      /** How to proceed with eventual diagnostics. */
      reportMode: ReportMode = ReportMode.Report
    ): Element | null {
@@ -9371,7 +9396,7 @@ index 9576a47..8d55be9 100644
      let targetExpression = node.expression;
      let targetType = this.resolveExpression(targetExpression, ctxFlow, ctxType, reportMode);
      if (!targetType) return null;
-@@ -1579,6 +1787,8 @@ export class Resolver extends DiagnosticEmitter {
+@@ -1579,6 +1793,8 @@ export class Resolver extends DiagnosticEmitter {
      /** How to proceed with eventual diagnostics. */
      reportMode: ReportMode = ReportMode.Report
    ): Type | null {
@@ -9380,7 +9405,7 @@ index 9576a47..8d55be9 100644
      let element = this.lookupElementAccessExpression(node, ctxFlow, ctxType, reportMode);
      if (!element) return null;
      let type = this.getTypeOfElement(element);
-@@ -1624,6 +1834,9 @@ export class Resolver extends DiagnosticEmitter {
+@@ -1624,6 +1840,9 @@ export class Resolver extends DiagnosticEmitter {
        }
        intValue = i64_neg(intValue);
      }
@@ -9390,7 +9415,7 @@ index 9576a47..8d55be9 100644
      if (ctxType.isValue) {
        // compile to contextual type if matching
        switch (ctxType.kind) {
-@@ -1675,6 +1888,13 @@ export class Resolver extends DiagnosticEmitter {
+@@ -1675,6 +1894,13 @@ export class Resolver extends DiagnosticEmitter {
          case TypeKind.F64: return Type.f64;
        }
      }
@@ -9404,7 +9429,7 @@ index 9576a47..8d55be9 100644
      // otherwise compile to best fitting type
      if (i64_is_i32(intValue)) return Type.i32;
      if (i64_is_u32(intValue)) return Type.u32;
-@@ -1895,6 +2115,9 @@ export class Resolver extends DiagnosticEmitter {
+@@ -1895,6 +2121,9 @@ export class Resolver extends DiagnosticEmitter {
        case Token.TypeOf: {
          return this.program.stringInstance.type;
        }
@@ -9414,7 +9439,7 @@ index 9576a47..8d55be9 100644
        default: assert(false);
      }
      return null;
-@@ -2018,7 +2241,8 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2018,7 +2247,8 @@ export class Resolver extends DiagnosticEmitter {
        case Token.GreaterThan_GreaterThan_GreaterThan_Equals:
        case Token.Ampersand_Equals:
        case Token.Bar_Equals:
@@ -9424,7 +9449,7 @@ index 9576a47..8d55be9 100644
          return this.resolveExpression(left, ctxFlow, ctxType, reportMode);
        }
  
-@@ -2091,6 +2315,11 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2091,6 +2321,11 @@ export class Resolver extends DiagnosticEmitter {
          }
          let rightType = this.resolveExpression(right, ctxFlow, leftType, reportMode);
          if (!rightType) return null;
@@ -9436,7 +9461,7 @@ index 9576a47..8d55be9 100644
          let commonType = Type.commonType(leftType, rightType, ctxType);
          if (!commonType) {
            if (reportMode == ReportMode.Report) {
-@@ -2100,6 +2329,14 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2100,6 +2335,14 @@ export class Resolver extends DiagnosticEmitter {
              );
            }
          }
@@ -9451,7 +9476,7 @@ index 9576a47..8d55be9 100644
          return commonType;
        }
  
-@@ -2115,6 +2352,10 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2115,6 +2358,10 @@ export class Resolver extends DiagnosticEmitter {
            let overload = classReference.lookupOverload(OperatorKind.fromBinaryToken(operator));
            if (overload) return overload.signature.returnType;
          }
@@ -9462,7 +9487,7 @@ index 9576a47..8d55be9 100644
          if (!leftType.isIntegerValue) {
            if (reportMode == ReportMode.Report) {
              this.error(
-@@ -2141,6 +2382,9 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2141,6 +2388,9 @@ export class Resolver extends DiagnosticEmitter {
          }
          let rightType = this.resolveExpression(right, ctxFlow, ctxType, reportMode);
          if (!rightType) return null;
@@ -9472,7 +9497,7 @@ index 9576a47..8d55be9 100644
          let commonType = Type.commonType(leftType, rightType, ctxType);
          if (!commonType || !commonType.isIntegerValue) {
            if (reportMode == ReportMode.Report) {
-@@ -2191,6 +2435,25 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2191,6 +2441,25 @@ export class Resolver extends DiagnosticEmitter {
            ? commonType
            : commonType.nonNullableType;
        }
@@ -9498,7 +9523,7 @@ index 9576a47..8d55be9 100644
      }
      assert(false);
      return null;
-@@ -2215,6 +2478,15 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2215,6 +2484,15 @@ export class Resolver extends DiagnosticEmitter {
          return thisLocal;
        }
      }
@@ -9514,7 +9539,7 @@ index 9576a47..8d55be9 100644
      let parent = ctxFlow.sourceFunction.parent;
      if (parent) {
        this.currentThisExpression = null;
-@@ -2274,6 +2546,16 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2274,6 +2552,16 @@ export class Resolver extends DiagnosticEmitter {
          return superLocal;
        }
      }
@@ -9531,7 +9556,7 @@ index 9576a47..8d55be9 100644
      let parent: Element | null = ctxFlow.sourceFunction.parent;
      if (parent && parent.kind == ElementKind.Class) {
        let base = (<Class>parent).base;
-@@ -2351,6 +2633,12 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2351,6 +2639,12 @@ export class Resolver extends DiagnosticEmitter {
          return this.program.regexpInstance;
        }
        case LiteralKind.Array: {
@@ -9544,12 +9569,13 @@ index 9576a47..8d55be9 100644
          let classReference = ctxType.getClass();
          if (classReference && classReference.prototype == this.program.arrayPrototype) {
            return this.getElementOfType(ctxType);
-@@ -2400,6 +2688,12 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2400,6 +2694,13 @@ export class Resolver extends DiagnosticEmitter {
        }
        case LiteralKind.Object: {
          if (ctxType.isClass) return ctxType.classReference;
 +        // amxts: where nothing gives it a type, the one its values say
 +        let inferred = (<ObjectLiteralExpression>node).inferredType;
++        if (!inferred) inferred = this.lateShapeOf(<ObjectLiteralExpression>node, ctxFlow);
 +        if (inferred) {
 +          let type = this.resolveType(inferred, ctxFlow, ctxFlow.sourceFunction, cloneMap(ctxFlow.contextualTypeArguments), reportMode);
 +          if (type) return type.classReference;
@@ -9557,7 +9583,7 @@ index 9576a47..8d55be9 100644
          if (reportMode == ReportMode.Report) {
            this.error(
              DiagnosticCode.Expression_cannot_be_represented_by_a_type,
-@@ -2474,6 +2768,24 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2474,6 +2775,24 @@ export class Resolver extends DiagnosticEmitter {
      /** How to proceed with eventual diagnostics. */
      reportMode: ReportMode = ReportMode.Report
    ): Type | null {
@@ -9582,7 +9608,7 @@ index 9576a47..8d55be9 100644
      let targetExpression = node.expression;
      let target = this.lookupExpression( // reports
        targetExpression,
-@@ -2623,6 +2935,12 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2623,6 +2942,12 @@ export class Resolver extends DiagnosticEmitter {
      /** How to proceed with eventual diagnostics. */
      reportMode: ReportMode = ReportMode.Report
    ): Type | null {
@@ -9595,7 +9621,7 @@ index 9576a47..8d55be9 100644
      let thenType = this.resolveExpression(node.ifThen, ctxFlow, ctxType, reportMode);
      if (!thenType) return null;
      let elseType = this.resolveExpression(node.ifElse, ctxFlow, thenType, reportMode);
-@@ -2736,18 +3054,119 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2736,18 +3061,119 @@ export class Resolver extends DiagnosticEmitter {
      const declaration = node.declaration;
      const signature = declaration.signature;
      const body = declaration.body;
@@ -9718,7 +9744,7 @@ index 9576a47..8d55be9 100644
        let parameters = signature.parameters;
        // return type of resolveFunctionType should have same parameter length with signature
        assert(signatureReference.parameterTypes.length == parameters.length);
-@@ -2756,16 +3175,57 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2756,16 +3182,57 @@ export class Resolver extends DiagnosticEmitter {
          const type = signatureReference.parameterTypes[i];
          tempFlow.addScopedDummyLocal(parameter.name.text, type, parameter);
        }
@@ -9779,7 +9805,7 @@ index 9576a47..8d55be9 100644
        }
      }
      return functionType;
-@@ -2870,13 +3330,17 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2870,13 +3337,17 @@ export class Resolver extends DiagnosticEmitter {
          }
          return null;
        }
@@ -9804,7 +9830,7 @@ index 9576a47..8d55be9 100644
        if (!parameterType) return null;
        if (parameterType == Type.void) {
          if (reportMode == ReportMode.Report) {
-@@ -2891,14 +3355,73 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2891,14 +3362,73 @@ export class Resolver extends DiagnosticEmitter {
      }
  
      // resolve return type
@@ -9880,7 +9906,7 @@ index 9576a47..8d55be9 100644
          if (reportMode == ReportMode.Report) {
            this.error(
              DiagnosticCode.Type_expected,
-@@ -2906,7 +3429,7 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2906,7 +3436,7 @@ export class Resolver extends DiagnosticEmitter {
            );
          }
          return null;
@@ -9889,7 +9915,7 @@ index 9576a47..8d55be9 100644
        let type = this.resolveType(
          typeNode,
          null,
-@@ -2916,6 +3439,7 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2916,6 +3446,7 @@ export class Resolver extends DiagnosticEmitter {
        );
        if (!type) return null;
        returnType = type;
@@ -9897,7 +9923,7 @@ index 9576a47..8d55be9 100644
      }
  
      let signature = Signature.create(this.program, parameterTypes, returnType, thisType, requiredParameters, hasRest);
-@@ -3041,7 +3565,8 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3041,7 +3572,8 @@ export class Resolver extends DiagnosticEmitter {
          ctxElement,
          ctxTypes, // update
          reportNode,
@@ -9907,7 +9933,7 @@ index 9576a47..8d55be9 100644
        );
        if (!resolvedTypeArguments) return null;
  
-@@ -3089,7 +3614,7 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3089,7 +3621,7 @@ export class Resolver extends DiagnosticEmitter {
        for (let _values = Map_values(classInstances), j = 0, l = _values.length; j < l; ++j) {
          let classInstance = _values[j];
          // Check if the parent class is a subtype of instance's class
@@ -9916,7 +9942,7 @@ index 9576a47..8d55be9 100644
          let overrideInstance: Function | null = null;
          if (instance.isAny(CommonFlags.Get | CommonFlags.Set)) {
            let propertyName = instance.declaration.name.text;
-@@ -3125,6 +3650,21 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3125,6 +3657,21 @@ export class Resolver extends DiagnosticEmitter {
      return Set_values(overrides);
    }
  
@@ -9938,7 +9964,7 @@ index 9576a47..8d55be9 100644
    /** Currently resolving classes. */
    private resolveClassPending: Set<Class> = new Set();
  
-@@ -3139,6 +3679,13 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3139,6 +3686,13 @@ export class Resolver extends DiagnosticEmitter {
      /** How to proceed with eventual diagnostics. */
      reportMode: ReportMode = ReportMode.Report
    ): Class | null {
@@ -9952,7 +9978,7 @@ index 9576a47..8d55be9 100644
      let instanceKey = typeArguments ? typesToString(typeArguments) : "";
  
      // Do not attempt to resolve the same class twice. This can return a class
-@@ -3416,6 +3963,10 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3416,6 +3970,10 @@ export class Resolver extends DiagnosticEmitter {
      }
  
      // Resolve instance members
@@ -9963,7 +9989,7 @@ index 9576a47..8d55be9 100644
      let prototype = instance.prototype;
      let instanceMemberPrototypes = prototype.instanceMembers;
      if (instanceMemberPrototypes) {
-@@ -3465,18 +4016,12 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3465,18 +4023,12 @@ export class Resolver extends DiagnosticEmitter {
                          break; // keep existing
                        }
                        boundInstance.memoryOffset = existingProperty.memoryOffset;
@@ -9984,7 +10010,7 @@ index 9576a47..8d55be9 100644
                  boundPrototype.instance = boundInstance;
                  instance.add(boundPrototype.name, boundPrototype); // reports
                  // field materializes here, so check for supported type early
-@@ -3500,6 +4045,31 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3500,6 +4052,31 @@ export class Resolver extends DiagnosticEmitter {
        }
      }
  
@@ -10016,7 +10042,7 @@ index 9576a47..8d55be9 100644
      if (instance.kind != ElementKind.Interface) {
  
        // Check that all required members are implemented
-@@ -3675,7 +4245,8 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3675,7 +4252,8 @@ export class Resolver extends DiagnosticEmitter {
            ctxElement,
            ctxTypes, // update
            reportNode,
@@ -10026,7 +10052,7 @@ index 9576a47..8d55be9 100644
          );
        }
  
-@@ -3749,6 +4320,794 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3749,6 +4327,840 @@ export class Resolver extends DiagnosticEmitter {
      return instance;
    }
  
@@ -10309,6 +10335,52 @@ index 9576a47..8d55be9 100644
 +      node.range
 +    );
 +  }
++
++  /** amxts: the shapes lateShapeOf made, by literal; null for one it could not. */
++  private lateShapes: Map<ObjectLiteralExpression, NamedTypeNode | null> = new Map();
++
++  /**
++   * amxts: the type of an object literal that nothing gives one and whose
++   * values say theirs only once resolved - `{ name: player.name, hp }` - a
++   * shape (ClassDeclaration.isShape) of the values' types, made in the
++   * literal's file as the parser makes one for values that say theirs
++   * (Parser.inferLiteralType); a number written out is a `number`. Null
++   * when a value has no type of its own, or the literal spreads another.
++   */
++  lateShapeOf(node: ObjectLiteralExpression, ctxFlow: Flow): NamedTypeNode | null {
++    if (this.lateShapes.has(node)) {
++      let known = this.lateShapes.get(node);
++      return known ? known : null;
++    }
++    this.lateShapes.set(node, null); // a value that holds the literal itself
++    let range = node.range;
++    let file = this.program.filesByName.get(range.source.internalPath);
++    if (!file || !isPluginSource(range.source)) return null;
++    let names = node.names;
++    let values = node.values;
++    let members = new Array<DeclarationStatement>();
++    for (let i = 0, k = names.length; i < k; ++i) {
++      let name = names[i];
++      let value = values[i];
++      if (name.text == "...") return null;
++      let type = this.resolveExpression(value, ctxFlow, Type.auto, ReportMode.Swallow);
++      if (!type || type == Type.void) return null;
++      if (type.isIntegerValue && (value.kind == NodeKind.Literal || value.kind == NodeKind.UnaryPrefix)) type = Type.f64;
++      let typeNode = Node.createNamedType(Node.createSimpleTypeName(type.toString(), name.range), [], false, name.range);
++      typeNode.presetType = type;
++      members.push(Node.createFieldDeclaration(name, null, CommonFlags.Instance, typeNode, null, name.range));
++    }
++    let shapeName = "__shape" + (this.lateShapeCount++).toString();
++    let declaration = Node.createClassDeclaration(
++      Node.createIdentifierExpression(shapeName, range), null, CommonFlags.None, null, null, null, members, range
++    );
++    declaration.isShape = true;
++    if (!this.program.initializeLateShape(declaration, <File>file)) return null;
++    let shape = Node.createNamedType(Node.createSimpleTypeName(shapeName, range), [], false, range);
++    this.lateShapes.set(node, shape);
++    return shape;
++  }
++  private lateShapeCount: i32 = 0;
 +
 +  /** amxts: the field chains shapeFieldOf made, by the access they read. */
 +  private shapeReads: Map<ElementAccessExpression, Expression> = new Map();
@@ -10821,7 +10893,7 @@ index 9576a47..8d55be9 100644
    ensureOneTypeArgument(
      /** The type to resolve. */
      node: NamedTypeNode,
-@@ -3769,3 +5128,55 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3769,3 +5181,55 @@ export class Resolver extends DiagnosticEmitter {
      return typeArgumentNodes[0];
    }
  }

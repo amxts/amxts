@@ -65,6 +65,27 @@ export function text(): string {
 			expect(text()).toBe('5 1');
 		});
 
+		test('an object literal of names, fields and calls has the type its values have', async () => {
+			const { error, text } = await compile({ 'probe.ts': `
+class Player { constructor(public name: string, public health: number) {} }
+interface Who { name: string; hp: number }
+function greet(who: Who): string { return who.name + who.hp.toString(); }
+function describe(player: Player) {
+	return { name: player.name, hp: player.health, alive: player.health > 0, tags: ["a"], count: 3 };
+}
+export function text(): string {
+	const player = new Player("ann", 90);
+	const who = { name: player.name, hp: player.health };
+	const info = describe(player);
+	const nested = { owner: who, label: player.name.toUpperCase() };
+	return greet(who) + " " + info.name + info.hp.toString() + (info.alive ? "!" : "") + info.tags.length.toString() +
+		(info.count / 2).toString() + " " + nested.owner.name + nested.label + " " + JSON.stringify(who);
+}
+` }, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('ann90 ann90!11.5 annANN {"name":"ann","hp":90}');
+		});
+
 		test('a literal of the same fields in another order goes into an interface too, and keeps its order', async () => {
 			const { error, text } = await compile({ 'probe.ts': `
 interface Point { x: number; y: number }
