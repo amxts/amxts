@@ -75,6 +75,10 @@ test.skipIf(!existsSync(host) || !existsSync(wamrc))('async/await under WAMR AOT
 		'anyOf',
 		'100',
 		'find',
+		'rangeError',
+		'10',
+		'tryAwait',
+		'50',
 	];
 	const run = spawnSync(host, [aot, ...steps], { encoding: 'utf-8' });
 	expect(run.status).toBe(0);
@@ -117,7 +121,7 @@ test.skipIf(!existsSync(host) || !existsSync(wamrc))('async/await under WAMR AOT
 		'log: listener 3',
 		'log: arrow 3 after',
 		'log: counter 2',
-		'host: [amxts] fixture: Exception: abort: Index out of range at ~lib/array.ts - in an async function, which was dropped; the plugin runs on',
+		'host: [amxts] fixture: Exception: unreachable - in an async function, which was dropped; the plugin runs on',
 		'log: a start',
 		'log: b start',
 		'log: sync end',
@@ -146,5 +150,15 @@ test.skipIf(!existsSync(host) || !existsSync(wamrc))('async/await under WAMR AOT
 		'log: any: 40',
 		'log: any of a base class: rex',
 		'log: find: rex max none',
+		'log: rejected: RangeError',
+		'log: inside caught RangeError inside',
+		'log: guarded value 1',
+		'log: guarded finally ',
+		'log: first gave 1',
+		'log: guarded caught bad',
+		'log: guarded finally bad',
+		'log: second gave -1',
+		'log: again caught again',
+		'log: rejected with after the tries',
 	]);
 });

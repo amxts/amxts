@@ -21,10 +21,14 @@
 //   them (__co_next) once the plugin has nothing of its own on the stack, and
 //   a coroutine waiting on p is rewound from there.
 //
-// There are no exceptions in AssemblyScript: a rejection - or a `throw` in an
-// async function, which the compiler makes one (__co_throw) - travels to whoever
-// awaits it, which gives up its own coroutine with the same reason, and ends
-// in `.catch` or as one "Unhandled promise rejection" line.
+// A rejection - or a `throw` in an async function, which the compiler makes
+// one (__co_throw) - travels to whoever awaits it. Inside a `try` the await
+// gives the reason to its `catch` (the compiler's exceptions, see
+// std/assembly/error.ts); outside every one the awaiting coroutine gives up
+// with the same reason. It ends in a `catch`, `.catch` or as one "Unhandled
+// promise rejection" line. A coroutine counts its own `try` blocks
+// (__tryDepth): the count is kept across an await and put back around a
+// spawn and a resume.
 
 // ---------------------------------------------------------------- host
 
@@ -847,7 +851,10 @@ function __co_current(): __Coroutine {
 	__coroutines.set(co.id, co);
 
 	__running.push(co);
+	const depth = __tryDepth;
+	__tryDepth = 0;
 	const outcome = __co_host_spawn(fn, changetype<usize>(__spawnArgs), cells, co.id, buffer);
+	__tryDepth = depth;
 	__running.pop();
 	__co_after(co, outcome);
 }
@@ -923,6 +930,12 @@ function __co_settled(co: __Coroutine): usize {
 	return __co_settled(co);
 }
 
+/** @hidden an error that unwound out of an async function: its Promise rejects with it. */
+// @ts-ignore: decorator
+@global function __co_throwPending(): usize {
+	return __co_throw(__catch());
+}
+
 class __ResumeJob extends __Job {
 	constructor(id: i32, wait: i32) {
 		super();
@@ -959,13 +972,20 @@ function __co_wait(promise: PromiseBase): void {
 	}
 
 	co.parked = true;
+	const depth = __tryDepth;
 	__co_host_suspend(0);
 
-	// Resumed.
+	// Resumed. The signal it runs under aborted - its player left: it ends
+	// here, quietly. The promise was rejected: a `try` around the await takes
+	// the reason to its catch.
+	__tryDepth = depth;
 	__co_unwatch(co);
-	const reason = co.abortReason;
-	if (reason) __co_giveUp(co, reason);
-	if (promise.__state == __REJECTED) __co_giveUp(co, promise.__reason as Error);
+	const aborted = co.abortReason;
+	if (aborted) __co_giveUp(co, aborted);
+	if (promise.__state != __REJECTED) return;
+	const reason = promise.__reason as Error;
+	if (depth == 0) __co_giveUp(co, reason);
+	__thrown = reason;
 }
 
 /** The awaited promise was rejected, or the signal aborted: the coroutine rejects with it and ends here. */
@@ -1027,6 +1047,7 @@ function __co_signal(co: __Coroutine): AbortSignal | null {
 /** @hidden a resume has come back from the host. */
 // @ts-ignore: decorator
 @global function __co_resumed(outcome: i32): void {
+	__tryDepth = 0;
 	const co = __running.pop();
 	__co_after(co, outcome);
 }

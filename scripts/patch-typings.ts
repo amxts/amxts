@@ -209,6 +209,35 @@ if (!text.includes(objectKeys)) {
 	console.log('typings: Object has keys, values and entries for the editor');
 }
 
+// ReferenceError, which our AssemblyScript's library has (runtime/patches): a
+// variable read before its declaration has run throws one.
+const typeError = 'declare class TypeError extends Error { }\n';
+const referenceError = '/** Class for indicating an error when a variable is read before its declaration has run. */\ndeclare class ReferenceError extends Error { }\n';
+if (!text.includes(referenceError)) {
+	if (!text.includes(typeError)) {
+		process.stderr.write(`typings: TypeError was not found in ${typings} - AssemblyScript changed it\n`);
+		process.exit(1);
+	}
+	text = text.replace(typeError, `${typeError}\n${referenceError}`);
+	console.log('typings: ReferenceError for the editor');
+}
+
+// The exceptions' state of our AssemblyScript's library (runtime/patches),
+// which the hood's coroutines keep (as/promise.ts). A plugin never names it.
+const exceptions = [
+	'/** @hidden amxts: how many `try` blocks the running code is inside. */',
+	'declare let __tryDepth: i32;',
+	'/** @hidden amxts: the error on its way to a `catch`. */',
+	'declare let __thrown: Error | null;',
+	'/** @hidden amxts: what a `catch` takes. */',
+	'declare function __catch(): Error;',
+	'',
+].join('\n');
+if (!text.includes(exceptions)) {
+	text = `${text.replace(/\n*$/, '\n')}\n${exceptions}`;
+	console.log('typings: the library\'s exceptions state for the editor');
+}
+
 // The tuple classes of our AssemblyScript's library (runtime/patches): what
 // a plugin writes `[string, number]` is one, and the hood's Promise.all fills
 // them in (as/promise.ts). A plugin never names them.

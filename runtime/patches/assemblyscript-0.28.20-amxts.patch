@@ -256,7 +256,7 @@ index da649de..5614574 100644
 +  }
 +}
 diff --git a/src/compiler.ts b/src/compiler.ts
-index f99bd5a..a7e830e 100644
+index f99bd5a..09858d1 100644
 --- a/src/compiler.ts
 +++ b/src/compiler.ts
 @@ -65,6 +65,7 @@ import {
@@ -409,7 +409,7 @@ index f99bd5a..a7e830e 100644
 +    return module.block(null, [
 +      module.if(
 +        module.unary(UnaryOp.EqzI32, module.global_get(flag, TypeRef.I32)),
-+        this.makeStaticAbort(this.ensureStaticString(`${global.name} is not initialized`), reportNode)
++        this.makeRuntimeError("ReferenceError", `${global.name} is not initialized`, reportNode)
 +      ),
 +      expr
 +    ], type.toRef());
@@ -418,7 +418,15 @@ index f99bd5a..a7e830e 100644
    // === Enums ====================================================================================
  
    /** Compiles an enum. */
-@@ -1798,9 +1877,39 @@ export class Compiler extends DiagnosticEmitter {
+@@ -1684,6 +1763,7 @@ export class Compiler extends DiagnosticEmitter {
+       }
+ 
+       this.currentFlow = previousFlow;
++      this.unwindKnown.add(instance); // amxts: see makeUnwindCheck
+ 
+       // create the function
+       funcRef = module.addFunction(
+@@ -1798,9 +1878,39 @@ export class Compiler extends DiagnosticEmitter {
        : null;
      let bodyStartIndex = stmts.length;
  
@@ -458,7 +466,7 @@ index f99bd5a..a7e830e 100644
      } else {
        // must be an expression statement if not a block
        assert(bodyNode.kind == NodeKind.Expression);
-@@ -1893,9 +2002,67 @@ export class Compiler extends DiagnosticEmitter {
+@@ -1893,9 +2003,67 @@ export class Compiler extends DiagnosticEmitter {
        return false; // not recoverable
      }
  
@@ -526,7 +534,7 @@ index f99bd5a..a7e830e 100644
    /** Makes a built-in getter of a property that is a field. */
    private makeBuiltinFieldGetter(property: Property): FunctionRef {
      let getterInstance = assert(property.getterInstance);
-@@ -2363,7 +2530,10 @@ export class Compiler extends DiagnosticEmitter {
+@@ -2363,7 +2531,10 @@ export class Compiler extends DiagnosticEmitter {
        stmts.length = 0;
      }
      let flow = this.currentFlow;
@@ -537,7 +545,33 @@ index f99bd5a..a7e830e 100644
        let stmt = this.compileStatement(statements[i]);
        switch (getExpressionId(stmt)) {
          case ExpressionId.Block: {
-@@ -2634,6 +2804,21 @@ export class Compiler extends DiagnosticEmitter {
+@@ -2436,7 +2607,11 @@ export class Compiler extends DiagnosticEmitter {
+       return module.unreachable();
+     }
+     flow.set(FlowFlags.Breaks);
+-    return module.br(breakLabel);
++    // amxts: a break that leaves try statements runs their finally blocks
++    let tryExits = this.compileTryExits(1, breakLabel);
++    if (!tryExits) return module.br(breakLabel);
++    tryExits.push(module.br(breakLabel));
++    return module.block(null, tryExits);
+   }
+ 
+   private compileContinueStatement(
+@@ -2463,7 +2638,11 @@ export class Compiler extends DiagnosticEmitter {
+       return module.unreachable();
+     }
+     flow.set(FlowFlags.Continues | FlowFlags.Terminates);
+-    return module.br(continueLabel);
++    // amxts: a continue that leaves try statements runs their finally blocks
++    let tryExits = this.compileTryExits(2, continueLabel);
++    if (!tryExits) return module.br(continueLabel);
++    tryExits.push(module.br(continueLabel));
++    return module.block(null, tryExits);
+   }
+ 
+   private compileDoStatement(
+@@ -2634,6 +2813,21 @@ export class Compiler extends DiagnosticEmitter {
        stmts.push(this.compileStatement(initializer));
      }
  
@@ -559,7 +593,7 @@ index f99bd5a..a7e830e 100644
      // Precompute the condition if present, or default to `true`
      let condExpr: ExpressionRef;
      let condExprTrueish: ExpressionRef;
-@@ -2700,6 +2885,19 @@ export class Compiler extends DiagnosticEmitter {
+@@ -2700,6 +2894,19 @@ export class Compiler extends DiagnosticEmitter {
      // Compile the incrementor if it possibly executes
      let possiblyLoops = possiblyContinues || possiblyFallsThrough;
      if (possiblyLoops) {
@@ -579,7 +613,23 @@ index f99bd5a..a7e830e 100644
        let incrementor = statement.incrementor;
        if (incrementor) {
          this.currentFlow = flow;
-@@ -2850,6 +3048,11 @@ export class Compiler extends DiagnosticEmitter {
+@@ -2802,6 +3009,7 @@ export class Compiler extends DiagnosticEmitter {
+     // Compile ifTrue assuming the condition turned out true
+     let thenStmts = new Array<ExpressionRef>();
+     let thenFlow = flow.forkThen(condExpr);
++    this.narrowInstanceOf(statement.condition, thenFlow, true); // amxts
+     this.currentFlow = thenFlow;
+     if (ifTrue.kind == NodeKind.Block) {
+       this.compileStatements((<BlockStatement>ifTrue).statements, thenStmts);
+@@ -2812,6 +3020,7 @@ export class Compiler extends DiagnosticEmitter {
+ 
+     // Compile ifFalse assuming the condition turned out false, if present
+     let elseFlow = flow.forkElse(condExpr);
++    this.narrowInstanceOf(statement.condition, elseFlow, false); // amxts
+     if (ifFalse) {
+       this.currentFlow = elseFlow;
+       let elseStmts = new Array<ExpressionRef>();
+@@ -2850,6 +3059,14 @@ export class Compiler extends DiagnosticEmitter {
      let flow = this.currentFlow;
      let returnType = flow.returnType;
  
@@ -587,23 +637,470 @@ index f99bd5a..a7e830e 100644
 +    if (!flow.isInline && this.isAsyncFunction(flow.targetFunction)) {
 +      return this.compileAsyncReturn(statement.value, statement);
 +    }
++    // amxts: a return that leaves try statements runs their finally blocks
++    // after its value, as JavaScript does - see compileTryExits
++    let tryExits: ExpressionRef[] | null = null;
 +
      let valueExpression = statement.value;
      if (valueExpression) {
        let constraints = Constraints.ConvImplicit;
-@@ -3021,6 +3224,11 @@ export class Compiler extends DiagnosticEmitter {
-     // TODO: requires exception-handling spec.
-     let flow = this.currentFlow;
+@@ -2861,6 +3078,19 @@ export class Compiler extends DiagnosticEmitter {
+       if (flow.sourceFunction.is(CommonFlags.Constructor) && valueExpression.kind != NodeKind.This) {
+         flow.set(FlowFlags.MayReturnNonThis);
+       }
++      let valueType = this.currentType;
++      tryExits = this.compileTryExits(0, null);
++      if (tryExits) {
++        if (valueType == Type.void) {
++          tryExits.unshift(expr);
++          expr = 0;
++        } else {
++          let temp = flow.getTempLocal(valueType);
++          tryExits.unshift(module.local_set(temp.index, expr, valueType.isManaged));
++          expr = module.local_get(temp.index, valueType.toRef());
++        }
++      }
++      this.currentType = valueType;
+     } else if (returnType != Type.void) {
+       this.error(
+         DiagnosticCode.Type_0_is_not_assignable_to_type_1,
+@@ -2868,27 +3098,33 @@ export class Compiler extends DiagnosticEmitter {
+       );
+       this.currentType = returnType;
+       return module.unreachable();
++    } else {
++      tryExits = this.compileTryExits(0, null);
+     }
  
-+    // amxts: `throw` in an async function rejects its Promise.
-+    if (!flow.isInline && this.isAsyncFunction(flow.targetFunction)) {
+     // Remember that this flow returns
+     flow.set(FlowFlags.Returns | FlowFlags.Terminates);
+ 
+     // Handle inline return
++    let ret: ExpressionRef;
+     if (flow.isInline) {
+       let inlineReturnLabel = assert(flow.inlineReturnLabel);
+-      return expr
++      ret = expr
+         ? this.currentType == Type.void
+           ? module.block(null, [ expr, module.br(inlineReturnLabel) ])
+           : module.br(inlineReturnLabel, 0, expr)
+         : module.br(inlineReturnLabel);
++    } else {
++      // Otherwise emit a normal return
++      ret = expr
++        ? this.currentType == Type.void
++          ? module.block(null, [ expr, module.return() ])
++          : module.return(expr)
++        : module.return();
+     }
+-
+-    // Otherwise emit a normal return
+-    return expr
+-      ? this.currentType == Type.void
+-        ? module.block(null, [ expr, module.return() ])
+-        : module.return(expr)
+-      : module.return();
++    if (!tryExits) return ret;
++    tryExits.push(ret);
++    return module.block(null, tryExits);
+   }
+ 
+   private compileSwitchStatement(
+@@ -3018,12 +3254,49 @@ export class Compiler extends DiagnosticEmitter {
+   private compileThrowStatement(
+     statement: ThrowStatement
+   ): ExpressionRef {
+-    // TODO: requires exception-handling spec.
+     let flow = this.currentFlow;
++    let target = flow.targetFunction;
++    let stack = this.tryStacks.get(target);
++    let inTry = stack != null && stack.length > 0;
++
++    // amxts: `throw` in an async function rejects its Promise - unless a try
++    // of its own catches it.
++    if (!flow.isInline && this.isAsyncFunction(target) && !inTry) {
 +      return this.compileAsyncThrow(statement.value, statement);
 +    }
-+
+ 
      // Remember that this branch throws
      flow.set(FlowFlags.Throws | FlowFlags.Terminates);
  
-@@ -3078,6 +3286,32 @@ export class Compiler extends DiagnosticEmitter {
++    // amxts: the error itself, a string made one: while a try runs it
++    // unwinds there (compileTryStatement), and the call ends with its
++    // message otherwise. The runtime keeps its own throws, which allocate
++    // nothing.
++    if (!isRuntimeName(target.internalName)) {
++      let module = this.module;
++      let throwHood = this.exceptionFunction("__throw", statement);
++      if (!throwHood) return module.unreachable();
++      let errorType = throwHood.signature.parameterTypes[0];
++      let value = statement.value;
++      let valueType = this.resolver.resolveExpression(value, flow, Type.auto, ReportMode.Swallow);
++      if (valueType && valueType.classReference == this.program.stringInstance) {
++        value = Node.createNewExpression(Node.createSimpleTypeName("Error", value.range), null, [ value ], value.range);
++      }
++      let errorExpr = this.compileExpression(value, errorType, Constraints.ConvImplicit);
++      this.mayUnwind.add(target);
++      let source = statement.range.source;
++      let thrown = module.call(throwHood.internalName, [
++        errorExpr,
++        this.ensureStaticString(source.normalizedPath),
++        module.i32(source.lineAt(statement.range.start)),
++        module.i32(source.columnAt())
++      ], TypeRef.I32);
++      this.currentType = Type.void;
++      return this.unwindsIn(target)
++        ? module.block(null, [ module.if(thrown, this.makeUnwind()), module.unreachable() ])
++        : module.block(null, [ module.drop(thrown), module.unreachable() ]);
++    }
++
+     let stmts = new Array<ExpressionRef>();
+     let value = statement.value;
+     let message: Expression | null = null;
+@@ -3037,17 +3310,335 @@ export class Compiler extends DiagnosticEmitter {
+     return this.module.flatten(stmts);
+   }
+ 
++  /**
++   * amxts: `try { ... } catch (e) { ... } finally { ... }`, as JavaScript
++   * has it, without WebAssembly's exception handling, which the AOT compiler
++   * does not have. A `throw` while a try runs does not end the call: the
++   * error waits in `__thrown` (std/assembly/error.ts), and the code unwinds
++   * to the try with plain `return`s and `br`s - the throwing function
++   * returns, and every call in a program that has a try checks `__thrown`
++   * after it (makeUnwindCheck) and goes where an error goes from there
++   * (makeUnwind): the catch of a try around it in the same function, or out
++   * of the function to its caller, which does the same. `__tryDepth` counts
++   * the try blocks running, so that a throw outside every one still ends the
++   * call with its message; a try sets it one above what it found and puts
++   * back what it found however it is left, so a count a trap left behind
++   * heals. A return, break or continue that leaves a try runs its finally
++   * on the way (compileTryExits); an error in a catch runs the finally
++   * before it goes on; a finally's own error replaces the one on its way.
++   *
++   * A program without a try compiles as it always has: a throw ends the call.
++   */
+   private compileTryStatement(
+     statement: TryStatement
+   ): ExpressionRef {
+-    // TODO: can't yet support something like: try { return ... } finally { ... }
+-    // worthwhile to investigate lowering returns to block results (here)?
+-    this.error(
+-      DiagnosticCode.Not_implemented_0,
+-      statement.range,
+-      "Exceptions"
++    let module = this.module;
++    let outerFlow = this.currentFlow;
++    let target = outerFlow.targetFunction;
++    let depth = this.exceptionGlobal("__tryDepth", statement);
++    let thrown = this.exceptionGlobal("__thrown", statement);
++    let catchHood = this.exceptionFunction("__catch", statement);
++    if (!depth || !thrown || !catchHood) return module.unreachable();
++    let usizeRef = this.options.sizeTypeRef;
++    let thrownName = thrown.internalName;
++    let id = target.nextBreakId++;
++    let depthLocal = outerFlow.getTempLocal(Type.i32);
++    let context = new TryContext(
++      statement, depthLocal, `try|${id}`, `catch|${id}`,
++      outerFlow.breakLabel, outerFlow.continueLabel, outerFlow.inlineReturnLabel
+     );
+-    return this.module.unreachable();
++    let stack = this.tryStackOf(target);
++    stack.push(context);
++    let stmts = new Array<ExpressionRef>();
++
++    // try { ... }: __tryDepth one above what it was while the body runs; an
++    // error leaves the block for the catch
++    stmts.push(module.local_set(depthLocal.index, module.global_get(depth.internalName, TypeRef.I32), false));
++    stmts.push(module.global_set(depth.internalName,
++      module.binary(BinaryOp.AddI32, module.local_get(depthLocal.index, TypeRef.I32), module.i32(1))
++    ));
++    let bodyFlow = outerFlow.fork();
++    this.currentFlow = bodyFlow;
++    let bodyStmts = new Array<ExpressionRef>();
++    bodyStmts.push(this.compileStatement(Node.createBlockStatement(statement.bodyStatements, statement.range)));
++    bodyStmts.push(this.makeTryDepthRestore(context));
++    stmts.push(module.block(context.bodyLabel, bodyStmts));
++
++    // catch (e) { ... }: when the body was left with an error
++    let catchStatements = statement.catchStatements;
++    let finallyStatements = statement.finallyStatements;
++    let catchFlow: Flow | null = null;
++    if (catchStatements) {
++      context.part = TryPart.Catch;
++      catchFlow = outerFlow.fork();
++      catchFlow.mergeBranch(bodyFlow);
++      this.currentFlow = catchFlow;
++      let catchStmts = new Array<ExpressionRef>();
++      let caught = module.call(catchHood.internalName, null, usizeRef);
++      let variable = statement.catchVariable;
++      if (variable) {
++        let local = catchFlow.addScopedLocal(variable.text, catchHood.signature.returnType);
++        catchFlow.setLocalFlag(local.index, LocalFlags.NonNull | LocalFlags.Initialized);
++        catchStmts.push(module.local_set(local.index, caught, true));
++      } else {
++        catchStmts.push(module.drop(caught));
++      }
++      catchStmts.push(this.compileStatement(Node.createBlockStatement(catchStatements, statement.range)));
++      let handler = module.flatten(catchStmts, TypeRef.None);
++      if (finallyStatements) handler = module.block(context.catchLabel, [ handler ]);
++      stmts.push(module.if(module.global_get(thrownName, usizeRef), handler));
++    }
++    this.currentFlow = outerFlow;
++    if (catchFlow) outerFlow.inheritAlternatives(bodyFlow, catchFlow);
++    else outerFlow.inherit(bodyFlow);
++
++    // finally { ... }: always, an error on its way kept aside while it runs
++    // and going on after
++    if (finallyStatements) {
++      context.part = TryPart.Finally;
++      let errorType = thrown.type;
++      let kept = outerFlow.getTempLocal(errorType);
++      stmts.push(module.local_set(kept.index, module.global_get(thrownName, usizeRef), true));
++      stmts.push(module.global_set(thrownName, this.makeZero(errorType)));
++      let finallyFlow = outerFlow.fork();
++      this.currentFlow = finallyFlow;
++      stmts.push(this.compileStatement(Node.createBlockStatement(finallyStatements, statement.range)));
++      this.currentFlow = outerFlow;
++      outerFlow.inherit(finallyFlow);
++      stmts.push(module.global_set(thrownName, module.local_get(kept.index, errorType.toRef())));
++      stack.pop();
++      stmts.push(module.if(module.global_get(thrownName, usizeRef), this.makeUnwind()));
++    } else {
++      stack.pop();
++    }
++    if (outerFlow.is(FlowFlags.Terminates)) stmts.push(module.unreachable());
++    return module.flatten(stmts, TypeRef.None);
++  }
++
++  /**
++   * amxts: `if (animal instanceof Cat) animal.meow()` - a variable tested
++   * with instanceof is of that class where the test holds, as TypeScript
++   * narrows it: the branch has the variable under its name with the
++   * narrower type (an alias of the same local). `!(x instanceof C)` narrows
++   * the other branch, and `a && b` both of theirs where it holds. A variable
++   * a closure shares through a box stays as declared.
++   */
++  private narrowInstanceOf(condition: Expression, branch: Flow, holds: bool): void {
++    while (condition.kind == NodeKind.Parenthesized) condition = (<ParenthesizedExpression>condition).expression;
++    if (condition.kind == NodeKind.UnaryPrefix && (<UnaryPrefixExpression>condition).operator == Token.Exclamation) {
++      this.narrowInstanceOf((<UnaryPrefixExpression>condition).operand, branch, !holds);
++      return;
++    }
++    if (condition.kind == NodeKind.Binary && (<BinaryExpression>condition).operator == Token.Ampersand_Ampersand && holds) {
++      this.narrowInstanceOf((<BinaryExpression>condition).left, branch, true);
++      this.narrowInstanceOf((<BinaryExpression>condition).right, branch, true);
++      return;
++    }
++    if (!holds || condition.kind != NodeKind.InstanceOf) return;
++    let test = <InstanceOfExpression>condition;
++    if (test.expression.kind != NodeKind.Identifier) return;
++    let name = (<IdentifierExpression>test.expression).text;
++    let local = branch.lookupLocal(name);
++    if (!local || local.index < 0 || !local.declaredByFlow(branch) || local.closureBox >= 0) return;
++    let type = this.resolver.resolveType(test.isType, branch, branch.sourceFunction, cloneMap(branch.contextualTypeArguments), ReportMode.Swallow);
++    if (!type || !type.isReference) return;
++    type = type.nonNullableType;
++    let declared = local.type.nonNullableType;
++    if (type == declared || !type.isAssignableTo(declared)) return;
++    branch.addScopedAlias(name, type, local.index);
++    branch.setLocalFlag(local.index, LocalFlags.NonNull);
++  }
++
++  /** amxts: the `try` statements being compiled, innermost last, by the function they are compiled into. */
++  private tryStacks: Map<Function, TryContext[]> = new Map();
++
++  private tryStackOf(instance: Function): TryContext[] {
++    let stack = this.tryStacks.get(instance);
++    if (!stack) this.tryStacks.set(instance, stack = []);
++    return stack;
++  }
++
++  /** amxts: whether code compiled into `instance` unwinds to a catch: a program with a try, outside the runtime. */
++  private unwindsIn(instance: Function): bool {
++    return this.program.parser.usesExceptions && !isRuntimeName(instance.internalName);
++  }
++
++  /** amxts: a global of the exceptions' hood (std/assembly/error.ts), compiled. */
++  private exceptionGlobal(name: string, reportNode: Node): Global | null {
++    let element = this.program.lookup(name);
++    if (!element || element.kind != ElementKind.Global || !this.compileGlobalLazy(<Global>element, reportNode)) {
++      this.error(
++        DiagnosticCode.Cannot_find_name_0,
++        reportNode.range, name
++      );
++      return null;
++    }
++    return <Global>element;
++  }
++
++  /** amxts: a function of the exceptions' hood (std/assembly/error.ts), compiled. */
++  private exceptionFunction(name: string, reportNode: Node): Function | null {
++    let element = this.program.lookup(name);
++    let instance = element && element.kind == ElementKind.FunctionPrototype
++      ? this.resolver.resolveFunction(<FunctionPrototype>element, null)
++      : null;
++    if (!instance || !this.compileFunction(instance)) {
++      this.error(
++        DiagnosticCode.Cannot_find_name_0,
++        reportNode.range, name
++      );
++      return null;
++    }
++    return instance;
++  }
++
++  /** amxts: __tryDepth back to what `context`'s statement found. */
++  private makeTryDepthRestore(context: TryContext): ExpressionRef {
++    let module = this.module;
++    let depth = assert(this.exceptionGlobal("__tryDepth", context.statement));
++    return module.global_set(depth.internalName, module.local_get(context.depthLocal.index, TypeRef.I32));
++  }
++
++  /**
++   * amxts: where an error goes from here: the innermost try around it -
++   * from its body to its catch, from its catch to its finally - or out of the
++   * function, whose caller unwinds on. An async function's promise rejects
++   * with it instead.
++   */
++  private makeUnwind(): ExpressionRef {
++    let module = this.module;
++    let flow = this.currentFlow;
++    let target = flow.targetFunction;
++    let stack = this.tryStacks.get(target);
++    if (stack) {
++      for (let i = stack.length - 1; i >= 0; --i) {
++        let context = stack[i];
++        if (context.part == TryPart.Body) {
++          return module.block(null, [ this.makeTryDepthRestore(context), module.br(context.bodyLabel) ]);
++        }
++        if (context.part == TryPart.Catch && context.statement.finallyStatements) return module.br(context.catchLabel);
++      }
++    }
++    let returnType = target.signature.returnType;
++    if (this.isAsyncFunction(target)) {
++      let hood = this.asyncHood("__co_throwPending", target.identifierNode);
++      if (hood && this.compileFunction(hood)) {
++        let call = module.call(hood.internalName, null, hood.signature.returnType.toRef());
++        return returnType == Type.void
++          ? module.block(null, [ module.drop(call), module.return() ])
++          : module.return(call);
++      }
++    }
++    return returnType == Type.void ? module.return() : module.return(this.makeZero(returnType));
++  }
++
++  /** amxts: the functions compiled whole, whose unwinding is known - see makeUnwindCheck. */
++  private unwindKnown: Set<Function> = new Set();
++  /** amxts: the functions an error may come out of: a throw, or a call it unwinds through. */
++  private mayUnwind: Set<Function> = new Set();
++
++  /**
++   * amxts: a call, then - in a program with a try - a look at whether an
++   * error is on its way to a catch, which goes on from here (makeUnwind).
++   * Only a call that may give one back is looked after: to a function with a
++   * throw, a call it unwinds through or an await, to one not compiled whole
++   * yet (a recursion, a virtual call's stub), or through a function value.
++   * The runtime, the natives and the functions nothing throws in give none;
++   * an error a listener threw while a native ran, which comes back with the
++   * native, meets the check at the end of the try around it.
++   */
++  private makeUnwindCheck(expr: ExpressionRef, callee: Function | null, type: Type): ExpressionRef {
++    let flow = this.currentFlow;
++    let target = flow.targetFunction;
++    if (!this.unwindsIn(target)) return expr;
++    if (callee) {
++      let name = callee.internalName;
++      let awaits = name.includes("__co_wait");
++      if (
++        isRuntimeName(name) || callee == this.program.abortInstance || callee.is(CommonFlags.Ambient) ||
++        name == "~lib/error/__throw" || name == "~lib/error/__catch" ||
++        // the coroutines' hood: only an await gives an error back
++        (name.includes("/__co_") && !awaits) ||
++        (!awaits && this.unwindKnown.has(callee) && !this.mayUnwind.has(callee))
++      ) return expr;
++    }
++    this.mayUnwind.add(target);
++    let module = this.module;
++    let thrown = this.exceptionGlobal("__thrown", flow.targetFunction.identifierNode);
++    if (!thrown) return expr;
++    let check = module.if(module.global_get(thrown.internalName, this.options.sizeTypeRef), this.makeUnwind());
++    if (type == Type.void) return module.block(null, [ expr, check ], TypeRef.None);
++    let typeRef = type.toRef();
++    // At the top level the value waits in a global of its type: a lazy
++    // global's initializer is compiled in its own file's flow while its code
++    // lands in the start function being compiled, so a local cannot be made
++    // for it. Nothing runs between the set and the get but the check.
++    let name = target.internalName;
++    if (name.startsWith("start:") || name == BuiltinNames.start) {
++      let global = this.unwindTemp(typeRef);
++      return module.block(null, [
++        module.global_set(global, expr),
++        check,
++        module.global_get(global, typeRef)
++      ], typeRef);
++    }
++    let temp = flow.getTempLocal(type);
++    return module.block(null, [
++      module.local_set(temp.index, expr, type.isManaged),
++      check,
++      module.local_get(temp.index, typeRef)
++    ], typeRef);
++  }
++
++  /** amxts: the globals unwindTemp has made. */
++  private unwindTemps: Set<string> = new Set();
++
++  /** amxts: the global a checked call's value waits in, by its type - see makeUnwindCheck. */
++  private unwindTemp(typeRef: TypeRef): string {
++    let name = `~unwind|${typeRef}`;
++    let module = this.module;
++    if (!this.unwindTemps.has(name)) {
++      this.unwindTemps.add(name);
++      let init = typeRef == TypeRef.I64 ? module.i64(0)
++        : typeRef == TypeRef.F32 ? module.f32(0)
++        : typeRef == TypeRef.F64 ? module.f64(0)
++        : typeRef == TypeRef.V128 ? module.v128(new Uint8Array(16))
++        : module.i32(0);
++      module.addGlobal(name, typeRef, true, init);
++    }
++    return name;
++  }
++
++  /**
++   * amxts: what leaving `try` statements takes on the way out of a return
++   * (kind 0), a break (1) or a continue (2) to `label`: __tryDepth put back,
++   * and each one's finally run. Null when the jump leaves none.
++   */
++  private compileTryExits(kind: i32, label: string | null): ExpressionRef[] | null {
++    let flow = this.currentFlow;
++    let stack = this.tryStacks.get(flow.targetFunction);
++    if (!stack || !stack.length) return null;
++    let exprs = new Array<ExpressionRef>();
++    for (let i = stack.length - 1; i >= 0; --i) {
++      let context = stack[i];
++      let leaves = kind == 0
++        ? context.returnLabel == flow.inlineReturnLabel
++        : kind == 1 ? context.breakLabel == label : context.continueLabel == label;
++      if (!leaves) break;
++      if (context.part == TryPart.Body) exprs.push(this.makeTryDepthRestore(context));
++      let finallyStatements = context.statement.finallyStatements;
++      if (finallyStatements && context.part != TryPart.Finally) {
++        // The finally runs as its own does: an error in it goes out of the
++        // statement, past the tries inside it already left.
++        let inner = stack.splice(i + 1, stack.length - i - 1);
++        let part = context.part;
++        context.part = TryPart.Finally;
++        exprs.push(this.compileStatement(Node.createBlockStatement(finallyStatements, context.statement.range)));
++        context.part = part;
++        for (let j = 0, k = inner.length; j < k; ++j) stack.push(inner[j]);
++      }
++    }
++    return exprs.length ? exprs : null;
+   }
+ 
+   /** Compiles a variable statement. Returns `0` if an initializer is not necessary. */
+@@ -3078,6 +3669,32 @@ export class Compiler extends DiagnosticEmitter {
        // Resolve type if annotated
        let typeNode = declaration.type;
        let initializerNode = declaration.initializer;
@@ -636,7 +1133,7 @@ index f99bd5a..a7e830e 100644
        if (typeNode) {
          type = resolver.resolveType( // reports
            typeNode, flow,
-@@ -3238,7 +3472,12 @@ export class Compiler extends DiagnosticEmitter {
+@@ -3238,7 +3855,12 @@ export class Compiler extends DiagnosticEmitter {
            flow.unsetLocalFlag(local.index, ~0);
            if (isConst) flow.setLocalFlag(local.index, LocalFlags.Constant);
          }
@@ -650,7 +1147,7 @@ index f99bd5a..a7e830e 100644
            initializers.push(
              this.makeLocalAssignment(local, initExpr, initType ? initType : type, false)
            );
-@@ -3479,6 +3718,11 @@ export class Compiler extends DiagnosticEmitter {
+@@ -3479,6 +4101,11 @@ export class Compiler extends DiagnosticEmitter {
          break;
        }
        case NodeKind.Call: {
@@ -662,7 +1159,7 @@ index f99bd5a..a7e830e 100644
          expr = this.compileCallExpression(<CallExpression>expression, contextualType, constraints);
          break;
        }
-@@ -3487,6 +3731,10 @@ export class Compiler extends DiagnosticEmitter {
+@@ -3487,6 +4114,10 @@ export class Compiler extends DiagnosticEmitter {
          break;
        }
        case NodeKind.ElementAccess: {
@@ -673,7 +1170,7 @@ index f99bd5a..a7e830e 100644
          expr = this.compileElementAccessExpression(<ElementAccessExpression>expression, contextualType, constraints);
          break;
        }
-@@ -3516,6 +3764,10 @@ export class Compiler extends DiagnosticEmitter {
+@@ -3516,6 +4147,10 @@ export class Compiler extends DiagnosticEmitter {
          break;
        }
        case NodeKind.PropertyAccess: {
@@ -684,7 +1181,7 @@ index f99bd5a..a7e830e 100644
          expr = this.compilePropertyAccessExpression(<PropertyAccessExpression>expression, contextualType, constraints);
          break;
        }
-@@ -3571,6 +3823,20 @@ export class Compiler extends DiagnosticEmitter {
+@@ -3571,6 +4206,20 @@ export class Compiler extends DiagnosticEmitter {
      return expr;
    }
  
@@ -705,7 +1202,7 @@ index f99bd5a..a7e830e 100644
    /** Converts an expression's result from one type to another. */
    convertExpression(
      expr: ExpressionRef,
-@@ -3602,10 +3868,46 @@ export class Compiler extends DiagnosticEmitter {
+@@ -3602,10 +4251,46 @@ export class Compiler extends DiagnosticEmitter {
      // any to void
      if (toType.kind == TypeKind.Void) return module.drop(expr);
  
@@ -752,7 +1249,7 @@ index f99bd5a..a7e830e 100644
        } else if (explicit && fromType.isNullableReference && !toType.isNullableReference) {
          // explicit conversion from nullable to non-nullable requires a runtime
          // check here because nonnull state above already didn't know better
-@@ -3670,7 +3972,26 @@ export class Compiler extends DiagnosticEmitter {
+@@ -3670,7 +4355,26 @@ export class Compiler extends DiagnosticEmitter {
        return module.unreachable();
      }
  
@@ -780,7 +1277,7 @@ index f99bd5a..a7e830e 100644
        if (!explicit) {
          this.error(
            DiagnosticCode.Conversion_from_type_0_to_1_requires_an_explicit_cast,
-@@ -3845,10 +4166,14 @@ export class Compiler extends DiagnosticEmitter {
+@@ -3845,10 +4549,14 @@ export class Compiler extends DiagnosticEmitter {
          let expr = this.compileExpression(expression.expression, contextualType.exceptVoid, inheritedConstraints);
          let type = this.currentType;
          if (this.currentFlow.isNonnull(expr, type)) {
@@ -799,7 +1296,7 @@ index f99bd5a..a7e830e 100644
          } else if (!this.options.noAssert) {
            expr = this.makeRuntimeNonNullCheck(expr, type, expression);
          }
-@@ -3893,6 +4218,10 @@ export class Compiler extends DiagnosticEmitter {
+@@ -3893,6 +4601,10 @@ export class Compiler extends DiagnosticEmitter {
      contextualType: Type,
    ): ExpressionRef {
  
@@ -810,7 +1307,7 @@ index f99bd5a..a7e830e 100644
      const left = expression.left;
      const leftExpr = this.compileExpression(left, contextualType);
      const leftType = this.currentType;
-@@ -4315,6 +4644,11 @@ export class Compiler extends DiagnosticEmitter {
+@@ -4315,6 +5027,11 @@ export class Compiler extends DiagnosticEmitter {
            rightExpr = this.compileExpression(right, leftType);
            rightType = this.currentType;
            commonType = Type.commonType(leftType, rightType, contextualType);
@@ -822,7 +1319,7 @@ index f99bd5a..a7e830e 100644
            if (!commonType || !commonType.isNumericValue) {
              this.error(
                DiagnosticCode.Operator_0_cannot_be_applied_to_types_1_and_2,
-@@ -4390,6 +4724,13 @@ export class Compiler extends DiagnosticEmitter {
+@@ -4390,6 +5107,13 @@ export class Compiler extends DiagnosticEmitter {
              break;
            }
          }
@@ -836,7 +1333,7 @@ index f99bd5a..a7e830e 100644
          if (!leftType.isIntegerValue) {
            this.error(
              DiagnosticCode.The_0_operator_cannot_be_applied_to_type_1,
-@@ -4417,6 +4758,13 @@ export class Compiler extends DiagnosticEmitter {
+@@ -4417,6 +5141,13 @@ export class Compiler extends DiagnosticEmitter {
              break;
            }
          }
@@ -850,7 +1347,7 @@ index f99bd5a..a7e830e 100644
          if (!leftType.isIntegerValue) {
            this.error(
              DiagnosticCode.The_0_operator_cannot_be_applied_to_type_1,
-@@ -4445,6 +4793,12 @@ export class Compiler extends DiagnosticEmitter {
+@@ -4445,6 +5176,12 @@ export class Compiler extends DiagnosticEmitter {
              break;
            }
          }
@@ -863,7 +1360,7 @@ index f99bd5a..a7e830e 100644
          if (!leftType.isIntegerValue) {
            this.error(
              DiagnosticCode.The_0_operator_cannot_be_applied_to_type_1,
-@@ -4473,6 +4827,13 @@ export class Compiler extends DiagnosticEmitter {
+@@ -4473,6 +5210,13 @@ export class Compiler extends DiagnosticEmitter {
            }
          }
  
@@ -877,7 +1374,7 @@ index f99bd5a..a7e830e 100644
          if (compound) {
            if (!leftType.isIntegerValue) {
              this.error(
-@@ -4486,6 +4847,10 @@ export class Compiler extends DiagnosticEmitter {
+@@ -4486,6 +5230,10 @@ export class Compiler extends DiagnosticEmitter {
          } else {
            rightExpr = this.compileExpression(right, leftType);
            rightType = this.currentType;
@@ -888,7 +1385,7 @@ index f99bd5a..a7e830e 100644
            commonType = Type.commonType(leftType, rightType, contextualType);
            if (!commonType || !commonType.isIntegerValue) {
              this.error(
-@@ -4518,6 +4883,13 @@ export class Compiler extends DiagnosticEmitter {
+@@ -4518,6 +5266,13 @@ export class Compiler extends DiagnosticEmitter {
            }
          }
  
@@ -902,7 +1399,7 @@ index f99bd5a..a7e830e 100644
          if (compound) {
            if (!leftType.isIntegerValue) {
              this.error(
-@@ -4531,6 +4903,10 @@ export class Compiler extends DiagnosticEmitter {
+@@ -4531,6 +5286,10 @@ export class Compiler extends DiagnosticEmitter {
          } else {
            rightExpr = this.compileExpression(right, leftType);
            rightType = this.currentType;
@@ -913,7 +1410,7 @@ index f99bd5a..a7e830e 100644
            commonType = Type.commonType(leftType, rightType, contextualType);
            if (!commonType || !commonType.isIntegerValue) {
              this.error(
-@@ -4563,6 +4939,13 @@ export class Compiler extends DiagnosticEmitter {
+@@ -4563,6 +5322,13 @@ export class Compiler extends DiagnosticEmitter {
            }
          }
  
@@ -927,7 +1424,7 @@ index f99bd5a..a7e830e 100644
          if (compound) {
            if (!leftType.isIntegerValue) {
              this.error(
-@@ -4576,6 +4959,10 @@ export class Compiler extends DiagnosticEmitter {
+@@ -4576,6 +5342,10 @@ export class Compiler extends DiagnosticEmitter {
          } else {
            rightExpr = this.compileExpression(right, leftType);
            rightType = this.currentType;
@@ -938,7 +1435,15 @@ index f99bd5a..a7e830e 100644
            commonType = Type.commonType(leftType, rightType, contextualType);
            if (!commonType || !commonType.isIntegerValue) {
              this.error(
-@@ -4782,13 +5169,145 @@ export class Compiler extends DiagnosticEmitter {
+@@ -4603,6 +5373,7 @@ export class Compiler extends DiagnosticEmitter {
+         leftType = this.currentType;
+ 
+         let rightFlow = flow.forkThen(leftExpr);
++        this.narrowInstanceOf(left, rightFlow, true); // amxts
+         this.currentFlow = rightFlow;
+ 
+         // simplify if only interested in true or false
+@@ -4782,43 +5553,181 @@ export class Compiler extends DiagnosticEmitter {
          }
          break;
        }
@@ -946,6 +1451,39 @@ index f99bd5a..a7e830e 100644
 -        this.error(
 -          DiagnosticCode.Not_implemented_0,
 -          expression.range, "'in' operator"
+-        );
+-        this.currentType = Type.bool;
+-        return module.unreachable();
+-      }
+-      default: {
+-        assert(false);
+-        expr = this.module.unreachable();
+-        break;
+-      }
+-    }
+-    if (!compound) return expr;
+-    let resolver = this.resolver;
+-    let target = resolver.lookupExpression(left, this.currentFlow);
+-    if (!target) return module.unreachable();
+-    let targetType = resolver.getTypeOfElement(target);
+-    if (!targetType) targetType = Type.void;
+-    if (!this.currentType.isStrictlyAssignableTo(targetType)) {
+-      this.error(
+-        DiagnosticCode.Type_0_is_not_assignable_to_type_1,
+-        expression.range, this.currentType.toString(), targetType.toString()
+-      );
+-      return module.unreachable();
+-    }
+-    return this.makeAssignment(
+-      target,
+-      expr,
+-      this.currentType,
+-      right,
+-      resolver.currentThisExpression,
+-      resolver.currentElementExpression,
+-      contextualType != Type.void
+-    );
+-  }
 +      case Token.Question_Question_Equals: compound = true;
 +      case Token.Question_Question: { // amxts: left ?? right -> ((t = left) != null ? t : right)
 +        let flow = this.currentFlow;
@@ -1075,9 +1613,7 @@ index f99bd5a..a7e830e 100644
 +          isThere,
 +          module.local_get(temp.index, leftType.toRef()),
 +          rightExpr
-         );
--        this.currentType = Type.bool;
--        return module.unreachable();
++        );
 +        flow.mergeBranch(rightFlow); // the right side executes conditionally
 +        // `LHS ?? RHS` can only be null if RHS can be
 +        this.currentType = rightType.is(TypeFlags.Nullable)
@@ -1087,23 +1623,46 @@ index f99bd5a..a7e830e 100644
 +      }
 +      case Token.In: {
 +        return this.compileIn(expression);
-       }
-       default: {
-         assert(false);
-@@ -4802,6 +5321,12 @@ export class Compiler extends DiagnosticEmitter {
-     if (!target) return module.unreachable();
-     let targetType = resolver.getTypeOfElement(target);
-     if (!targetType) targetType = Type.void;
++      }
++      default: {
++        assert(false);
++        expr = this.module.unreachable();
++        break;
++      }
++    }
++    if (!compound) return expr;
++    let resolver = this.resolver;
++    let target = resolver.lookupExpression(left, this.currentFlow);
++    if (!target) return module.unreachable();
++    let targetType = resolver.getTypeOfElement(target);
++    if (!targetType) targetType = Type.void;
 +    // amxts: `mask |= bit` on a number works on int32 and stores a number
 +    // back, as JavaScript does - the result is widened to the target.
 +    if (this.currentType.isIntegerValue && targetType.isFloatValue) {
 +      expr = this.convertExpression(expr, this.currentType, targetType, false, expression);
 +      this.currentType = targetType;
 +    }
-     if (!this.currentType.isStrictlyAssignableTo(targetType)) {
-       this.error(
-         DiagnosticCode.Type_0_is_not_assignable_to_type_1,
-@@ -5683,6 +6208,157 @@ export class Compiler extends DiagnosticEmitter {
++    if (!this.currentType.isStrictlyAssignableTo(targetType)) {
++      this.error(
++        DiagnosticCode.Type_0_is_not_assignable_to_type_1,
++        expression.range, this.currentType.toString(), targetType.toString()
++      );
++      return module.unreachable();
++    }
++    return this.makeAssignment(
++      target,
++      expr,
++      this.currentType,
++      right,
++      resolver.currentThisExpression,
++      resolver.currentElementExpression,
++      contextualType != Type.void
++    );
++  }
+ 
+   makeLt(leftExpr: ExpressionRef, rightExpr: ExpressionRef, type: Type): ExpressionRef {
+     // Cares about garbage bits and signedness
+@@ -5683,6 +6592,157 @@ export class Compiler extends DiagnosticEmitter {
      return this.makeCallDirect(operatorInstance, [ firstExpr, secondExpr ], reportNode);
    }
  
@@ -1261,7 +1820,7 @@ index f99bd5a..a7e830e 100644
    private compileAssignment(
      expression: Expression,
      valueExpression: Expression,
-@@ -5698,6 +6374,8 @@ export class Compiler extends DiagnosticEmitter {
+@@ -5698,6 +6758,8 @@ export class Compiler extends DiagnosticEmitter {
  
      // to compile just the value, we need to know the target's type
      let targetType: Type;
@@ -1270,7 +1829,7 @@ index f99bd5a..a7e830e 100644
      switch (target.kind) {
        case ElementKind.Global:
        case ElementKind.Local: {
-@@ -5705,15 +6383,8 @@ export class Compiler extends DiagnosticEmitter {
+@@ -5705,15 +6767,8 @@ export class Compiler extends DiagnosticEmitter {
            if (!this.compileGlobalLazy(<Global>target, expression)) {
              return this.module.unreachable();
            }
@@ -1287,7 +1846,7 @@ index f99bd5a..a7e830e 100644
          if (this.pendingElements.has(target)) {
            this.error(
              DiagnosticCode.Variable_0_used_before_its_declaration,
-@@ -5756,6 +6427,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -5756,6 +6811,9 @@ export class Compiler extends DiagnosticEmitter {
          assert(setterInstance.signature.parameterTypes.length == 1); // parser must guarantee this
          targetType = setterInstance.signature.parameterTypes[0];
          if (setterInstance.hasDecorator(DecoratorFlags.Unsafe)) this.checkUnsafe(expression);
@@ -1297,7 +1856,7 @@ index f99bd5a..a7e830e 100644
          break;
        }
        case ElementKind.IndexSignature: {
-@@ -5804,7 +6478,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -5804,7 +6862,7 @@ export class Compiler extends DiagnosticEmitter {
  
      // compile the value and do the assignment
      assert(targetType != Type.void);
@@ -1306,7 +1865,7 @@ index f99bd5a..a7e830e 100644
      let valueType = this.currentType;
      if (targetType.isNullableReference && this.currentFlow.isNonnull(valueExpr, valueType)) targetType = targetType.nonNullableType;
      return this.makeAssignment(
-@@ -5841,7 +6515,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -5841,7 +6899,9 @@ export class Compiler extends DiagnosticEmitter {
      switch (target.kind) {
        case ElementKind.Local: {
          let local = <Local>target;
@@ -1317,7 +1876,7 @@ index f99bd5a..a7e830e 100644
            this.error(
              DiagnosticCode.Cannot_assign_to_0_because_it_is_a_constant_or_a_read_only_property,
              valueExpression.range, target.internalName
-@@ -5865,7 +6541,14 @@ export class Compiler extends DiagnosticEmitter {
+@@ -5865,7 +6925,14 @@ export class Compiler extends DiagnosticEmitter {
            this.currentType = tee ? global.type : Type.void;
            return module.unreachable();
          }
@@ -1333,7 +1892,7 @@ index f99bd5a..a7e830e 100644
        }
        case ElementKind.PropertyPrototype: {
          let propertyInstance = this.resolver.resolveProperty(<PropertyPrototype>target);
-@@ -5893,6 +6576,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -5893,6 +6960,9 @@ export class Compiler extends DiagnosticEmitter {
            if (isConstructor && thisExpression.kind == NodeKind.This) {
              flow.setThisFieldFlag(propertyInstance, FieldFlags.Initialized);
            }
@@ -1343,7 +1902,7 @@ index f99bd5a..a7e830e 100644
          }
          let setterInstance = propertyInstance.setterInstance;
          if (!setterInstance) {
-@@ -5904,6 +6590,37 @@ export class Compiler extends DiagnosticEmitter {
+@@ -5904,6 +6974,37 @@ export class Compiler extends DiagnosticEmitter {
          }
          assert(setterInstance.signature.parameterTypes.length == 1);
          assert(setterInstance.signature.returnType == Type.void);
@@ -1381,7 +1940,7 @@ index f99bd5a..a7e830e 100644
          if (propertyInstance.is(CommonFlags.Instance)) {
            let thisType = assert(setterInstance.signature.thisType);
            let thisExpr = this.compileExpression(
-@@ -6028,11 +6745,31 @@ export class Compiler extends DiagnosticEmitter {
+@@ -6028,11 +7129,31 @@ export class Compiler extends DiagnosticEmitter {
      tee: bool
    ): ExpressionRef {
      let module = this.module;
@@ -1414,7 +1973,7 @@ index f99bd5a..a7e830e 100644
      if (type.isNullableReference) {
        if (!valueType.isNullableReference || flow.isNonnull(valueExpr, type)) flow.setLocalFlag(localIndex, LocalFlags.NonNull);
        else flow.unsetLocalFlag(localIndex, LocalFlags.NonNull);
-@@ -6042,13 +6779,6 @@ export class Compiler extends DiagnosticEmitter {
+@@ -6042,13 +7163,6 @@ export class Compiler extends DiagnosticEmitter {
        if (!flow.canOverflow(valueExpr, type)) flow.setLocalFlag(localIndex, LocalFlags.Wrapped);
        else flow.unsetLocalFlag(localIndex, LocalFlags.Wrapped);
      }
@@ -1428,7 +1987,7 @@ index f99bd5a..a7e830e 100644
    }
  
    /** Makes an assignment to a global. */
-@@ -6146,6 +6876,24 @@ export class Compiler extends DiagnosticEmitter {
+@@ -6146,6 +7260,24 @@ export class Compiler extends DiagnosticEmitter {
        return module.local_set(thisLocal.index, superCall, classInstance.type.isManaged);
      }
  
@@ -1453,7 +2012,7 @@ index f99bd5a..a7e830e 100644
      // otherwise resolve normally
      let target = this.resolver.lookupExpression(expression.expression, flow); // reports
      if (!target) return module.unreachable();
-@@ -6443,7 +7191,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -6443,7 +7575,7 @@ export class Compiler extends DiagnosticEmitter {
          // otherwise, the arguments may not be inlined, e.g. `abc(abc(123))`
          let args = new Array<ExpressionRef>(numArguments);
          for (let i = 0; i < numArguments; ++i) {
@@ -1462,7 +2021,7 @@ index f99bd5a..a7e830e 100644
          }
          // make the inlined call
          inlineStack.push(instance);
-@@ -6464,7 +7212,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -6464,7 +7596,7 @@ export class Compiler extends DiagnosticEmitter {
      let parameterTypes = signature.parameterTypes;
      for (let i = 0; i < numArguments; ++i, ++index) {
        let paramType = parameterTypes[i];
@@ -1471,12 +2030,21 @@ index f99bd5a..a7e830e 100644
        operands[index] = paramExpr;
      }
      assert(index == numArgumentsInclThis);
-@@ -6697,8 +7445,879 @@ export class Compiler extends DiagnosticEmitter {
+@@ -6697,81 +7829,982 @@ export class Compiler extends DiagnosticEmitter {
      return stub;
    }
  
 -  /** Ensures compilation of the override stub for the specified function. */
 -  ensureOverrideStub(original: Function): Function {
+-    // An override stub is a function redirecting virtual calls to the actual
+-    // override targeted by the call. It utilizes varargs stubs where necessary
+-    // and as such has the same semantics as one. Here, we only make sure that
+-    // a placeholder exist, with actual code being generated as a finalization
+-    // step once module compilation is otherwise complete.
+-    let stub = original.overrideStub;
+-    if (stub) return stub;
+-    stub = original.newStub("override");
+-    original.overrideStub = stub;
 +  /**
 +   * amxts: whether `source` takes a strict prefix of `target`'s parameters,
 +   * with the same types, and returns what `target` returns or `target` returns
@@ -1524,7 +2092,13 @@ index f99bd5a..a7e830e 100644
 +    // Not a Stub: it goes into the function table, which stubs may not.
 +    adapter.original = original;
 +
-+    let module = this.module;
+     let module = this.module;
+-    stub.ref = module.addFunction(
+-      stub.internalName,
+-      stub.signature.paramRefs,
+-      stub.signature.resultRefs,
+-      null,
+-      module.unreachable()
 +    let forwarded = new Array<ExpressionRef>(original.signature.parameterTypes.length);
 +    for (let i = 0, k = forwarded.length; i < k; ++i) {
 +      forwarded[i] = module.local_get(i, target.parameterTypes[i].toRef());
@@ -1545,22 +2119,35 @@ index f99bd5a..a7e830e 100644
 +      adapter.signature.resultRefs,
 +      typesToRefs(adapter.getNonParameterLocalTypes()),
 +      body
-+    );
+     );
+-    this.overrideStubs.add(original);
+-    return stub;
 +    adapter.set(CommonFlags.Compiled);
 +    adapter.finalize(module, funcRef);
 +    return adapter;
-+  }
-+
+   }
+ 
+-  /** Finalizes the override stub of the specified function. */
+-  private finalizeOverrideStub(instance: Function): void {
+-    let stub = this.ensureOverrideStub(instance);
+-    if (stub.is(CommonFlags.Compiled)) return;
 +  /** amxts: the adapters of function values, by source and target signature - see convertExpression. */
 +  private valueArityAdapters: Map<string,Function> = new Map();
-+
+ 
+-    assert(instance.parent.kind == ElementKind.Class || instance.parent.kind == ElementKind.Interface);
 +  /**
 +   * amxts: a function object that calls the function value `expr` with the
 +   * leading arguments of `target` - a table entry of the target's signature
 +   * whose `_env` is the value (std/assembly/function.ts, __arity).
 +   */
 +  private makeValueArityAdapter(expr: ExpressionRef, source: Signature, target: Signature, reportNode: Node): ExpressionRef {
-+    let module = this.module;
+     let module = this.module;
+-    let usizeType = this.options.usizeType;
+-    let sizeTypeRef = usizeType.toRef();
+-    let parameterTypes = instance.signature.parameterTypes;
+-    let returnType = instance.signature.returnType;
+-    let numParameters = parameterTypes.length;
+-    let tempIndex = 1 + parameterTypes.length; // incl. `this`
 +    let key = `${source.id}|${target.id}`;
 +    let adapter = this.valueArityAdapters.get(key);
 +    if (!adapter) {
@@ -1628,7 +2215,28 @@ index f99bd5a..a7e830e 100644
 +    if (!scan && bodyNode) inlineFunction.closureScan = scan = scanClosures(bodyNode);
 +    return scan;
 +  }
-+
+ 
+-    // Switch over this's rtId and map it to the respective overload
+-    let builder = new SwitchBuilder(this.module,
+-      module.load(4, false,
+-        module.binary(
+-          sizeTypeRef == TypeRef.I64
+-            ? BinaryOp.SubI64
+-            : BinaryOp.SubI32,
+-          module.local_get(0, sizeTypeRef),
+-          sizeTypeRef == TypeRef.I64
+-            ? module.i64(8) // rtId offset = -8
+-            : module.i32(8)
+-        ),
+-        TypeRef.I32
+-      )
+-    );
+-    let overrideInstances = this.resolver.resolveOverrides(instance);
+-    if (overrideInstances) {
+-      let mostRecentInheritanceMapping = new Map<Class, Class>();
+-      for (let i = 0, k = overrideInstances.length; i < k; ++i) {
+-        let overrideInstance = overrideInstances[i];
+-        if (!overrideInstance.is(CommonFlags.Compiled)) continue; // errored
 +  /** amxts: notes whether the source assigns a variable just declared, and says whether it is to live in a box. */
 +  private noteDeclared(local: Local, name: string): bool {
 +    let scan = this.currentClosureScan();
@@ -1636,7 +2244,9 @@ index f99bd5a..a7e830e 100644
 +    local.closureAssigned = scan.assigned.has(name);
 +    return local.closureAssigned && scan.captured.has(name);
 +  }
-+
+ 
+-        let overrideSignature = overrideInstance.signature;
+-        let originalSignature = instance.signature;
 +  /** amxts: `box = __box(value)`, the declaration of a variable that lives in a box. */
 +  private makeBoxedDeclaration(local: Local, valueExpr: ExpressionRef, reportNode: Node, tdz: bool = false): ExpressionRef {
 +    let module = this.module;
@@ -1653,7 +2263,20 @@ index f99bd5a..a7e830e 100644
 +    this.currentType = Type.void;
 +    return expr;
 +  }
-+
+ 
+-        if (!overrideSignature.isAssignableTo(originalSignature, true)) {
+-          this.error(
+-            DiagnosticCode.Type_0_is_not_assignable_to_type_1,
+-            overrideInstance.identifierNode.range, overrideSignature.toString(), originalSignature.toString()
+-          );
+-          continue;
+-        }
+-        // TODO: additional optional parameters are not permitted by `isAssignableTo` yet
+-        let overrideParameterTypes = overrideSignature.parameterTypes;
+-        let overrideNumParameters = overrideParameterTypes.length;
+-        let paramExprs = new Array<ExpressionRef>(1 + overrideNumParameters);
+-        paramExprs[0] = module.local_get(0, sizeTypeRef); // this
+-        for (let n = 1; n <= numParameters; ++n) {
 +  /**
 +   * amxts: `const handle = setInterval(() => clearInterval(handle), 1000)` -
 +   * the variable is declared and boxed before its initializer runs, so the
@@ -1953,7 +2576,7 @@ index f99bd5a..a7e830e 100644
 +        module.unary(UnaryOp.EqzI32,
 +          module.load(1, false, module.local_tee(temp.index, box, false), TypeRef.I32, local.type.byteSize)
 +        ),
-+        this.makeStaticAbort(this.ensureStaticString(`${local.name} is not initialized`), reportNode)
++        this.makeRuntimeError("ReferenceError", `${local.name} is not initialized`, reportNode)
 +      ),
 +      module.local_get(temp.index, usizeType.toRef())
 +    ], usizeType.toRef());
@@ -2259,6 +2882,14 @@ index f99bd5a..a7e830e 100644
 +      module.unary(UnaryOp.EqzI32, this.makeCallDirect(entered, null, reportNode)),
 +      module.flatten(body, TypeRef.None)
 +    ));
++    // amxts: the body runs as if inside a try of its own: an error thrown in
++    // it, or in what it calls, unwinds to its end and rejects its promise
++    // (makeUnwind), as JavaScript does - see compileTryStatement
++    if (this.unwindsIn(instance)) {
++      let depth = this.exceptionGlobal("__tryDepth", reportNode);
++      if (!depth) return false;
++      stmts.push(module.global_set(depth.internalName, module.i32(1)));
++    }
 +    return true;
 +  }
 +
@@ -2318,11 +2949,33 @@ index f99bd5a..a7e830e 100644
 +        return module.unreachable();
 +      }
 +    }
++    // amxts: a return that leaves try statements runs their finally blocks
++    // after its value - see compileTryExits
++    let tryExits = this.compileTryExits(0, null);
++    if (tryExits) {
++      if (settle) {
++        tryExits.unshift(settle);
++        settle = 0;
++      }
++      if (operands) {
++        let operand = operands[0];
++        let operandType = settleName == "__co_return_ref" ? this.options.usizeType
++          : settleName == "__co_return_f64" ? Type.f64
++          : settleName == "__co_return_i64" ? Type.i64
++          : Type.i32;
++        let temp = flow.getTempLocal(operandType);
++        tryExits.unshift(module.local_set(temp.index, operand, false));
++        operands[0] = module.local_get(temp.index, operandType.toRef());
++      }
++    }
 +    let hood = this.asyncHood(settleName, reportNode);
 +    if (!hood) return module.unreachable();
 +    let call = this.makeCallDirect(hood, operands, reportNode);
 +    if (settle) call = module.block(null, [ settle, call ], TypeRef.I32);
-+    return this.makeAsyncExit(call);
++    let exit = this.makeAsyncExit(call);
++    if (!tryExits) return exit;
++    tryExits.push(exit);
++    return module.block(null, tryExits);
 +  }
 +
 +  /**
@@ -2350,10 +3003,102 @@ index f99bd5a..a7e830e 100644
 +
 +  /** Ensures compilation of the override stub for the specified function. */
 +  ensureOverrideStub(original: Function): Function {
-     // An override stub is a function redirecting virtual calls to the actual
-     // override targeted by the call. It utilizes varargs stubs where necessary
-     // and as such has the same semantics as one. Here, we only make sure that
-@@ -7122,10 +8741,19 @@ export class Compiler extends DiagnosticEmitter {
++    // An override stub is a function redirecting virtual calls to the actual
++    // override targeted by the call. It utilizes varargs stubs where necessary
++    // and as such has the same semantics as one. Here, we only make sure that
++    // a placeholder exist, with actual code being generated as a finalization
++    // step once module compilation is otherwise complete.
++    let stub = original.overrideStub;
++    if (stub) return stub;
++    stub = original.newStub("override");
++    original.overrideStub = stub;
++    let module = this.module;
++    stub.ref = module.addFunction(
++      stub.internalName,
++      stub.signature.paramRefs,
++      stub.signature.resultRefs,
++      null,
++      module.unreachable()
++    );
++    this.overrideStubs.add(original);
++    return stub;
++  }
++
++  /** Finalizes the override stub of the specified function. */
++  private finalizeOverrideStub(instance: Function): void {
++    let stub = this.ensureOverrideStub(instance);
++    if (stub.is(CommonFlags.Compiled)) return;
++
++    assert(instance.parent.kind == ElementKind.Class || instance.parent.kind == ElementKind.Interface);
++    let module = this.module;
++    let usizeType = this.options.usizeType;
++    let sizeTypeRef = usizeType.toRef();
++    let parameterTypes = instance.signature.parameterTypes;
++    let returnType = instance.signature.returnType;
++    let numParameters = parameterTypes.length;
++    let tempIndex = 1 + parameterTypes.length; // incl. `this`
++
++    // Switch over this's rtId and map it to the respective overload
++    let builder = new SwitchBuilder(this.module,
++      module.load(4, false,
++        module.binary(
++          sizeTypeRef == TypeRef.I64
++            ? BinaryOp.SubI64
++            : BinaryOp.SubI32,
++          module.local_get(0, sizeTypeRef),
++          sizeTypeRef == TypeRef.I64
++            ? module.i64(8) // rtId offset = -8
++            : module.i32(8)
++        ),
++        TypeRef.I32
++      )
++    );
++    let overrideInstances = this.resolver.resolveOverrides(instance);
++    if (overrideInstances) {
++      let mostRecentInheritanceMapping = new Map<Class, Class>();
++      for (let i = 0, k = overrideInstances.length; i < k; ++i) {
++        let overrideInstance = overrideInstances[i];
++        if (!overrideInstance.is(CommonFlags.Compiled)) continue; // errored
++
++        let overrideSignature = overrideInstance.signature;
++        let originalSignature = instance.signature;
++
++        if (!overrideSignature.isAssignableTo(originalSignature, true)) {
++          this.error(
++            DiagnosticCode.Type_0_is_not_assignable_to_type_1,
++            overrideInstance.identifierNode.range, overrideSignature.toString(), originalSignature.toString()
++          );
++          continue;
++        }
++        // TODO: additional optional parameters are not permitted by `isAssignableTo` yet
++        let overrideParameterTypes = overrideSignature.parameterTypes;
++        let overrideNumParameters = overrideParameterTypes.length;
++        let paramExprs = new Array<ExpressionRef>(1 + overrideNumParameters);
++        paramExprs[0] = module.local_get(0, sizeTypeRef); // this
++        for (let n = 1; n <= numParameters; ++n) {
+           paramExprs[n] = module.local_get(n, parameterTypes[n - 1].toRef());
+         }
+         let needsVarargsStub = false;
+@@ -7011,7 +9044,7 @@ export class Compiler extends DiagnosticEmitter {
+           lastOperand
+         ], lastOperandType.toRef());
+         this.operandsTostack(instance.signature, operands);
+-        let expr = module.call(instance.internalName, operands, returnTypeRef);
++        let expr = this.makeUnwindCheck(module.call(instance.internalName, operands, returnTypeRef), instance, returnType);
+         if (returnType != Type.void && immediatelyDropped) {
+           expr = module.drop(expr);
+           this.currentType = Type.void;
+@@ -7029,6 +9062,9 @@ export class Compiler extends DiagnosticEmitter {
+ 
+     if (operands) this.operandsTostack(instance.signature, operands);
+     let expr = module.call(instance.internalName, operands, returnType.toRef());
++    // amxts: an explicit abort ends the call: nothing is on its way to a catch
++    if (instance == this.program.abortInstance) expr = this.makeAbortReset(expr);
++    expr = this.makeUnwindCheck(expr, instance, returnType);
+     this.currentType = returnType;
+     return expr;
+   }
+@@ -7122,10 +9158,19 @@ export class Compiler extends DiagnosticEmitter {
      let stmts = new Array<ExpressionRef>();
      let sizeTypeRef = this.options.sizeTypeRef;
  
@@ -2373,7 +3118,7 @@ index f99bd5a..a7e830e 100644
        functionArg = module.local_get(functionArgLocal.index, sizeTypeRef);
      }
  
-@@ -7133,10 +8761,16 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7133,10 +9178,16 @@ export class Compiler extends DiagnosticEmitter {
      // provided, so we must set `argumentsLength` in any case. Inject setting it
      // into the index argument, which becomes executed last after any operands.
      let argumentsLength = this.ensureArgumentsLength();
@@ -2394,7 +3139,15 @@ index f99bd5a..a7e830e 100644
  
      if (operands) this.operandsTostack(signature, operands);
      let expr = module.call_indirect(
-@@ -7176,6 +8810,12 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7146,6 +9197,7 @@ export class Compiler extends DiagnosticEmitter {
+       signature.paramRefs,
+       signature.resultRefs
+     );
++    expr = this.makeUnwindCheck(expr, null, returnType); // amxts
+     this.currentType = returnType;
+     stmts.push(expr);
+     return module.flatten(stmts, returnType.toRef());
+@@ -7176,6 +9228,12 @@ export class Compiler extends DiagnosticEmitter {
      let module = this.module;
      let targetExpression = expression.expression;
      let resolver = this.resolver;
@@ -2407,7 +3160,7 @@ index f99bd5a..a7e830e 100644
      let targetElement = resolver.lookupExpression(targetExpression, this.currentFlow, Type.auto, ReportMode.Swallow);
      if (targetElement && targetElement.kind == ElementKind.Enum) {
        const elementExpr = this.compileExpression(expression.elementExpression, Type.i32, Constraints.ConvImplicit);
-@@ -7202,9 +8842,11 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7202,9 +9260,11 @@ export class Compiler extends DiagnosticEmitter {
                expression.range
              );
            }
@@ -2420,7 +3173,7 @@ index f99bd5a..a7e830e 100644
          }
        }
        this.error(
-@@ -7224,6 +8866,13 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7224,6 +9284,13 @@ export class Compiler extends DiagnosticEmitter {
      assert(!declaration.typeParameters); // function expression cannot be generic
      let flow = this.currentFlow;
      let sourceFunction = flow.sourceFunction;
@@ -2434,7 +3187,7 @@ index f99bd5a..a7e830e 100644
      let isNamed = declaration.name.text.length > 0;
      let isSemanticallyAnonymous = !isNamed || contextualType != Type.void;
      let prototype = new FunctionPrototype(
-@@ -7237,6 +8886,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7237,6 +9304,7 @@ export class Compiler extends DiagnosticEmitter {
      let instance: Function | null;
      let contextualTypeArguments = cloneMap(flow.contextualTypeArguments);
      let module = this.module;
@@ -2442,13 +3195,11 @@ index f99bd5a..a7e830e 100644
  
      // compile according to context. this differs from a normal function in that omitted parameter
      // and return types can be inferred and omitted arguments can be replaced with dummies.
-@@ -7280,9 +8930,20 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7280,7 +9348,18 @@ export class Compiler extends DiagnosticEmitter {
  
        // check non-omitted return type
        let returnType = contextualSignature.returnType;
 -      if (!isTypeOmitted(signatureNode.returnType)) {
--        let resolvedType = this.resolver.resolveType(
--          signatureNode.returnType, flow,
 +      // amxts: an async function passed where nothing is returned - a
 +      // listener - keeps its Promise to itself; where a Promise is expected,
 +      // it is that Promise.
@@ -2461,12 +3212,10 @@ index f99bd5a..a7e830e 100644
 +        return module.unreachable();
 +      }
 +      if (!isTypeOmitted(signatureNode.returnType) && !(signatureNode.isAsync && returnType == Type.void)) {
-+        let resolvedType = this.resolver.resolveType(
-+          signatureNode.returnType, flow,
+         let resolvedType = this.resolver.resolveType(
+           signatureNode.returnType, flow,
            sourceFunction.parent,
-           contextualTypeArguments
-         );
-@@ -7334,7 +8995,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7334,7 +9413,7 @@ export class Compiler extends DiagnosticEmitter {
          signature,
          contextualTypeArguments
        );
@@ -2475,7 +3224,7 @@ index f99bd5a..a7e830e 100644
        let worked = this.compileFunction(instance);
        this.currentType = contextualSignature.type;
        if (!worked) return module.unreachable();
-@@ -7343,7 +9004,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7343,7 +9422,7 @@ export class Compiler extends DiagnosticEmitter {
      } else {
        instance = this.resolver.resolveFunction(prototype, null, contextualTypeArguments);
        if (!instance) return this.module.unreachable();
@@ -2484,7 +3233,7 @@ index f99bd5a..a7e830e 100644
        let worked = this.compileFunction(instance);
        this.currentType = instance.signature.type;
        if (!worked) return module.unreachable();
-@@ -7354,6 +9015,27 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7354,6 +9433,27 @@ export class Compiler extends DiagnosticEmitter {
        ? module.i64(i64_low(offset), i64_high(offset))
        : module.i32(i64_low(offset));
  
@@ -2512,7 +3261,7 @@ index f99bd5a..a7e830e 100644
      // add a constant local referring to the function if applicable
      if (!isSemanticallyAnonymous) {
        let fname = instance.name;
-@@ -7403,6 +9085,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7403,6 +9503,9 @@ export class Compiler extends DiagnosticEmitter {
      let flow = this.currentFlow;
      let sourceFunction = flow.sourceFunction;
  
@@ -2522,7 +3271,7 @@ index f99bd5a..a7e830e 100644
      // check special keywords first
      switch (expression.kind) {
        case NodeKind.Null: {
-@@ -7439,6 +9124,15 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7439,6 +9542,15 @@ export class Compiler extends DiagnosticEmitter {
        }
        case NodeKind.This: {
          let thisType = sourceFunction.signature.thisType;
@@ -2538,7 +3287,7 @@ index f99bd5a..a7e830e 100644
          if (!thisType) {
            this.error(
              DiagnosticCode._this_cannot_be_referenced_in_current_location,
-@@ -7466,6 +9160,17 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7466,6 +9578,17 @@ export class Compiler extends DiagnosticEmitter {
          return module.local_get(thisLocal.index, thisType.toRef());
        }
        case NodeKind.Super: {
@@ -2556,7 +3305,7 @@ index f99bd5a..a7e830e 100644
          if (sourceFunction.is(CommonFlags.Constructor)) {
            if (flow.is(FlowFlags.CtorParamContext)) {
              this.error(
-@@ -7545,6 +9250,26 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7545,6 +9668,26 @@ export class Compiler extends DiagnosticEmitter {
            return this.compileInlineConstant(local, contextualType, constraints);
          }
          let localIndex = local.index;
@@ -2583,7 +3332,7 @@ index f99bd5a..a7e830e 100644
          if (!flow.isLocalFlag(localIndex, LocalFlags.Initialized)) {
            this.error(
              DiagnosticCode.Variable_0_is_used_before_being_assigned,
-@@ -7559,14 +9284,12 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7559,14 +9702,12 @@ export class Compiler extends DiagnosticEmitter {
            this.currentType = localType;
          }
  
@@ -2604,7 +3353,7 @@ index f99bd5a..a7e830e 100644
          }
          let expr = module.local_get(localIndex, localType.toRef());
          if (isNonNull && localType.isNullableExternalReference && this.options.hasFeature(Feature.GC)) {
-@@ -7582,8 +9305,10 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7582,8 +9723,10 @@ export class Compiler extends DiagnosticEmitter {
          if (!this.compileGlobalLazy(global, expression)) {
            return module.unreachable();
          }
@@ -2616,7 +3365,7 @@ index f99bd5a..a7e830e 100644
            this.error(
              DiagnosticCode.Variable_0_used_before_its_declaration,
              expression.range,
-@@ -7603,6 +9328,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7603,6 +9746,7 @@ export class Compiler extends DiagnosticEmitter {
          if (global.is(CommonFlags.DefinitelyAssigned) && globalType.isReference && !globalType.isNullableReference) {
            expr = this.makeRuntimeNonNullCheck(expr, globalType, expression);
          }
@@ -2624,7 +3373,7 @@ index f99bd5a..a7e830e 100644
          this.currentType = globalType;
          return expr;
        }
-@@ -7656,6 +9382,23 @@ export class Compiler extends DiagnosticEmitter {
+@@ -7656,6 +9800,23 @@ export class Compiler extends DiagnosticEmitter {
            this.currentType = Type.func;
            return module.ref_func(functionInstance.internalName, ensureType(functionInstance.type));
          }
@@ -2648,7 +3397,7 @@ index f99bd5a..a7e830e 100644
          let offset = this.ensureRuntimeFunction(functionInstance);
          this.currentType = functionInstance.signature.type;
          return this.options.isWasm64
-@@ -8625,6 +10368,8 @@ export class Compiler extends DiagnosticEmitter {
+@@ -8625,6 +10786,8 @@ export class Compiler extends DiagnosticEmitter {
        );
        return module.unreachable();
      }
@@ -2657,7 +3406,7 @@ index f99bd5a..a7e830e 100644
      let classType = classReference.type;
      this.currentType = classType.nonNullableType;
      if (classReference.kind == ElementKind.Interface) {
-@@ -8736,9 +10481,52 @@ export class Compiler extends DiagnosticEmitter {
+@@ -8736,9 +10899,52 @@ export class Compiler extends DiagnosticEmitter {
        }
  
        let propertyType = propertyInstance.type;
@@ -2711,7 +3460,7 @@ index f99bd5a..a7e830e 100644
        ], setterInstance.identifierNode, true);
        if (this.currentType != Type.void) { // in case
          expr = module.drop(expr);
-@@ -9128,6 +10916,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9128,6 +11334,9 @@ export class Compiler extends DiagnosticEmitter {
      let resolver = this.resolver;
      let target = resolver.lookupExpression(expression, flow, ctxType); // reports
      if (!target) return module.unreachable();
@@ -2721,7 +3470,7 @@ index f99bd5a..a7e830e 100644
      let thisExpression = resolver.currentThisExpression;
      if (target.hasDecorator(DecoratorFlags.Unsafe)) this.checkUnsafe(expression);
  
-@@ -9209,7 +11000,12 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9209,7 +11418,12 @@ export class Compiler extends DiagnosticEmitter {
              Constraints.ConvImplicit | Constraints.IsThis
            );
          }
@@ -2735,7 +3484,7 @@ index f99bd5a..a7e830e 100644
        }
        case ElementKind.FunctionPrototype: {
          let functionPrototype = <FunctionPrototype>target;
-@@ -9236,6 +11032,18 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9236,6 +11450,18 @@ export class Compiler extends DiagnosticEmitter {
            return module.unreachable();
          }
  
@@ -2754,7 +3503,21 @@ index f99bd5a..a7e830e 100644
          let offset = this.ensureRuntimeFunction(functionInstance);
          return this.options.isWasm64
            ? module.i64(i64_low(offset), i64_high(offset))
-@@ -9828,7 +11636,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9272,11 +11498,13 @@ export class Compiler extends DiagnosticEmitter {
+ 
+     let outerFlow = this.currentFlow;
+     let ifThenFlow = outerFlow.forkThen(condExpr);
++    this.narrowInstanceOf(expression.condition, ifThenFlow, true); // amxts
+     this.currentFlow = ifThenFlow;
+     let ifThenExpr = this.compileExpression(ifThen, contextualType);
+     let ifThenType = this.currentType;
+ 
+     let ifElseFlow = outerFlow.forkElse(condExpr);
++    this.narrowInstanceOf(expression.condition, ifElseFlow, false); // amxts
+     this.currentFlow = ifElseFlow;
+     let ifElseExpr = this.compileExpression(ifElse, contextualType == Type.auto ? ifThenType : contextualType);
+     let ifElseType = this.currentType;
+@@ -9828,7 +12056,7 @@ export class Compiler extends DiagnosticEmitter {
            contextualType == Type.void
              ? Type.i32
              : contextualType.isFloatValue
@@ -2763,7 +3526,7 @@ index f99bd5a..a7e830e 100644
                : contextualType,
            Constraints.None
          );
-@@ -9847,7 +11655,12 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9847,7 +12075,12 @@ export class Compiler extends DiagnosticEmitter {
            return module.unreachable();
          }
  
@@ -2777,7 +3540,7 @@ index f99bd5a..a7e830e 100644
  
          switch (this.currentType.kind) {
            case TypeKind.Bool:
-@@ -9887,6 +11700,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9887,6 +12120,9 @@ export class Compiler extends DiagnosticEmitter {
        case Token.TypeOf: {
          return this.compileTypeof(expression, contextualType, constraints);
        }
@@ -2787,7 +3550,7 @@ index f99bd5a..a7e830e 100644
        case Token.Dot_Dot_Dot: {
          this.error(
            DiagnosticCode.Not_implemented_0,
-@@ -10220,6 +12036,31 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10220,6 +12456,31 @@ export class Compiler extends DiagnosticEmitter {
        case TypeKind.U64: return module.binary(BinaryOp.NeI64, expr, module.i64(0));
        case TypeKind.Isize:
        case TypeKind.Usize: {
@@ -2819,24 +3582,118 @@ index f99bd5a..a7e830e 100644
          return type.size == 64
            ? module.binary(BinaryOp.NeI64, expr, module.i64(0))
            : expr;
-@@ -10500,10 +12341,12 @@ export class Compiler extends DiagnosticEmitter {
-         let initializerNode = fieldPrototype.initializerNode;
-         assert(fieldPrototype.parameterIndex < 0);
-         let setterInstance = assert(field.setterInstance);
-+        // amxts: `text: Text = "none"` where Text is `string | (...) => string`
-+        let fieldDeclaration = fieldPrototype.fieldDeclaration;
-         let expr = this.makeCallDirect(setterInstance, [
-           module.local_get(thisLocalIndex, sizeTypeRef),
-           initializerNode // use initializer if present, otherwise initialize with zero
--            ? this.compileExpression(initializerNode, fieldType, Constraints.ConvImplicit)
-+            ? this.compileText(initializerNode, fieldDeclaration ? fieldDeclaration.type : null, fieldPrototype.parent, fieldType, Constraints.ConvImplicit)
-             : this.makeZero(fieldType)
-         ], field.identifierNode, true);
-         if (this.currentType != Type.void) { // in case
-@@ -10517,6 +12360,473 @@ export class Compiler extends DiagnosticEmitter {
-     return stmts;
+@@ -10416,105 +12677,574 @@ export class Compiler extends DiagnosticEmitter {
+     }
    }
  
+-  /** Makes a conditional allocation where `this` might not have been initialized yet. */
+-  makeConditionalAllocation(
+-    classInstance: Class,
+-    thisIndex: i32
+-  ): ExpressionRef {
++  /** Makes a conditional allocation where `this` might not have been initialized yet. */
++  makeConditionalAllocation(
++    classInstance: Class,
++    thisIndex: i32
++  ): ExpressionRef {
++    let module = this.module;
++    let classType = classInstance.type;
++    let classTypeRef = classType.toRef();
++    assert(classTypeRef == this.options.sizeTypeRef);
++    return module.if(
++      module.unary(classTypeRef == TypeRef.I64 ? UnaryOp.EqzI64 : UnaryOp.EqzI32,
++        module.local_get(thisIndex, classTypeRef)
++      ),
++      module.local_set(thisIndex,
++        this.makeAllocation(classInstance),
++        classInstance.type.isManaged
++      )
++    );
++  }
++
++  /** Makes the initializers for a class's fields within the constructor. */
++  makeFieldInitializationInConstructor(
++    /** Class being initialized. */
++    classInstance: Class,
++    /** Statements to append to also being returned. Created if omitted. */
++    stmts: ExpressionRef[] = []
++  ): ExpressionRef[] {
++    let members = classInstance.members;
++    if (!members) return stmts;
++
++    let module = this.module;
++    let flow = this.currentFlow;
++    let isInline = flow.isInline;
++    let thisLocalIndex = isInline ? flow.lookupLocal(CommonNames.this_)!.index : 0;
++    let sizeTypeRef = this.options.sizeTypeRef;
++    let nonParameterFields: Property[] | null = null;
++
++    // TODO: for (let member of members.values()) {
++    for (let _values = Map_values(members), i = 0, k = _values.length; i < k; ++i) {
++      let member = unchecked(_values[i]);
++      if (member.kind != ElementKind.PropertyPrototype) continue;
++      // only interested in fields (resolved during class finalization)
++      let property = (<PropertyPrototype>member).instance;
++      if (!property || !property.isField || property.getBoundClassOrInterface() != classInstance) continue;
++      assert(!property.isAny(CommonFlags.Const));
++      let fieldPrototype = property.prototype;
++      let parameterIndex = fieldPrototype.parameterIndex;
++
++      // Defer non-parameter fields until parameter fields are initialized
++      if (parameterIndex < 0) {
++        if (!nonParameterFields) nonParameterFields = new Array();
++        nonParameterFields.push(property);
++        continue;
++      }
++
++      // Initialize constructor parameter field
++      let fieldType = property.type;
++      let fieldTypeRef = fieldType.toRef();
++      assert(!fieldPrototype.initializerNode);
++      let setterInstance = assert(property.setterInstance);
++      let expr = this.makeCallDirect(setterInstance, [
++        module.local_get(thisLocalIndex, sizeTypeRef),
++        module.local_get(
++          isInline
++            ? flow.lookupLocal(property.name)!.index
++            : 1 + parameterIndex, // `this` is local 0
++          fieldTypeRef
++        )
++      ], setterInstance.identifierNode, true);
++      if (this.currentType != Type.void) { // in case
++        expr = module.drop(expr);
++      }
++      stmts.push(expr);
++    }
++
++    // Initialize deferred non-parameter fields
++    if (nonParameterFields) {
++      for (let i = 0, k = nonParameterFields.length; i < k; ++i) {
++        let field = unchecked(nonParameterFields[i]);
++        let fieldType = field.type;
++        let fieldPrototype = field.prototype;
++        let initializerNode = fieldPrototype.initializerNode;
++        assert(fieldPrototype.parameterIndex < 0);
++        let setterInstance = assert(field.setterInstance);
++        // amxts: `text: Text = "none"` where Text is `string | (...) => string`
++        let fieldDeclaration = fieldPrototype.fieldDeclaration;
++        let expr = this.makeCallDirect(setterInstance, [
++          module.local_get(thisLocalIndex, sizeTypeRef),
++          initializerNode // use initializer if present, otherwise initialize with zero
++            ? this.compileText(initializerNode, fieldDeclaration ? fieldDeclaration.type : null, fieldPrototype.parent, fieldType, Constraints.ConvImplicit)
++            : this.makeZero(fieldType)
++        ], field.identifierNode, true);
++        if (this.currentType != Type.void) { // in case
++          expr = module.drop(expr);
++        }
++        stmts.push(expr);
++      }
++    }
++
++    this.currentType = Type.void;
++    return stmts;
++  }
++
 +  // === amxts: optional properties, undefined, optional chaining ===============================
 +
 +  /** amxts: a number's undefined - a NaN of its own, see UNDEFINED_NUMBER_HI. */
@@ -3182,7 +4039,18 @@ index f99bd5a..a7e830e 100644
 +   * then undefined. True, as JavaScript's delete gives.
 +   */
 +  private compileDelete(expression: UnaryPrefixExpression): ExpressionRef {
-+    let module = this.module;
+     let module = this.module;
+-    let classType = classInstance.type;
+-    let classTypeRef = classType.toRef();
+-    assert(classTypeRef == this.options.sizeTypeRef);
+-    return module.if(
+-      module.unary(classTypeRef == TypeRef.I64 ? UnaryOp.EqzI64 : UnaryOp.EqzI32,
+-        module.local_get(thisIndex, classTypeRef)
+-      ),
+-      module.local_set(thisIndex,
+-        this.makeAllocation(classInstance),
+-        classInstance.type.isManaged
+-      )
 +    let operand = expression.operand;
 +    while (operand.kind == NodeKind.Parenthesized) operand = (<ParenthesizedExpression>operand).expression;
 +    let element = this.recordReadOf(operand);
@@ -3207,18 +4075,27 @@ index f99bd5a..a7e830e 100644
 +    this.error(
 +      DiagnosticCode.Not_implemented_0,
 +      expression.range, "`delete` of this - it takes a Record's key or an optional field"
-+    );
+     );
 +    this.currentType = Type.bool;
 +    return module.unreachable();
-+  }
-+
+   }
+ 
+-  /** Makes the initializers for a class's fields within the constructor. */
+-  makeFieldInitializationInConstructor(
+-    /** Class being initialized. */
+-    classInstance: Class,
+-    /** Statements to append to also being returned. Created if omitted. */
+-    stmts: ExpressionRef[] = []
+-  ): ExpressionRef[] {
+-    let members = classInstance.members;
+-    if (!members) return stmts;
 +  /** amxts: numbers the locals optional chains keep their values in. */
 +  private optionalChains: i32 = 0;
 +  /** amxts: the right side of `chain ?? right`, for a chain whose value has no undefined of its own. */
 +  private chainDefault: Expression | null = null;
 +  /** amxts: whether the chain took chainDefault. */
 +  private chainDefaultTaken: bool = false;
-+
+ 
 +  /**
 +   * amxts: `a?.b.c()`, `fn?.(x)`, `list?.[i]` - a chain with a `?.` link is
 +   * undefined when the value before the link is null or undefined, and is
@@ -3230,8 +4107,30 @@ index f99bd5a..a7e830e 100644
 +   * nothing at all for a call that returns nothing.
 +   */
 +  private compileOptionalChain(expression: Expression, contextualType: Type, constraints: Constraints): ExpressionRef {
-+    let module = this.module;
-+    let flow = this.currentFlow;
+     let module = this.module;
+     let flow = this.currentFlow;
+-    let isInline = flow.isInline;
+-    let thisLocalIndex = isInline ? flow.lookupLocal(CommonNames.this_)!.index : 0;
+-    let sizeTypeRef = this.options.sizeTypeRef;
+-    let nonParameterFields: Property[] | null = null;
+-
+-    // TODO: for (let member of members.values()) {
+-    for (let _values = Map_values(members), i = 0, k = _values.length; i < k; ++i) {
+-      let member = unchecked(_values[i]);
+-      if (member.kind != ElementKind.PropertyPrototype) continue;
+-      // only interested in fields (resolved during class finalization)
+-      let property = (<PropertyPrototype>member).instance;
+-      if (!property || !property.isField || property.getBoundClassOrInterface() != classInstance) continue;
+-      assert(!property.isAny(CommonFlags.Const));
+-      let fieldPrototype = property.prototype;
+-      let parameterIndex = fieldPrototype.parameterIndex;
+-
+-      // Defer non-parameter fields until parameter fields are initialized
+-      if (parameterIndex < 0) {
+-        if (!nonParameterFields) nonParameterFields = new Array();
+-        nonParameterFields.push(property);
+-        continue;
+-      }
 +    let link = assert(optionalChainLink(expression));
 +    let objectNode = chainObjectOf(link);
 +    let objectExpr = this.compileExpression(objectNode, Type.auto);
@@ -3273,7 +4172,25 @@ index f99bd5a..a7e830e 100644
 +    flow.mergeBranch(thenFlow); // the chain runs only when the value is there
 +    setChainObject(link, objectNode);
 +    setChainOptional(link, true);
-+
+ 
+-      // Initialize constructor parameter field
+-      let fieldType = property.type;
+-      let fieldTypeRef = fieldType.toRef();
+-      assert(!fieldPrototype.initializerNode);
+-      let setterInstance = assert(property.setterInstance);
+-      let expr = this.makeCallDirect(setterInstance, [
+-        module.local_get(thisLocalIndex, sizeTypeRef),
+-        module.local_get(
+-          isInline
+-            ? flow.lookupLocal(property.name)!.index
+-            : 1 + parameterIndex, // `this` is local 0
+-          fieldTypeRef
+-        )
+-      ], setterInstance.identifierNode, true);
+-      if (this.currentType != Type.void) { // in case
+-        expr = module.drop(expr);
+-      }
+-      stmts.push(expr);
 +    // `chain ?? right` of a boolean or an integer: right in place of undefined
 +    if (chainDefault && valueType.isValue && valueType.kind != TypeKind.F64 && valueType != Type.void) {
 +      let elseFlow = flow.forkElse(condition);
@@ -3284,8 +4201,28 @@ index f99bd5a..a7e830e 100644
 +      this.chainDefaultTaken = true;
 +      this.currentType = valueType;
 +      return module.if(condition, valueExpr, defaultExpr);
-+    }
-+
+     }
+ 
+-    // Initialize deferred non-parameter fields
+-    if (nonParameterFields) {
+-      for (let i = 0, k = nonParameterFields.length; i < k; ++i) {
+-        let field = unchecked(nonParameterFields[i]);
+-        let fieldType = field.type;
+-        let fieldPrototype = field.prototype;
+-        let initializerNode = fieldPrototype.initializerNode;
+-        assert(fieldPrototype.parameterIndex < 0);
+-        let setterInstance = assert(field.setterInstance);
+-        let expr = this.makeCallDirect(setterInstance, [
+-          module.local_get(thisLocalIndex, sizeTypeRef),
+-          initializerNode // use initializer if present, otherwise initialize with zero
+-            ? this.compileExpression(initializerNode, fieldType, Constraints.ConvImplicit)
+-            : this.makeZero(fieldType)
+-        ], field.identifierNode, true);
+-        if (this.currentType != Type.void) { // in case
+-          expr = module.drop(expr);
+-        }
+-        stmts.push(expr);
+-      }
 +    if (valueType == Type.void) {
 +      this.currentType = Type.void;
 +      return module.if(condition, valueExpr);
@@ -3299,23 +4236,86 @@ index f99bd5a..a7e830e 100644
 +      otherwise = this.makeZero(resultType);
 +    } else {
 +      otherwise = this.makeZero(valueType);
-+    }
+     }
+-
+-    this.currentType = Type.void;
+-    return stmts;
 +    this.currentType = resultType;
 +    return module.if(condition, valueExpr, otherwise);
-+  }
-+
+   }
+ 
    /** Makes a call to `abort`, if present, otherwise creates a trap. */
-   makeAbort(
-     /** Message argument of type string, if any. */
-@@ -10568,6 +12878,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10555,7 +13285,7 @@ export class Compiler extends DiagnosticEmitter {
+     let range = codeLocation.range;
+     let source = range.source;
+     return module.block(null, [
+-      module.call(
++      this.makeAbortReset(module.call(
+         abortInstance.internalName, [
+           messageExpr,
+           filenameExpr,
+@@ -10563,11 +13293,59 @@ export class Compiler extends DiagnosticEmitter {
+           module.i32(source.columnAt())
+         ],
+         TypeRef.None
+-      ),
++      )),
+       module.unreachable()
      ]);
    }
  
++  /**
++   * amxts: an error the compiler checks for when the code runs - a null
++   * where an object must be, a variable read before its declaration: a
++   * `kind` Error a catch takes while a try runs (compileTryStatement), and
++   * the end of the call, with the message, otherwise.
++   */
++  private makeRuntimeError(kind: string, message: string, reportNode: Node): ExpressionRef {
++    let module = this.module;
++    let target = this.currentFlow.targetFunction;
++    let throwHood = this.unwindsIn(target) ? this.exceptionFunction("__throw", reportNode) : null;
++    if (!throwHood) return this.makeStaticAbort(this.ensureStaticString(message), reportNode);
++    let range = reportNode.range;
++    let source = range.source;
++    let previousType = this.currentType;
++    let error = this.compileExpression(Node.createNewExpression(
++      Node.createSimpleTypeName(kind, range), null, [ Node.createStringLiteralExpression(message, range) ], range
++    ), throwHood.signature.parameterTypes[0], Constraints.ConvImplicit);
++    this.currentType = previousType;
++    this.mayUnwind.add(target);
++    let thrown = module.call(throwHood.internalName, [
++      error,
++      this.ensureStaticString(source.normalizedPath),
++      module.i32(source.lineAt(range.start)),
++      module.i32(source.columnAt())
++    ], TypeRef.I32);
++    return module.block(null, [ module.if(thrown, this.makeUnwind()), module.unreachable() ]);
++  }
++
++  /**
++   * amxts: an abort in a program with a try clears the exceptions' state
++   * first: the call ends, and no try of it runs any more - see
++   * compileTryStatement.
++   */
++  private makeAbortReset(abortCall: ExpressionRef): ExpressionRef {
++    if (!this.program.parser.usesExceptions) return abortCall;
++    let module = this.module;
++    let depth = this.program.lookup("__tryDepth");
++    let thrown = this.program.lookup("__thrown");
++    if (!depth || depth.kind != ElementKind.Global || !thrown || thrown.kind != ElementKind.Global) return abortCall;
++    let reportNode = this.currentFlow.targetFunction.identifierNode;
++    if (!this.compileGlobalLazy(<Global>depth, reportNode) || !this.compileGlobalLazy(<Global>thrown, reportNode)) return abortCall;
++    return module.block(null, [
++      module.global_set(depth.internalName, module.i32(0)),
++      module.global_set(thrown.internalName, this.makeZero((<Global>thrown).type)),
++      abortCall
++    ]);
++  }
 +
    /** Makes a runtime non-null check, e.g. on `<Type>possiblyNull` or `possiblyNull!`. */
    makeRuntimeNonNullCheck(
      /** Expression being checked. */
-@@ -10575,7 +12886,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10575,7 +13353,9 @@ export class Compiler extends DiagnosticEmitter {
      /** Type of the expression. */
      type: Type,
      /** Report node. */
@@ -3326,16 +4326,31 @@ index f99bd5a..a7e830e 100644
    ): ExpressionRef {
      let module = this.module;
      let flow = this.currentFlow;
-@@ -10585,7 +12898,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10584,10 +13364,7 @@ export class Compiler extends DiagnosticEmitter {
+     if (!flow.canOverflow(expr, type)) flow.setLocalFlag(tempIndex, LocalFlags.Wrapped);
      flow.setLocalFlag(tempIndex, LocalFlags.NonNull);
  
-     let staticAbortCallExpr = this.makeStaticAbort(
+-    let staticAbortCallExpr = this.makeStaticAbort(
 -      this.ensureStaticString("Unexpected 'null' (not assigned or failed cast)"),
-+      this.ensureStaticString(message),
-       reportNode
-     ); // TODO: throw
+-      reportNode
+-    ); // TODO: throw
++    let staticAbortCallExpr = this.makeRuntimeError("TypeError", message, reportNode); // amxts
  
-@@ -10725,3 +13038,405 @@ function mangleImportName(
+     if (type.isExternalReference) {
+       let nonNullExpr = module.local_get(tempIndex, type.toRef());
+@@ -10629,10 +13406,7 @@ export class Compiler extends DiagnosticEmitter {
+     let temp = flow.getTempLocal(type);
+     let tempIndex = temp.index;
+ 
+-    let staticAbortCallExpr = this.makeStaticAbort(
+-      this.ensureStaticString("invalid downcast"),
+-      reportNode
+-    ); // TODO: throw
++    let staticAbortCallExpr = this.makeRuntimeError("TypeError", "invalid downcast", reportNode); // amxts
+ 
+     if (!toType.isNullableReference || flow.isNonnull(expr, type)) {
+       // Simplify if the value cannot be `null`. If toType is non-nullable, a
+@@ -10725,3 +13499,440 @@ function mangleImportName(
      );
    }
  }
@@ -3741,6 +4756,41 @@ index f99bd5a..a7e830e 100644
 +  return text.includes("=>") || text.includes("function");
 +}
 +
++/** amxts: which part of a `try` statement is being compiled - see Compiler.compileTryStatement. */
++const enum TryPart {
++  /** The protected statements: an error in them goes to the catch. */
++  Body,
++  /** The catch: an error in it goes to the finally, or out of the statement. */
++  Catch,
++  /** The finally: an error in it goes out of the statement. */
++  Finally
++}
++
++/** amxts: a `try` statement being compiled - see Compiler.compileTryStatement. */
++class TryContext {
++  /** The part being compiled. */
++  part: TryPart = TryPart.Body;
++
++  constructor(
++    public statement: TryStatement,
++    /** The local keeping __tryDepth as the statement found it. */
++    public depthLocal: Local,
++    /** The block an error in the body leaves, for the catch. */
++    public bodyLabel: string,
++    /** The block an error in the catch leaves, for the finally. */
++    public catchLabel: string,
++    /** The labels of the loop around the statement: a break or continue to them leaves it. */
++    public breakLabel: string | null,
++    public continueLabel: string | null,
++    /** The inlined function the statement is in, whose `return` leaves it; null in a function of its own. */
++    public returnLabel: string | null
++  ) {}
++}
++
++/** amxts: whether a function is the runtime's (memory, the collector), which throws nothing a catch takes. */
++function isRuntimeName(internalName: string): bool {
++  return internalName.startsWith("~lib/rt/") || internalName.startsWith("~lib/shared/");
++}
 diff --git a/src/diagnosticMessages.json b/src/diagnosticMessages.json
 index 016ba4e..3fda5d4 100644
 --- a/src/diagnosticMessages.json
@@ -3773,7 +4823,7 @@ index 016ba4e..3fda5d4 100644
    "Cannot create an instance of an abstract class.": 2511,
    "Non-abstract class '{0}' does not implement inherited abstract member '{1}' from '{2}'.": 2515,
 diff --git a/src/flow.ts b/src/flow.ts
-index ddc7941..de94a46 100644
+index ddc7941..af33db2 100644
 --- a/src/flow.ts
 +++ b/src/flow.ts
 @@ -71,12 +71,15 @@ import {
@@ -4001,7 +5051,20 @@ index ddc7941..de94a46 100644
          // handle string eq/ne/not overloads
          let name = getCallTarget(expr);
          if (name == BuiltinNames.String_eq) {
-@@ -1477,3 +1608,40 @@ function canConversionOverflow(fromType: Type, toType: Type): bool {
+@@ -1211,7 +1342,11 @@ export class Flow {
+       // overflows if the conversion does (globals are wrapped on set)
+       case ExpressionId.GlobalGet: {
+         // TODO: this is inefficient because it has to read a string
+-        let global = assert(this.program.elementsByName.get(assert(getGlobalGetName(expr))));
++        // amxts: a global of the compiler's own - a value a checked call
++        // waits in (Compiler.unwindTemp) - is not an element
++        let globalName = assert(getGlobalGetName(expr));
++        if (!this.program.elementsByName.has(globalName)) return true;
++        let global = assert(this.program.elementsByName.get(globalName));
+         assert(global.kind == ElementKind.Global || global.kind == ElementKind.EnumValue);
+         return canConversionOverflow((<TypedElement>global).type, type);
+       }
+@@ -1477,3 +1612,40 @@ function canConversionOverflow(fromType: Type, toType: Type): bool {
      fromType.isSignedIntegerValue != toType.isSignedIntegerValue   // signedness mismatch
    );
  }
@@ -4043,7 +5106,7 @@ index ddc7941..de94a46 100644
 +  return both;
 +}
 diff --git a/src/parser.ts b/src/parser.ts
-index 157351c..eccb8d7 100644
+index 157351c..4e6a9a8 100644
 --- a/src/parser.ts
 +++ b/src/parser.ts
 @@ -53,6 +53,12 @@ import {
@@ -5102,11 +6165,12 @@ index 157351c..eccb8d7 100644
  
      let body: Statement | null = null;
      if (tn.skip(Token.OpenBrace)) {
-@@ -1581,15 +2393,34 @@ export class Parser extends DiagnosticEmitter {
+@@ -1581,15 +2393,35 @@ export class Parser extends DiagnosticEmitter {
          ); // recoverable
        }
  
 +      this.asyncBodies.push(isAsync);
++      if (isAsync) this.usesExceptions = true;
        body = this.parseBlockStatement(tn, false);
 +      this.asyncBodies.pop();
        if (!body) return null;
@@ -5137,10 +6201,14 @@ index 157351c..eccb8d7 100644
      let ret = Node.createFunctionDeclaration(
        name,
        decorators,
-@@ -1605,6 +2436,17 @@ export class Parser extends DiagnosticEmitter {
-     return ret;
-   }
- 
+@@ -1602,7 +2434,18 @@ export class Parser extends DiagnosticEmitter {
+     );
+     ret.overriddenModuleName = this.currentModuleName;
+     tn.skip(Token.Semicolon);
+-    return ret;
++    return ret;
++  }
++
 +  /** amxts: whether the next declaration is a function of this name - `export`, `async` and all - see parseFunction. */
 +  private isFollowedBySameFunction(tn: Tokenizer, name: string): bool {
 +    let state = tn.mark();
@@ -5150,12 +6218,10 @@ index 157351c..eccb8d7 100644
 +    let same = tn.skip(Token.Function) && tn.skipIdentifier() && tn.readIdentifier() == name;
 +    tn.reset(state);
 +    return same;
-+  }
-+
+   }
+ 
    parseFunctionExpression(tn: Tokenizer): FunctionExpression | null {
-     let startPos = tn.tokenPos;
-     let name: IdentifierExpression;
-@@ -1641,9 +2483,13 @@ export class Parser extends DiagnosticEmitter {
+@@ -1641,9 +2484,13 @@ export class Parser extends DiagnosticEmitter {
  
      // TODO: type parameters? doesn't seem worth it.
  
@@ -5169,7 +6235,7 @@ index 157351c..eccb8d7 100644
  
      return this.parseFunctionExpressionCommon(tn, name, parameters, this.parseParametersThis, arrowKind, startPos, signatureStart);
    }
-@@ -1685,17 +2531,31 @@ export class Parser extends DiagnosticEmitter {
+@@ -1685,17 +2532,32 @@ export class Parser extends DiagnosticEmitter {
        false,
        tn.range(signatureStart, tn.pos)
      );
@@ -5182,6 +6248,7 @@ index 157351c..eccb8d7 100644
  
      let body: Statement | null = null;
 +    this.asyncBodies.push(isAsync);
++    if (isAsync) this.usesExceptions = true;
      if (arrowKind) {
        if (tn.skip(Token.OpenBrace)) {
          body = this.parseBlockStatement(tn, false);
@@ -5202,7 +6269,7 @@ index 157351c..eccb8d7 100644
          this.error(
            DiagnosticCode._0_expected,
            tn.range(tn.pos), "{"
-@@ -1704,7 +2564,26 @@ export class Parser extends DiagnosticEmitter {
+@@ -1704,7 +2566,26 @@ export class Parser extends DiagnosticEmitter {
        }
        body = this.parseBlockStatement(tn, false);
      }
@@ -5229,7 +6296,7 @@ index 157351c..eccb8d7 100644
  
      let declaration = Node.createFunctionDeclaration(
        name,
-@@ -1724,7 +2603,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -1724,7 +2605,7 @@ export class Parser extends DiagnosticEmitter {
      flags: CommonFlags,
      decorators: DecoratorNode[] | null,
      startPos: i32
@@ -5238,7 +6305,7 @@ index 157351c..eccb8d7 100644
  
      // at ('class' | 'interface'):
      //   Identifier
-@@ -1852,6 +2731,47 @@ export class Parser extends DiagnosticEmitter {
+@@ -1852,6 +2733,47 @@ export class Parser extends DiagnosticEmitter {
      }
      declaration.range.end = tn.pos;
      declaration.overriddenModuleName = this.currentModuleName;
@@ -5286,7 +6353,7 @@ index 157351c..eccb8d7 100644
      return declaration;
    }
  
-@@ -2084,6 +3004,20 @@ export class Parser extends DiagnosticEmitter {
+@@ -2084,6 +3006,20 @@ export class Parser extends DiagnosticEmitter {
        }
      }
  
@@ -5307,7 +6374,7 @@ index 157351c..eccb8d7 100644
      // check if accessor: ('get' | 'set') ^\n Identifier
      let state = tn.mark();
      let isConstructor = false;
-@@ -2206,15 +3140,22 @@ export class Parser extends DiagnosticEmitter {
+@@ -2206,15 +3142,22 @@ export class Parser extends DiagnosticEmitter {
          tn.skip(Token.Semicolon);
          return retIndex;
        }
@@ -5338,7 +6405,7 @@ index 157351c..eccb8d7 100644
      }
      let typeParameters: TypeParameterNode[] | null = null;
      if (tn.skip(Token.LessThan)) {
-@@ -2299,6 +3240,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -2299,6 +3242,7 @@ export class Parser extends DiagnosticEmitter {
        }
  
        let returnType: TypeNode | null = null;
@@ -5346,7 +6413,7 @@ index 157351c..eccb8d7 100644
        if (tn.skip(Token.Colon)) {
          if (name.kind == NodeKind.Constructor) {
            this.error(
-@@ -2313,14 +3255,20 @@ export class Parser extends DiagnosticEmitter {
+@@ -2313,14 +3257,20 @@ export class Parser extends DiagnosticEmitter {
          }
          returnType = this.parseType(tn, isSetter || name.kind == NodeKind.Constructor);
          if (!returnType) return null;
@@ -5373,7 +6440,7 @@ index 157351c..eccb8d7 100644
        }
  
        let signature = Node.createFunctionType(
-@@ -2330,6 +3278,8 @@ export class Parser extends DiagnosticEmitter {
+@@ -2330,6 +3280,8 @@ export class Parser extends DiagnosticEmitter {
          false,
          tn.range(signatureStart, tn.pos)
        );
@@ -5382,17 +6449,18 @@ index 157351c..eccb8d7 100644
  
        let body: Statement | null = null;
        if (tn.skip(Token.OpenBrace)) {
-@@ -2349,7 +3299,9 @@ export class Parser extends DiagnosticEmitter {
+@@ -2349,7 +3301,10 @@ export class Parser extends DiagnosticEmitter {
              tn.range(), ";"
            ); // recoverable
          }
 +        this.asyncBodies.push(isAsyncMethod);
++        if (isAsyncMethod) this.usesExceptions = true;
          body = this.parseBlockStatement(tn, false);
 +        this.asyncBodies.pop();
          if (!body) return null;
        } else if (!isInterface && !(flags & (CommonFlags.Ambient | CommonFlags.Abstract))) {
          this.error(
-@@ -2358,6 +3310,9 @@ export class Parser extends DiagnosticEmitter {
+@@ -2358,6 +3313,9 @@ export class Parser extends DiagnosticEmitter {
          ); // recoverable
        }
  
@@ -5402,7 +6470,7 @@ index 157351c..eccb8d7 100644
        let retMethod = Node.createMethodDeclaration(
          name,
          decorators,
-@@ -2415,23 +3370,21 @@ export class Parser extends DiagnosticEmitter {
+@@ -2415,23 +3373,21 @@ export class Parser extends DiagnosticEmitter {
        }
  
        let type: TypeNode | null = null;
@@ -5434,7 +6502,7 @@ index 157351c..eccb8d7 100644
        }
        let initializer: Expression | null = null;
        if (tn.skip(Token.Equals)) {
-@@ -2450,6 +3403,43 @@ export class Parser extends DiagnosticEmitter {
+@@ -2450,6 +3406,43 @@ export class Parser extends DiagnosticEmitter {
            );
          }
        }
@@ -5478,7 +6546,7 @@ index 157351c..eccb8d7 100644
        let range = tn.range(startPos, tn.pos);
        if ((flags & CommonFlags.DefinitelyAssigned) != 0 && (isInterface || (flags & CommonFlags.Ambient) != 0)) {
          this.error(
-@@ -2465,6 +3455,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -2465,6 +3458,7 @@ export class Parser extends DiagnosticEmitter {
          initializer,
          range
        );
@@ -5486,7 +6554,7 @@ index 157351c..eccb8d7 100644
        if (!(isInterface && tn.skip(Token.Comma))) {
          tn.skip(Token.Semicolon);
        }
-@@ -2473,6 +3464,178 @@ export class Parser extends DiagnosticEmitter {
+@@ -2473,6 +3467,178 @@ export class Parser extends DiagnosticEmitter {
      return null;
    }
  
@@ -5665,7 +6733,7 @@ index 157351c..eccb8d7 100644
    parseIndexSignature(
      tn: Tokenizer,
      flags: CommonFlags,
-@@ -2490,8 +3653,9 @@ export class Parser extends DiagnosticEmitter {
+@@ -2490,8 +3656,9 @@ export class Parser extends DiagnosticEmitter {
  
      let start = tn.tokenPos;
      if (tn.skipIdentifier()) {
@@ -5677,7 +6745,7 @@ index 157351c..eccb8d7 100644
          if (tn.skip(Token.Colon)) {
            let keyType = this.parseType(tn);
            if (!keyType) return null;
-@@ -2506,13 +3670,6 @@ export class Parser extends DiagnosticEmitter {
+@@ -2506,13 +3673,6 @@ export class Parser extends DiagnosticEmitter {
              if (tn.skip(Token.Colon)) {
                let valueType = this.parseType(tn);
                if (!valueType) return null;
@@ -5691,7 +6759,7 @@ index 157351c..eccb8d7 100644
                return Node.createIndexSignature(<NamedTypeNode>keyType, valueType, flags, tn.range(start, tn.pos));
              } else {
                this.error(
-@@ -2532,11 +3689,6 @@ export class Parser extends DiagnosticEmitter {
+@@ -2532,11 +3692,6 @@ export class Parser extends DiagnosticEmitter {
              tn.range(), ":"
            );
          }
@@ -5703,7 +6771,7 @@ index 157351c..eccb8d7 100644
        }
      } else {
        this.error(
-@@ -2770,6 +3922,18 @@ export class Parser extends DiagnosticEmitter {
+@@ -2770,6 +3925,18 @@ export class Parser extends DiagnosticEmitter {
      let members: ImportDeclaration[] | null = null;
      let namespaceName: IdentifierExpression | null = null;
      let skipFrom = false;
@@ -5722,7 +6790,7 @@ index 157351c..eccb8d7 100644
      if (tn.skip(Token.OpenBrace)) { // import { ... } from "file"
        members = new Array();
        while (!tn.skip(Token.CloseBrace)) {
-@@ -3164,6 +4328,87 @@ export class Parser extends DiagnosticEmitter {
+@@ -3164,6 +4331,87 @@ export class Parser extends DiagnosticEmitter {
      if (tn.skip(Token.OpenParen)) {
        let initializer: Statement | null = null;
  
@@ -5810,7 +6878,7 @@ index 157351c..eccb8d7 100644
        if (tn.skip(Token.Const)) {
          initializer = this.parseVariable(tn, CommonFlags.Const, null, tn.tokenPos, true);
        } else if (tn.skip(Token.Let)) {
-@@ -3291,7 +4536,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -3291,7 +4539,7 @@ export class Parser extends DiagnosticEmitter {
      tn: Tokenizer,
      startPos: i32,
      variable: Statement,
@@ -5819,7 +6887,7 @@ index 157351c..eccb8d7 100644
  
      // at 'of': Expression ')' Statement
  
-@@ -3308,15 +4553,60 @@ export class Parser extends DiagnosticEmitter {
+@@ -3308,15 +4556,67 @@ export class Parser extends DiagnosticEmitter {
  
      let statement = this.parseStatement(tn);
      if (!statement) return null;
@@ -5875,13 +6943,79 @@ index 157351c..eccb8d7 100644
      );
    }
  
++  /**
++   * amxts: whether any file has a `try` statement or an async function, whose
++   * errors reject its promise: calls then check for an error on its way -
++   * see Compiler.compileTryStatement.
++   */
++  usesExceptions: bool = false;
++
 +  /** amxts: names the lowered for-of loops apart. */
 +  private forOfCounter: i32 = 0;
 +
    parseIfStatement(
      tn: Tokenizer
    ): IfStatement | null {
-@@ -3608,6 +4898,11 @@ export class Parser extends DiagnosticEmitter {
+@@ -3496,27 +4796,27 @@ export class Parser extends DiagnosticEmitter {
+       let catchStatements: Statement[] | null = null;
+       let finallyStatements: Statement[] | null = null;
+       if (tn.skip(Token.Catch)) {
+-        if (!tn.skip(Token.OpenParen)) {
+-          this.error(
+-            DiagnosticCode._0_expected,
+-            tn.range(), "("
+-          );
+-          return null;
+-        }
+-        if (!tn.skipIdentifier()) {
+-          this.error(
+-            DiagnosticCode.Identifier_expected,
+-            tn.range()
+-          );
+-          return null;
+-        }
+-        catchVariable = Node.createIdentifierExpression(tn.readIdentifier(), tn.range());
+-        if (!tn.skip(Token.CloseParen)) {
+-          this.error(
+-            DiagnosticCode._0_expected,
+-            tn.range(), ")"
+-          );
+-          return null;
++        // amxts: `catch {` without a binding, and `catch (e: unknown)` - the
++        // type TypeScript lets it be written with; the error is an Error
++        if (tn.skip(Token.OpenParen)) {
++          if (!tn.skipIdentifier()) {
++            this.error(
++              DiagnosticCode.Identifier_expected,
++              tn.range()
++            );
++            return null;
++          }
++          catchVariable = Node.createIdentifierExpression(tn.readIdentifier(), tn.range());
++          if (tn.skip(Token.Colon)) {
++            if (!this.parseType(tn)) return null;
++          }
++          if (!tn.skip(Token.CloseParen)) {
++            this.error(
++              DiagnosticCode._0_expected,
++              tn.range(), ")"
++            );
++            return null;
++          }
+         }
+         if (!tn.skip(Token.OpenBrace)) {
+           this.error(
+@@ -3561,6 +4861,9 @@ export class Parser extends DiagnosticEmitter {
+         finallyStatements,
+         tn.range(startPos, tn.pos)
+       );
++      // amxts: every call of the program then checks for an error on its way
++      // to a catch - see Compiler.compileTryStatement
++      this.usesExceptions = true;
+       tn.skip(Token.Semicolon);
+       return ret;
+     } else {
+@@ -3608,6 +4911,11 @@ export class Parser extends DiagnosticEmitter {
            type,
            tn.range(startPos, tn.pos)
          );
@@ -5893,7 +7027,7 @@ index 157351c..eccb8d7 100644
          tn.skip(Token.Semicolon);
          ret.overriddenModuleName = this.currentModuleName;
          return ret;
-@@ -3694,6 +4989,19 @@ export class Parser extends DiagnosticEmitter {
+@@ -3694,6 +5002,19 @@ export class Parser extends DiagnosticEmitter {
    ): Expression | null {
      let token = tn.next(IdentifierHandling.Prefer);
      let startPos = tn.tokenPos;
@@ -5913,7 +7047,7 @@ index 157351c..eccb8d7 100644
      switch (token) {
  
        // TODO: SpreadExpression, YieldExpression
-@@ -3712,6 +5020,51 @@ export class Parser extends DiagnosticEmitter {
+@@ -3712,6 +5033,51 @@ export class Parser extends DiagnosticEmitter {
          if (!operand) return null;
          return Node.createUnaryPrefixExpression(token, operand, tn.range(startPos, tn.pos));
        }
@@ -5965,7 +7099,7 @@ index 157351c..eccb8d7 100644
        case Token.Plus_Plus:
        case Token.Minus_Minus: {
          let operand = this.parseExpression(tn, Precedence.UnaryPrefix);
-@@ -3752,6 +5105,9 @@ export class Parser extends DiagnosticEmitter {
+@@ -3752,6 +5118,9 @@ export class Parser extends DiagnosticEmitter {
          } else {
            arguments_ = []; // new Type;
          }
@@ -5975,7 +7109,7 @@ index 157351c..eccb8d7 100644
          return Node.createNewExpression(
            typeName,
            typeArguments,
-@@ -3790,6 +5146,23 @@ export class Parser extends DiagnosticEmitter {
+@@ -3790,6 +5159,23 @@ export class Parser extends DiagnosticEmitter {
                tn.reset(state);
                return this.parseFunctionExpression(tn);
              }
@@ -5999,7 +7133,7 @@ index 157351c..eccb8d7 100644
              // can be both
              case Token.Identifier: {
                tn.readIdentifier();
-@@ -4281,6 +5654,44 @@ export class Parser extends DiagnosticEmitter {
+@@ -4281,6 +5667,44 @@ export class Parser extends DiagnosticEmitter {
            }
            break;
          }
@@ -6044,7 +7178,7 @@ index 157351c..eccb8d7 100644
          // BinaryExpression (right associative)
          case Token.Equals:
          case Token.Plus_Equals:
-@@ -4295,6 +5706,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -4295,6 +5719,7 @@ export class Parser extends DiagnosticEmitter {
          case Token.Ampersand_Equals:
          case Token.Caret_Equals:
          case Token.Bar_Equals:
@@ -6052,7 +7186,7 @@ index 157351c..eccb8d7 100644
          case Token.Asterisk_Asterisk: {
            let next = this.parseExpression(tn, nextPrecedence);
            if (!next) return null;
-@@ -4323,6 +5735,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -4323,6 +5748,7 @@ export class Parser extends DiagnosticEmitter {
          case Token.Caret:
          case Token.Ampersand_Ampersand:
          case Token.Bar_Bar:
@@ -6060,7 +7194,7 @@ index 157351c..eccb8d7 100644
          case Token.In: {
            let next = this.parseExpression(tn, nextPrecedence + 1);
            if (!next) return null;
-@@ -4335,6 +5748,24 @@ export class Parser extends DiagnosticEmitter {
+@@ -4335,6 +5761,24 @@ export class Parser extends DiagnosticEmitter {
      return expr;
    }
  
@@ -6085,7 +7219,7 @@ index 157351c..eccb8d7 100644
    private parseTemplateLiteral(tn: Tokenizer, tag: Expression | null = null): Expression | null {
      // at '`': ... '`'
      let startPos = tag ? tag.range.start : tn.tokenPos;
-@@ -4569,9 +6000,11 @@ function determinePrecedence(kind: Token): Precedence {
+@@ -4569,9 +6013,11 @@ function determinePrecedence(kind: Token): Precedence {
      case Token.GreaterThan_GreaterThan_GreaterThan_Equals:
      case Token.Ampersand_Equals:
      case Token.Caret_Equals:
@@ -6099,7 +7233,7 @@ index 157351c..eccb8d7 100644
      case Token.Ampersand_Ampersand: return Precedence.LogicalAnd;
      case Token.Bar: return Precedence.BitwiseOr;
      case Token.Caret: return Precedence.BitwiseXor;
-@@ -4599,6 +6032,7 @@ function determinePrecedence(kind: Token): Precedence {
+@@ -4599,6 +6045,7 @@ function determinePrecedence(kind: Token): Precedence {
      case Token.Plus_Plus:
      case Token.Minus_Minus: return Precedence.UnaryPostfix;
      case Token.Dot:
@@ -6107,7 +7241,7 @@ index 157351c..eccb8d7 100644
      case Token.OpenBracket:
      case Token.Exclamation: return Precedence.MemberAccess;
    }
-@@ -4640,3 +6074,27 @@ function isCircularTypeAlias(name: string, type: TypeNode): bool {
+@@ -4640,3 +6087,27 @@ function isCircularTypeAlias(name: string, type: TypeNode): bool {
    }
    return false;
  }
@@ -8076,6 +9210,60 @@ index 7d273e1..abd95b0 100644
    }
  
    toISOString(): string {
+diff --git a/std/assembly/error.ts b/std/assembly/error.ts
+index f4ea058..5f6e74c 100644
+--- a/std/assembly/error.ts
++++ b/std/assembly/error.ts
+@@ -29,6 +29,14 @@ export class TypeError extends Error {
+   }
+ }
+ 
++// amxts: what reading a variable before its declaration has run throws, as in JavaScript
++export class ReferenceError extends Error {
++  constructor(message: string = "") {
++    super(message);
++    this.name = "ReferenceError";
++  }
++}
++
+ export class SyntaxError extends Error {
+   constructor(message: string = "") {
+     super(message);
+@@ -42,3 +50,34 @@ export class URIError extends Error {
+     this.name = "URIError";
+   }
+ }
++
++// amxts: exceptions. A `throw` while a `try` runs - in the function that
++// throws or in one that called it - unwinds to that try's `catch`: the error
++// waits in __thrown while every call on the way returns, each checking it
++// (Compiler.makeUnwindCheck); a throw no `try` is running for ends the call,
++// with its message, as WebAssembly's trap does. See Compiler.compileTryStatement.
++
++/** @hidden how many `try` blocks the running code is inside; a coroutine counts its own. */
++// @ts-ignore: decorator
++@lazy export let __tryDepth: i32 = 0;
++
++/** @hidden the error on its way to a `catch`, while the calls between it and the throw return. */
++// @ts-ignore: decorator
++@lazy export let __thrown: Error | null = null;
++
++/** @hidden `throw error`: true when a `try` catches it, and the compiler unwinds to it; the call ends here otherwise. */
++export function __throw(error: Error, fileName: string, lineNumber: u32, columnNumber: u32): bool {
++  if (__tryDepth > 0) {
++    __thrown = error;
++    return true;
++  }
++  abort(error.message, fileName, lineNumber, columnNumber);
++  return false;
++}
++
++/** @hidden what a `catch` takes: the error, which is then no longer on its way. */
++export function __catch(): Error {
++  let error = changetype<Error>(__thrown);
++  __thrown = null;
++  return error;
++}
 diff --git a/std/assembly/function.ts b/std/assembly/function.ts
 index dd32696..5087e0d 100644
 --- a/std/assembly/function.ts

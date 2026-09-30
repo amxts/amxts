@@ -127,6 +127,25 @@ describe('semantics', () => {
 		expect(host.log).toEqual(['catch: at once', 'catch: RangeError thrown', 'passed on: awaited']);
 	});
 
+	test('try around await: a rejection reaches the catch, finally runs, and the value returns', () => {
+		const host = run('tryAwait', 50);
+		for (const line of [
+			'guarded value 1',
+			'guarded finally ',
+			'first gave 1',
+			'guarded caught bad',
+			'guarded finally bad',
+			'second gave -1',
+			'inside caught RangeError inside',
+			'again caught again',
+			'rejected with after the tries',
+		]) expect(host.log).toContain(line);
+		expect(host.log.indexOf('guarded value 1')).toBeLessThan(host.log.indexOf('guarded finally '));
+		expect(host.log.indexOf('guarded finally ')).toBeLessThan(host.log.indexOf('first gave 1'));
+		expect(host.log.some(line => line.includes('Unhandled'))).toBe(false);
+		expect(host.parked).toBe(0);
+	});
+
 	test('a rejection nobody handles is one line, as in Node', () => {
 		const host = run('unhandled', 30);
 		expect(host.log).toEqual(['error: Unhandled promise rejection: nobody']);
@@ -211,6 +230,12 @@ describe('semantics', () => {
 		expect(host.log).toEqual([]);
 		host.advance(10);
 		expect(host.log).toEqual(['late answer given']);
+	});
+
+	test('an error the library throws in an async function rejects its promise with it', () => {
+		const host = run('rangeError', 10);
+		expect(host.log).toEqual(['rejected: RangeError']);
+		expect(host.parked).toBe(0);
 	});
 
 	test('a trap after an await drops that coroutine and nothing else', () => {

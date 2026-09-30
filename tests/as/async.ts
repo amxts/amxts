@@ -99,6 +99,42 @@ export function unhandled(): void {
 	fails("nobody");
 }
 
+async function guarded(label: string) {
+	try {
+		const value = await fails(label);
+		console.log(`guarded value ${value}`);
+		return value;
+	} catch (error) {
+		console.log(`guarded caught ${error.message}`);
+		return -1;
+	} finally {
+		console.log(`guarded finally ${label}`);
+	}
+}
+
+async function throwsInside() {
+	try {
+		await sleep(5);
+		throw new RangeError("inside");
+	} catch (error) {
+		console.log(`inside caught ${error.name} ${error.message}`);
+	}
+	try {
+		await refuses("again");
+	} catch (error) {
+		console.log(`again caught ${error.message}`);
+	}
+	await sleep(5);
+	throw new Error("after the tries");
+}
+
+/** try/catch/finally around await: a rejection reaches the catch, finally runs, a value returns. */
+export function tryAwait(): void {
+	guarded("").then(value => console.log(`first gave ${value}`));
+	guarded("bad").then(value => console.log(`second gave ${value}`));
+	throwsInside().catch(error => console.log(`rejected with ${error.message}`));
+}
+
 // A callback API wrapped in a Promise: the resolve is kept for later.
 let answer: ((value?: string) => void) | null = null;
 
@@ -208,12 +244,22 @@ export function method(): void {
 
 async function crashes() {
 	await sleep(5);
-	const list: string[] = [];
-	console.log(list[3]);
+	unreachable();
 }
 
 export function trap(): void {
 	crashes();
+}
+
+async function outOfRange() {
+	await sleep(5);
+	const list: string[] = [];
+	console.log(list[3]);
+}
+
+/** An error the library throws in an async function rejects its promise with it. */
+export function rangeError(): void {
+	outOfRange().catch(error => console.log(`rejected: ${error.name}`));
 }
 
 // An async game listener: its answer counts if it gave one before its first await.
