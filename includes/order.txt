@@ -1,0 +1,54 @@
+# Which includes the host plugin pulls in, and in what order.
+# This cannot be derived from the .inc files: an include may use reapi's
+# constants without including reapi itself. Files missing from this list are still
+# parsed for their natives — reapi.inc, for instance, already pulls in
+# reapi_engine and reapi_gamedll.
+amxmodx
+cellarray
+fun
+cvars
+float
+reapi
+hamsandwich
+cstrike
+engine
+nvault
+easy_http
+resemiclip
+universal_config
+menu_core
+
+# engine, nvault and geoip are stock AMX Mod X modules shipped with the server
+# (addons/amxmodx/modules/); geoip is listed in modules.ini and the other two
+# are auto-detected from the `#pragma reqlib` amxxpc writes into the .amxx.
+# easy_http and resemiclip are third-party modules, both present as DLLs and
+# both enabled explicitly in modules.ini.
+#
+# universal_config and menu_core are not modules: their natives come from
+# universal_config.amxx and menu_core.amxx, which plugins.ini loads ahead of
+# amxts_host.amxx. AMX Mod X resolves plugin-registered natives after every
+# plugin has run plugin_natives(), so the host links against them fine - but a
+# server without those two plugins must put a `-` back in front of them.
+
+# A line starting with `-` is a deny marker: the include is still resolved and
+# parsed (amxxpc needs the file on disk to compile reapi.inc, which #includes
+# it unconditionally), but its natives are never pulled into the host's native
+# table. A #include costs nothing; a reference in __pull_natives() does — it
+# makes AMX Mod X refuse to load the plugin on a server that doesn't have the
+# native, taking the whole runtime down with it. None of these three are safe
+# to assume: vtc and rechecker are optional reapi add-ons, and reunion natives
+# are only registered when reapi detects Reunion at runtime, so even a server
+# that loads the Reunion metamod plugin cannot be assumed to expose them.
+# A server that wants one of these removes its `-`.
+# geoip is in modules.ini and its DLL is there, and it still cannot be pulled:
+# the module disables its own natives when it cannot find the GeoIP2 databases,
+# which it announces at startup and which this server does. A module being
+# loaded is not the same as its natives existing, and the difference is only
+# visible by starting the server - the host plugin refused to load with
+# "unknown function (name geoip_continent_name)" and took the whole runtime
+# with it. A server with the databases in place removes this marker.
+-geoip
+
+-reapi_vtc
+-reapi_reunion
+-reapi_rechecker

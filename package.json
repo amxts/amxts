@@ -1,0 +1,85 @@
+{
+	"name": "@amxts/core",
+	"type": "module",
+	"version": "0.1.0",
+	"description": "Counter-Strike 1.6 plugins in TypeScript: compiled ahead of time and run inside AMX Mod X, next to Pawn plugins.",
+	"author": {
+		"name": "kukson777",
+		"url": "https://github.com/kukson777"
+	},
+	"license": "MIT",
+	"homepage": "https://amxts.github.io",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/amxts/amxts.git"
+	},
+	"bugs": "https://github.com/amxts/amxts/issues",
+	"keywords": [
+		"amxmodx",
+		"counter-strike",
+		"cs16",
+		"typescript",
+		"assemblyscript",
+		"webassembly",
+		"game-server"
+	],
+	"exports": {
+		".": "./as/facade.ts",
+		"./kit": "./as/kit.ts",
+		"./test-utils": "./src/testing/index.ts",
+		"./cli-api": "./src/cli-api.mjs",
+		"./package.json": "./package.json",
+		"./*": "./*"
+	},
+	"types": "./as/facade.ts",
+	"bin": {
+		"amxts": "bin/amxts.mjs"
+	},
+	"engines": {
+		"node": ">=20.12"
+	},
+	"scripts": {
+		"prepare": "bun scripts/patch-typings.ts",
+		"setup": "bun scripts/setup-includes.ts",
+		"generate": "bun scripts/setup-includes.ts && bun scripts/patch-typings.ts && bun scripts/generate-host.ts && bun scripts/generate-wasm-api.ts && bun scripts/generate-flags.ts && bun scripts/generate-entities.ts && bun scripts/generate-hooks.ts && bun scripts/apply-docs.ts && bun scripts/generate-embedded.ts",
+		"setup:amxmodx": "bun scripts/setup-amxmodx.ts",
+		"host": "bun scripts/generate-host.ts && bun scripts/compile-host.ts",
+		"build:linux": "bun scripts/build-linux.ts",
+		"plugins": "bun scripts/build-wasm.ts",
+		"serverkit": "bun scripts/pack-server.ts",
+		"server:image": "bun scripts/pack-server.ts --os linux && docker build --load -t amxts-server --build-context kit=dist-server/linux docker/server",
+		"release:windows": "bun scripts/release.ts windows",
+		"release:linux": "bun scripts/release.ts linux",
+		"release:publish": "bun scripts/release.ts publish",
+		"test": "bun test --smol tests",
+		"test:fast": "bun test tests/code-style tests/entities tests/flags tests/generated-table tests/hooks tests/include-parser tests/includes",
+		"test:server": "bun --smol scripts/test-server.ts",
+		"check": "tsc",
+		"clean": "rm -rf dist-wasm runtime/host/amxts_host.sma runtime/host/amxts_host.amxx runtime/natives.txt runtime/src/natives.h as/natives.ts as/constants.ts",
+		"types:site": "bun scripts/types-site.ts",
+		"lint": "oxlint && oxfmt --check",
+		"lint:fix": "oxfmt && oxlint --fix --silent || oxlint --fix --silent || oxlint --fix"
+	},
+	"dependencies": {
+		"@amxts/cli": "file:../amxts-cli/packages/cli",
+		"bun": "^1.4.2",
+		"typescript": "^5.6.0"
+	},
+	"devDependencies": {
+		"@amxts/config-core": "file:../amxts-modules/config-core",
+		"@amxts/menu-core": "file:../amxts-modules/menu-core",
+		"@e18e/eslint-plugin": "^0.8.1",
+		"@eslint-community/eslint-plugin-eslint-comments": "^4.8.1",
+		"@stylistic/eslint-plugin": "^5.10.0",
+		"@types/node": "^22.0.0",
+		"assemblyscript": "0.28.20",
+		"binaryen": "131.0.0-nightly.20260721",
+		"eslint-plugin-antfu": "^3.2.3",
+		"eslint-plugin-command": "^4.0.0",
+		"eslint-plugin-n": "^18.4.0",
+		"eslint-plugin-perfectionist": "^5.12.1",
+		"eslint-plugin-regexp": "^3.3.1",
+		"oxfmt": "^0.70.0",
+		"oxlint": "^1.85.0"
+	}
+}

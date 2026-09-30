@@ -1,0 +1,6 @@
+/* The symbols amxts_amxx_i386.so exports: what AMX Mod X looks up, nothing
+   else - not WAMR's API, not the C++ library linked into it. */
+{
+	global: AMXX_*;
+	local: *;
+};

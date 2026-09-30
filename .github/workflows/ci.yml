@@ -1,0 +1,157 @@
+# The core's checks, and the Linux half of a release.
+#
+# On every push and pull request, side by side: the type check and lint; the
+# test suite in three parts; and the Linux module and wamrc built in Docker,
+# then the server suites on a Linux test server in Docker (bun run
+# test:server --linux). On a tag v*, once all of them pass, the Linux files are
+# attached to that tag's draft release (created if missing); the Windows files
+# come from a developer's machine (bun run release:windows), and the Publish
+# workflow takes the draft off once both are there.
+#
+# Every job checks the core out as `amxts` and runs .github/actions/setup,
+# which puts the command and the official modules beside it. What does not
+# change from run to run is cached: npm's downloads, the patched AssemblyScript,
+# each test part's compiled plugins, the Docker images and the Linux build's
+# work folder (wamrc and the objects of the module).
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: amxts
+      - uses: ./amxts/.github/actions/setup
+      - name: Type check
+        working-directory: amxts
+        run: bun run check
+      - name: Lint
+        working-directory: amxts
+        run: bun run lint
+
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: amxts
+      - uses: ./amxts/.github/actions/setup
+      # A compiled plugin is stored under a hash of everything it was built
+      # from, so an older part's cache is safe to start from: what changed is
+      # compiled again, the rest is read back.
+      - uses: actions/cache@v4
+        with:
+          path: amxts/node_modules/.cache/amxts
+          key: tests-${{ matrix.part }}-${{ hashFiles('amxts/runtime/patches/**', 'amxts/as/**', 'amxts/scripts/**', 'amxts/src/**', 'amxts/tests/**') }}
+          restore-keys: tests-${{ matrix.part }}-
+      - name: Tests, part ${{ matrix.part }} of 3
+        working-directory: amxts
+        run: bun test --smol $(ls tests/*.test.ts | awk -v part=${{ matrix.part }} 'NR % 3 == part % 3')
+
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: amxts
+      - uses: ./amxts/.github/actions/setup
+
+      - uses: docker/setup-buildx-action@v3
+      - name: The Linux toolchain image
+        uses: docker/build-push-action@v6
+        with:
+          context: amxts/docker/build
+          tags: amxts-build
+          load: true
+          cache-from: type=gha,scope=amxts-build
+          cache-to: type=gha,mode=max,scope=amxts-build
+      - name: The Linux test server image
+        uses: docker/build-push-action@v6
+        with:
+          context: amxts/docker/hlds
+          tags: amxts-hlds
+          load: true
+          cache-from: type=gha,scope=amxts-hlds
+          cache-to: type=gha,mode=max,scope=amxts-hlds
+
+      # The build's work folder - the WAMR and AMX Mod X checkouts, wamrc and
+      # the module's objects - is a folder here instead of a Docker volume,
+      # so it is cached: wamrc is built again only when its inputs change.
+      - uses: actions/cache@v4
+        with:
+          path: linux-work
+          key: linux-work-${{ hashFiles('amxts/docker/build/**', 'amxts/runtime/patches/wamr-*.patch', 'amxts/runtime/CMakeLists.txt', 'amxts/runtime/src/**') }}
+          restore-keys: linux-work-
+      - name: The Linux module and wamrc
+        working-directory: amxts
+        env:
+          JOBS: 4
+          AMXTS_BUILD_VOLUME: ${{ github.workspace }}/linux-work
+        run: bun run build:linux
+      - name: The host plugin
+        working-directory: amxts
+        run: bun run host
+
+      - name: The server suites on Linux
+        working-directory: amxts
+        run: bun run test:server --linux
+      - name: The test server's console
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-server-linux
+          path: amxts/dist-wasm/test-server-linux/last-run
+          if-no-files-found: ignore
+
+      - name: The Linux server kit
+        working-directory: amxts
+        run: bun run serverkit --os linux
+      - name: The Linux files
+        uses: actions/upload-artifact@v4
+        with:
+          name: amxts-linux
+          path: |
+            amxts/runtime/build/linux/amxts_amxx_i386.so
+            amxts/runtime/build/linux/wamrc
+            amxts/dist-server/linux
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check, tests, linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      # The draft release and its files.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: amxts
+      - uses: ./amxts/.github/actions/setup
+      - uses: actions/download-artifact@v4
+        with:
+          name: amxts-linux
+          path: amxts
+      - name: Attach the Linux files to the draft release
+        working-directory: amxts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun run release:linux --skip-build

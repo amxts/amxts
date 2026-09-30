@@ -1,0 +1,39 @@
+node_modules/
+runtime/build/
+runtime/test/async-wamr/build/
+runtime/deps/
+runtime/*.log
+runtime/*.err
+runtime/host/*.amxx
+dist-wasm/
+
+# generated from includes/*.inc by `bun run generate`
+as/natives.ts
+as/constants.ts
+as/events.ts
+as/entities.ts
+as/flags.ts
+as/hooks.ts
+runtime/src/natives.h
+runtime/src/embedded.h
+runtime/natives.txt
+runtime/host/amxts_host.sma
+
+# the third-party includes, fetched by `bun run setup` (includes/sources.json)
+includes/vendor/
+
+# the AMX Mod X distribution, fetched by `bun run setup:amxmodx`
+amxmodx/
+.env
+dist-sdk/
+dist-server/
+dist-release/
+
+# local editor and agent settings
+.claude/
+
+# the documentation examples' types for the site (bun run types:site [-- --lang ru])
+dist-docs-types/
+
+# amxts prepare: the editor config a project extends
+.amxts/

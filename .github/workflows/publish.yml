@@ -1,0 +1,30 @@
+# Takes a release's draft off once it is whole: both systems' files attached,
+# of the tag's version and one commit (scripts/release-check.ts). Refuses
+# otherwise, and says what is missing. The same as `bun run release:publish`
+# on a developer's machine.
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release's tag, v<version>
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Check both systems, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: bun scripts/release.ts publish --tag "$TAG"

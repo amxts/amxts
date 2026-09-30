@@ -1,0 +1,20 @@
+{
+	"$schema": "./node_modules/oxfmt/configuration_schema.json",
+	"useTabs": true,
+	"singleQuote": false,
+	"sortPackageJson": false,
+	"ignorePatterns": [
+		"**/*.ts",
+		"**/*.mts",
+		"**/*.cts",
+		"**/*.tsx",
+		"**/*.js",
+		"**/*.mjs",
+		"**/*.cjs",
+		"**/*.jsx",
+		"**/*.md",
+		"**/*.inc",
+		"**/*.sma",
+		".superpowers/**"
+	]
+}

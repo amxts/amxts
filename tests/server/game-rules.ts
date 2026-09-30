@@ -1,0 +1,37 @@
+// Правила игры - поля game, сгенерированные как у сущности: число, дробь,
+// булево, текст и победитель раунда именем. Счёт команды уходит в таблицу
+// сразу: TeamScore слышен как событие "message:TeamScore".
+import { m_iNumCTWins, m_iNumTerroristWins } from "~/constants";
+import { get_member_game } from "~/natives";
+import { Checks } from "~/lib/check";
+
+server.addServerCommand("amxts_test_game_rules", run);
+
+/** Разосланный счёт: "CT 7;TERRORIST 2;". */
+let scores = "";
+
+server.addEventListener("message:TeamScore", (event) => {
+	scores += `${event.args.text(0)} ${event.args.number(1)};`;
+});
+
+function run() {
+	const check = new Checks("game-rules");
+
+	const wins = game.numCtWins;
+	const terroristWins = game.numTerroristWins;
+	scores = "";
+	game.numCtWins = wins + 7;
+	check.expect(get_member_game(m_iNumCTWins), "numCtWins записан в m_iNumCTWins").toBe(wins + 7);
+	check.expect(game.numCtWins, "numCtWins прочитан обратно").toBe(wins + 7);
+	check.expect(get_member_game(m_iNumTerroristWins), "счёт террористов не тронут").toBe(terroristWins);
+	check.expect(scores, "таблица получила счёт сразу").toBe(`CT ${wins + 7};TERRORIST ${terroristWins};`);
+	game.numCtWins = wins;
+
+	check.expect(game.gameDesc.length > 0, `gameDesc - текст (${game.gameDesc})`).toBe(true);
+	check.expect(game.roundTimeSecs > 0, `roundTimeSecs - секунды раунда (${game.roundTimeSecs})`).toBe(true);
+	check.expect(game.roundStartTime <= game.time, "roundStartTime - момент в прошлом").toBe(true);
+	check.expect(["none", "CT", "TERRORIST", "draw"].includes(game.roundWinner), `roundWinner - имя (${game.roundWinner})`).toBe(true);
+	check.expect(game.levelInitialized, "levelInitialized - булево, карта осмотрена").toBe(true);
+
+	check.done();
+}

@@ -1,0 +1,364 @@
+diff --git a/core/iwasm/aot/aot_loader.c b/core/iwasm/aot/aot_loader.c
+index 771ef87..7bdb74d 100644
+--- a/core/iwasm/aot/aot_loader.c
++++ b/core/iwasm/aot/aot_loader.c
+@@ -26,6 +26,50 @@
+ #define YMM_PLT_PREFIX "__ymm@"
+ #define XMM_PLT_PREFIX "__xmm@"
+ #define REAL_PLT_PREFIX "__real@"
++/* amxts: on i386 LLVM emits the float constant pool symbol with one
++   underscore, so `__real@40400000` arrives as `_real@40400000` and the prefix
++   check below never matched. A plugin then fails to load with
++   "resolve symbol _real@... failed" the moment it uses a float constant —
++   which, where positions and velocities are vectors, is immediately. */
++#define REAL_PLT_PREFIX_I386 "_real@"
++
++static uint32
++real_plt_prefix_len(const char *symbol)
++{
++    if (!strncmp(symbol, REAL_PLT_PREFIX, strlen(REAL_PLT_PREFIX)))
++        return (uint32)strlen(REAL_PLT_PREFIX);
++    if (!strncmp(symbol, REAL_PLT_PREFIX_I386, strlen(REAL_PLT_PREFIX_I386)))
++        return (uint32)strlen(REAL_PLT_PREFIX_I386);
++    return 0;
++}
++
++/* amxts: the same one-underscore spelling for the vector constant pools. Two
++   f64 constants LLVM packs into one SSE load arrive as
++   `_xmm@40200000000000004022000000000000`; with plugin numbers f64
++   (JavaScript's number) a plugin easily has several, and without this it
++   fails to load with "resolve symbol _xmm@... failed". */
++#define XMM_PLT_PREFIX_I386 "_xmm@"
++#define YMM_PLT_PREFIX_I386 "_ymm@"
++
++static uint32
++xmm_plt_prefix_len(const char *symbol)
++{
++    if (!strncmp(symbol, XMM_PLT_PREFIX, strlen(XMM_PLT_PREFIX)))
++        return (uint32)strlen(XMM_PLT_PREFIX);
++    if (!strncmp(symbol, XMM_PLT_PREFIX_I386, strlen(XMM_PLT_PREFIX_I386)))
++        return (uint32)strlen(XMM_PLT_PREFIX_I386);
++    return 0;
++}
++
++static uint32
++ymm_plt_prefix_len(const char *symbol)
++{
++    if (!strncmp(symbol, YMM_PLT_PREFIX, strlen(YMM_PLT_PREFIX)))
++        return (uint32)strlen(YMM_PLT_PREFIX);
++    if (!strncmp(symbol, YMM_PLT_PREFIX_I386, strlen(YMM_PLT_PREFIX_I386)))
++        return (uint32)strlen(YMM_PLT_PREFIX_I386);
++    return 0;
++}
+ 
+ static void
+ set_error_buf(char *error_buf, uint32 error_buf_size, const char *string)
+@@ -3303,14 +3347,14 @@ do_text_relocation(AOTModule *module, AOTRelocationGroup *group,
+            sections. We simply create extra plt data, parse the values from
+            the symbols and stored them into the extra plt data. */
+         else if (!strcmp(group->section_name, ".text")
+-                 && !strncmp(symbol, YMM_PLT_PREFIX, strlen(YMM_PLT_PREFIX))
+-                 && strlen(symbol) == strlen(YMM_PLT_PREFIX) + 64) {
++                 && ymm_plt_prefix_len(symbol)
++                 && strlen(symbol) == ymm_plt_prefix_len(symbol) + 64) {
+             char ymm_buf[17] = { 0 };
+ 
+             symbol_addr = module->extra_plt_data + ymm_plt_index * 32;
+             for (j = 0; j < 4; j++) {
+                 bh_memcpy_s(ymm_buf, sizeof(ymm_buf),
+-                            symbol + strlen(YMM_PLT_PREFIX) + 48 - 16 * j, 16);
++                            symbol + ymm_plt_prefix_len(symbol) + 48 - 16 * j, 16);
+                 if (!str2uint64(ymm_buf,
+                                 (uint64 *)((uint8 *)symbol_addr + 8 * j))) {
+                     set_error_buf_v(error_buf, error_buf_size,
+@@ -3321,15 +3365,15 @@ do_text_relocation(AOTModule *module, AOTRelocationGroup *group,
+             ymm_plt_index++;
+         }
+         else if (!strcmp(group->section_name, ".text")
+-                 && !strncmp(symbol, XMM_PLT_PREFIX, strlen(XMM_PLT_PREFIX))
+-                 && strlen(symbol) == strlen(XMM_PLT_PREFIX) + 32) {
++                 && xmm_plt_prefix_len(symbol)
++                 && strlen(symbol) == xmm_plt_prefix_len(symbol) + 32) {
+             char xmm_buf[17] = { 0 };
+ 
+             symbol_addr = module->extra_plt_data + module->ymm_plt_count * 32
+                           + xmm_plt_index * 16;
+             for (j = 0; j < 2; j++) {
+                 bh_memcpy_s(xmm_buf, sizeof(xmm_buf),
+-                            symbol + strlen(XMM_PLT_PREFIX) + 16 - 16 * j, 16);
++                            symbol + xmm_plt_prefix_len(symbol) + 16 - 16 * j, 16);
+                 if (!str2uint64(xmm_buf,
+                                 (uint64 *)((uint8 *)symbol_addr + 8 * j))) {
+                     set_error_buf_v(error_buf, error_buf_size,
+@@ -3340,14 +3384,14 @@ do_text_relocation(AOTModule *module, AOTRelocationGroup *group,
+             xmm_plt_index++;
+         }
+         else if (!strcmp(group->section_name, ".text")
+-                 && !strncmp(symbol, REAL_PLT_PREFIX, strlen(REAL_PLT_PREFIX))
+-                 && strlen(symbol) == strlen(REAL_PLT_PREFIX) + 16) {
++                 && real_plt_prefix_len(symbol)
++                 && strlen(symbol) == real_plt_prefix_len(symbol) + 16) {
+             char real_buf[17] = { 0 };
+ 
+             symbol_addr = module->extra_plt_data + module->ymm_plt_count * 32
+                           + module->xmm_plt_count * 16 + real_plt_index * 8;
+             bh_memcpy_s(real_buf, sizeof(real_buf),
+-                        symbol + strlen(REAL_PLT_PREFIX), 16);
++                        symbol + real_plt_prefix_len(symbol), 16);
+             if (!str2uint64(real_buf, (uint64 *)symbol_addr)) {
+                 set_error_buf_v(error_buf, error_buf_size,
+                                 "resolve symbol %s failed", symbol);
+@@ -3356,15 +3400,15 @@ do_text_relocation(AOTModule *module, AOTRelocationGroup *group,
+             real_plt_index++;
+         }
+         else if (!strcmp(group->section_name, ".text")
+-                 && !strncmp(symbol, REAL_PLT_PREFIX, strlen(REAL_PLT_PREFIX))
+-                 && strlen(symbol) == strlen(REAL_PLT_PREFIX) + 8) {
++                 && real_plt_prefix_len(symbol)
++                 && strlen(symbol) == real_plt_prefix_len(symbol) + 8) {
+             char float_buf[9] = { 0 };
+ 
+             symbol_addr = module->extra_plt_data + module->ymm_plt_count * 32
+                           + module->xmm_plt_count * 16
+                           + module->real_plt_count * 8 + float_plt_index * 4;
+             bh_memcpy_s(float_buf, sizeof(float_buf),
+-                        symbol + strlen(REAL_PLT_PREFIX), 8);
++                        symbol + real_plt_prefix_len(symbol), 8);
+             if (!str2uint32(float_buf, (uint32 *)symbol_addr)) {
+                 set_error_buf_v(error_buf, error_buf_size,
+                                 "resolve symbol %s failed", symbol);
+@@ -3635,24 +3679,22 @@ load_relocation_section(const uint8 *buf, const uint8 *buf_end,
+             if (group_name_len == strlen(".text") + 1
+                 && !strncmp(group_name, ".text", strlen(".text"))) {
+                 /* aot compiler emits string with '\0' since 2.0.0 */
+-                if (symbol_name_len == strlen(YMM_PLT_PREFIX) + 64 + 1
+-                    && !strncmp(symbol_name, YMM_PLT_PREFIX,
+-                                strlen(YMM_PLT_PREFIX))) {
++                if (ymm_plt_prefix_len(symbol_name)
++                    && symbol_name_len == ymm_plt_prefix_len(symbol_name) + 64 + 1) {
+                     module->ymm_plt_count++;
+                 }
+-                else if (symbol_name_len == strlen(XMM_PLT_PREFIX) + 32 + 1
+-                         && !strncmp(symbol_name, XMM_PLT_PREFIX,
+-                                     strlen(XMM_PLT_PREFIX))) {
++                else if (xmm_plt_prefix_len(symbol_name)
++                         && symbol_name_len == xmm_plt_prefix_len(symbol_name) + 32 + 1) {
+                     module->xmm_plt_count++;
+                 }
+-                else if (symbol_name_len == strlen(REAL_PLT_PREFIX) + 16 + 1
+-                         && !strncmp(symbol_name, REAL_PLT_PREFIX,
+-                                     strlen(REAL_PLT_PREFIX))) {
++                else if (real_plt_prefix_len(symbol_name)
++                         && symbol_name_len
++                                == real_plt_prefix_len(symbol_name) + 16 + 1) {
+                     module->real_plt_count++;
+                 }
+-                else if (symbol_name_len >= strlen(REAL_PLT_PREFIX) + 8 + 1
+-                         && !strncmp(symbol_name, REAL_PLT_PREFIX,
+-                                     strlen(REAL_PLT_PREFIX))) {
++                else if (real_plt_prefix_len(symbol_name)
++                         && symbol_name_len
++                                >= real_plt_prefix_len(symbol_name) + 8 + 1) {
+                     module->float_plt_count++;
+                 }
+             }
+diff --git a/core/iwasm/aot/arch/aot_reloc_x86_32.c b/core/iwasm/aot/arch/aot_reloc_x86_32.c
+index f7f2421..89ba8b9 100644
+--- a/core/iwasm/aot/arch/aot_reloc_x86_32.c
++++ b/core/iwasm/aot/arch/aot_reloc_x86_32.c
+@@ -62,6 +62,10 @@ static int64 __stdcall __allrem(int64 a, int64 b)
+ {
+     return a % b;
+ }
++static uint64 __stdcall __aullrem(uint64 a, uint64 b)
++{
++    return a % b;
++}
+ #endif /* !defined(_WIN32) && !defined(_WIN32_) */
+ 
+ /* clang-format off */
+@@ -75,7 +79,16 @@ static SymbolMap target_sym_map[] = {
+ #if defined(_WIN32) || defined(_WIN32_)
+     REG_SYM(__aulldiv),
+     REG_SYM(__alldiv),
+-    REG_SYM(__allrem)
++    REG_SYM(__allrem),
++    REG_SYM(__aullrem),
++    /* amxts: LLVM's i386 code asks for the 64-bit division helpers with one
++       underscore - `_alldiv` - the same spelling as `_real@` and `_xmm@` in
++       aot_loader.c. Dividing an i64 (Date's milliseconds) failed to load
++       with "resolve symbol _alldiv failed". */
++    { "_aulldiv", (void *)__aulldiv },
++    { "_alldiv", (void *)__alldiv },
++    { "_allrem", (void *)__allrem },
++    { "_aullrem", (void *)__aullrem },
+ #endif /* defined(_WIN32) || defined(_WIN32_) */
+ };
+ /* clang-format on */
+diff --git a/core/iwasm/common/wasm_native.c b/core/iwasm/common/wasm_native.c
+index 060bb2c..28c182d 100644
+--- a/core/iwasm/common/wasm_native.c
++++ b/core/iwasm/common/wasm_native.c
+@@ -235,12 +235,15 @@ wasm_native_resolve_symbol(const char *module_name, const char *field_name,
+         if (signature && signature[0] != '\0') {
+             /* signature is not empty, check its format */
+             if (!func_type || !check_symbol_signature(func_type, signature)) {
+-#if WASM_ENABLE_WAMR_COMPILER == 0
+-                /* Output warning except running aot compiler */
++                /* amxts: this warning used to be compiled out of the aot
++                   compiler. A signature only reaches here because someone
++                   registered it, so a mismatch is a mistake worth hearing
++                   about: the compiler quietly drops that import to the
++                   generic aot_invoke_native path, 28 ns a call instead of
++                   2, and nothing in the build says so. */
+                 LOG_WARNING("failed to check signature '%s' and resolve "
+                             "pointer params for import function (%s, %s)\n",
+                             signature, module_name, field_name);
+-#endif
+                 return NULL;
+             }
+             else
+diff --git a/wamr-compiler/CMakeLists.txt b/wamr-compiler/CMakeLists.txt
+index 8ee61ca..5a496cd 100644
+--- a/wamr-compiler/CMakeLists.txt
++++ b/wamr-compiler/CMakeLists.txt
+@@ -167,7 +167,35 @@ if (NOT WAMR_BUILD_WITH_CUSTOM_LLVM)
+   set (CMAKE_PREFIX_PATH "${LLVM_SRC_ROOT}/build;${CMAKE_PREFIX_PATH}")
+ endif ()
+ 
++# LLVM's exported targets reference LibXml2::LibXml2 through
++# LLVMWindowsManifest, which wamrc does not use. A stub keeps CMake happy
++# without requiring libxml2 to be installed.
++if (NOT TARGET LibXml2::LibXml2)
++  add_library(LibXml2::LibXml2 INTERFACE IMPORTED)
++endif()
++
+ find_package(LLVM REQUIRED CONFIG)
++
++# The prebuilt LLVM was linked on a machine with Visual Studio 2019 and its
++# exported targets carry that absolute path to the DIA SDK's diaguids.lib,
++# which is only needed for reading PDBs — something wamrc never does. Point it
++# at whatever DIA SDK exists here, or drop it.
++if (WIN32 AND TARGET LLVMDebugInfoPDB)
++  file (GLOB_RECURSE AMXTS_DIAGUIDS
++        "C:/Program Files (x86)/Microsoft Visual Studio/*/*/DIA SDK/lib/amd64/diaguids.lib")
++  set (AMXTS_DIAGUIDS_FIRST "")
++  if (AMXTS_DIAGUIDS)
++    list (GET AMXTS_DIAGUIDS 0 AMXTS_DIAGUIDS_FIRST)
++  endif ()
++  if (AMXTS_DIAGUIDS_FIRST)
++    message (STATUS "amxts: using DIA SDK at ${AMXTS_DIAGUIDS_FIRST}")
++    set_property (TARGET LLVMDebugInfoPDB PROPERTY
++                  INTERFACE_LINK_LIBRARIES "${AMXTS_DIAGUIDS_FIRST}")
++  else ()
++    message (STATUS "amxts: no DIA SDK found, unlinking LLVMDebugInfoPDB")
++    set_property (TARGET LLVMDebugInfoPDB PROPERTY INTERFACE_LINK_LIBRARIES "")
++  endif ()
++endif ()
+ include_directories(${LLVM_INCLUDE_DIRS})
+ add_definitions(${LLVM_DEFINITIONS})
+ 
+diff --git a/wamr-compiler/main.c b/wamr-compiler/main.c
+index 62b0dfb..de657a4 100644
+--- a/wamr-compiler/main.c
++++ b/wamr-compiler/main.c
+@@ -105,6 +105,56 @@ unregister_and_unload_native_libs(uint32 native_lib_count,
+ }
+ #endif
+ 
++/* amxts: hand the compiler the host's native signatures. aot_emit_function.c
++   emits a direct call to func_ptrs[idx] when an import's signature is known,
++   and the generic aot_invoke_native sequence - eight dereferences and an argv
++   round trip - when it is not; measured, that is 2 ns against 28 ns per call.
++   Only the name and the signature are read at compile time, never the
++   pointer, so the table is plain text: one "name signature" pair per line,
++   # starts a comment. */
++static bool
++register_native_signatures(const char *file_name)
++{
++    char line[256], name[128], sig[128];
++    NativeSymbol *symbols = NULL, *grown;
++    uint32 count = 0, capacity = 0;
++    FILE *file = fopen(file_name, "r");
++
++    if (!file) {
++        printf("Failed to open native signature file %s\n", file_name);
++        return false;
++    }
++
++    while (fgets(line, sizeof(line), file)) {
++        if (line[0] == '#' || sscanf(line, "%127s %127s", name, sig) != 2)
++            continue;
++        if (count == capacity) {
++            capacity = capacity ? capacity * 2 : 128;
++            if (!(grown = realloc(symbols, capacity * sizeof(NativeSymbol))))
++                break;
++            symbols = grown;
++        }
++        symbols[count].symbol = strdup(name);
++        /* never called at compile time, but must not be NULL */
++        symbols[count].func_ptr = (void *)(uintptr_t)1;
++        symbols[count].signature = strdup(sig);
++        symbols[count].attachment = NULL;
++        if (!symbols[count].symbol || !symbols[count].signature)
++            break;
++        count++;
++    }
++    fclose(file);
++
++    /* The table lives as long as the process; nothing frees it. */
++    if (!wasm_runtime_register_natives("env", symbols, count)) {
++        printf("Failed to register natives from %s: a signature is malformed\n",
++               file_name);
++        return false;
++    }
++    printf("Registered %u native signatures from %s\n", count, file_name);
++    return true;
++}
++
+ /* clang-format off */
+ static void
+ print_help()
+@@ -207,6 +257,11 @@ print_help()
+     printf("                            are shared object (.so) files, for example:\n");
+     printf("                              --native-lib=test1.so --native-lib=test2.so\n");
+ #endif
++    printf("  --native-signatures=<file>\n");
++    printf("                            Read the host's native signatures from a text file,\n");
++    printf("                            one \"name signature\" pair per line, so that calls to\n");
++    printf("                            them are emitted as direct calls, e.g.\n");
++    printf("                              get_user_health (i)i\n");
+     printf("  --invoke-c-api-import     Treat unknown import function as wasm-c-api import function and\n");
+     printf("                            quick call it from AOT code\n");
+ #if WASM_ENABLE_LINUX_PERF != 0
+@@ -401,6 +456,7 @@ main(int argc, char *argv[])
+     int log_verbose_level = 2;
+     bool sgx_mode = false, size_level_set = false, use_dummy_wasm = false;
+     int exit_status = EXIT_FAILURE;
++    const char *native_signature_file = NULL;
+ #if BH_HAS_DLFCN
+     const char *native_lib_list[8] = { NULL };
+     uint32 native_lib_count = 0;
+@@ -638,6 +694,11 @@ main(int argc, char *argv[])
+             native_lib_list[native_lib_count++] = argv[0] + 13;
+         }
+ #endif
++        else if (!strncmp(argv[0], "--native-signatures=", 20)) {
++            if (argv[0][20] == '\0')
++                PRINT_HELP_AND_EXIT();
++            native_signature_file = argv[0] + 20;
++        }
+         else if (!strcmp(argv[0], "--invoke-c-api-import")) {
+             option.quick_invoke_c_api_import = true;
+         }
+@@ -764,6 +825,10 @@ main(int argc, char *argv[])
+         return -1;
+     }
+ 
++    if (native_signature_file
++        && !register_native_signatures(native_signature_file))
++        goto fail1;
++
+     bh_log_set_verbose_level(log_verbose_level);
+ 
+ #if BH_HAS_DLFCN

@@ -1,0 +1,475 @@
+import type { PluginNative } from './plugin-natives';
+import type { ModulePackage } from './project';
+import { createSocket } from 'node:dgram';
+// Builds a project's plugins into .aot files the server can load, and
+// optionally copies them there. The project is the current folder: its
+// amxts.config.ts names the modules it uses and where its plugins are
+// (scripts/project.ts). In this repository that is as/ and dist-wasm/.
+//
+//   bun run plugins            build into dist-wasm/     (npx amxts build)
+//   bun run plugins --deploy   build, copy to the server, write its plugins.ini
+//                              and reload the running server over rcon
+//   bun scripts/build-wasm.ts --deploy --watch   that on every save   (npx amxts dev)
+//   bun scripts/build-wasm.ts --watch            only the build, on every save, for a
+//                                                server that reads dist/ (npx amxts build --watch)
+//   --watch --docker --os linux   that, for the Docker server that mounts the project,
+//                                 with its console's amxts lines (npx amxts dev --docker)
+//   --os windows|linux         the server's system, when AMXTS_SERVER does not say
+//
+// Every module the plugins use is built too, as its owner plugin - <name>.aot,
+// the module's one instance on the server - and plugins.ini lists the modules
+// first, each after what it requires, then the project's plugins. A module the
+// config lists and no plugin uses is left out, unless `pawn` keeps it for Pawn
+// plugins (modulesInUse).
+//
+// `dev` is --deploy --watch: saving a .ts is not enough on its own, because
+// the server loads a .aot and only asc and wamrc can produce one. A save
+// rebuilds the plugins that import the saved file, copies them over and sends
+// the server RELOAD_COMMAND, whose reply is printed.
+//
+// Two compilers, in order: asc turns AssemblyScript into wasm, wamrc turns
+// wasm into i386 machine code - in the object format of the server's system,
+// Windows or Linux, whichever this machine is (scripts/system.ts). wamrc is given runtime/natives.txt so that a
+// call into a host native compiles to a direct call — 2 ns instead of 28. Both
+// must come from the same WAMR release as the module, or the loader reports
+// "unknown binary version" (CONTRIBUTING.md builds both from one checkout).
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve } from 'node:path';
+import { compilePlugin, includePath } from './compile';
+import { followConsoles, projectContainers, runCommand } from './docker-server';
+import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, projectPlugins, sourcesFor } from './project';
+import { describeSystem, serverSystem, wamrcPath } from './system';
+import { c, log } from './ui';
+
+function fail(message: string, hint?: string): void {
+	log.error(message.trim());
+	if (hint) log.hint(hint);
+}
+
+/** A path as the report shows it: from the project's folder, with forward slashes. */
+function shown(path: string): string {
+	return (relative(process.cwd(), path) || '.').replace(/\\/g, '/');
+}
+
+const project = loadProject(process.cwd());
+if (project.problems.length) {
+	fail(project.problems.join('\n'));
+	process.exit(1);
+}
+const sourceDir = project.pluginsDir;
+const outDir = project.outDir;
+// Both of these differ between this repository and the kit a plugin author
+// gets: there wamrc sits beside the plugins and the signature table is a file
+// shipped with it, because neither WAMR nor the includes are there to build.
+const wamrc = wamrcPath();
+
+// The patched AssemblyScript, not the one npm installs: only ours parses a
+// union of string literal types, which is how an event name is completed in an
+// editor and misspelled names are refused. See runtime/patches.
+const asc_ = process.env.AMXTS_ASC ?? join(CORE_DIR, 'runtime/deps/assemblyscript/bin/asc.js');
+const signatures = process.env.AMXTS_NATIVES ?? join(CORE_DIR, 'runtime/natives.txt');
+// Where --deploy copies the built plugins: the amxts folder inside a server's
+// addons. It is per-machine, so it comes from the environment rather than from
+// this file, and .env keeps it out of everyone else's way.
+const serverDir = process.env.AMXTS_SERVER ?? '';
+
+// The module's server command that starts every plugin over from disk.
+const RELOAD_COMMAND = 'amxts_reload';
+// The server's UDP port: 27015 unless AMXTS_PORT says otherwise.
+const RCON_PORT = Number(process.env.AMXTS_PORT ?? 27015);
+// Where rcon_password is set: cstrike/server.cfg, two folders above addons/amxts.
+const serverCfg = join(serverDir, '..', '..', 'server.cfg');
+
+// The system of the server the plugins are for: what the .aot is written as.
+let target: ReturnType<typeof serverSystem>;
+try {
+	target = serverSystem();
+} catch (error) {
+	fail((error as Error).message);
+	process.exit(1);
+}
+
+const deploy = process.argv.includes('--deploy');
+const keepWatching = process.argv.includes('--watch');
+// For the Docker server: it reads dist/ where it is, so only the build.
+const forDocker = process.argv.includes('--docker');
+
+if (forDocker && deploy) {
+	fail('--docker builds into dist/, which the container reads: there is nothing to deploy.');
+	process.exit(1);
+}
+
+if (forDocker && target.system !== 'linux') {
+	fail(`The Docker server is Linux, and the build is for ${describeSystem(target)}.`, 'Build with --os linux.');
+	process.exit(1);
+}
+
+if (deploy && !serverDir) {
+	fail('AMXTS_SERVER is not set: where should the plugins go?', [
+		'Point it at the amxts folder inside your server, in .env beside package.json:',
+		'  AMXTS_SERVER=D:/hlds/cstrike/addons/amxts',
+	].join('\n'));
+	process.exit(1);
+}
+
+if (!existsSync(asc_)) {
+	fail(`The patched AssemblyScript is missing: ${asc_}`, 'Clone AssemblyScript into runtime/deps and apply the patch - CONTRIBUTING.md.');
+	process.exit(1);
+}
+
+if (!existsSync(wamrc)) {
+	fail(`wamrc is missing: ${wamrc}`, 'CONTRIBUTING.md says how to build it.');
+	process.exit(1);
+}
+
+if (!existsSync(signatures)) {
+	fail(`${signatures} is missing`, 'Run bun run generate in the core.');
+	process.exit(1);
+}
+
+mkdirSync(outDir, { recursive: true });
+
+/** A plugin to build: where its source is, and the name of its .aot. */
+interface Target {
+	source: string;
+	name: string;
+	/** The module package it owns. */
+	pkg?: ModulePackage;
+}
+
+/** The project's own plugins: the .ts files at the top of its plugins folder. */
+function ownPlugins(): Target[] {
+	return projectPlugins(project).map(source => ({ source, name: basename(source).replace(/\.ts$/, '') }));
+}
+
+for (const plugin of ownPlugins()) {
+	if (project.modules.some(pkg => pkg.short === plugin.name)) {
+		fail(`${shown(plugin.source)}: a module in amxts.config.ts is called ${plugin.name} too`, 'Rename the plugin.');
+		process.exit(1);
+	}
+}
+
+/** The owners of the modules the plugins use, in load order. */
+function moduleOwners(): Target[] {
+	const sources = sourcesFor(CORE_PLUGINS);
+	return modulesInUse(sources, ownPlugins().map(plugin => plugin.source)).map(pkg => ({ source: sources.ownerSource(pkg), name: pkg.short, pkg }));
+}
+
+/** The modules' owners, in load order, then the project's plugins. */
+function allPlugins(): Target[] {
+	return [...moduleOwners(), ...ownPlugins()];
+}
+
+/** The plugins a change to these files has to rebuild: every one importing them. */
+function affected(files: string[]): Target[] {
+	const sources = sourcesFor(CORE_PLUGINS);
+	const changed = files.map(file => resolve(file));
+	return allPlugins().filter((plugin) => {
+		const reached = [...sources.reach(join(CORE_PLUGINS, sources.entry(plugin.source)))].map(place => sources.real(place) ?? place);
+		return changed.some(file => reached.includes(file));
+	});
+}
+
+/**
+ * asc's errors, one per block, as `as/file.ts:line:col - message` over the
+ * line it points at. Anything else - wamrc's - is passed through as it came.
+ */
+function readable(problem: string): string {
+	const errors = [...problem.matchAll(/ERROR (\w+): (.*)\r?\n[ \t]*:\r?\n([\s\S]*?)\r?\n[ \t]*└─ in (.+?)\((\d+),(\d+)\)/g)];
+	if (errors.length === 0) return problem.trim();
+
+	const sources = sourcesFor(CORE_PLUGINS);
+	// A file reached through `~/` is named `~lib/~/myplugin/bits.ts`; a module's
+	// is the file in its package.
+	const where = (file: string) => {
+		const place = join(CORE_PLUGINS, file.replace(/^~lib\/~\//, ''));
+		return relative(process.cwd(), sources.real(place) ?? place).replace(/\\/g, '/');
+	};
+	return errors
+		.map(([, code, message, snippet, file, line, col]) => `${where(file)}:${line}:${col} - ${code} ${message}\n${snippet}`)
+		.join('\n\n');
+}
+
+/** The include each built plugin wrote, by .aot: a contract's keeps its own name. */
+const includes = new Map<string, string>();
+
+/** Builds these plugins. Returns the .aot names, or null after printing the error. */
+async function compile(plugins: Target[]): Promise<string[] | null> {
+	const built: string[] = [];
+
+	for (const { source, name, pkg } of plugins) {
+		const natives: PluginNative[] = [];
+		const problem = await compilePlugin({
+			source,
+			output: join(outDir, `${name}.aot`),
+			// `~/` is the core's as/, with the project's plugins and the
+			// modules over it (scripts/project.ts).
+			root: CORE_PLUGINS,
+			wamrc,
+			signatures,
+			system: target.system,
+		}, natives);
+
+		if (problem) {
+			fail(`${c.bold(name)} does not compile:\n${readable(problem)}\n`, keepWatching ? 'The server keeps the last good build.' : undefined);
+			return null;
+		}
+		includes.set(`${name}.aot`, includePath(join(outDir, `${name}.aot`), natives));
+		if (pkg) writePackageInclude(pkg, join(outDir, `${name}.aot`));
+		built.push(`${name}.aot`);
+	}
+	return built;
+}
+
+/**
+ * Built in a module's own folder, a module with natives gets its include
+ * written into the package - include/<name>.inc, which the author commits and
+ * Pawn plugins compile against. Not with `"contract": true`: that include is
+ * the original's, and the build has checked the natives against it instead.
+ */
+function writePackageInclude(pkg: ModulePackage, output: string) {
+	if (pkg.dir !== project.dir || !pkg.natives || pkg.contract) return;
+	const generated = includePath(output);
+	if (!existsSync(generated)) return;
+	const target = pkg.include ?? join(pkg.dir, 'include', basename(generated));
+	const text = readFileSync(generated, 'utf8');
+	if (existsSync(target) && readFileSync(target, 'utf8').replace(/\r\n/g, '\n') === text.replace(/\r\n/g, '\n')) return;
+	mkdirSync(dirname(target), { recursive: true });
+	writeFileSync(target, text);
+	log.info(`wrote ${relative(project.dir, target).replace(/\\/g, '/')} from ${relative(project.dir, pkg.natives).replace(/\\/g, '/')}`);
+}
+
+/**
+ * Sends one connectionless packet to the local server and collects what comes
+ * back until it goes quiet. Null when nothing does: no server on that port.
+ */
+function ask(message: string, wait: number): Promise<string | null> {
+	return new Promise((done) => {
+		const socket = createSocket('udp4');
+		let reply: string | null = null;
+		let finished = false;
+
+		const finish = () => {
+			if (finished) return;
+			finished = true;
+			clearTimeout(timer);
+			socket.close();
+			done(reply);
+		};
+		let timer = setTimeout(finish, wait);
+
+		// Every packet starts with four 0xFF, and an rcon reply with an `l`
+		// after them; a long reply comes in several.
+		socket.on('message', (packet) => {
+			reply = (reply ?? '') + packet.subarray(4).toString('latin1').replace(/^l/, '').replace(/\0+$/, '');
+			clearTimeout(timer);
+			timer = setTimeout(finish, 200);
+		});
+		// Windows answers a closed port with an error rather than silence.
+		socket.on('error', finish);
+		socket.send(Buffer.concat([Buffer.from([255, 255, 255, 255]), Buffer.from(`${message}\n`, 'latin1')]), RCON_PORT, '127.0.0.1');
+	});
+}
+
+/**
+ * Copies the built plugins to the server, then reloads it. Returns the step
+ * that finishes the one-line report, and prints what the server answered.
+ *
+ * The module also reloads by itself when a plugin's .aot is newer than the
+ * one it loaded. Reloading twice would run every plugin_init twice, so when
+ * rcon can reload, the copies keep the old file's time and only rcon does.
+ * When it cannot, they get a new time and the module's watcher does it.
+ */
+async function deployAndReload(built: string[]): Promise<string> {
+	if (!existsSync(serverDir)) return `not deployed: no server at ${serverDir}`;
+
+	// Without amxts.config.ts the list is the server's, not the build's: a
+	// deploy names what it has just built and has never seen named, and leaves
+	// every other line alone - a commented-out plugin stays commented out, and
+	// an order somebody chose stays theirs. With the config the order is the
+	// build's (serverList).
+	const listPath = join(serverDir, 'plugins.ini');
+	const existing = existsSync(listPath) ? readFileSync(listPath, 'utf8') : '';
+	const named = new Set(
+		existing.split('\n').map(line => line.replace(/^[\s;]+/, '').trim()).filter(Boolean),
+	);
+	const added = built.filter(file => !named.has(file));
+
+	const password = existsSync(serverCfg)
+		? readFileSync(serverCfg, 'utf8').match(/^\s*rcon_password\s+"?([^"\r\n]*)"?/m)?.[1]?.trim() ?? ''
+		: '';
+	const challenge = (await ask('challenge rcon', 1000))?.match(/challenge rcon (\d+)/)?.[1];
+	const byRcon = Boolean(challenge && password);
+
+	for (const file of built) {
+		const target = join(serverDir, 'plugins', file);
+		const before = existsSync(target) ? statSync(target) : null;
+		copyFileSync(join(outDir, file), target);
+		if (before && byRcon) utimesSync(target, before.atime, before.mtime);
+	}
+
+	// A plugin that exports natives has an include for Pawn plugins beside it;
+	// it goes where amxxpc on the server looks, when the server has one.
+	const pawnIncludes = join(serverDir, '..', 'amxmodx', 'scripting', 'include');
+	for (const file of built) {
+		const include = includes.get(file) ?? includePath(join(outDir, file));
+		if (existsSync(include) && existsSync(pawnIncludes)) copyFileSync(include, join(pawnIncludes, basename(include)));
+	}
+	// The module's own natives for Pawn: the fields plugins add to Player.
+	if (existsSync(pawnIncludes)) copyFileSync(join(CORE_DIR, 'runtime/host/amxts.inc'), join(pawnIncludes, 'amxts.inc'));
+
+	// A folder beside the plugins is a library - `~/lib/thing`, `~/myplugin/config`.
+	// It is compiled into the .aot already, so nothing here needs it; a .ts
+	// plugin written on the server does, and it was silently compiling against
+	// whatever copy happened to be there.
+	const ownFolder = resolve(sourceDir) !== resolve(CORE_PLUGINS) || resolve(project.dir) === resolve(CORE_DIR);
+	for (const entry of ownFolder ? readdirSync(sourceDir, { withFileTypes: true }) : []) {
+		if (entry.isDirectory()) {
+			cpSync(join(sourceDir, entry.name), join(serverDir, 'plugins', entry.name), { recursive: true });
+		}
+	}
+
+	if (project.config) {
+		writeFileSync(listPath, serverList(existing, readFileSync(join(outDir, 'plugins.ini'), 'utf8')));
+	} else if (existing.length === 0) {
+		writeFileSync(listPath, `${built.join('\n')}\n`);
+	} else if (added.length > 0) {
+		writeFileSync(listPath, `${existing.replace(/\n*$/, '\n') + added.join('\n')}\n`);
+	}
+
+	// A reload re-reads plugins.ini, so a new plugin loads with it (seen on the
+	// server: api-async loaded that way).
+	for (const file of added) log.info(`new plugin ${c.bold(file.replace(/\.aot$/, ''))}: added to plugins.ini`);
+
+	if (!challenge) return 'deployed (server not running, nothing to reload)';
+
+	if (!password) {
+		log.warn(`no rcon_password in ${serverCfg}: add a line  rcon_password "something"  and restart the server (until then the module reloads on its own)`);
+		return 'deployed → the module reloads on its own';
+	}
+
+	const reply = await ask(`rcon ${challenge} "${password}" ${RELOAD_COMMAND}`, 5000);
+
+	if (reply === null || /bad rcon_password/i.test(reply)) {
+		// Nothing reloaded them, so let the module's watcher see the new files.
+		const now = new Date();
+		for (const file of built) utimesSync(join(serverDir, 'plugins', file), now, now);
+		return `deployed → rcon ${reply === null ? 'got no answer' : 'refused the password'}, the module reloads on its own`;
+	}
+
+	const lines = reply.split('\n').map(line => line.trimEnd()).filter(Boolean);
+	return ['deployed → reloaded', ...lines.map(line => c.dim(`  ${line}`))].join('\n');
+}
+
+/**
+ * The server's plugins.ini with the build's order: the modules, each after
+ * what it requires, then the project's plugins. A line the server commented
+ * out stays commented out, and a plugin the build does not know stays, after.
+ */
+function serverList(existing: string, generated: string): string {
+	const lines = existing.split(/\r?\n/).filter(line => line.trim());
+	const nameOf = (line: string) => line.replace(/^[\s;]+/, '').trim();
+	const order = generated.split('\n').filter(line => line && !line.startsWith(';'));
+	const out = order.map(name => (lines.some(line => nameOf(line) === name && line.trim().startsWith(';')) ? `;${name}` : name));
+	for (const line of lines) {
+		if (!order.includes(nameOf(line)) && !line.trim().startsWith('; GENERATED')) out.push(line);
+	}
+	return `${out.join('\n')}\n`;
+}
+
+/** The modules plugins.ini lists; null before the first build. */
+let listed: string[] | null = null;
+
+/**
+ * plugins.ini: the modules the plugins use, then the plugins. A module the
+ * config lists that leaves the list - at the first build, or on a save that
+ * stops using it - is said, and its .aot goes from the build folder.
+ */
+function writeList(owners: Target[]) {
+	const names = owners.map(owner => owner.name);
+	for (const pkg of project.modules) {
+		if (names.includes(pkg.short) || (listed && !listed.includes(pkg.short))) continue;
+		log.info(`module "${pkg.short}" is installed but no plugin uses it - left out`);
+		rmSync(join(outDir, `${pkg.short}.aot`), { force: true });
+	}
+	listed = names;
+	const list = pluginList(project, ownPlugins().map(plugin => `${plugin.name}.aot`), owners.map(owner => owner.pkg!));
+	writeFileSync(join(outDir, 'plugins.ini'), `; GENERATED by amxts build: the modules in load order, then the plugins.\n${list.join('\n')}\n`);
+}
+
+/**
+ * Builds, deploys when asked, and prints one line about it. A module a save
+ * brings into use is built with the plugin that uses it.
+ */
+async function run(plugins: Target[], verb: string): Promise<boolean> {
+	const started = performance.now();
+	const owners = moduleOwners();
+	const fresh = owners.filter(owner => !listed?.includes(owner.name) && !plugins.some(plugin => plugin.name === owner.name));
+	const built = await compile([...fresh, ...plugins]);
+	if (!built) return false;
+	writeList(owners);
+
+	const names = built.map(file => file.replace(/\.aot$/, '')).join(', ');
+	const head = `${verb} ${c.bold(names)} ${c.dim(`(${((performance.now() - started) / 1000).toFixed(1)}s, for ${describeSystem(target)})`)}`;
+	const time = keepWatching ? `${c.dim(new Date().toLocaleTimeString())} ` : '';
+
+	log.success(`${time}${head} → ${deploy ? await deployAndReload(built) : shown(outDir)}`);
+	return true;
+}
+
+// The containers are looked for before the first build, so that their answer
+// to it - the reload - is shown too.
+if (forDocker) {
+	const containers = projectContainers(project.dir);
+	if (containers === null) {
+		log.warn('docker does not answer - is it running? The plugins are built all the same.');
+	} else if (containers.length === 0) {
+		log.warn(`no running container mounts ${shown(project.dir)} at /project - start the server with:`);
+		log.hint(runCommand(project.dir));
+	} else {
+		log.step(`the server's console: ${containers.map(name => c.cyan(name)).join(', ')}`);
+		followConsoles(containers);
+	}
+}
+
+const ok = await run(ownPlugins(), 'built');
+
+if (!keepWatching) process.exit(ok ? 0 : 1);
+
+log.step(`watching ${c.cyan(shown(sourceDir))} - save a plugin and it ${deploy ? 'goes to the server' : `is built into ${shown(outDir)} again`} ${c.dim('(Ctrl+C stops)')}`);
+
+// An editor writes a file more than once when saving, so one save means
+// several events. They are collected for a quarter of a second, and a save
+// that lands during a build waits for it and goes next.
+const changed = new Set<string>();
+let pending: ReturnType<typeof setTimeout> | null = null;
+let building = false;
+
+async function flush(): Promise<void> {
+	if (building || changed.size === 0) return;
+	building = true;
+
+	const files = [...changed];
+	changed.clear();
+	const plugins = affected(files);
+	if (plugins.length > 0) await run(plugins, 'rebuilt').catch(error => fail(String(error)));
+
+	building = false;
+	void flush();
+}
+
+// The plugins folder, and every module package the project uses: a module
+// being written beside the project rebuilds its importers too.
+const watched = [sourceDir, ...project.modules.map(pkg => pkg.dir)];
+for (const folder of new Set(watched)) {
+	watch(folder, { recursive: true }, (_event, file) => {
+		if (!file || !file.endsWith('.ts') || file.includes('node_modules')) return;
+
+		changed.add(join(folder, file));
+		if (pending) clearTimeout(pending);
+		pending = setTimeout(() => {
+			pending = null;
+			void flush();
+		}, 250);
+	});
+}

@@ -1,0 +1,16 @@
+* text=auto eol=lf
+*.sma text eol=lf
+tests/fixtures/** -text
+
+# The hand-written API's tooltips are committed in English whatever language
+# the tree is in: scripts/apply-docs.ts registers this filter's clean command.
+as/facade.ts filter=amxts-docs
+as/promise.ts filter=amxts-docs
+as/promise.types.d.ts filter=amxts-docs
+as/vector.ts filter=amxts-docs
+as/effects.ts filter=amxts-docs
+as/fs.ts filter=amxts-docs
+as/os.ts filter=amxts-docs
+as/amxts.d.ts filter=amxts-docs
+as/lib/check.ts filter=amxts-docs
+as/modules/http.ts filter=amxts-docs

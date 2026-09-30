@@ -1,0 +1,22 @@
+{
+	"extends": "assemblyscript/std/assembly.json",
+	"compilerOptions": {
+		"target": "es2015",
+		"moduleDetection": "force",
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"paths": {
+			"~/*": ["./*"],
+			"@amxts/core": ["./facade.ts"],
+			"@amxts/core/*": ["./*"],
+			"@amxts/menu-core": ["../../amxts-modules/menu-core/src/index.ts"],
+			"@amxts/config-core": ["../../amxts-modules/config-core/src/index.ts"]
+		}
+	},
+	"include": [
+		"./**/*.ts",
+		"../amxts.config.ts",
+		"../../amxts-modules/menu-core/src/index.ts",
+		"../../amxts-modules/config-core/src/index.ts"
+	]
+}

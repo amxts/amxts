@@ -1,0 +1,77 @@
+# What every job of CI needs before it starts: the command and the official
+# modules checked out beside the core (the folders the core's package.json and
+# theirs link to), Node and Bun, the dependencies, the patched AssemblyScript,
+# AMX Mod X and the generated API. The core itself is checked out as `amxts`
+# by the job, which then runs this.
+name: Setup
+description: The core's neighbours, toolchain, dependencies and generated API
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ github.repository_owner }}/amxts-cli
+        path: amxts-cli
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ github.repository_owner }}/config-core
+        path: amxts-modules/config-core
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ github.repository_owner }}/menu-core
+        path: amxts-modules/menu-core
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: 1.4.2
+
+    # amxxpc, AMX Mod X's Pawn compiler, is a 32-bit program.
+    - name: 32-bit libraries for amxxpc
+      shell: bash
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq libc6-i386 lib32stdc++6 lib32gcc-s1
+
+    # There is no lock file (the folders are linked with --no-package-lock), so
+    # npm's download cache is keyed by the package.json files.
+    - uses: actions/cache@v4
+      with:
+        path: ~/.npm
+        key: npm-${{ runner.os }}-${{ hashFiles('amxts/package.json', 'amxts-cli/package.json', 'amxts-cli/packages/*/package.json', 'amxts-modules/*/package.json') }}
+        restore-keys: npm-${{ runner.os }}-
+    - name: Install
+      shell: bash
+      run: |
+        (cd amxts-cli && npm install --no-package-lock --prefer-offline --no-audit --no-fund)
+        (cd amxts && npm install --no-package-lock --prefer-offline --no-audit --no-fund)
+        # The modules' own code imports the core (@amxts/core/test-utils)
+        # from their folders, which resolve it through their node_modules.
+        for module in config-core menu-core; do
+          (cd amxts-modules/$module && npm install --no-package-lock --prefer-offline --no-audit --no-fund --ignore-scripts)
+        done
+
+    - name: Cache the patched AssemblyScript
+      id: asc
+      uses: actions/cache@v4
+      with:
+        path: amxts/runtime/deps/assemblyscript
+        key: assemblyscript-0.28.20-${{ hashFiles('amxts/runtime/patches/assemblyscript-0.28.20-amxts.patch') }}
+    - name: The patched AssemblyScript
+      if: steps.asc.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: amxts
+      run: |
+        git clone -q --depth 1 --branch v0.28.20 https://github.com/AssemblyScript/assemblyscript runtime/deps/assemblyscript
+        cd runtime/deps/assemblyscript
+        git apply ../../patches/assemblyscript-0.28.20-amxts.patch
+        npm install --no-audit --no-fund
+        npm run build
+
+    - name: AMX Mod X, the includes and the generated API
+      shell: bash
+      working-directory: amxts
+      run: |
+        bun run setup:amxmodx
+        bun run generate

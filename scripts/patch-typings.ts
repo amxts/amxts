@@ -1,0 +1,184 @@
+// Makes AssemblyScript's editor typings say what a plugin author expects.
+//
+//   bun scripts/patch-typings.ts        (run by `bun run generate`, and by `npm install` in the core
+//                                        as its `prepare`: a project installing the core never runs it)
+//
+// An editor reads plugins through node_modules/assemblyscript/std, the
+// typings asc ships. There `bool` is `boolean | number`, so every
+// `.includes()` - which returns bool - refused to go into a boolean:
+// `reloadHeld[id] = player.buttons.includes("Reload")` was red in the editor
+// and compiled fine. The compiler does not read these typings at all, so
+// narrowing the alias changes what the editor says and nothing else.
+//
+// node_modules is rewritten on every install, which is why this is a script
+// and not a patch file: it runs again, and it says so if the line it expects
+// has moved.
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+
+const typings = 'node_modules/assemblyscript/std/assembly/index.d.ts';
+const from = 'declare type bool = boolean | number;';
+const to = 'declare type bool = boolean;';
+
+// Not installed yet: npm runs this `prepare` also when the command's checkout
+// installs, linking a core whose own install has not happened. Its install
+// runs it again.
+if (!existsSync(typings)) {
+	console.log(`typings: no ${typings} yet - npm install in the core patches them`);
+	process.exit(0);
+}
+
+let text = readFileSync(typings, 'utf8');
+
+if (text.includes(to)) {
+	console.log('typings: bool is already boolean');
+} else if (text.includes(from)) {
+	text = text.replace(from, to);
+	console.log('typings: bool is now boolean for the editor');
+} else {
+	process.stderr.write(`typings: "${from}" not found in ${typings} - AssemblyScript changed it\n`);
+	process.exit(1);
+}
+
+// find and findLast are in our AssemblyScript (runtime/patches) but not in the
+// typings asc ships: `Player.all().find(...)` was red and compiled fine.
+// Objects only, as the compiler allows them, so the result can be null.
+for (const array of ['Array<T>', 'StaticArray<T>']) {
+	const anchor = `  findIndex(callbackfn: (value: T, index: i32, array: ${array}) => bool): i32;\n`;
+	const added = `  find(callbackfn: (value: T, index: i32, array: ${array}) => bool): T | null;\n`
+		+ `  findLast(callbackfn: (value: T, index: i32, array: ${array}) => bool): T | null;\n`;
+
+	if (text.includes(added)) continue;
+	if (!text.includes(anchor)) {
+		process.stderr.write(`typings: the ${array} findIndex line was not found in ${typings} - AssemblyScript changed it\n`);
+		process.exit(1);
+	}
+	text = text.replace(anchor, anchor + added);
+	console.log(`typings: ${array} has find and findLast for the editor`);
+}
+
+// splice inserts, as in JavaScript: `list.splice(at, 0, item)` - our
+// AssemblyScript's takes the items (runtime/patches), the shipped typings two
+// arguments.
+const splice = '  splice(start: i32, deleteCount?: i32): Array<T>;';
+const spliceItems = '  splice(start: i32, deleteCount?: i32, ...items: T[]): Array<T>;';
+if (!text.includes(spliceItems)) {
+	if (!text.includes(splice)) {
+		process.stderr.write(`typings: the Array splice line was not found in ${typings} - AssemblyScript changed it\n`);
+		process.exit(1);
+	}
+	text = text.replace(splice, spliceItems);
+	console.log('typings: Array splice takes the items to insert for the editor');
+}
+
+// Date speaks number, as in JavaScript: our AssemblyScript's Date takes and
+// gives f64 milliseconds (runtime/patches), the shipped typings still say i64.
+const dateStart = text.indexOf('declare class Date');
+const dateEnd = text.indexOf('\n}', dateStart);
+if (dateStart < 0 || dateEnd < 0) {
+	process.stderr.write(`typings: no Date class in ${typings} - AssemblyScript changed it\n`);
+	process.exit(1);
+}
+const date = text.slice(dateStart, dateEnd);
+// `new Date()` is now, and the server's local time has its getters beside
+// the UTC ones.
+const localGetters = ['getTimezoneOffset', 'getFullYear', 'getMonth', 'getDate', 'getDay', 'getHours', 'getMinutes', 'getSeconds', 'getMilliseconds']
+	.map(name => `  ${name}(): i32;\n`)
+	.join('');
+let numberDate = date
+	.replace('  ): i64;', '  ): f64;')
+	.replace('static now(): i64;', 'static now(): f64;')
+	.replace(/constructor\(value: [fi]64\);/, 'constructor(value?: f64);')
+	.replace('getTime(): i64;', 'getTime(): f64;')
+	.replace('setTime(value: i64): i64;', 'setTime(value: f64): f64;');
+if (!numberDate.includes('getTimezoneOffset')) numberDate = numberDate.replace('  getUTCMilliseconds(): i32;\n', `  getUTCMilliseconds(): i32;\n\n${localGetters}`);
+if (numberDate !== date) {
+	text = text.slice(0, dateStart) + numberDate + text.slice(dateEnd);
+	console.log('typings: Date takes and gives number for the editor');
+}
+
+// TypeScript's utility types, which the shipped typings leave out: a module
+// types its options in amxts.config.ts as `menus?: Partial<MenuCoreOptions>`
+// (as/amxts.d.ts). Only the editor reads them - asc never sees those lines.
+const utilities = [
+	'/** amxts: TypeScript\'s utility types, for the editor. */',
+	'declare type Partial<T> = { [P in keyof T]?: T[P] };',
+	'declare type Required<T> = { [P in keyof T]-?: T[P] };',
+	'declare type Readonly<T> = { readonly [P in keyof T]: T[P] };',
+	'declare type Pick<T, K extends keyof T> = { [P in K]: T[P] };',
+	'declare type Record<K extends keyof any, T> = { [P in K]: T };',
+	'',
+].join('\n');
+if (!text.includes(utilities)) {
+	text = `${text.replace(/\n*$/, '\n')}\n${utilities}`;
+	console.log('typings: Partial, Required, Readonly, Pick and Record for the editor');
+}
+
+// for...of, as TypeScript checks it from ES2015 on: the loop needs
+// `[Symbol.iterator]()` on what it walks, and the shipped typings give none -
+// without them the editor config would have to target ES5, the one target
+// that loops over an array without an iterator, which TypeScript 6 calls
+// deprecated and 7 drops. The compiler has no iterators: it lowers the loop to an indexed
+// one over `length` and `[]` (runtime/patches), so the iterator is declared
+// on exactly what that walks - arrays, typed arrays, strings (map.keys() and
+// set.values() are arrays already) - and on nothing else.
+const symbolIterator = '  readonly iterator: symbol;';
+const uniqueIterator = '  readonly iterator: unique symbol;';
+if (!text.includes(uniqueIterator)) {
+	// A computed name in a declaration has to be a unique symbol, as in lib.es2015.
+	if (!text.includes(symbolIterator)) {
+		process.stderr.write(`typings: SymbolConstructor's iterator was not found in ${typings} - AssemblyScript changed it\n`);
+		process.exit(1);
+	}
+	text = text.replace(symbolIterator, uniqueIterator);
+}
+const iterators = [
+	'/** amxts: what for...of walks, for the editor - the compiler lowers the loop itself. */',
+	// The arity is lib.es2015's: TypeScript checks it on these global names.
+	'interface IteratorResult<T> { done: bool; value: T }',
+	'interface Iterator<T, TReturn = any, TNext = any> { next(): IteratorResult<T> }',
+	'interface Iterable<T, TReturn = any, TNext = any> { [Symbol.iterator](): Iterator<T, TReturn, TNext> }',
+	'interface IterableIterator<T, TReturn = any, TNext = any> extends Iterator<T, TReturn, TNext> { [Symbol.iterator](): IterableIterator<T, TReturn, TNext> }',
+	'',
+].join('\n');
+if (!text.includes(iterators)) {
+	text = `${text.replace(/\n*$/, '\n')}\n${iterators}`;
+	console.log('typings: Iterator and Iterable for the editor');
+}
+for (const [owner, index, item] of [
+	['declare abstract class TypedArray<T>', '  [key: number]: T;\n', 'T'],
+	['declare class Array<T>', '  [key: number]: T;\n', 'T'],
+	['declare class StaticArray<T>', '  [key: number]: T;\n', 'T'],
+	['declare class String', '  [key: i32]: string;\n', 'string'],
+]) {
+	const start = text.indexOf(`${owner} `);
+	const at = text.indexOf(index, start);
+	const end = text.indexOf('\n}', start);
+	if (start < 0 || at < 0 || at > end) {
+		process.stderr.write(`typings: the index signature of ${owner} was not found in ${typings} - AssemblyScript changed it\n`);
+		process.exit(1);
+	}
+	const iterator = `  [Symbol.iterator](): IterableIterator<${item}>;\n`;
+	if (text.slice(start, end).includes(iterator)) continue;
+	text = text.slice(0, at + index.length) + iterator + text.slice(at + index.length);
+	console.log(`typings: ${owner.replace(/^declare (abstract )?class /, '')} has an iterator for for...of in the editor`);
+}
+
+// Number is a type alias in the shipped typings, and TypeScript 7 wants the
+// global Number an interface or class ("Global type 'Number' must be a class
+// or interface type"), without which `(1.5).toString()` loses its methods.
+// The same members as an interface, for every TypeScript - and toFixed, which
+// our AssemblyScript has (runtime/patches) and the shipped typings do not.
+const numberAlias = 'declare type Number = _Float;';
+const numberBare = 'interface Number extends _Float {}';
+const numberInterface = 'interface Number extends _Float { toFixed(fractionDigits?: number): string }';
+if (!text.includes(numberInterface)) {
+	const found = [numberAlias, numberBare].find(line => text.includes(line));
+	if (!found) {
+		process.stderr.write(`typings: "${numberAlias}" not found in ${typings} - AssemblyScript changed it\n`);
+		process.exit(1);
+	}
+	text = text.replace(found, numberInterface);
+	console.log('typings: Number is an interface with toFixed for the editor');
+}
+
+writeFileSync(typings, text);

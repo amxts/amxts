@@ -1,0 +1,27 @@
+{
+	"reapi": {
+		"name": "ReAPI",
+		"version": "5.29.0.358",
+		"license": "GPL-3.0",
+		"home": "https://github.com/rehlds/ReAPI",
+		"url": "https://github.com/rehlds/ReAPI/releases/download/5.29.0.358/reapi-bin-5.29.0.358.zip",
+		"sha256": "f33a7435540bea8706db3fa948e51a85b511f5b18c383b97402a204dc5419195",
+		"include": "addons/amxmodx/scripting/include/"
+	},
+	"easy_http": {
+		"name": "AmxxEasyHttp",
+		"version": "1.4.0",
+		"license": "MIT",
+		"home": "https://github.com/Next21Team/AmxxEasyHttp",
+		"url": "https://github.com/Next21Team/AmxxEasyHttp/releases/download/1.4.0/easy_http.inc",
+		"sha256": "5196ae17ea58eeaebd293639f96e0c8bbfe06b40e28daab2c80395538b62f1d9"
+	},
+	"resemiclip": {
+		"name": "ReSemiclip AMXX",
+		"version": "2.3.9-amxx",
+		"license": "GPL-2.0",
+		"home": "https://github.com/Next21Team/resemiclip-amxx",
+		"url": "https://raw.githubusercontent.com/Next21Team/resemiclip-amxx/2.3.9-amxx/addons/amxmodx/scripting/include/resemiclip.inc",
+		"sha256": "f5f141d61bca1ea71b00e20c9dfbf80f06df66247ec43e41507954644afb35b4"
+	}
+}

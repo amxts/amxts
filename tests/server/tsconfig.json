@@ -1,0 +1,7 @@
+{
+	"extends": "../../as/tsconfig.json",
+	"compilerOptions": {
+		"paths": { "~/*": ["../../as/*"] }
+	},
+	"include": ["./*.ts", "../../as/**/*.ts", "../../.amxts/imports.d.ts"]
+}
