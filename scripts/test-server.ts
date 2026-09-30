@@ -4,6 +4,7 @@
 //   bun run test:server --keep     leave the test server running afterwards
 //   bun run test:server --stop     stop a server left by --keep and clean up
 //   bun run test:server --linux    the same suites on a Linux server, in Docker
+//   bun run test:server --quick    the suites compiled as `amxts dev` compiles them
 //
 // It runs the suites of the project in the current folder, as the build does
 // (scripts/project.ts): the core's own in tests/server, a project's in
@@ -72,6 +73,7 @@ const args = process.argv.slice(2);
 const keep = args.includes('--keep');
 const stopOnly = args.includes('--stop');
 const linux = args.includes('--linux');
+const quick = args.includes('--quick');
 const portArg = args.indexOf('--port');
 const PORT = Number(portArg >= 0 ? args[portArg + 1] : process.env.AMXTS_TEST_PORT ?? 27016);
 const MAP = process.env.AMXTS_TEST_MAP ?? (linux ? 'de_dust2' : 'c21_kitty');
@@ -424,7 +426,7 @@ async function build(plugins: string[], pawn: string[]): Promise<string[] | null
 			fail(`${source}: a plugin named ${name} is already built - rename the suite`);
 			return null;
 		}
-		const problem = await compilePlugin({ source, output: join(buildDir, `${name}.aot`), root: CORE_PLUGINS, wamrc, signatures, system: linux ? 'linux' : 'windows' });
+		const problem = await compilePlugin({ source, output: join(buildDir, `${name}.aot`), root: CORE_PLUGINS, wamrc, signatures, system: linux ? 'linux' : 'windows', quick });
 		if (problem) {
 			fail(`${source} does not compile:\n${problem.trim()}`);
 			return null;

@@ -37,7 +37,16 @@ export interface Plugin {
 	 * system's object format (scripts/system.ts). This machine's by default.
 	 */
 	system?: System;
+	/**
+	 * Compiled for a development loop (`amxts dev`): Binaryen's -O1 in place
+	 * of asc's full optimisation, and wamrc at -O0 - a few seconds for a small
+	 * plugin rather than ten. It does the same, a little slower.
+	 */
+	quick?: boolean;
 }
+
+/** Binaryen's optimisation level: a quick build's, and a full one's - asc's own --optimize. */
+const OPTIMIZE = { quick: 1, full: 3 };
 
 /** The hood's exports every plugin carries; see compilePlugin. */
 export const HOOD_EXPORTS = '__amxts_exports.ts';
@@ -107,15 +116,6 @@ export async function compilePlugin(plugin: Plugin, natives: PluginNative[] = []
 	const problem = await compileToWasm(plugin, wasm, false, natives);
 	if (problem) return problem;
 
-	// The plugin's `export function`s, as a Pawn plugin includes them. One that
-	// exports nothing leaves no include behind, not even a stale one; neither
-	// does a contract, whose include has a name of its own.
-	const include = includePath(plugin.output, natives);
-	const ownName = includePath(plugin.output);
-	if (include !== ownName) rmSync(ownName, { force: true });
-	if (natives.length) writeFileSync(include, pawnInclude(basename(plugin.output).replace(/\.aot$/, ''), natives));
-	else rmSync(include, { force: true });
-
 	// Written beside the .aot and moved over it once it passed: a server that
 	// reads the build folder where it is - the Docker one - reloads a plugin
 	// the moment its file changes, and must never see half of one; and a
@@ -125,6 +125,7 @@ export async function compilePlugin(plugin: Plugin, natives: PluginNative[] = []
 		'--target=i386',
 		`--target-abi=${TARGET_ABI[plugin.system ?? HOST_SYSTEM]}`,
 		`--native-signatures=${plugin.signatures}`,
+		...(plugin.quick ? ['--opt-level=0'] : []),
 		'-o',
 		part,
 		wasm,
@@ -146,8 +147,22 @@ export async function compilePlugin(plugin: Plugin, natives: PluginNative[] = []
 		return `a native signature does not match its import - this plugin kit does not belong to this module\n${out}`;
 	}
 
+	writeInclude(plugin.output, natives);
 	renameSync(part, plugin.output);
 	return null;
+}
+
+/**
+ * The plugin's `export function`s, as a Pawn plugin includes them, beside
+ * its .aot. One that exports nothing leaves no include behind, not even a
+ * stale one; neither does a contract, whose include has a name of its own.
+ */
+export function writeInclude(output: string, natives: PluginNative[]): void {
+	const include = includePath(output, natives);
+	const ownName = includePath(output);
+	if (include !== ownName) rmSync(ownName, { force: true });
+	if (natives.length) writeFileSync(include, pawnInclude(basename(output).replace(/\.aot$/, ''), natives));
+	else rmSync(include, { force: true });
 }
 
 /**
@@ -157,27 +172,44 @@ export async function compilePlugin(plugin: Plugin, natives: PluginNative[] = []
  * plugin's `export function`s become natives, listed there.
  */
 export async function compileToWasm(
-	plugin: Pick<Plugin, 'source' | 'root'>,
+	plugin: Pick<Plugin, 'source' | 'root' | 'quick'>,
 	wasm: string,
 	names = false,
 	natives?: PluginNative[],
 ): Promise<string | null> {
-	const debug = names ? ['--debug'] : [];
-	let problem = await compileWasm(plugin, wasm, BASE_EXPORTS, debug, natives);
+	// A quick build leaves the optimising to one Binaryen pass afterwards.
+	const flags = [...(plugin.quick ? [] : ['--optimize']), ...(names ? ['--debug'] : [])];
+	const level = plugin.quick ? OPTIMIZE.quick : OPTIMIZE.full;
+	let problem = await compileWasm(plugin, wasm, BASE_EXPORTS, flags, natives);
 	if (problem) return problem;
 
 	// A plugin that makes a promise - an async function, fetch, sleep - has
 	// the host drive its jobs, so it is compiled again with the scheduler's
 	// exports. Only then, and only when a coroutine can park, does Asyncify
 	// run: a plugin without either is the same wasm it always was.
-	if (!importsOf(readFileSync(wasm)).has('env.co_wake')) return null;
-
-	if (natives) natives.length = 0;
-	problem = await compileWasm(plugin, wasm, ASYNC_EXPORTS, debug, natives);
-	if (problem) return problem;
+	if (importsOf(readFileSync(wasm)).has('env.co_wake')) {
+		if (natives) natives.length = 0;
+		problem = await compileWasm(plugin, wasm, ASYNC_EXPORTS, flags, natives);
+		if (problem) return problem;
+	}
 	const binary = readFileSync(wasm);
-	if (importsOf(binary).has(SUSPEND_IMPORT)) writeFileSync(wasm, asyncify(binary, names));
+	if (importsOf(binary).has(SUSPEND_IMPORT)) writeFileSync(wasm, asyncify(binary, names, level));
+	else if (plugin.quick) writeFileSync(wasm, optimized(binary, level));
 	return null;
+}
+
+/** Binaryen's optimisation at `level`: what a quick build runs in place of asc's. */
+function optimized(wasm: Uint8Array, level: number): Uint8Array {
+	const module = binaryen.readBinary(wasm);
+	try {
+		module.setFeatures(binaryen.Features.All);
+		binaryen.setOptimizeLevel(level);
+		binaryen.setShrinkLevel(0);
+		module.optimize();
+		return module.emitBinary();
+	} finally {
+		module.dispose();
+	}
 }
 
 /**
@@ -190,7 +222,7 @@ async function compileWasm(
 	plugin: Pick<Plugin, 'source' | 'root'>,
 	wasm: string,
 	hoodExports: string,
-	extra: string[] = [],
+	flags: string[],
 	natives?: PluginNative[],
 ): Promise<string | null> {
 	// --exportTable is not optional: a handler reaches the module as its index
@@ -222,9 +254,8 @@ async function compileWasm(
 			HOOD_EXPORTS,
 			'--outFile',
 			wasm,
-			'--optimize',
 			'--exportTable',
-			...extra,
+			...flags,
 		],
 		{
 			readFile(filename: string, baseDir: string): string | null {
@@ -275,15 +306,15 @@ async function compileWasm(
  * first `await` like any other call. Nothing can be missing from the list,
  * which is the failure that hangs rather than traps.
  */
-export function asyncify(wasm: Uint8Array, names = false): Uint8Array {
+export function asyncify(wasm: Uint8Array, names = false, level = OPTIMIZE.full): Uint8Array {
 	const module = binaryen.readBinary(wasm);
 	try {
 		module.setFeatures(binaryen.Features.All);
 		binaryen.setPassArgument('asyncify-imports', SUSPEND_IMPORT);
 		binaryen.setPassArgument('asyncify-ignore-indirect', '1');
-		// asc's own --optimize levels, so the rest of the module comes out as
-		// it went in.
-		binaryen.setOptimizeLevel(3);
+		// asc's own --optimize levels (a quick build's lower one), so the rest
+		// of the module comes out as it went in.
+		binaryen.setOptimizeLevel(level);
 		binaryen.setShrinkLevel(0);
 		binaryen.setDebugInfo(names);
 		module.runPasses(['asyncify']);

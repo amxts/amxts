@@ -1,3 +1,4 @@
+import type { Plugin } from './compile';
 import type { PluginNative } from './plugin-natives';
 import type { ModulePackage } from './project';
 import { createSocket } from 'node:dgram';
@@ -35,8 +36,10 @@ import { createSocket } from 'node:dgram';
 // "unknown binary version" (CONTRIBUTING.md builds both from one checkout).
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
-import { compilePlugin, includePath } from './compile';
+import { includePath } from './compile';
 import { followConsoles, projectContainers, runCommand } from './docker-server';
+import { FileContents, sourceIn, sourcesIn } from './file-contents';
+import { pluginCache } from './plugin-cache';
 import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, projectPlugins, sourcesFor } from './project';
 import { describeSystem, serverSystem, WAMRC_PACKAGE, wamrcPath } from './system';
 import { c, log, progress, since } from './ui';
@@ -91,6 +94,8 @@ try {
 
 const deploy = process.argv.includes('--deploy');
 const keepWatching = process.argv.includes('--watch');
+// A development loop compiles quickly, not fully optimised (scripts/compile.ts).
+const quick = keepWatching;
 // For the Docker server: it reads dist/ where it is, so only the build.
 const forDocker = process.argv.includes('--docker');
 
@@ -193,39 +198,57 @@ function readable(problem: string): string {
 /** The include each built plugin wrote, by .aot: a contract's keeps its own name. */
 const includes = new Map<string, string>();
 
-/** Builds these plugins. Returns the .aot names, or null after printing the error. */
-async function compile(plugins: Target[]): Promise<string[] | null> {
-	const built: string[] = [];
+/** What the build keeps of the plugins it compiled (scripts/plugin-cache.ts). */
+const cache = pluginCache(project.dir);
 
-	for (const [i, { source, name, pkg }] of plugins.entries()) {
-		const natives: PluginNative[] = [];
-		const kind = pkg ? 'module · ' : '';
-		const started = performance.now();
-		const step = progress(`compiling ${c.bold(name)} ${c.dim(`${kind}${i + 1}/${plugins.length}`)}`);
-		const problem = await compilePlugin({
-			source,
-			output: join(outDir, `${name}.aot`),
+/**
+ * Builds these plugins: one an earlier build kept, from the same files, is
+ * put in place, the rest are compiled. The first build of a run says when
+ * it has to compile every one. Returns the .aot names, or null after
+ * printing the error.
+ */
+async function compile(plugins: Target[], first: boolean): Promise<string[] | null> {
+	const planned = plugins.map((each) => {
+		const plugin: Plugin = {
+			source: each.source,
+			output: join(outDir, `${each.name}.aot`),
 			// `~/` is the core's as/, with the project's plugins and the
 			// modules over it (scripts/project.ts).
 			root: CORE_PLUGINS,
 			wamrc,
 			signatures,
 			system: target.system,
-		}, natives).catch((error) => {
+			quick,
+		};
+		return { ...each, plugin, kind: each.pkg ? 'module · ' : '', natives: cache.reuse(plugin) };
+	});
+	const fresh = planned.filter(each => !each.natives);
+	if (first && fresh.length > 0 && fresh.length === planned.length) {
+		log.info('The first build compiles every plugin and module to machine code: it takes about a minute.');
+	}
+	for (const each of planned.filter(each => each.natives)) log.success(`${c.bold(each.name)} ${c.dim(`${each.kind}unchanged`)}`);
+
+	for (const [i, each] of fresh.entries()) {
+		const natives: PluginNative[] = [];
+		const started = performance.now();
+		const step = progress(`compiling ${c.bold(each.name)} ${c.dim(`${each.kind}${i + 1}/${fresh.length}`)}`);
+		const problem = await cache.compile(each.plugin, natives).catch((error) => {
 			step.end();
 			throw error;
 		});
-		step.end(problem ? undefined : `compiled ${c.bold(name)} ${c.dim(`${kind}${since(started)}`)}`);
-
+		step.end(problem ? undefined : `compiled ${c.bold(each.name)} ${c.dim(`${each.kind}${since(started)}`)}`);
 		if (problem) {
-			fail(`${c.bold(name)} does not compile:\n${readable(problem)}\n`, keepWatching ? 'The server keeps the last good build.' : undefined);
+			fail(`${c.bold(each.name)} does not compile:\n${readable(problem)}\n`, keepWatching ? 'The server keeps the last good build.' : undefined);
 			return null;
 		}
-		includes.set(`${name}.aot`, includePath(join(outDir, `${name}.aot`), natives));
-		if (pkg) writePackageInclude(pkg, join(outDir, `${name}.aot`));
-		built.push(`${name}.aot`);
+		each.natives = natives;
 	}
-	return built;
+
+	for (const each of planned) {
+		includes.set(`${each.name}.aot`, includePath(each.plugin.output, each.natives!));
+		if (each.pkg) writePackageInclude(each.pkg, each.plugin.output);
+	}
+	return planned.map(each => `${each.name}.aot`);
 }
 
 /**
@@ -405,24 +428,20 @@ function writeList(owners: Target[]) {
 }
 
 /**
- * Builds, deploys when asked, and prints one line about it. A module a save
- * brings into use is built with the plugin that uses it.
+ * Builds, deploys when asked, and prints one line about it - after `why`,
+ * the files a rebuild is for. A module a save brings into use is built with
+ * the plugin that uses it.
  */
-async function run(plugins: Target[], verb: string): Promise<boolean> {
+async function run(plugins: Target[], verb: string, why = ''): Promise<boolean> {
 	const started = performance.now();
 	const owners = moduleOwners();
 	const fresh = owners.filter(owner => !listed?.includes(owner.name) && !plugins.some(plugin => plugin.name === owner.name));
-	const targets = [...fresh, ...plugins];
-	// Nothing built before: every one of them goes through both compilers.
-	if (targets.length > 0 && !targets.some(each => existsSync(join(outDir, `${each.name}.aot`)))) {
-		log.info('The first build compiles every plugin and module to machine code: it takes about a minute.');
-	}
-	const built = await compile(targets);
+	const built = await compile([...fresh, ...plugins], listed === null);
 	if (!built) return false;
 	writeList(owners);
 
 	const names = built.map(file => file.replace(/\.aot$/, '')).join(', ');
-	const head = `${verb} ${c.bold(names)} ${c.dim(`(${since(started)}, for ${describeSystem(target)})`)}`;
+	const head = `${why}${verb} ${c.bold(names)} ${c.dim(`(${since(started)}, for ${describeSystem(target)})`)}`;
 	const time = keepWatching ? `${c.dim(new Date().toLocaleTimeString())} ` : '';
 
 	log.success(`${time}${head} → ${deploy ? await deployAndReload(built) : shown(outDir)}`);
@@ -444,6 +463,16 @@ if (forDocker) {
 	}
 }
 
+// What --watch watches: the plugins folder, and every module package the
+// project uses - a module being written beside the project rebuilds its
+// importers too - but not what the build and the editor config write. A save
+// is compared with the sources as the first build reads them
+// (scripts/file-contents.ts).
+const watched = [...new Set([sourceDir, ...project.modules.map(pkg => pkg.dir)])];
+const written = [outDir, join(project.dir, '.amxts')];
+const watchedSources = () => watched.flatMap(folder => sourcesIn(folder, written));
+const contents = new FileContents(keepWatching ? watchedSources() : []);
+
 const ok = await run(ownPlugins(), 'built');
 
 if (!keepWatching) process.exit(ok ? 0 : 1);
@@ -452,32 +481,31 @@ log.step(`watching ${c.cyan(shown(sourceDir))} - save a plugin and it ${deploy ?
 
 // An editor writes a file more than once when saving, so one save means
 // several events. They are collected for a quarter of a second, and a save
-// that lands during a build waits for it and goes next.
-const changed = new Set<string>();
+// that lands during a build waits for it and goes next. Only a file whose
+// contents changed rebuilds.
+const heard = new Set<string>();
 let pending: ReturnType<typeof setTimeout> | null = null;
 let building = false;
 
 async function flush(): Promise<void> {
-	if (building || changed.size === 0) return;
+	if (building || heard.size === 0) return;
 	building = true;
 
-	const files = [...changed];
-	changed.clear();
+	const files = contents.changed([...heard]);
+	heard.clear();
 	const plugins = affected(files);
-	if (plugins.length > 0) await run(plugins, 'rebuilt').catch(error => fail(String(error)));
+	if (plugins.length > 0) await run(plugins, 'rebuilt', `${files.map(shown).join(', ')} changed: `).catch(error => fail(String(error)));
 
 	building = false;
 	void flush();
 }
 
-// The plugins folder, and every module package the project uses: a module
-// being written beside the project rebuilds its importers too.
-const watched = [sourceDir, ...project.modules.map(pkg => pkg.dir)];
-for (const folder of new Set(watched)) {
+for (const folder of watched) {
 	watch(folder, { recursive: true }, (_event, file) => {
-		if (!file || !file.endsWith('.ts') || file.includes('node_modules')) return;
+		const path = file && sourceIn(folder, file, written);
+		if (!path) return;
 
-		changed.add(join(folder, file));
+		heard.add(path);
 		if (pending) clearTimeout(pending);
 		pending = setTimeout(() => {
 			pending = null;
@@ -485,3 +513,7 @@ for (const folder of new Set(watched)) {
 		}, 250);
 	});
 }
+
+// A save made while the first build ran is built now.
+for (const file of watchedSources()) heard.add(file);
+void flush();
