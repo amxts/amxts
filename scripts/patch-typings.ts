@@ -40,12 +40,14 @@ if (text.includes(to)) {
 }
 
 // find and findLast are in our AssemblyScript (runtime/patches) but not in the
-// typings asc ships: `Player.all().find(...)` was red and compiled fine.
-// Objects only, as the compiler allows them, so the result can be null.
+// typings asc ships: `Player.all().find(...)` was red and compiled fine. They
+// give the element or undefined, as in JavaScript, for any element.
 for (const array of ['Array<T>', 'StaticArray<T>']) {
 	const anchor = `  findIndex(callbackfn: (value: T, index: i32, array: ${array}) => bool): i32;\n`;
-	const added = `  find(callbackfn: (value: T, index: i32, array: ${array}) => bool): T | null;\n`
-		+ `  findLast(callbackfn: (value: T, index: i32, array: ${array}) => bool): T | null;\n`;
+	const added = `  find(callbackfn: (value: T, index: i32, array: ${array}) => bool): T | undefined;\n`
+		+ `  findLast(callbackfn: (value: T, index: i32, array: ${array}) => bool): T | undefined;\n`;
+	const objectsOnly = added.replaceAll('T | undefined', 'T | null');
+	if (text.includes(objectsOnly)) text = text.replace(objectsOnly, added);
 
 	if (text.includes(added)) continue;
 	if (!text.includes(anchor)) {

@@ -308,11 +308,6 @@ describe('compiler', () => {
 		expect(problem).toContain('Tuple type \'[number, string]\' of length \'2\' has no element at index \'2\'');
 	});
 
-	test('Array#find takes objects: numbers are pointed to findIndex', async () => {
-		const problem = await compileSnippet('find-number', 'const found = [1, 2].find((n) => n > 1);\nconsole.log(`${found}`);');
-		expect(problem).toContain('Array#find needs objects: use findIndex for numbers');
-	});
-
 	test('a plugin without async is compiled as it always was', async () => {
 		const wasm = join(out, 'hello.wasm');
 		expect(await compileWasmFile({ source: 'runtime/host/hello.ts', root: 'as' }, wasm)).toBeNull();

@@ -9542,45 +9542,35 @@ index 6a07f6f..5f05683 100644
      }
      sb.push(validWat ? "%29=>" : ") => ");
 diff --git a/std/assembly/array.ts b/std/assembly/array.ts
-index faa6d9b..d3413c1 100644
+index faa6d9b..53ed085 100644
 --- a/std/assembly/array.ts
 +++ b/std/assembly/array.ts
-@@ -103,6 +103,34 @@ export class Array<T> {
+@@ -103,6 +103,24 @@ export class Array<T> {
      return -1;
    }
  
-+  // amxts: find and findLast, as in JavaScript: the element, or null. There
-+  // is no null of a number, so they take objects; findIndex is for numbers.
-+  find(fn: (value: T, index: i32, array: Array<T>) => bool): T | null {
-+    if (!isReference<T>()) {
-+      ERROR("Array#find needs objects: use findIndex for numbers");
-+      return <T>0;
-+    } else {
-+      for (let i = 0, len = this.length_; i < min(len, this.length_); ++i) {
-+        let value = load<T>(this.dataStart + (<usize>i << alignof<T>()));
-+        if (fn(value, i, this)) return value;
-+      }
-+      return null;
++  // amxts: find and findLast, as in JavaScript: the element, or undefined -
++  // null for an object, the undefined NaN for a number, false for a boolean.
++  find(fn: (value: T, index: i32, array: Array<T>) => bool): T | undefined {
++    for (let i = 0, len = this.length_; i < min(len, this.length_); ++i) {
++      let value = load<T>(this.dataStart + (<usize>i << alignof<T>()));
++      if (fn(value, i, this)) return value;
 +    }
++    return undefined;
 +  }
 +
-+  findLast(fn: (value: T, index: i32, array: Array<T>) => bool): T | null {
-+    if (!isReference<T>()) {
-+      ERROR("Array#findLast needs objects: use findLastIndex for numbers");
-+      return <T>0;
-+    } else {
-+      for (let i = this.length_ - 1; i >= 0; --i) {
-+        let value = load<T>(this.dataStart + (<usize>i << alignof<T>()));
-+        if (fn(value, i, this)) return value;
-+      }
-+      return null;
++  findLast(fn: (value: T, index: i32, array: Array<T>) => bool): T | undefined {
++    for (let i = this.length_ - 1; i >= 0; --i) {
++      let value = load<T>(this.dataStart + (<usize>i << alignof<T>()));
++      if (fn(value, i, this)) return value;
 +    }
++    return undefined;
 +  }
 +
    findLastIndex(fn: (value: T, index: i32, array: Array<T>) => bool): i32 {
      for (let i = this.length_ - 1; i >= 0; --i) {
        if (fn(load<T>(this.dataStart + (<usize>i << alignof<T>())), i, this)) return i;
-@@ -393,28 +421,42 @@ export class Array<T> {
+@@ -393,28 +411,42 @@ export class Array<T> {
      return slice;
    }
  
@@ -11087,39 +11077,29 @@ index ca2d6e4..49dd07a 100644
      return "[object Set]";
    }
 diff --git a/std/assembly/staticarray.ts b/std/assembly/staticarray.ts
-index 89cad68..1502bb5 100644
+index 89cad68..6173e70 100644
 --- a/std/assembly/staticarray.ts
 +++ b/std/assembly/staticarray.ts
-@@ -287,6 +287,34 @@ export class StaticArray<T> {
+@@ -287,6 +287,24 @@ export class StaticArray<T> {
      return -1;
    }
  
-+  // amxts: find and findLast, as in JavaScript: the element, or null. There
-+  // is no null of a number, so they take objects; findIndex is for numbers.
-+  find(fn: (value: T, index: i32, array: StaticArray<T>) => bool): T | null {
-+    if (!isReference<T>()) {
-+      ERROR("Array#find needs objects: use findIndex for numbers");
-+      return <T>0;
-+    } else {
-+      for (let i = 0, len = this.length; i < len; ++i) {
-+        let value = load<T>(changetype<usize>(this) + (<usize>i << alignof<T>()));
-+        if (fn(value, i, this)) return value;
-+      }
-+      return null;
++  // amxts: find and findLast, as in JavaScript: the element, or undefined -
++  // null for an object, the undefined NaN for a number, false for a boolean.
++  find(fn: (value: T, index: i32, array: StaticArray<T>) => bool): T | undefined {
++    for (let i = 0, len = this.length; i < len; ++i) {
++      let value = load<T>(changetype<usize>(this) + (<usize>i << alignof<T>()));
++      if (fn(value, i, this)) return value;
 +    }
++    return undefined;
 +  }
 +
-+  findLast(fn: (value: T, index: i32, array: StaticArray<T>) => bool): T | null {
-+    if (!isReference<T>()) {
-+      ERROR("Array#findLast needs objects: use findLastIndex for numbers");
-+      return <T>0;
-+    } else {
-+      for (let i = this.length - 1; i >= 0; --i) {
-+        let value = load<T>(changetype<usize>(this) + (<usize>i << alignof<T>()));
-+        if (fn(value, i, this)) return value;
-+      }
-+      return null;
++  findLast(fn: (value: T, index: i32, array: StaticArray<T>) => bool): T | undefined {
++    for (let i = this.length - 1; i >= 0; --i) {
++      let value = load<T>(changetype<usize>(this) + (<usize>i << alignof<T>()));
++      if (fn(value, i, this)) return value;
 +    }
++    return undefined;
 +  }
 +
    findLastIndex(fn: (value: T, index: i32, array: StaticArray<T>) => bool): i32 {
