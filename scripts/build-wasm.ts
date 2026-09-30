@@ -198,8 +198,12 @@ function readable(problem: string): string {
 /** The include each built plugin wrote, by .aot: a contract's keeps its own name. */
 const includes = new Map<string, string>();
 
-/** What the build keeps of the plugins it compiled (scripts/plugin-cache.ts). */
-const cache = pluginCache(project.dir);
+/**
+ * What the build keeps of the plugins it compiled (scripts/plugin-cache.ts).
+ * A deploy copies the plugins' includes, and amxts.inc, where the server's
+ * includes are: the ones built before are the build's own, not what it reads.
+ */
+const cache = pluginCache(project.dir, ['amxts', ...readdirSync(outDir).filter(file => file.endsWith('.inc')).map(file => file.replace(/\.inc$/, ''))]);
 
 /**
  * Builds these plugins: one an earlier build kept, from the same files, is

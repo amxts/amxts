@@ -27,9 +27,12 @@ interface Kept {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-/** The plugin cache of the project in `dir`; with null, nothing is kept. */
-export function pluginCache(dir: string | null) {
-	const cache = diskCache(dir && join(dir, 'node_modules', '.cache', 'amxts', 'build'), () => codeIdentity([join(HERE, 'compile.ts'), join(HERE, 'plugin-cache.ts')]));
+/**
+ * The plugin cache of the project in `dir`; with null, nothing is kept.
+ * `ownIncludes`: the includes the build writes - its plugins' - by name.
+ */
+export function pluginCache(dir: string | null, ownIncludes: string[] = []) {
+	const cache = diskCache(dir && join(dir, 'node_modules', '.cache', 'amxts', 'build'), () => codeIdentity([join(HERE, 'compile.ts'), join(HERE, 'plugin-cache.ts')]), ownIncludes);
 	// wamrc and the signatures it reads are not files the compile reads itself.
 	const tools = new Map<string, string>();
 	const hashed = (file: string) => {

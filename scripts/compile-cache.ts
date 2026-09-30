@@ -61,16 +61,17 @@ export function codeIdentity(entries: string[]): string {
  * The project a compile is made in: its folder, its config's text, and the
  * modules it resolved to with their options - a module's owner is compiled
  * with the options its project gives it. The .inc files there are to be
- * found in are listed once per run, so they are part of it too.
+ * found in are listed once per run, so they are part of it too - but for
+ * `own`, the ones a build writes itself.
  */
-function projectIdentity(): string {
+function projectIdentity(own: string[]): string {
 	const dir = currentProjectDir();
 	const config = join(dir, 'amxts.config.ts');
 	return hashOf(JSON.stringify({
 		dir,
 		config: existsSync(config) ? hashOf(readFileSync(config)) : null,
 		project: loadProject(dir),
-		includes: listIncludes(),
+		includes: listIncludes().filter(name => !own.includes(name)),
 	}));
 }
 
@@ -103,14 +104,16 @@ export interface DiskCache {
 /**
  * A cache in `dir` (none when it is null: every compile is made). `parts` is
  * what a value depends on besides the files it reads: the entry, the flags. A
- * value is JSON, with Uint8Arrays in it.
+ * value is JSON, with Uint8Arrays in it. `ownIncludes` are includes the
+ * compiles themselves put where includes are found - a deploy copies its
+ * plugins' includes to the server - which no compile depends on.
  */
-export function diskCache(dir: string | null, code: () => string): DiskCache {
+export function diskCache(dir: string | null, code: () => string, ownIncludes: string[] = []): DiskCache {
 	const counts = { hits: 0, misses: 0 };
 	let identity: string | null = null;
 	const fileOf = (parts: unknown[]) => {
 		identity ??= hashOf(`${FORMAT}\n${code()}`);
-		return join(dir!, `${hashOf(JSON.stringify([identity, projectIdentity(), ...parts]))}.json`);
+		return join(dir!, `${hashOf(JSON.stringify([identity, projectIdentity(ownIncludes), ...parts]))}.json`);
 	};
 
 	let pruned = false;
