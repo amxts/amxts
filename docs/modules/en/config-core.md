@@ -116,8 +116,8 @@ the defaults as an object literal (with a value in every list), or a type
 given — `configs.load<Settings>(...)`, or a `const defaults: Settings`. A
 list of lists of lists or of objects, a union that is not of names (`number | string`), a generic
 interface and one that `extends` another are refused with the place and the
-fix. The object of `configs.load(name, { ... })` without a type has no name
-to pass it to a function by: for that, write the interface.
+fix. The object of `configs.load(name, { ... })` without a type goes to a
+function as `typeof settings`, or as an interface of the same fields.
 :::
 
 ### INI files
