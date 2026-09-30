@@ -227,12 +227,12 @@ const stringCallable = 'declare function String(value?: unknown): string;';
 const booleanCallable = 'declare function Boolean(value?: unknown): boolean;';
 if (!text.includes(stringCallable)) {
 	const parts = ['declare class String {', 'declare class Boolean {', ...stringStatics];
-	const missing = parts.find(part => !text.includes(part + '\n'));
+	const missing = parts.find(part => !text.includes(`${part}\n`));
 	if (missing) {
 		process.stderr.write(`typings: "${missing.trim()}" not found in ${typings} - AssemblyScript changed it\n`);
 		process.exit(1);
 	}
-	for (const line of stringStatics) text = text.replace(line + '\n', '');
+	for (const line of stringStatics) text = text.replace(`${line}\n`, '');
 	const namespace = ['declare namespace String {', ...stringStatics.map(line => line.replace('static', 'function')), '}'];
 	text = text
 		.replace('declare class String {', [stringCallable, ...namespace, 'interface String {'].join('\n'))
