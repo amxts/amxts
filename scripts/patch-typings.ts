@@ -209,6 +209,21 @@ if (!text.includes(objectKeys)) {
 	console.log('typings: Object has keys, values and entries for the editor');
 }
 
+// Number(value), JavaScript's conversion, which our AssemblyScript compiles
+// (runtime/patches): the shipped typings' Number is F64's statics, which a
+// call signature joins. String(value) and Boolean(value) are classes there,
+// which none can join: they stay `${value}` and `!!value`.
+const numberStatics = 'declare const Number: typeof F64;';
+const numberCallable = 'declare const Number: typeof F64 & ((value?: string | number | boolean | null) => number);';
+if (!text.includes(numberCallable)) {
+	if (!text.includes(numberStatics)) {
+		process.stderr.write(`typings: "${numberStatics}" not found in ${typings} - AssemblyScript changed it\n`);
+		process.exit(1);
+	}
+	text = text.replace(numberStatics, numberCallable);
+	console.log('typings: Number(value) converts for the editor');
+}
+
 // ReferenceError, which our AssemblyScript's library has (runtime/patches): a
 // variable read before its declaration has run throws one.
 const typeError = 'declare class TypeError extends Error { }\n';
