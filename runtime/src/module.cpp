@@ -2168,7 +2168,7 @@ static std::map<std::string, PlayerValue> g_playerData[PLAYER_DATA_SLOTS];
  * every one) and its trampoline, which hands the change to its listeners.
  * Filtered here, so a plugin listening for "ghost" is not called for "vip".
  * A field is the name the plugin declared, or an object field's member,
- * "semiclip.enabled" - which "semiclip" also hears.
+ * "glow.enabled" - which "glow" also hears.
  */
 struct FieldListener {
 	int                      plugin;

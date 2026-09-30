@@ -19,7 +19,7 @@ const heard: string[] = [];
 const changes: string[] = [];
 
 server.addEventListener("playerchange", event => heard.push(`ghost ${event.previous} -> ${event.value}`), { field: "ghost" });
-server.addEventListener("playerchange", event => heard.push(`enabled ${event.previous} -> ${event.value}`), { field: "semiclip.enabled" });
+server.addEventListener("playerchange", event => heard.push(`enabled ${event.previous} -> ${event.value}`), { field: "glow.enabled" });
 server.addEventListener("playerchange", event => heard.push(`testTag "${event.previous}" -> "${event.value}"`), { field: "testTag" });
 server.addEventListener("playerchange", event => changes.push(`${event.player.id}:${event.field}`));
 
@@ -44,7 +44,7 @@ async function run() {
 	);
 	const onBot = changes.filter(change => change.startsWith(`${slot}:`)).map(change => change.slice(change.indexOf(":") + 1));
 	check.expect(onBot.join(", "), "всё, что записали боту data-1 и data-3").toBe(
-		"ghost, semiclip.enabled, semiclip.passesThrough, semiclip.enabled, semiclip.enabled, testSpeed, testTag",
+		"ghost, glow.enabled, glow.seenBy, glow.enabled, glow.enabled, testSpeed, testTag",
 	);
 	const before = changes.length;
 

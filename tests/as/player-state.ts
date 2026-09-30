@@ -7,12 +7,12 @@ declare module "~/facade" {
 	interface Player {
 		/** Watching, not playing. */
 		ghost: boolean;
-		/** Who walks through him and whom he walks through. */
-		semiclip: {
-			/** true: everyone walks through him; false: solid to everyone; "default": the server's rule. */
+		/** A glow around him, and who sees it. */
+		glow: {
+			/** true: he glows; false: he does not; "default": as the server decides. */
 			enabled: true | false | "default";
-			/** He walks through these too, whatever `enabled` says. */
-			passesThrough: Player[];
+			/** They see it, whatever `enabled` says. */
+			seenBy: Player[];
 		};
 		/** The round clock is not shown to him. */
 		hideTimer: boolean;

@@ -17,10 +17,10 @@ server.addServerCommand("amxts_test_data_write", () => {
 	bot.ghost = true;
 	check.expect(bot.ghost, "ghost поставлен").toBe(true);
 
-	check.expect(bot.semiclip.enabled == "default", "semiclip до записи - default").toBe(true);
-	bot.semiclip.enabled = true;
-	bot.semiclip.passesThrough = [bot];
-	check.expect(bot.semiclip.enabled == true, "semiclip.enabled поставлен").toBe(true);
-	check.expect(bot.semiclip.passesThrough.length, "passesThrough - один игрок").toBe(1);
+	check.expect(bot.glow.enabled == "default", "glow до записи - default").toBe(true);
+	bot.glow.enabled = true;
+	bot.glow.seenBy = [bot];
+	check.expect(bot.glow.enabled == true, "glow.enabled поставлен").toBe(true);
+	check.expect(bot.glow.seenBy.length, "seenBy - один игрок").toBe(1);
 	check.done();
 });

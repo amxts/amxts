@@ -13,8 +13,8 @@ server.addServerCommand("amxts_test_data_read", () => {
 	}
 
 	check.expect(bot.ghost, "ghost из другого плагина").toBe(true);
-	check.expect(bot.semiclip.enabled == true, "semiclip.enabled из другого плагина").toBe(true);
-	check.expect(bot.semiclip.passesThrough.includes(bot), "passesThrough из другого плагина").toBe(true);
+	check.expect(bot.glow.enabled == true, "glow.enabled из другого плагина").toBe(true);
+	check.expect(bot.glow.seenBy.includes(bot), "seenBy из другого плагина").toBe(true);
 	check.expect(bot.hideTimer, "hideTimer никто не ставил").toBe(false);
 	check.done();
 });

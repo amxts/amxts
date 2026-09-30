@@ -2480,7 +2480,7 @@ export class PlayerChangeEvent<F extends string = string> {
 	/** @hidden */
 	__text: string = "";
 
-	/** The field that changed, e.g. `"spawnProtected"`; a member of an object field is dotted, `"semiclip.enabled"`. */
+	/** The field that changed, e.g. `"spawnProtected"`; a member of an object field is dotted, `"glow.enabled"`. */
 	field: string = "";
 
 	/** The player whose field changed. */
@@ -2493,7 +2493,7 @@ export class PlayerChangeEvent<F extends string = string> {
 export interface ServerListenerOptions {
 	/**
 	 * For `"playerchange"`: the field listened for, e.g. `"spawnProtected"`, or
-	 * an object field's member, `"semiclip.enabled"`; an object field's name
+	 * an object field's member, `"glow.enabled"`; an object field's name
 	 * hears each of its members. Left out, every field.
 	 */
 	field?: string;

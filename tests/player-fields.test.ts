@@ -22,18 +22,18 @@ test('what one plugin writes, another reads', async () => {
 	const alice = server.join('Alice');
 
 	alice.command('data_read');
-	expect(alice.console).toBe('ghost=false semiclip=default kills=0 tag=');
+	expect(alice.console).toBe('ghost=false glow=default kills=0 tag=');
 
 	alice.command('data_write Привет мир');
 	alice.command('data_write Привет мир');
 	alice.clearMessages();
 	alice.command('data_read');
-	expect(alice.console).toBe('ghost=true semiclip=default kills=3 tag=Привет мир');
+	expect(alice.console).toBe('ghost=true glow=default kills=3 tag=Привет мир');
 
 	// Another player's fields are his own.
 	const bob = server.join('Bob');
 	bob.command('data_read');
-	expect(bob.console).toBe('ghost=false semiclip=default kills=0 tag=');
+	expect(bob.console).toBe('ghost=false glow=default kills=0 tag=');
 });
 
 test('a player who leaves takes his fields with him, after the plugins heard him go', async () => {
@@ -43,12 +43,12 @@ test('a player who leaves takes his fields with him, after the plugins heard him
 	const slot = alice.id;
 
 	alice.disconnect();
-	expect(server.log).toContain('left with ghost=true semiclip=default kills=1.5 tag=x');
+	expect(server.log).toContain('left with ghost=true glow=default kills=1.5 tag=x');
 
 	const next = server.join('Carol');
 	expect(next.id).toBe(slot);
 	next.command('data_read');
-	expect(next.console).toBe('ghost=false semiclip=default kills=0 tag=');
+	expect(next.console).toBe('ghost=false glow=default kills=0 tag=');
 });
 
 test('Pawn reads and writes the same fields through the module natives', async () => {
@@ -65,12 +65,12 @@ test('Pawn reads and writes the same fields through the module natives', async (
 	expect(server.amxtsNative('amxts_get_player_data', alice.id, 'no_such_field')).toBe(0);
 
 	server.amxtsNative('amxts_set_player_data', alice.id, 'ghost', 0);
-	server.amxtsNative('amxts_set_player_data_string', alice.id, 'semiclip.enabled', 'false');
+	server.amxtsNative('amxts_set_player_data_string', alice.id, 'glow.enabled', 'false');
 	server.amxtsNative('amxts_set_player_data_float', alice.id, 'kills', 7.25);
 	server.amxtsNative('amxts_set_player_data_string', alice.id, 'tag', 'from Pawn');
 	alice.clearMessages();
 	alice.command('data_read');
-	expect(alice.console).toBe('ghost=false semiclip=off kills=7.25 tag=from Pawn');
+	expect(alice.console).toBe('ghost=false glow=off kills=7.25 tag=from Pawn');
 });
 
 describe('an object field', () => {
@@ -80,19 +80,19 @@ describe('an object field', () => {
 		const server = await loadPlugin(OBJECTS);
 		const alice = server.join('Alice');
 		alice.command('sc_read');
-		expect(alice.console).toBe('off=false on=false default=true through= includes=false');
-		expect(server.amxtsNative('amxts_get_player_data_string', alice.id, 'semiclip.enabled')).toBe('');
+		expect(alice.console).toBe('off=false on=false default=true seenBy= includes=false');
+		expect(server.amxtsNative('amxts_get_player_data_string', alice.id, 'glow.enabled')).toBe('');
 
 		alice.command('sc_on');
 		alice.clearMessages();
 		alice.command('sc_read');
-		expect(alice.console).toBe('off=false on=true default=false through= includes=false');
-		expect(server.amxtsNative('amxts_get_player_data_string', alice.id, 'semiclip.enabled')).toBe('true');
+		expect(alice.console).toBe('off=false on=true default=false seenBy= includes=false');
+		expect(server.amxtsNative('amxts_get_player_data_string', alice.id, 'glow.enabled')).toBe('true');
 
 		// Another plugin sees it.
 		alice.clearMessages();
 		alice.command('data_read');
-		expect(alice.console).toContain('semiclip=true');
+		expect(alice.console).toContain('glow=true');
 	});
 
 	test('assigning the whole object writes every member; Player[] is the ids, and push writes back', async () => {
@@ -102,20 +102,20 @@ describe('an object field', () => {
 		const carol = server.join('Carol');
 
 		alice.command('sc_all');
-		expect(server.amxtsNative('amxts_get_player_data_string', alice.id, 'semiclip.enabled')).toBe('false');
-		expect(server.amxtsNative('amxts_get_player_data_string', alice.id, 'semiclip.passesThrough')).toBe(`${bob.id},${carol.id}`);
+		expect(server.amxtsNative('amxts_get_player_data_string', alice.id, 'glow.enabled')).toBe('false');
+		expect(server.amxtsNative('amxts_get_player_data_string', alice.id, 'glow.seenBy')).toBe(`${bob.id},${carol.id}`);
 		alice.command('sc_read');
-		expect(alice.console).toBe(`off=true on=false default=false through=${bob.id},${carol.id} includes=true`);
+		expect(alice.console).toBe(`off=true on=false default=false seenBy=${bob.id},${carol.id} includes=true`);
 
 		bob.command('sc_push');
-		expect(server.amxtsNative('amxts_get_player_data_string', bob.id, 'semiclip.passesThrough')).toBe(`${alice.id}`);
+		expect(server.amxtsNative('amxts_get_player_data_string', bob.id, 'glow.seenBy')).toBe(`${alice.id}`);
 
 		// Pawn writes a member as text, and TS reads it.
-		server.amxtsNative('amxts_set_player_data_string', bob.id, 'semiclip.enabled', 'default');
-		server.amxtsNative('amxts_set_player_data_string', bob.id, 'semiclip.passesThrough', `${carol.id}`);
+		server.amxtsNative('amxts_set_player_data_string', bob.id, 'glow.enabled', 'default');
+		server.amxtsNative('amxts_set_player_data_string', bob.id, 'glow.seenBy', `${carol.id}`);
 		bob.clearMessages();
 		bob.command('sc_read');
-		expect(bob.console).toBe(`off=false on=false default=true through=${carol.id} includes=false`);
+		expect(bob.console).toBe(`off=false on=false default=true seenBy=${carol.id} includes=false`);
 	});
 
 	test('a player who leaves goes from the Player[] lists of everyone', async () => {
@@ -125,12 +125,12 @@ describe('an object field', () => {
 		const carol = server.join('Carol');
 		alice.command('sc_all');
 		bob.disconnect();
-		expect(server.amxtsNative('amxts_get_player_data_string', alice.id, 'semiclip.passesThrough')).toBe(`${carol.id}`);
+		expect(server.amxtsNative('amxts_get_player_data_string', alice.id, 'glow.seenBy')).toBe(`${carol.id}`);
 		// The next in his slot is nobody's; Carol, the first of the others now, still is.
 		const next = server.join('Dave');
 		expect(next.id).toBe(bob.id);
 		alice.command('sc_read');
-		expect(alice.console).toBe(`off=true on=false default=false through=${carol.id} includes=true`);
+		expect(alice.console).toBe(`off=true on=false default=false seenBy=${carol.id} includes=true`);
 	});
 
 	test('an interface of the same file: a literal of it, then assigned, then its members live', async () => {
@@ -184,20 +184,20 @@ describe('playerchange', () => {
 		heard(server);
 
 		alice.command('sc_on');
-		expect(heard(server)).toEqual(['semiclip semiclip.enabled: default -> true, through ', 'any: semiclip.enabled']);
+		expect(heard(server)).toEqual(['glow glow.enabled: default -> true, seen by ', 'any: glow.enabled']);
 
 		// The whole object: one change a member, in order.
 		alice.command('sc_all');
 		expect(heard(server)).toEqual([
-			'semiclip semiclip.enabled: true -> false, through ',
-			'any: semiclip.enabled',
-			'semiclip semiclip.passesThrough: false -> false, through Bob',
-			'any: semiclip.passesThrough',
+			'glow glow.enabled: true -> false, seen by ',
+			'any: glow.enabled',
+			'glow glow.seenBy: false -> false, seen by Bob',
+			'any: glow.seenBy',
 		]);
 
 		// A member's own listener hears only it.
 		alice.command('sc_default');
-		expect(heard(server)).toEqual(['semiclip semiclip.enabled: false -> default, through Bob', 'enabled: back to default', 'any: semiclip.enabled']);
+		expect(heard(server)).toEqual(['glow glow.enabled: false -> default, seen by Bob', 'enabled: back to default', 'any: glow.enabled']);
 	});
 
 	test('Pawn\'s write is heard; a player leaving is "disconnected", not a change', async () => {
@@ -229,8 +229,8 @@ describe('playerchange', () => {
 test('a field a playerchange listener names is one the plugin imports, written out', async () => {
 	const listen = (options: string) => compileProbe({ 'plugin.ts': plugin('').replace('server.addEventListener("infochanged"', `server.addEventListener("playerchange", (event) => console.log(event.field), ${options});\nserver.addEventListener("infochanged"`) });
 	expect(await listen('{ field: "ghost" }')).toBeNull();
-	expect(await listen('{ field: "semiclip.enabled" }')).toBeNull();
-	expect(await listen('{ field: "gost" }')).toContain('playerchange - "gost" is not a field of Player in what this plugin imports ("ghost", "semiclip", "semiclip.enabled"');
+	expect(await listen('{ field: "glow.enabled" }')).toBeNull();
+	expect(await listen('{ field: "gost" }')).toContain('playerchange - "gost" is not a field of Player in what this plugin imports ("ghost", "glow", "glow.enabled"');
 	expect(await listen('{ field: "kills" }')).toContain('"kills" is not a field of Player');
 
 	const named = await compileProbe({ 'plugin.ts': `${plugin('')}\nfunction onGhost(event: PlayerChangeEvent<"gohst">) {\n\tconsole.log(event.field);\n}\n` });
@@ -303,7 +303,7 @@ test('one field, one type', async () => {
 });
 
 test('`true | false | "default"` is one type on a field and in the plugin\'s own interface', async () => {
-	const body = 'const mine: Body = { enabled: player.semiclip.enabled }; player.semiclip.enabled = mine.enabled;';
+	const body = 'const mine: Body = { enabled: player.glow.enabled }; player.glow.enabled = mine.enabled;';
 	const problem = await compileProbe({ 'plugin.ts': `${plugin(body)}\ninterface Body {\n\tenabled: true | false | "default";\n}\n` });
 	expect(problem).toBeNull();
 });
@@ -347,26 +347,26 @@ declare module "~/facade" {
 
 test('an object field: a class with a getter and a setter a member, over dotted keys; Player[] a list that writes back', () => {
 	const source = playerFieldsSource([{
-		name: 'semiclip',
+		name: 'glow',
 		type: {
 			interface: null,
 			members: [
 				{ name: 'enabled', type: { literals: ['default'], boolean: true } },
-				{ name: 'passesThrough', type: 'players' },
+				{ name: 'seenBy', type: 'players' },
 			],
 		},
 		where: '',
 	}]);
-	expect(source).toContain('get semiclip(): __AmxtsPlayer_semiclip { const value = new __AmxtsPlayer_semiclip(); value.__slot = this.id; return value; }');
-	expect(source).toContain('mine.enabled = value.enabled; mine.passesThrough = value.passesThrough;');
-	expect(source).toContain('__amxts_pf_choice(this.__slot, "semiclip.enabled", "default")');
-	expect(source).toContain('__amxts_pf_set_text(this.__slot, "semiclip.enabled", value)');
-	expect(source).toContain('__AmxtsPlayerList.read(this.__slot, "semiclip.passesThrough")');
+	expect(source).toContain('get glow(): __AmxtsPlayer_glow { const value = new __AmxtsPlayer_glow(); value.__slot = this.id; return value; }');
+	expect(source).toContain('mine.enabled = value.enabled; mine.seenBy = value.seenBy;');
+	expect(source).toContain('__amxts_pf_choice(this.__slot, "glow.enabled", "default")');
+	expect(source).toContain('__amxts_pf_set_text(this.__slot, "glow.enabled", value)');
+	expect(source).toContain('__AmxtsPlayerList.read(this.__slot, "glow.seenBy")');
 	expect(source).toContain('class __AmxtsPlayerList extends Array<Player>');
 	expect(describeType({ interface: null, members: [
 		{ name: 'enabled', type: { literals: ['default'], boolean: true } },
-		{ name: 'passesThrough', type: 'players' },
-	] })).toBe('{ enabled: true | false | "default"; passesThrough: Player[] }');
+		{ name: 'seenBy', type: 'players' },
+	] })).toBe('{ enabled: true | false | "default"; seenBy: Player[] }');
 });
 
 test('the generated accessors: a getter and a setter a field, by name, on this.id', () => {
@@ -383,13 +383,13 @@ test('the generated accessors: a getter and a setter a field, by name, on this.i
 test('a change event a field: value and previous of its type, under the name its listener\'s call is given', () => {
 	const source = playerFieldsSource([
 		{ name: 'ghost', type: 'boolean', where: '' },
-		{ name: 'semiclip', type: { interface: null, members: [{ name: 'enabled', type: { literals: ['default'], boolean: true } }] }, where: '' },
+		{ name: 'glow', type: { interface: null, members: [{ name: 'enabled', type: { literals: ['default'], boolean: true } }] }, where: '' },
 	]);
 	expect(source).toContain('@global export class __PlayerChange$ghost extends PlayerChangeEvent {');
 	expect(source).toContain('get value(): bool { return this.__number != 0; }');
 	expect(source).toContain('get previous(): string { return __amxts_pf_choose(this.__previousText, "default"); }');
-	expect(source).toContain('value.enabled = this.field == "semiclip.enabled" ? __amxts_pf_choose(t, "default") : __amxts_pf_choose(__amxts_pf_text(this.__slot, "semiclip.enabled"), "default");');
+	expect(source).toContain('value.enabled = this.field == "glow.enabled" ? __amxts_pf_choose(t, "default") : __amxts_pf_choose(__amxts_pf_text(this.__slot, "glow.enabled"), "default");');
 	expect(source).toContain('"playerchange:ghost": __PlayerChange$ghost;');
-	expect(source).toContain('"playerchange:semiclip": __PlayerChange$semiclip;');
-	expect(source).toContain('"playerchange:semiclip.enabled": __PlayerChange$semiclip$enabled;');
+	expect(source).toContain('"playerchange:glow": __PlayerChange$glow;');
+	expect(source).toContain('"playerchange:glow.enabled": __PlayerChange$glow$enabled;');
 });

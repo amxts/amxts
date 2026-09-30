@@ -31,20 +31,20 @@ public run()
 
 	// Член поля-объекта - ключ с точкой; поставлен TS-плагином data-1-write.
 	new enabled[16];
-	amxts_get_player_data_string(bot, "semiclip.enabled", enabled, charsmax(enabled));
-	expect_str("semiclip.enabled из TS", enabled, "true");
-	new through[16], own[8];
-	amxts_get_player_data_string(bot, "semiclip.passesThrough", through, charsmax(through));
+	amxts_get_player_data_string(bot, "glow.enabled", enabled, charsmax(enabled));
+	expect_str("glow.enabled из TS", enabled, "true");
+	new seenBy[16], own[8];
+	amxts_get_player_data_string(bot, "glow.seenBy", seenBy, charsmax(seenBy));
 	num_to_str(bot, own, charsmax(own));
-	expect_str("passesThrough - номера игроков", through, own);
+	expect_str("seenBy - номера игроков", seenBy, own);
 
 	// Pawn пишет член поля-объекта - и читает то, что написал.
-	amxts_set_player_data_string(bot, "semiclip.enabled", "false");
-	amxts_get_player_data_string(bot, "semiclip.enabled", enabled, charsmax(enabled));
-	expect_str("semiclip.enabled = false из Pawn", enabled, "false");
-	amxts_set_player_data_string(bot, "semiclip.enabled", "default");
-	amxts_get_player_data_string(bot, "semiclip.enabled", enabled, charsmax(enabled));
-	expect_str("semiclip.enabled = default из Pawn", enabled, "default");
+	amxts_set_player_data_string(bot, "glow.enabled", "false");
+	amxts_get_player_data_string(bot, "glow.enabled", enabled, charsmax(enabled));
+	expect_str("glow.enabled = false из Pawn", enabled, "false");
+	amxts_set_player_data_string(bot, "glow.enabled", "default");
+	amxts_get_player_data_string(bot, "glow.enabled", enabled, charsmax(enabled));
+	expect_str("glow.enabled = default из Pawn", enabled, "default");
 
 	// Дробное и строка; строку читает data-4-reset.
 	amxts_set_player_data_float(bot, "testSpeed", 1.5);

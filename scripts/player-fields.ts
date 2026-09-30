@@ -7,18 +7,18 @@
 //   declare module "~/facade" {
 //     interface Player {
 //       spawnProtected: boolean;
-//       semiclip: {
+//       glow: {
 //         enabled: true | false | "default";
-//         passesThrough: Player[];
+//         seenBy: Player[];
 //       };
 //     }
 //   }
 //
 // and reads and writes them as properties: `if (player.spawnProtected) ...`,
-// `player.spawnProtected = true`, `player.semiclip.enabled = true`. The values live in
+// `player.spawnProtected = true`, `player.glow.enabled = true`. The values live in
 // the module, by player slot and field name, so every plugin - and Pawn,
 // through the amxts_*_player_data natives - sees the same ones. A member of an
-// object field is stored under a dotted key, "semiclip.enabled".
+// object field is stored under a dotted key, "glow.enabled".
 //
 // A field or member is boolean, number, string, a union of string literals
 // (with true and false among them if it likes - "true | false | "default""
@@ -46,8 +46,8 @@
 //   facade's file. Their bodies are resolved in the facade's scope, which is
 //   why the helpers they call are @global.
 //
-// An object field reads as a live view: `player.semiclip.enabled = true`
-// writes the store at once, and `player.semiclip = { ... }` writes every
+// An object field reads as a live view: `player.glow.enabled = true`
+// writes the store at once, and `player.glow = { ... }` writes every
 // member. The same class made by an object literal holds its own values until
 // it is assigned to a player. A Player[] reads as a list whose `push` writes
 // back, as a flag list does (FlagList); the module takes a player who leaves
@@ -455,7 +455,7 @@ function declarationNamed(parser: any, name: string): any {
 	return null;
 }
 
-/** One field's change event: the key it is heard by - `"spawnProtected"`, `"semiclip.enabled"`, `"semiclip"` - and its class. */
+/** One field's change event: the key it is heard by - `"spawnProtected"`, `"glow.enabled"`, `"glow"` - and its class. */
 interface ChangeEvent {
 	key: string;
 	name: string;

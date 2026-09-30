@@ -1715,8 +1715,8 @@ export default {
 		`,
 	},
 	'PlayerChangeEvent.field': {
-		en: `The field that changed, e.g. \`"spawnProtected"\`; a member of an object field is dotted, \`"semiclip.enabled"\`.`,
-		ru: `Поле, которое изменилось, например \`"spawnProtected"\`; член поля-объекта — через точку, \`"semiclip.enabled"\`.`,
+		en: `The field that changed, e.g. \`"spawnProtected"\`; a member of an object field is dotted, \`"glow.enabled"\`.`,
+		ru: `Поле, которое изменилось, например \`"spawnProtected"\`; член поля-объекта — через точку, \`"glow.enabled"\`.`,
 	},
 	'PlayerChangeEvent.player': {
 		en: `The player whose field changed.`,
@@ -1729,12 +1729,12 @@ export default {
 	'ServerListenerOptions.field': {
 		en: `
 			For \`"playerchange"\`: the field listened for, e.g. \`"spawnProtected"\`, or
-			an object field's member, \`"semiclip.enabled"\`; an object field's name
+			an object field's member, \`"glow.enabled"\`; an object field's name
 			hears each of its members. Left out, every field.
 		`,
 		ru: `
 			Для \`"playerchange"\`: поле, которое слушают, например \`"spawnProtected"\`,
-			или член поля-объекта, \`"semiclip.enabled"\`; имя поля-объекта слышит
+			или член поля-объекта, \`"glow.enabled"\`; имя поля-объекта слышит
 			каждый его член. Без него — любое поле.
 		`,
 	},

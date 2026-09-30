@@ -14,13 +14,13 @@ server.addEventListener("playerchange", (event) => {
 server.addEventListener("playerchange", onTag, { field: "tag" });
 
 server.addEventListener("playerchange", (event) => {
-	const through = event.value.passesThrough.map(other => other.name);
-	console.log(`semiclip ${event.field}: ${event.previous.enabled} -> ${event.value.enabled}, through ${through.join(",")}`);
-}, { field: "semiclip" });
+	const seenBy = event.value.seenBy.map(other => other.name);
+	console.log(`glow ${event.field}: ${event.previous.enabled} -> ${event.value.enabled}, seen by ${seenBy.join(",")}`);
+}, { field: "glow" });
 
 server.addEventListener("playerchange", (event) => {
 	if (event.value == "default") console.log("enabled: back to default");
-}, { field: "semiclip.enabled" });
+}, { field: "glow.enabled" });
 
 server.addEventListener("playerchange", (event) => {
 	console.log(`any: ${event.field}`);

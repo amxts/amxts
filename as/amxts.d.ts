@@ -115,7 +115,7 @@ declare global {
 // `{ field: "spawnProtected" }` the field's own event class (scripts/player-fields.ts);
 // the editor reads the same types off the fields plugins declare on Player.
 
-/** A field plugins added to `Player` - `"spawnProtected"` - or a member of an object field, `"semiclip.enabled"`. */
+/** A field plugins added to `Player` - `"spawnProtected"` - or a member of an object field, `"glow.enabled"`. */
 type PlayerFieldName = {
 	[K in keyof Player & string]: Player[K] extends (...args: never[]) => unknown ? never
 		: Player[K] extends readonly unknown[] ? K

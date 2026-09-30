@@ -1,5 +1,5 @@
 // A fixture for tests/player-fields.test.ts: object fields on Player - the
-// inline `semiclip` of player-state.ts, and one typed with an interface of
+// inline `glow` of player-state.ts, and one typed with an interface of
 // this file - and Player[] fields, read and written as a TS plugin writes them.
 import "./player-state";
 
@@ -19,33 +19,33 @@ declare module "~/facade" {
 }
 
 server.addCommand("sc_on", (player) => {
-	player.semiclip.enabled = true;
+	player.glow.enabled = true;
 });
 
 server.addCommand("sc_default", (player) => {
-	player.semiclip.enabled = "default";
+	player.glow.enabled = "default";
 });
 
-/** The whole object at once: off, and through everyone else. */
+/** The whole object at once: off, and seen by everyone else. */
 server.addCommand("sc_all", (player) => {
-	player.semiclip = { enabled: false, passesThrough: othersThan(player) };
+	player.glow = { enabled: false, seenBy: othersThan(player) };
 });
 
 server.addCommand("sc_push", (player) => {
 	const others = othersThan(player);
-	if (others.length > 0) player.semiclip.passesThrough.push(others[0]);
+	if (others.length > 0) player.glow.seenBy.push(others[0]);
 });
 
 server.addCommand("sc_read", (player) => {
-	const semiclip = player.semiclip;
-	const enabled = semiclip.enabled;
-	const through = semiclip.passesThrough.map(other => other.id);
+	const glow = player.glow;
+	const enabled = glow.enabled;
+	const seenBy = glow.seenBy.map(other => other.id);
 	const others = othersThan(player);
-	const knows = others.length > 0 && semiclip.passesThrough.includes(others[0]);
+	const knows = others.length > 0 && glow.seenBy.includes(others[0]);
 	const off = enabled == false;
 	const on = enabled == true;
 	const byDefault = enabled == "default";
-	print(player, `off=${off} on=${on} default=${byDefault} through=${through.join(",")} includes=${knows}`, "console");
+	print(player, `off=${off} on=${on} default=${byDefault} seenBy=${seenBy.join(",")} includes=${knows}`, "console");
 });
 
 server.addCommand("badge_write", (player) => {

@@ -11,5 +11,5 @@ function read(player: Player) {
 }
 
 function describe(player: Player) {
-	return `ghost=${player.ghost} semiclip=${player.semiclip.enabled == false ? "off" : player.semiclip.enabled} kills=${player.kills} tag=${player.tag}`;
+	return `ghost=${player.ghost} glow=${player.glow.enabled == false ? "off" : player.glow.enabled} kills=${player.kills} tag=${player.tag}`;
 }

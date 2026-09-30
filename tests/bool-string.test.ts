@@ -14,10 +14,10 @@ async function compile(body: string) {
 	return { error, run: () => (error ? 0 : exports.run() as number) };
 }
 
-const SEMICLIP = `
+const GLOW = `
 type Enabled = true | false | "default";
 
-class Semiclip {
+class Glow {
 	enabled: Enabled = "default";
 }
 
@@ -30,14 +30,14 @@ function code(value: Enabled): i32 {
 `;
 
 test('true, false and a string literal are one value', async () => {
-	const { error, run } = await compile(`${SEMICLIP}
+	const { error, run } = await compile(`${GLOW}
 export function run(): i32 {
-	const semiclip = new Semiclip();
-	let seen = code(semiclip.enabled) * 100;
-	semiclip.enabled = true;
-	seen += code(semiclip.enabled) * 10;
-	semiclip.enabled = false;
-	seen += code(semiclip.enabled);
+	const glow = new Glow();
+	let seen = code(glow.enabled) * 100;
+	glow.enabled = true;
+	seen += code(glow.enabled) * 10;
+	glow.enabled = false;
+	seen += code(glow.enabled);
 	return seen;
 }
 `);
@@ -46,7 +46,7 @@ export function run(): i32 {
 });
 
 test('a condition reads the union as TypeScript does: only false is false', async () => {
-	const { error, run } = await compile(`${SEMICLIP}
+	const { error, run } = await compile(`${GLOW}
 function truthy(value: Enabled): i32 { return value ? 1 : 0; }
 export function run(): i32 {
 	return truthy(true) * 100 + truthy("default") * 10 + truthy(false);
@@ -57,7 +57,7 @@ export function run(): i32 {
 });
 
 test('a boolean variable goes into the union too', async () => {
-	const { error, run } = await compile(`${SEMICLIP}
+	const { error, run } = await compile(`${GLOW}
 export function run(): i32 {
 	const on = code(1 > 0 ? true : false);
 	let flag = false;
@@ -69,14 +69,14 @@ export function run(): i32 {
 });
 
 test('a boolean in a template reads as TypeScript prints it', async () => {
-	const { error, run } = await compile(`${SEMICLIP}
+	const { error, run } = await compile(`${GLOW}
 export function run(): i32 {
-	const semiclip = new Semiclip();
-	let text = \`\${semiclip.enabled}\`;
-	semiclip.enabled = false;
-	text += \` \${semiclip.enabled}\`;
-	semiclip.enabled = true;
-	text += \` \${semiclip.enabled}\`;
+	const glow = new Glow();
+	let text = \`\${glow.enabled}\`;
+	glow.enabled = false;
+	text += \` \${glow.enabled}\`;
+	glow.enabled = true;
+	text += \` \${glow.enabled}\`;
 	return text == "default false true" ? 1 : 0;
 }
 `);
