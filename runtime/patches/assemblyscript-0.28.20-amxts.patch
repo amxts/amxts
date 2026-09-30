@@ -8000,7 +8000,7 @@ index 157351c..2181bb7 100644
 +  return named.isNullable ? text + "|null" : text;
 +}
 diff --git a/src/program.ts b/src/program.ts
-index f5d9b7c..2776d0e 100644
+index f5d9b7c..7527e71 100644
 --- a/src/program.ts
 +++ b/src/program.ts
 @@ -965,6 +965,8 @@ export class Program extends DiagnosticEmitter {
@@ -8085,7 +8085,18 @@ index f5d9b7c..2776d0e 100644
    /** Processes a single overridden member by this class in a base class. */
    private doProcessOverride(
      thisClass: ClassPrototype,
-@@ -3638,6 +3691,13 @@ export class Global extends VariableLikeElement {
+@@ -3331,7 +3384,9 @@ export class File extends Element {
+   /* @override */
+   lookup(name: string, isType: bool = false): Element | null {
+     let element = this.getMember(name);
+-    if (element) return element;
++    // amxts: a type is looked up past a function of its name - an exported
++    // `function number()` leaves `number` the type in its file
++    if (element && !(isType && element.kind == ElementKind.FunctionPrototype)) return element;
+     return this.program.lookup(name); // has no meaningful parent
+   }
+ 
+@@ -3638,6 +3693,13 @@ export class Global extends VariableLikeElement {
      );
      this.decoratorFlags = decoratorFlags;
    }
@@ -8099,7 +8110,7 @@ index f5d9b7c..2776d0e 100644
  }
  
  /** A function parameter. */
-@@ -3687,6 +3747,43 @@ export class Local extends VariableLikeElement {
+@@ -3687,6 +3749,43 @@ export class Local extends VariableLikeElement {
    declaredByFlow(flow: Flow): bool {
      return this.parent == flow.targetFunction;
    }
@@ -8143,7 +8154,7 @@ index f5d9b7c..2776d0e 100644
  }
  
  /** A yet unresolved function prototype. */
-@@ -3816,6 +3913,20 @@ export class Function extends TypedElement {
+@@ -3816,6 +3915,20 @@ export class Function extends TypedElement {
    /** Counting id of anonymous inner functions. */
    nextAnonymousId: i32 = 0;
  
@@ -8164,7 +8175,7 @@ index f5d9b7c..2776d0e 100644
    /** Constructs a new concrete function. */
    constructor(
      /** Name incl. type parameters, i.e. `foo<i32>`. */
-@@ -4188,6 +4299,21 @@ export class Property extends VariableLikeElement {
+@@ -4188,6 +4301,21 @@ export class Property extends VariableLikeElement {
    setterInstance: Function | null = null;
    /** Field memory offset, if a (layed out) instance field. */
    memoryOffset: i32 = -1;
