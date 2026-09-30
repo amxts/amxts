@@ -237,7 +237,7 @@ test('a field a playerchange listener names is one the plugin imports, written o
 	expect(named).toContain('"gohst" is not a field of Player');
 
 	const held = await compileProbe({ 'plugin.ts': `${plugin('')}\nconst field = "ghost";\nserver.addEventListener("playerchange", (event) => console.log(event.field), { field });\n` });
-	expect(held).toContain('playerchange - the field is written out, as the event\'s name is: { field: "ghost" }');
+	expect(held).toContain('playerchange - the field is written out, as the event\'s name is: { field: "spawnProtected" }');
 });
 
 test('a listener\'s event has the field\'s type: a value of another type does not compile', async () => {

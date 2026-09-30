@@ -12,9 +12,9 @@
 /*
  * Player fields - what plugins keep on a player, shared by every plugin, TS
  * and Pawn alike. The key is the field's name as the TS plugin that declares it
- * writes it: "ghost", "hideTimer". A number field reads whole here and as a
- * Float from the _float pair; a boolean is 1 or 0; a text field has the
- * _string pair. A field never written, or read as the other kind, is 0 or "".
+ * writes it: "spawnProtected", "hideTimer". A number field reads whole here
+ * and as a Float from the _float pair; a boolean is 1 or 0; a text field has
+ * the _string pair. A field never written, or read as the other kind, is 0 or "".
  * A player's fields are cleared when he leaves, and everyone's when the map
  * changes.
  */

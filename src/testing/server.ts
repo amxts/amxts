@@ -1088,7 +1088,7 @@ export class FakeServer {
 	 * (runtime/host/amxts.inc).
 	 *
 	 * ```ts
-	 * server.amxtsNative("amxts_get_player_data", bot.id, "ghost");       // 1
+	 * server.amxtsNative("amxts_get_player_data", bot.id, "spawnProtected");   // 1
 	 * server.amxtsNative("amxts_set_player_data_string", bot.id, "tag", "x");
 	 * ```
 	 *

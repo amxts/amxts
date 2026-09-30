@@ -112,10 +112,10 @@ declare global {
 }
 
 // A field's change, typed by the field. The compiler gives a listener with
-// `{ field: "ghost" }` the field's own event class (scripts/player-fields.ts);
+// `{ field: "spawnProtected" }` the field's own event class (scripts/player-fields.ts);
 // the editor reads the same types off the fields plugins declare on Player.
 
-/** A field plugins added to `Player` - `"ghost"` - or a member of an object field, `"semiclip.enabled"`. */
+/** A field plugins added to `Player` - `"spawnProtected"` - or a member of an object field, `"semiclip.enabled"`. */
 type PlayerFieldName = {
 	[K in keyof Player & string]: Player[K] extends (...args: never[]) => unknown ? never
 		: Player[K] extends readonly unknown[] ? K
@@ -139,8 +139,8 @@ declare module "./facade" {
 	interface Server {
 		/**
 		 * Calls `listener` every time the field `field` plugins added to `Player`
-		 * changes on a player, e.g. `{ field: "ghost" }`: `event.value` and
-		 * `event.previous` have the field's type.
+		 * changes on a player, e.g. `{ field: "spawnProtected" }`: `event.value`
+		 * and `event.previous` have the field's type.
 		 */
 		// oxlint-disable-next-line typescript/method-signature-style -- an overload, merged into the class's method
 		addEventListener<F extends PlayerFieldName>(type: "playerchange", listener: (event: PlayerChangeEvent<F>) => void, options: { field: F }): void;

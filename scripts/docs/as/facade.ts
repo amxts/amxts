@@ -1691,13 +1691,13 @@ export default {
 
 			\`\`\`ts
 			server.addEventListener("playerchange", (event) => {
-			  print(event.player, event.value ? "You are a ghost" : "You are back");
-			}, { field: "ghost" });
+			  print(event.player, event.value ? "You are protected" : "Your spawn protection is over");
+			}, { field: "spawnProtected" });
 			\`\`\`
 
 			With \`field\`, \`event.value\` and \`event.previous\` have the field's type; a
-			named listener takes \`PlayerChangeEvent<"ghost">\`. Without it every field
-			is heard, and \`event.field\` says which.
+			named listener takes \`PlayerChangeEvent<"spawnProtected">\`. Without it
+			every field is heard, and \`event.field\` says which.
 		`,
 		ru: `
 			У игрока изменилось поле, которое плагины добавили в \`Player\`, — его
@@ -1705,18 +1705,18 @@ export default {
 
 			\`\`\`ts
 			server.addEventListener("playerchange", (event) => {
-			  print(event.player, event.value ? "You are a ghost" : "You are back");
-			}, { field: "ghost" });
+			  print(event.player, event.value ? "You are protected" : "Your spawn protection is over");
+			}, { field: "spawnProtected" });
 			\`\`\`
 
 			С \`field\` у \`event.value\` и \`event.previous\` тип поля; именованный
-			обработчик принимает \`PlayerChangeEvent<"ghost">\`. Без него слышно любое
-			поле, а какое — говорит \`event.field\`.
+			обработчик принимает \`PlayerChangeEvent<"spawnProtected">\`. Без него
+			слышно любое поле, а какое — говорит \`event.field\`.
 		`,
 	},
 	'PlayerChangeEvent.field': {
-		en: `The field that changed, e.g. \`"ghost"\`; a member of an object field is dotted, \`"semiclip.enabled"\`.`,
-		ru: `Поле, которое изменилось, например \`"ghost"\`; член поля-объекта — через точку, \`"semiclip.enabled"\`.`,
+		en: `The field that changed, e.g. \`"spawnProtected"\`; a member of an object field is dotted, \`"semiclip.enabled"\`.`,
+		ru: `Поле, которое изменилось, например \`"spawnProtected"\`; член поля-объекта — через точку, \`"semiclip.enabled"\`.`,
 	},
 	'PlayerChangeEvent.player': {
 		en: `The player whose field changed.`,
@@ -1728,14 +1728,14 @@ export default {
 	},
 	'ServerListenerOptions.field': {
 		en: `
-			For \`"playerchange"\`: the field listened for, e.g. \`"ghost"\`, or an
-			object field's member, \`"semiclip.enabled"\`; an object field's name
+			For \`"playerchange"\`: the field listened for, e.g. \`"spawnProtected"\`, or
+			an object field's member, \`"semiclip.enabled"\`; an object field's name
 			hears each of its members. Left out, every field.
 		`,
 		ru: `
-			Для \`"playerchange"\`: поле, которое слушают, например \`"ghost"\`, или
-			член поля-объекта, \`"semiclip.enabled"\`; имя поля-объекта слышит каждый
-			его член. Без него — любое поле.
+			Для \`"playerchange"\`: поле, которое слушают, например \`"spawnProtected"\`,
+			или член поля-объекта, \`"semiclip.enabled"\`; имя поля-объекта слышит
+			каждый его член. Без него — любое поле.
 		`,
 	},
 	'CvarChangeEvent': {
@@ -1886,12 +1886,12 @@ export default {
 		en: `
 			Calls \`listener\` every time the server raises the event \`type\` - or,
 			for \`"message:<Name>"\`, every time it sends that message to a client.
-			\`"playerchange"\` takes the field it is for: \`{ field: "ghost" }\`.
+			\`"playerchange"\` takes the field it is for: \`{ field: "spawnProtected" }\`.
 		`,
 		ru: `
 			Вызывает \`listener\` каждый раз, когда сервер поднимает событие \`type\`, —
 			или, для \`"message:<Name>"\`, каждый раз, когда он шлёт это сообщение клиенту.
-			\`"playerchange"\` принимает поле, для которого он: \`{ field: "ghost" }\`.
+			\`"playerchange"\` принимает поле, для которого он: \`{ field: "spawnProtected" }\`.
 		`,
 	},
 	'Server.removeEventListener': {

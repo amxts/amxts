@@ -6,7 +6,7 @@
 //   import "~/facade";
 //   declare module "~/facade" {
 //     interface Player {
-//       ghost: boolean;
+//       spawnProtected: boolean;
 //       semiclip: {
 //         enabled: true | false | "default";
 //         passesThrough: Player[];
@@ -14,8 +14,8 @@
 //     }
 //   }
 //
-// and reads and writes them as properties: `if (player.ghost) ...`,
-// `player.ghost = true`, `player.semiclip.enabled = true`. The values live in
+// and reads and writes them as properties: `if (player.spawnProtected) ...`,
+// `player.spawnProtected = true`, `player.semiclip.enabled = true`. The values live in
 // the module, by player slot and field name, so every plugin - and Pawn,
 // through the amxts_*_player_data natives - sees the same ones. A member of an
 // object field is stored under a dotted key, "semiclip.enabled".
@@ -57,13 +57,13 @@
 // refused: it would silently replace the engine's property.
 //
 // A change is an event, `"playerchange"`, which the module raises on every
-// write that changes a value (runtime/src/module.cpp). With `{ field: "ghost" }`
-// its listener gets the field's own event class, whose `value` and `previous`
+// write that changes a value (runtime/src/module.cpp). With
+// `{ field: "spawnProtected" }` its listener gets the field's own event class, whose `value` and `previous`
 // have the field's type - one per field, per object member and per object
 // field, made here. The compiler binds an event's type to the name in the
 // call (`K extends keyof ServerEventMap`), and the field is in the options, so
-// the call's name becomes `"playerchange:ghost"` and ServerEventMap is given
-// that key; `PlayerChangeEvent<"ghost">` written as a type becomes the class.
+// the call's name becomes `"playerchange:spawnProtected"` and ServerEventMap is given
+// that key; `PlayerChangeEvent<"spawnProtected">` written as a type becomes the class.
 
 // @ts-ignore - shipped as JavaScript, with types beside it we do not need here
 import * as asc from '../runtime/deps/assemblyscript/dist/assemblyscript.js';
@@ -110,7 +110,7 @@ const PLAYER_LIST = '__AmxtsPlayerList';
 const CHANGE_EVENT = 'playerchange';
 const CHANGE_CLASS = 'PlayerChangeEvent';
 
-/** The interface in that file whose members - `"playerchange:ghost": ...` - go into ServerEventMap. */
+/** The interface in that file whose members - `"playerchange:spawnProtected": ...` - go into ServerEventMap. */
 const CHANGES = '__AmxtsPlayerChanges';
 
 const DECLARE_MODULE = /\bdeclare\s+module\s*(["'])~\/facade\1\s*\{/g;
@@ -455,7 +455,7 @@ function declarationNamed(parser: any, name: string): any {
 	return null;
 }
 
-/** One field's change event: the key it is heard by - `"ghost"`, `"semiclip.enabled"`, `"semiclip"` - and its class. */
+/** One field's change event: the key it is heard by - `"spawnProtected"`, `"semiclip.enabled"`, `"semiclip"` - and its class. */
 interface ChangeEvent {
 	key: string;
 	name: string;
@@ -477,9 +477,9 @@ function changeEvents(fields: PlayerField[]): ChangeEvent[] {
 }
 
 /**
- * A `"playerchange"` listener's `{ field: "ghost" }` and a
- * `PlayerChangeEvent<"ghost">` written as a type, turned into the field's own
- * event class: the call's name becomes `"playerchange:ghost"`, the key
+ * A `"playerchange"` listener's `{ field: "spawnProtected" }` and a
+ * `PlayerChangeEvent<"spawnProtected">` written as a type, turned into the field's own
+ * event class: the call's name becomes `"playerchange:spawnProtected"`, the key
  * ServerEventMap is given for it, and the type the class. A field the compile
  * has no declaration of is a problem, and so is one not written out.
  */
@@ -498,7 +498,7 @@ function typeChangeListeners(parser: any, classes: Map<string, string>): string[
 		walk(source.statements, (node) => {
 			if (node.kind === asc.NodeKind.Call) {
 				const field = listenedField(node);
-				if (field === null) problems.push(`${where(node)}: playerchange - the field is written out, as the event's name is: { field: "ghost" }`);
+				if (field === null) problems.push(`${where(node)}: playerchange - the field is written out, as the event's name is: { field: "spawnProtected" }`);
 				else if (field !== undefined && known(field, node)) node.args[0].value = `${CHANGE_EVENT}:${field}`;
 				return;
 			}
@@ -528,7 +528,7 @@ function listenedField(call: any): string | null | undefined {
 	return isStringLiteral(options.values[at]) ? options.values[at].value : null;
 }
 
-/** The field of a `PlayerChangeEvent<"ghost">`; undefined for any other type. */
+/** The field of a `PlayerChangeEvent<"spawnProtected">`; undefined for any other type. */
 function typedField(node: any): string | undefined {
 	if (node.name.identifier.text !== CHANGE_CLASS || node.name.next || node.typeArguments?.length !== 1) return undefined;
 	// A literal in a type is read as `string`: its text is where it stood.

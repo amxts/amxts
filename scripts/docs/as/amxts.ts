@@ -193,13 +193,14 @@ export default {
 	'Server.addEventListener': {
 		en: `
 			Calls \`listener\` every time the field \`field\` plugins added to \`Player\`
-			changes on a player, e.g. \`{ field: "ghost" }\`: \`event.value\` and
-			\`event.previous\` have the field's type.
+			changes on a player, e.g. \`{ field: "spawnProtected" }\`: \`event.value\`
+			and \`event.previous\` have the field's type.
 		`,
 		ru: `
 			Вызывает \`listener\` каждый раз, когда у игрока меняется поле \`field\`,
-			которое плагины добавили в \`Player\`, например \`{ field: "ghost" }\`: у
-			\`event.value\` и \`event.previous\` тип этого поля.
+			которое плагины добавили в \`Player\`, например
+			\`{ field: "spawnProtected" }\`: у \`event.value\` и \`event.previous\` тип
+			этого поля.
 		`,
 	},
 	'Server.removeEventListener': {

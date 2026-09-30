@@ -239,7 +239,7 @@ export const EVENTS: Record<string, EventDoc> = {
 /** `"playerchange"`: an event of the core's, not a forward - its class and fields are the facade's. */
 export const PLAYER_CHANGE: EventDoc = {
 	summary: {
-		en: `A field plugins added to \`Player\` changed on a player; \`{ field: "ghost" }\` hears one field.`,
-		ru: `У игрока изменилось поле, которое плагины добавили в \`Player\`; \`{ field: "ghost" }\` слушает одно поле.`,
+		en: `A field plugins added to \`Player\` changed on a player; \`{ field: "spawnProtected" }\` hears one field.`,
+		ru: `У игрока изменилось поле, которое плагины добавили в \`Player\`; \`{ field: "spawnProtected" }\` слушает одно поле.`,
 	},
 };

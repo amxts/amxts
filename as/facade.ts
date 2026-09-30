@@ -1196,9 +1196,11 @@ export interface KillOptions {
 }
 
 // Plugins add fields of their own to this class, shared by every plugin and by
-// Pawn, with `declare module "~/facade" { interface Player { ghost: boolean } }`
-// (docs/en/3.game/02.players.md). The build turns each into a getter and a setter over
-// the module's store and adds them here (scripts/player-fields.ts).
+// Pawn, with `interface Player { spawnProtected: boolean }` in a
+// `declare module "~/facade"` block (docs/en/3.game/02.players.md) - not written
+// here as one block, which the build would take for a declaration of every
+// plugin's. The build turns each into a getter and a setter over the module's
+// store and adds them here (scripts/player-fields.ts).
 /**
  * A connecting player, in `"connect"`, `"authorized"` and `"putinserver"`: name,
  * address, SteamID and team, but no health or weapons yet. Every Player is a
@@ -2456,13 +2458,13 @@ function messageFired(channel: MessageChannel, receiver: i32): void {
  *
  * ```ts
  * server.addEventListener("playerchange", (event) => {
- *   print(event.player, event.value ? "You are a ghost" : "You are back");
- * }, { field: "ghost" });
+ *   print(event.player, event.value ? "You are protected" : "Your spawn protection is over");
+ * }, { field: "spawnProtected" });
  * ```
  *
  * With `field`, `event.value` and `event.previous` have the field's type; a
- * named listener takes `PlayerChangeEvent<"ghost">`. Without it every field
- * is heard, and `event.field` says which.
+ * named listener takes `PlayerChangeEvent<"spawnProtected">`. Without it
+ * every field is heard, and `event.field` says which.
  */
 export class PlayerChangeEvent<F extends string = string> {
 	/** @hidden What a change's event is told apart by, at compile time. */
@@ -2478,7 +2480,7 @@ export class PlayerChangeEvent<F extends string = string> {
 	/** @hidden */
 	__text: string = "";
 
-	/** The field that changed, e.g. `"ghost"`; a member of an object field is dotted, `"semiclip.enabled"`. */
+	/** The field that changed, e.g. `"spawnProtected"`; a member of an object field is dotted, `"semiclip.enabled"`. */
 	field: string = "";
 
 	/** The player whose field changed. */
@@ -2490,8 +2492,8 @@ export class PlayerChangeEvent<F extends string = string> {
 /** The third argument of `server.addEventListener`. */
 export interface ServerListenerOptions {
 	/**
-	 * For `"playerchange"`: the field listened for, e.g. `"ghost"`, or an
-	 * object field's member, `"semiclip.enabled"`; an object field's name
+	 * For `"playerchange"`: the field listened for, e.g. `"spawnProtected"`, or
+	 * an object field's member, `"semiclip.enabled"`; an object field's name
 	 * hears each of its members. Left out, every field.
 	 */
 	field?: string;
@@ -2754,7 +2756,7 @@ export class Server {
 	/**
 	 * Calls `listener` every time the server raises the event `type` - or,
 	 * for `"message:<Name>"`, every time it sends that message to a client.
-	 * `"playerchange"` takes the field it is for: `{ field: "ghost" }`.
+	 * `"playerchange"` takes the field it is for: `{ field: "spawnProtected" }`.
 	 */
 	addEventListener<K extends keyof ServerEventMap>(type: K, listener: (event: ServerEventMap[K]) => void, options: ServerListenerOptions = {}): void {
 		// @ts-ignore: a message's event is told apart by its field, at compile time
