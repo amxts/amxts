@@ -1,7 +1,7 @@
 /**
  * Destructuring as TypeScript has it: patterns inside patterns, a default
- * past the end of an array, `...rest` of an array, and an array pattern as
- * a parameter. At the default optimization and at -O3.
+ * past the end of an array, `...rest` of an array and of an object, and an
+ * array pattern as a parameter. At the default optimization and at -O3.
  */
 // @ts-ignore - bun:test types not available during type checking
 import { describe, expect, test } from 'bun:test';
@@ -30,6 +30,23 @@ export function text(): string {
 ` }, optimize ? ['-O3'] : []);
 			expect(error).toBe('');
 			expect(string(exports.text())).toBe('ct ann 12 5:7,9 31 6 k4 x1y2 z3');
+		});
+
+		test('...rest of an object is a plain object of the fields not named', async () => {
+			const { error, exports, string } = await probe({ 'probe.ts': `
+interface Options { name: string; hp: number; armor: number; team: string }
+function strip({ name, ...stats }: Options): string {
+	return name + ":" + JSON.stringify(stats);
+}
+export function text(): string {
+	const options: Options = { name: "ann", hp: 90, armor: 50, team: "ct" };
+	const { team, ...rest } = options;
+	const { name, hp, armor, team: side, ...none } = options;
+	return strip(options) + " " + team + rest.name + rest.hp.toString() + " " + JSON.stringify(none) + side;
+}
+` }, optimize ? ['-O3'] : []);
+			expect(error).toBe('');
+			expect(string(exports.text())).toBe('ann:{"hp":90,"armor":50,"team":"ct"} ctann90 {}ct');
 		});
 	});
 }
