@@ -106,6 +106,42 @@ export function text(): string {
 			expect(text()).toBe('3,4 a {"y":4,"x":3} labelyx');
 		});
 
+		test('a class that implements an interface of fields goes where the interface does', async () => {
+			const { error, text } = await compile({ 'probe.ts': `
+interface Point { x: number; y: number }
+interface Named { label(): string }
+class Spot implements Point, Named {
+	z = 3;
+	constructor(public x: number, public y: number) {}
+	label(): string { return "spot"; }
+}
+function sum(point: Point): number { return point.x + point.y; }
+function name(named: Named): string { return named.label(); }
+export function text(): string {
+	const spot = new Spot(1, 2);
+	const points: Point[] = [spot, { x: 10, y: 20 }];
+	return (sum(spot) + sum(points[1]) + spot.z).toString() + " " + name(spot) + " " + JSON.stringify(spot);
+}
+` }, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('36 spot {"x":1,"y":2,"z":3}');
+		});
+
+		test('a class that implements an interface of fields leaves its optional fields undefined', async () => {
+			const { error, text } = await compile({ 'probe.ts': `
+interface Options { level: number; tag?: number; loud?: boolean }
+class Built implements Options { level = 1; constructor() {} }
+class Plain implements Options { level = 2; }
+export function text(): string {
+	const built = new Built();
+	const plain = new Plain();
+	return \`\${built.tag} \${plain.tag} \${built.loud ?? true} \${built.level + plain.level}\`;
+}
+` }, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('undefined undefined true 3');
+		});
+
 		test('an interface of fields that extends another is built by a literal, and goes where the base does', async () => {
 			const { error, text } = await compile({
 				'shapes.ts': `
