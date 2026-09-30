@@ -137,22 +137,24 @@ modes = normal dm
 ```
 
 - Each object at the top of the object is a section; its fields are the
-  section's keys, found in any case (`PREFIX = ...` is `prefix`). A section's
-  name is as written: `[CHAT]` is not `chat`, and the console says so.
+  section's keys.
 - A list is a line of values (`modes = normal dm`); an object inside a
   section is a `key = { ... }` block; a boolean is written `1` or `0`.
-- A text with spaces is quoted: `title = "Main menu"`. Unquoted it is a list
-  of words, and a text field keeps its default and says why.
 - A list of lists is a block of rows in quotes: `CVARS = { "mp_timelimit" "30" }`
   is `[["mp_timelimit", "30"]]`. Saved, it stays a block — rows of one value
   too — with the comments above its rows.
 - A `Map` at the top is a section of its own: `[prices]` with
   `de_dust2 = 3`.
 
-::: warning
-An INI file has no place for a value at the top of the object that is not an
-object, and no lists of objects. Such a field stays its default when the file
-is INI, and the console says so once. Write that config in YAML or JSON.
+::: warning In an INI file
+- **Keys are found in any case, section names are not:** `PREFIX = ...` is
+  `prefix`, but `[CHAT]` is not `chat`, and the console says so.
+- **A text with spaces is quoted:** `title = "Main menu"`. Unquoted it is a
+  list of words: a text field keeps its default and says why, and Pawn's
+  `cfg_*` natives and menu-core read the first word.
+- **No place for a value at the top of the object that is not an object, and
+  no lists of objects.** Such a field stays its default when the file is INI,
+  and the console says so once. Write that config in YAML or JSON.
 :::
 
 ### Formats
@@ -197,7 +199,8 @@ maps.save();
 - A value is a `ConfigNode`: `kind` (`"object"`, `"array"`, `"string"`,
   `"number"`, `"boolean"`, `"null"`), `key`, and `file`, `line`, `column` —
   where it was read. `get(path)`, `keys(path)` and `values(path)` lead into
-  it; a path is `chat.prefix` or `items[0].name` — an item of a list is `[0]`.
+  it; a path is `chat.prefix` or `items[0].name` — an item of a list is `[0]`:
+  `items.0.name` looks for a key `0`.
 - `getString`, `getNumber`, `getBoolean` and `getStrings` take a fallback for
   a value that is not there or not of its kind; `set`, `setNumber`,
   `setBoolean` and `setStrings` make the objects (and the lists, before an

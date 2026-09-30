@@ -133,7 +133,7 @@ register as you type them. TypeScript itself needs nothing extra: a project's
 ## Documentation
 
 [amxts.github.io](https://amxts.github.io/) - getting started, the API,
-modules, testing and every known limitation, in English and Russian. The
+modules, testing and what amxts cannot do yet, in English and Russian. The
 sources are in [`docs`](docs).
 
 ## Building from source

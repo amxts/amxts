@@ -11,8 +11,7 @@ TypeScript plugin uses as `menus`, without an import line
 
 ::: warning In progress
 menu-core is still being finished. It has been tried in game only a few
-times, and its behaviour may still change. What menus cannot do yet is on
-[Limitations](../../en/1.getting-started/06.limitations.md#menus).
+times, and its behaviour may still change.
 :::
 
 ## From TypeScript
@@ -341,9 +340,14 @@ A `visible`, `when`, `enabled`, `activeOn`, `action` or `onTimeout` is a name, s
 - **Placeholders:** `%name%` (a list row's text), `%target%`, `%time%`, and any registered one.
 - **List menus** draw their view per player, or per row of their list source, leaving out rows that fail a filter. With none left the menu does not open, and the player gets the filter's message.
 
-- **Flags** of an INI menu — `HIDE_BACK`, `HIDE_EXIT`, `LOCKED`, `GLOBAL` — are `YES` or `NO`.
+::: warning In a menu file
+- **Flags** of an INI menu — `HIDE_BACK`, `HIDE_EXIT`, `LOCKED`, `GLOBAL` — are `YES` or `NO`: `true`, `1` or `yes` is warned of, with the word to write, and is `NO`. In YAML `yes` is text: a flag there is `true` or `false`.
 - **Text with spaces** in an INI menu is quoted: `TITLE = "Main menu"`. Unquoted, only its first word is read.
-- **Colours** are tags in a menu file too: `!y`, `!r`, `!d`, `!w`, `!R`. Text from Pawn — a Pawn plugin's items and titles, a lang dictionary — keeps its codes (`\y`), and menu-core reads them as the tags.
+- **An item's name in YAML or JSON is not split on `|`:** its faces are written with `variants`.
+- **Colours** are tags in a menu file too: `!y`, `!r`, `!d`, `!w`, `!R`. Pawn's codes (`\y`, `\r`) are warned of, with the tag to write, and left out. Text from Pawn — a Pawn plugin's items and titles, a lang dictionary — keeps its codes, and menu-core reads them as the tags.
+- **`%time%` and `%target%` are lower case:** `%TIME%` and `%s` are left as written.
+- **`ADMIN` and `ACCESS_ADMIN` are not built in:** a plugin registers them, or the file writes `IS_ADMIN` (any admin) or `FLAG_<letters>` (`FLAG_d`).
+:::
 
 ### INI's columns
 
@@ -405,7 +409,8 @@ the Marketplace yet: install its `.vsix` with
 ::: warning
 The extension knows only names written as a string in the workspace:
 `menus.addAction(name, ...)` with the name in a variable, and a Pawn plugin
-that is not in the workspace, are unknown to it.
+that is not in the workspace, are unknown to it - a warning in the editor.
+The server's check on its first frame is the one that counts.
 :::
 
 ## For Pawn plugins
