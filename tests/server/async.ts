@@ -1,7 +1,8 @@
-// async/await на сервере: порядок sleep, отмена через AbortController и
-// ловушка в одной корутине, после которой плагин работает дальше.
+// async/await на сервере: порядок sleep, отмена через AbortController,
+// ошибка в async-функции, которую ловит try вокруг await, и ловушка в одной
+// корутине, после которой плагин работает дальше.
 //
-// @log abort: Index out of range
+// @log unreachable
 // @log in an async function, which was dropped; the plugin runs on
 import { Checks } from "~/lib/check";
 
@@ -27,6 +28,14 @@ async function run() {
 	await sleep(200);
 	check.expect(abortedWith, "отменённый sleep отклонён").toBe("AbortError");
 
+	let caught = "";
+	try {
+		await outOfRange();
+	} catch (error) {
+		caught = error.name;
+	}
+	check.expect(caught, "ошибка в async-функции отклоняет её промис").toBe("RangeError");
+
 	crash();
 	survive();
 	await sleep(500);
@@ -39,11 +48,17 @@ async function mark(name: string, ms: number) {
 	order += name;
 }
 
-/** Падает после await: выход за границы массива. */
-async function crash() {
-	await sleep(100);
+/** Бросает после await: выход за границы массива. */
+async function outOfRange() {
+	await sleep(50);
 	const empty: number[] = [];
 	console.log(`${empty[3]}`);
+}
+
+/** Падает после await: ловушка, а не ошибка. */
+async function crash() {
+	await sleep(100);
+	unreachable();
 }
 
 async function survive() {
