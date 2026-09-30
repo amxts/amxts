@@ -3,7 +3,8 @@
  *
  * - `flashCount = -1` - the type read off the default, as for a field;
  * - `player?: Player` - optional with no default, null when left out;
- * - `times?: number` - undefined when left out, as an optional property is.
+ * - `times?: number`, `loud?: boolean` - undefined when left out, as an
+ *   optional property is.
  */
 // @ts-ignore - bun:test types not available during type checking
 import { expect, test } from 'bun:test';
@@ -45,12 +46,43 @@ export function run(): f64 { return count() * 100 + count(2) * 10 + given() + gi
 	expect(run()).toBe(521);
 });
 
-test('an optional boolean without a default asks for one', async () => {
-	const { error } = await compile(`
-function count(loud?: boolean): f64 { return 0; }
-export function run(): i32 { return 0; }
+test('an optional boolean left out is undefined: `??`, `=== undefined`, `=== false` and a template see it', async () => {
+	const { error, run } = await compile(`
+function loudness(loud?: boolean): f64 {
+	const quiet = loud === false ? 1000 : 0;
+	const unset = loud === undefined ? 100 : 0;
+	return quiet + unset + ((loud ?? true) ? 10 : 0) + (\`\${loud}\` == "undefined" ? 1 : 0);
+}
+function later(loud?: boolean): f64 {
+	loud = loud ?? false;
+	return loud === undefined ? 1 : 0;
+}
+export function run(): f64 { return loudness() * 10000 + loudness(false) * 10 + loudness(true) + later(); }
 `);
-	expect(error).toContain('an optional boolean without a default - write one: loud = ...');
+	expect(error).toBe('');
+	expect(run()).toBe(111 * 10000 + 1000 * 10 + 10);
+});
+
+test('an optional boolean read into a variable keeps whether it was given', async () => {
+	const { error, run } = await compile(`
+class Options { loud?: boolean; }
+class Copy { loud?: boolean; }
+function level(options: Options): f64 {
+	const loud = options.loud;
+	const same = loud;
+	const copy: Copy = { loud: same };
+	const also = new Copy();
+	also.loud = loud;
+	return ((loud ?? true) ? 1 : 0) + (same === undefined ? 10 : 0) + ((copy.loud ?? true) ? 100 : 0) +
+		(also.loud === undefined ? 1000 : 0) + (\`\${loud}\` == "undefined" ? 10000 : 0);
+}
+export function run(): f64 {
+	const quiet: Options = { loud: false };
+	return level({}) * 100000 + level(quiet);
+}
+`);
+	expect(error).toBe('');
+	expect(run()).toBe(11111 * 100000);
 });
 
 test('an optional parameter left out leaves an object literal\'s field at its default', async () => {
