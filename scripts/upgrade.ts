@@ -9,8 +9,11 @@
 // (`~/modules/menu-core`) one by its name: `~/` is the project's own files.
 // The specifiers are found with the TypeScript parser - imports, exports,
 // `import()` and `declare module` - so a string or a comment that looks like
-// one is left alone, and only the text between the quotes changes. What is
-// rewritten no longer matches, so a second run changes nothing.
+// one is left alone, and only the text between the quotes changes. A
+// command's handler takes one object: `(player) =>` becomes `({ player })
+// =>`; one that reads the words after the name is listed, to be written by
+// hand with the words in the usage. What is rewritten no longer matches, so a
+// second run changes nothing.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -89,6 +92,83 @@ export function upgradeText(file: string, text: string, renames: Renames): { tex
 	};
 }
 
+/** A command handler upgrade cannot rewrite itself: where, and what to do. */
+export interface Left {
+	file: string;
+	line: number;
+	why: string;
+}
+
+const BY_HAND = 'it reads the words after the name: write them in the usage, "/give <amount>", and take them by name, ({ player, amount })';
+
+/** The parameter list's text for a handler that took the player as `name`: `{ player }`, or `{ player: name }`. */
+function playerBinding(name: string): string {
+	return name === 'player' ? '{ player }' : `{ player: ${name} }`;
+}
+
+/**
+ * A file's command handlers brought to one argument: `(player) =>` becomes
+ * `({ player }) =>`, a function passed by its name and taking the player is
+ * called from `({ player }) => name(player)`. A handler that reads the words
+ * after the name - a second parameter, or a server command's one - is left,
+ * with what to write; one that takes nothing, or already one object, is right.
+ */
+export function upgradeHandlers(file: string, text: string): { text: string; changes: Change[]; left: Left[] } {
+	if (!text.includes('addCommand') && !text.includes('addServerCommand')) return { text, changes: [], left: [] };
+	const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+	const edits: { start: number; end: number; with: string; from: string }[] = [];
+	const left: Left[] = [];
+	const lineOf = (node: ts.Node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+	const declared = new Map(source.statements.filter(ts.isFunctionDeclaration).filter(fn => fn.name).map(fn => [fn.name!.text, fn]));
+
+	const visit = (node: ts.Node) => {
+		ts.forEachChild(node, visit);
+		if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return;
+		const method = node.expression.name.text;
+		if ((method !== 'addCommand' && method !== 'addServerCommand') || !ts.isIdentifier(node.expression.expression) || node.expression.expression.text !== 'server') return;
+		const handler = node.arguments[1];
+		if (!handler) return;
+		const player = method === 'addCommand';
+
+		if (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler)) {
+			const params = handler.parameters;
+			if (params.length === 0 || !ts.isIdentifier(params[0].name)) return;
+			if (!player || params.length > 1) {
+				left.push({ file, line: lineOf(handler), why: BY_HAND });
+				return;
+			}
+			const param = params[0];
+			const parenthesized = text[param.getStart(source) - 1] === '(' || text.slice(handler.getStart(source), param.getStart(source)).includes('(');
+			const binding = playerBinding((param.name as ts.Identifier).text);
+			edits.push({ start: param.getStart(source), end: param.getEnd(), with: parenthesized ? binding : `(${binding})`, from: param.getText(source) });
+			return;
+		}
+
+		if (ts.isIdentifier(handler) || ts.isPropertyAccessExpression(handler)) {
+			const fn = ts.isIdentifier(handler) ? declared.get(handler.text) : undefined;
+			if (!fn) {
+				left.push({ file, line: lineOf(handler), why: `${handler.getText(source)} is declared elsewhere: if it takes the player, pass ({ player }) => ${handler.getText(source)}(player)` });
+				return;
+			}
+			if (fn.parameters.length === 0) return;
+			if (!player || fn.parameters.length > 1 || !ts.isIdentifier(fn.parameters[0].name)) {
+				left.push({ file, line: lineOf(handler), why: BY_HAND });
+				return;
+			}
+			edits.push({ start: handler.getStart(source), end: handler.getEnd(), with: `({ player }) => ${handler.getText(source)}(player)`, from: handler.getText(source) });
+		}
+	};
+	visit(source);
+
+	let out = text;
+	for (const edit of [...edits].sort((a, b) => b.start - a.start)) out = out.slice(0, edit.start) + edit.with + out.slice(edit.end);
+	return {
+		text: out,
+		changes: edits.map(edit => ({ file, line: source.getLineAndCharacterOfPosition(edit.start).line + 1, from: edit.from, to: edit.with })),
+		left,
+	};
+}
+
 /** Folders that are not the project's code: what is installed, built or generated. */
 const SKIP = new Set(['node_modules', 'dist', '.amxts', '.git']);
 
@@ -101,28 +181,32 @@ function codeFiles(dir: string, skip: Set<string>): string[] {
 	});
 }
 
-/** Rewrites the project in `dir`; every change, in the order of the files. */
-export function upgradeProject(dir: string): Change[] {
+/** Rewrites the project in `dir`: every change, in the order of the files, and what is left to do by hand. */
+export function upgradeProject(dir: string): { changes: Change[]; left: Left[] } {
 	const project = loadProject(dir);
 	const ownFolder = resolve(project.pluginsDir) !== resolve(CORE_PLUGINS);
 	const renames = renamesFor(project.modules, place => ownFolder && existsSync(join(project.pluginsDir, place)));
 	const changes: Change[] = [];
+	const left: Left[] = [];
 	for (const file of codeFiles(project.dir, new Set([project.outDir]))) {
 		const text = readFileSync(file, 'utf8');
-		if (!text.includes('~/')) continue;
-		const upgraded = upgradeText(relative(project.dir, file).replace(/\\/g, '/'), text, renames);
-		if (!upgraded.changes.length) continue;
-		writeFileSync(file, upgraded.text);
-		changes.push(...upgraded.changes);
+		const name = relative(project.dir, file).replace(/\\/g, '/');
+		const imports = text.includes('~/') ? upgradeText(name, text, renames) : { text, changes: [] };
+		const handlers = upgradeHandlers(name, imports.text);
+		left.push(...handlers.left);
+		if (handlers.text === text) continue;
+		writeFileSync(file, handlers.text);
+		changes.push(...imports.changes, ...handlers.changes);
 	}
-	return changes;
+	return { changes, left };
 }
 
 // Run as a task (scripts/run.ts names it in argv) or by itself.
 if (import.meta.main || resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
-	const changes = upgradeProject(process.cwd());
+	const { changes, left } = upgradeProject(process.cwd());
 	for (const change of changes) console.log(`  ${c.dim(`${change.file}:${change.line}`)}  ${change.from} ${c.dim('→')} ${change.to}`);
 	const files = new Set(changes.map(change => change.file)).size;
-	if (changes.length) log.success(`upgraded ${changes.length} import(s) in ${files} file(s)`);
-	else log.success('nothing to upgrade: the code already uses this core\'s API');
+	if (changes.length) log.success(`upgraded ${changes.length} place(s) in ${files} file(s)`);
+	else if (!left.length) log.success('nothing to upgrade: the code already uses this core\'s API');
+	for (const each of left) log.warn(`${each.file}:${each.line}  ${each.why}`);
 }

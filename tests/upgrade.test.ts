@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 // @ts-ignore - bun:test types not available during type checking
 import { afterEach, expect, test } from 'bun:test';
 import { setProjectDir } from '../scripts/project';
-import { renamesFor, upgradeProject, upgradeText } from '../scripts/upgrade';
+import { renamesFor, upgradeHandlers, upgradeProject, upgradeText } from '../scripts/upgrade';
 
 const HERE = process.cwd();
 const made: string[] = [];
@@ -96,7 +96,7 @@ test('a project is rewritten in place - plugins, tests, a local module - and a s
 		writeFileSync(join(dir, path), text);
 	}
 
-	const changes = upgradeProject(dir);
+	const { changes } = upgradeProject(dir);
 	expect(changes.map(change => `${change.file}:${change.line} ${change.to}`)).toEqual([
 		'plugins/modules/greeter.ts:1 @amxts/core/fs',
 		'plugins/myplugin.ts:1 @amxts/core/natives',
@@ -105,5 +105,35 @@ test('a project is rewritten in place - plugins, tests, a local module - and a s
 	expect(readFileSync(join(dir, 'plugins/myplugin.ts'), 'utf8')).toBe('import { user_slap } from "@amxts/core/natives";\nimport { twice } from "~/lib/twice";\n');
 	// What the build wrote is not the project's code.
 	expect(readFileSync(join(dir, 'dist/old.ts'), 'utf8')).toBe(files['dist/old.ts']);
-	expect(upgradeProject(dir)).toEqual([]);
+	expect(upgradeProject(dir)).toEqual({ changes: [], left: [] });
+});
+
+test('a command handler takes one object: the player by name, a function by its name too; one that reads the words is left', () => {
+	const source = [
+		'server.addCommand("/hp", (player) => print(player, "hp"));',
+		'server.addCommand("/hi", player => print(player, "hi"));',
+		'server.addCommand("/me", async (who: Player) => print(who, "me"));',
+		'server.addCommand("/rules", showRules);',
+		'server.addCommand("/give", (player, args) => print(player, args[0]));',
+		'server.addCommand("/new", ({ player }) => print(player, "new"));',
+		'server.addServerCommand("myplugin_reset", () => reset());',
+		'server.addServerCommand("myplugin_set", (args) => set(args[0]));',
+		'function showRules(player: Player) {}',
+		'',
+	].join('\n');
+	const { text, changes, left } = upgradeHandlers('plugins/a.ts', source);
+
+	expect(text.split('\n').slice(0, 8)).toEqual([
+		'server.addCommand("/hp", ({ player }) => print(player, "hp"));',
+		'server.addCommand("/hi", ({ player }) => print(player, "hi"));',
+		'server.addCommand("/me", async ({ player: who }) => print(who, "me"));',
+		'server.addCommand("/rules", ({ player }) => showRules(player));',
+		'server.addCommand("/give", (player, args) => print(player, args[0]));',
+		'server.addCommand("/new", ({ player }) => print(player, "new"));',
+		'server.addServerCommand("myplugin_reset", () => reset());',
+		'server.addServerCommand("myplugin_set", (args) => set(args[0]));',
+	]);
+	expect(changes.map(change => `${change.line} ${change.from} -> ${change.to}`)).toEqual(['1 player -> { player }', '2 player -> ({ player })', '3 who: Player -> { player: who }', '4 showRules -> ({ player }) => showRules(player)']);
+	expect(left.map(each => each.line)).toEqual([5, 8]);
+	expect(upgradeHandlers('plugins/a.ts', text).changes).toEqual([]);
 });
