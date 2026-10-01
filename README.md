@@ -111,7 +111,7 @@ official modules, kept by the amxts authors:
 | [config-core](https://github.com/amxts/config-core) | configs in INI, YAML or JSON, read into typed objects and written back - and the `cfg_*` natives for Pawn plugins |
 | [resemiclip](https://github.com/amxts/resemiclip) | who walks through whom, as a rule over two players, over the ReSemiclip module |
 
-`fetch` over easy_http comes with the core (`@amxts/core/http`). More modules
+Web requests come with the core: `useFetch<T>(url)` and `fetch`, as in the browser. More modules
 are in the [catalog](https://amxts.github.io/modules), and
 `npx amxts init --module` starts your own.
 

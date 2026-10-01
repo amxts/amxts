@@ -112,7 +112,7 @@ amxts:
 | [config-core](https://github.com/amxts/config-core) | конфиги в INI, YAML или JSON, прочитанные в типизированные объекты и записанные обратно, — и нативы `cfg_*` для Pawn-плагинов |
 | [resemiclip](https://github.com/amxts/resemiclip) | кто сквозь кого проходит, правилом над двумя игроками, поверх модуля ReSemiclip |
 
-`fetch` поверх easy_http идёт с ядром (`@amxts/core/http`). Другие модули — в
+Веб-запросы идут с ядром: `useFetch<T>(url)` и `fetch`, как в браузере. Другие модули — в
 [каталоге](https://amxts.github.io/ru/modules), а `npx amxts init --module`
 начинает свой.
 
