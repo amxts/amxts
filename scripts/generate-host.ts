@@ -746,7 +746,7 @@ public plugin_natives()
 	// no ReHLDS, so no reapi - would refuse to load the host at all, and with
 	// it every TypeScript plugin. The facade asks which modules are there
 	// (module_exists) and goes around a missing one; a native from a missing
-	// module is still an error if something calls it.
+	// module that something calls anyway answers 0, said once.
 	set_module_filter("amxts_module_filter");
 	set_native_filter("amxts_native_filter");
 
@@ -760,16 +760,23 @@ public amxts_module_filter(const library[], LibType:type)
 }
 
 // trap 0: the native is missing as the host loads - let it load. trap 1: it
-// was called - let AMX Mod X report that as the error it is, after naming it:
-// AMX Mod X's own line names the native the host was running (amxts_init,
-// amxts_event), not the one a plugin called through it.
+// was called. It answers 0, and the console says so once per native rather
+// than with AMX Mod X's run time error on every call - three lines a frame
+// for a plugin that reads a field in its frame listener.
 public amxts_native_filter(const name[], index, trap)
 {
 	if (!trap)
 		return PLUGIN_HANDLED;
 
-	log_amx("[amxts] %s was called, and it is not on this server: the module or plugin that provides it is not loaded", name);
-	return PLUGIN_CONTINUE;
+	static Trie:said;
+	if (!said)
+		said = TrieCreate();
+	if (TrieKeyExists(said, name))
+		return PLUGIN_HANDLED;
+
+	TrieSetCell(said, name, 1);
+	log_amx("[amxts] %s is not on this server: the module or plugin that provides it is not loaded. Its calls do nothing and answer 0", name);
+	return PLUGIN_HANDLED;
 }
 
 // ---------------------------------------------------------------- forwards
