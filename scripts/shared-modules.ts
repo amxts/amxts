@@ -41,13 +41,23 @@
 // The types come from compiling the module on its own with asc: its exported
 // functions are compiled as exports, so every result type the compiler
 // inferred is known, and so is every field. That compile is done before the
-// plugin's (asc is not reentrant) and remembered while the file is unchanged.
-import { join, relative, resolve } from 'node:path';
+// plugin's (asc is not reentrant). What a plugin's compile needs of it - the
+// proxy and the dispatcher, its surface - is remembered while the files it
+// read are unchanged: in memory, and on disk in the project's
+// node_modules/.cache/amxts/analysis, so another process - a build started
+// again, a parallel compile - takes it from there. A module package from npm
+// carries its surface beside its prebuilt .aot (scripts/prebuilt.ts), taken
+// while the project would make the same one.
+import type { Project, Sources } from './project';
+import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 // @ts-ignore - shipped as JavaScript, with types beside it we do not need here
 import * as as from '../runtime/deps/assemblyscript/dist/assemblyscript.js';
 import { ascMain } from './asc';
+import { codeIdentity, diskCache } from './compile-cache';
 import { playerFieldsBuild } from './player-fields';
-import { ascPath, sourcesFor } from './project';
+import { prebuiltSurface } from './prebuilt';
+import { ascPath, currentProjectDir, sourcesFor } from './project';
 import { existsSync, statSync } from './tracked-fs';
 
 /** Where the owner's dispatcher is parsed: beside the plugin, like its natives' wrappers. */
@@ -141,28 +151,73 @@ export interface ModuleAnalysis {
 	hash: number;
 }
 
-const cache = new Map<string, { stamp: string; analysis: Promise<ModuleAnalysis> }>();
+/** What a plugin's compile needs of a module: the proxy, the owner's dispatcher, and whether functions cross. */
+export interface ModuleSurface {
+	proxy: string;
+	serve: string;
+	callbacks: boolean;
+}
 
-/** The module's exports, as the compiler sees them; remembered while the file is unchanged. */
-export function analyzeModule(root: string, name: string): Promise<ModuleAnalysis> {
-	const path = join(root, 'modules', `${name}.ts`);
-	// The module and everything it imports: a field added to a facade class changes what crosses.
-	const sources = sourcesFor(root);
-	const stamp = [...sources.reach(path)].map((place) => {
+export function surfaceOf(analysis: ModuleAnalysis): ModuleSurface {
+	return { proxy: proxySource(analysis), serve: serveSource(analysis), callbacks: analysis.fns.length > 0 };
+}
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+/** The surfaces kept on disk, per project folder; none where the project has no node_modules (a server). */
+const kept = new Map<string, ReturnType<typeof diskCache>>();
+
+/** The current project's surfaces on disk. */
+export function keptSurfaces() {
+	const dir = currentProjectDir();
+	const modules = join(dir, 'node_modules');
+	if (!kept.has(dir)) kept.set(dir, diskCache(existsSync(modules) ? join(modules, '.cache', 'amxts', 'analysis') : null, () => codeIdentity([join(HERE, 'shared-modules.ts')])));
+	return kept.get(dir)!;
+}
+
+/**
+ * The places a module reaches, as files on disk with their times: it is the
+ * same module while they are. A file that takes another's place changes it.
+ */
+function stampOf(sources: Sources, places: string[]): string {
+	return places.map((place) => {
 		const file = sources.real(place);
 		if (!file) return place;
 		const info = statSync(file);
 		return `${file}:${info.mtimeMs}:${info.size}`;
 	}).join('|');
-	const known = cache.get(path);
-	if (known && known.stamp === stamp) return known.analysis;
-	const analysis = analyze(root, name);
-	cache.set(path, { stamp, analysis });
-	analysis.catch(() => cache.delete(path));
-	return analysis;
 }
 
-async function analyze(root: string, name: string): Promise<ModuleAnalysis> {
+/** The surfaces made in this process, by project - its config gives the modules their options - and module file. */
+const surfaces = new WeakMap<Project, Map<string, { places: string[]; stamp: string; surface: Promise<ModuleSurface> }>>();
+
+/**
+ * The module's surface: the one its package came with, else one kept on
+ * disk, else made from its analysis. Remembered while the files it reaches -
+ * the module and everything it imports: a field added to a facade class
+ * changes what crosses - are unchanged.
+ */
+export function moduleSurface(root: string, name: string): Promise<ModuleSurface> {
+	const path = join(root, 'modules', `${name}.ts`);
+	const sources = sourcesFor(root);
+	if (!surfaces.has(sources.project)) surfaces.set(sources.project, new Map());
+	const made = surfaces.get(sources.project)!;
+	const known = made.get(path);
+	if (known && known.stamp === stampOf(sources, known.places)) return known.surface;
+
+	const places = [...sources.reach(path)];
+	const pkg = sources.project.modules.find(each => each.short === name && each.module === sources.real(path));
+	const shipped = pkg ? prebuiltSurface(pkg, sources) : null;
+	const surface = shipped && 'surface' in shipped
+		? Promise.resolve(shipped.surface)
+		: keptSurfaces().cached(['surface', resolve(root), name], async () => surfaceOf(await analyzeModule(root, name)));
+	made.set(path, { places, stamp: stampOf(sources, places), surface });
+	surface.catch(() => made.delete(path));
+	return surface;
+}
+
+/** The module's exports, as the compiler sees them. */
+export async function analyzeModule(root: string, name: string): Promise<ModuleAnalysis> {
 	let program: any = null;
 	const playerFields = playerFieldsBuild();
 	const sources = sourcesFor(root);
@@ -878,10 +933,10 @@ export async function sharedModulesBuild(root: string, entry: string) {
 	for (const path of sourcesFor(root).reach(join(root, entry))) {
 		const name = moduleName(root, path);
 		if (!name || !hasOwner(root, name)) continue;
-		const analysis = await analyzeModule(root, name);
-		if (analysis.fns.length) callbacks = true;
-		if (name === owned) serve = serveSource(analysis);
-		else proxies.set(resolve(path), proxySource(analysis));
+		const surface = await moduleSurface(root, name);
+		if (surface.callbacks) callbacks = true;
+		if (name === owned) serve = surface.serve;
+		else proxies.set(resolve(path), surface.proxy);
 	}
 
 	return {

@@ -33,7 +33,8 @@
 // - a module: its owner plugin compiled for Windows and for Linux, fully
 //   optimised, in prebuilt/ with the manifest a build checks it against
 //   (scripts/prebuilt.ts) - compiled here, with this system's wamrc of the
-//   release, which writes either system's .aot.
+//   release, which writes either system's .aot - and in the manifest its
+//   surface, which a plugin that uses it compiles against.
 // - a package without a LICENSE of its own gets its repository's.
 //
 // Publishing to npm refuses a folder with uncommitted changes and a wamrc
@@ -323,11 +324,12 @@ function stage(pkg: Package, wamrc: Record<System, string>): Staged {
 
 /**
  * The modules compiled into their stages' prebuilt/, for both systems, with
- * the manifest a build checks them against (scripts/prebuilt.ts) - as a
- * project that installed them would compile them: one of its own in the
- * system's temporary folder, outside the checkouts, the staged modules in its
- * node_modules, none of this machine's AMXTS_ settings, and `wamrc` the
- * release's. Either system's wamrc writes either system's .aot.
+ * the manifest a build checks them against and their surfaces
+ * (scripts/prebuilt.ts) - as a project that installed them would compile
+ * them: one of its own in the system's temporary folder, outside the
+ * checkouts, the staged modules in its node_modules, none of this machine's
+ * AMXTS_ settings, and `wamrc` the release's. Either system's wamrc writes
+ * either system's .aot.
  */
 function prebuildModules(modules: Staged[], wamrc: string) {
 	const project = join(tmpdir(), 'amxts-prebuilt');

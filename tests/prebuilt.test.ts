@@ -4,12 +4,14 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeF
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 // A module that comes compiled (scripts/prebuilt.ts): its package carries
-// its .aot for each system and what it was compiled from, and a build takes
-// it while the project would compile the same - else it says why not.
+// its .aot for each system, its surface - what a plugin that uses it compiles
+// against - and what they were made from, and a build takes them while the
+// project would make the same - else it says why not.
 // @ts-ignore - bun:test types not available during type checking
 import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { prebuiltOf } from '../scripts/prebuilt';
+import { prebuiltOf, prebuiltSurface } from '../scripts/prebuilt';
 import { CORE_DIR, CORE_PLUGINS, setProjectDir, sourcesFor } from '../scripts/project';
+import { moduleSurface } from '../scripts/shared-modules';
 import { wamrcPath } from '../scripts/system';
 
 setDefaultTimeout(240_000);
@@ -60,20 +62,30 @@ function config(extra = '') {
 const manifest = (): PrebuiltManifest => JSON.parse(readFileSync(manifestFile, 'utf8'));
 const original = { manifest: '' };
 
+function greeterPackage() {
+	const sources = sourcesFor(CORE_PLUGINS);
+	return { sources, pkg: sources.project.modules.find(each => each.name === '@test/greeter')! };
+}
+
 /** The prebuilt module's .aot for `system`, or why the build compiles it. */
 function use(system: 'windows' | 'linux' = 'windows') {
-	const sources = sourcesFor(CORE_PLUGINS);
-	const pkg = sources.project.modules.find(each => each.name === '@test/greeter')!;
+	const { sources, pkg } = greeterPackage();
 	return prebuiltOf(pkg, system, sources);
 }
 
-/** `use()` with the manifest changed by `edit`, then as it was. */
-function withManifest(edit: (manifest: PrebuiltManifest) => unknown) {
+/** The surface the module came with, or why the build analyses it. */
+function surface() {
+	const { sources, pkg } = greeterPackage();
+	return prebuiltSurface(pkg, sources);
+}
+
+/** `read()` with the manifest changed by `edit`, then as it was. */
+function withManifest<T>(edit: (manifest: PrebuiltManifest) => unknown, read: () => T = use as () => T): T {
 	const changed = manifest();
 	edit(changed);
 	writeFileSync(manifestFile, JSON.stringify(changed));
 	try {
-		return use();
+		return read();
 	} finally {
 		writeFileSync(manifestFile, original.manifest);
 	}
@@ -107,6 +119,9 @@ describe.skipIf(!existsSync(wamrcPath()))('a module that comes compiled', () => 
 		expect(made.forwards).toEqual({ greeter_greeted: null });
 		expect(made.places).toContain('facade.ts');
 		expect(made.places).toContain('modules/greeter.ts');
+		// What a plugin that uses it compiles against, in place of the module.
+		expect(made.surface!.proxy).toContain('export function greet(name: string): string {');
+		expect(made.surface!.serve).toContain('__serve("greeter"');
 		setProjectDir(dir);
 	});
 
@@ -134,6 +149,22 @@ describe.skipIf(!existsSync(wamrcPath()))('a module that comes compiled', () => 
 		expect(use()).toEqual({ why: 'plugins/facade.ts takes the place of a file greeter 1.2.3 was built from' });
 		rmSync(join(dir, 'plugins/facade.ts'));
 		expect(use()).toHaveProperty('aot');
+	});
+
+	test('its surface is taken on the same terms, but the system and the forwards, which only its machine code depends on', async () => {
+		expect(surface()).toEqual({ surface: manifest().surface! });
+		expect(withManifest(made => delete made.systems.windows, surface)).toHaveProperty('surface');
+		expect(withManifest(made => Object.assign(made.forwards, { greeter_greeted: '[["Float",false]]' }), surface)).toHaveProperty('surface');
+		expect(withManifest(made => Object.assign(made.from['@amxts/core'], { version: '0.0.1' }), surface)).toEqual({ why: expect.stringContaining('greeter 1.2.3 was built for @amxts/core 0.0.1, the project has') });
+		expect(withManifest(made => delete made.surface, surface)).toEqual({ why: 'greeter 1.2.3 comes without its analysis' });
+
+		config(' greeter: { times: 2 },');
+		expect(surface()).toEqual({ why: 'greeter 1.2.3 was built with its default options, and amxts.config.ts sets greeter' });
+		config();
+
+		// A compile takes it in place of analysing the module.
+		const shipped = await withManifest(made => Object.assign(made.surface!, { proxy: `${made.surface!.proxy}// as it came` }), () => moduleSurface(CORE_PLUGINS, 'greeter'));
+		expect(shipped.proxy).toEndWith('// as it came');
 	});
 
 	test('a module in a folder of the project is compiled as any plugin is', () => {

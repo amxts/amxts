@@ -1,7 +1,7 @@
 // The packages as a user gets them, before they go to npm: published to the
 // local registry (bun run publish:local --reset), then a project created from
 // it in an empty folder outside the checkouts - built, tested and type-checked,
-// its modules taken as they came compiled.
+// its modules taken as they came compiled and analysed.
 //
 //   bun run publish:check [--wamrc <folder>] [--skip-generate] [--keep]
 //
@@ -54,6 +54,9 @@ step('npm create amxts', folder, 'npm', ['create', `amxts@${VERSION}`, 'my-serve
 step('amxts module add', project, 'npx', ['amxts', 'module', 'add', 'resemiclip'], env);
 step('amxts info', project, 'npx', ['amxts', 'info'], env);
 step('amxts build', project, 'npx', ['amxts', 'build'], env);
+// What the build analysed itself (scripts/shared-modules.ts), before the tests compile anything.
+const analysis = join(project, 'node_modules/.cache/amxts/analysis');
+const analysed = existsSync(analysis) ? readdirSync(analysis).length : 0;
 step('amxts test', project, 'npx', ['amxts', 'test'], env);
 step('amxts typecheck', project, 'npx', ['amxts', 'typecheck'], env);
 
@@ -72,6 +75,8 @@ const problems = [
 		const built = join(project, 'dist', `${name}.aot`);
 		return !(existsSync(prebuilt) && existsSync(built) && readFileSync(prebuilt).equals(readFileSync(built))) && `dist/${name}.aot is not the one @amxts/${name} came with`;
 	}),
+	// So did their surfaces: the plugin compiled against them, no module was analysed.
+	analysed > 0 && `the build analysed ${analysed} module(s) rather than take the surfaces they came with`,
 ].filter(Boolean);
 if (problems.length) fail(problems.join('; '));
 

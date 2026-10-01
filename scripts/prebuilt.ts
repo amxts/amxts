@@ -5,6 +5,13 @@
 // would compile the same thing; when it would not, the build says why and
 // compiles it.
 //
+// The manifest also carries the module's surface - the proxy a plugin that
+// uses the module reads in its place, and the owner's dispatcher
+// (scripts/shared-modules.ts) - which every compile of a plugin that uses
+// it would otherwise make by analysing the module with asc. It is taken on
+// the same terms as the .aot, but for what only the machine code depends on:
+// the system and the forwards' declarations.
+//
 //   bun scripts/prebuilt.ts      in a project: compile every module it lists
 //                                into the module's prebuilt/, for every
 //                                system (scripts/publish.ts runs it on the
@@ -34,6 +41,7 @@
 // no change to the code.
 import type { NativesBeside, PluginNative } from './plugin-natives';
 import type { ModulePackage, Options, Sources } from './project';
+import type { ModuleSurface } from './shared-modules';
 import type { System } from './system';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -43,6 +51,7 @@ import { compileToMachineCode, compileToWasm } from './compile';
 import { codeFiles } from './compile-cache';
 import { includeForward, nativesBeside } from './plugin-natives';
 import { CORE_DIR, CORE_PLUGINS, loadProject, optionsOf, sourcesFor } from './project';
+import { moduleSurface } from './shared-modules';
 import { SYSTEM_NAME, SYSTEMS, wamrcPath } from './system';
 import { c, log, since } from './ui';
 
@@ -76,6 +85,8 @@ export interface PrebuiltManifest {
 	natives: PluginNative[];
 	beside: NativesBeside;
 	systems: Partial<Record<System, { file: string; size: number; sha256: string }>>;
+	/** What a plugin that uses the module compiles against (scripts/shared-modules.ts); missing in a manifest made without it. */
+	surface?: ModuleSurface;
 }
 
 /** What a build does with a module's prebuilt .aot: takes it, or compiles the module and says why. */
@@ -155,49 +166,77 @@ function declarationOf(name: string): string | null {
 }
 
 /**
- * The prebuilt .aot of a module from npm for `system`, when it is what the
- * project would compile; else why not. Null for a module that has none - a
- * folder on this machine, or a package without prebuilt/ - which is compiled
- * as any plugin is.
+ * A module package's manifest, or why it cannot be used. Null for a module
+ * that has none - a folder on this machine, or a package without prebuilt/ -
+ * which is compiled as any plugin is.
  */
-export function prebuiltOf(pkg: ModulePackage, system: System, sources: Sources): PrebuiltUse | null {
+function manifestOf(pkg: ModulePackage): PrebuiltManifest | { why: string } | null {
 	const file = join(pkg.dir, PREBUILT_DIR, MANIFEST);
 	if (!fromRegistry(pkg.dir) || !existsSync(file)) return null;
 	const named = `${pkg.short} ${pkg.version}`;
-	let manifest: PrebuiltManifest;
 	try {
-		manifest = JSON.parse(readFileSync(file, 'utf8'));
+		const manifest = JSON.parse(readFileSync(file, 'utf8')) as PrebuiltManifest;
+		return manifest.format === FORMAT ? manifest : { why: `${named} comes compiled for another build of amxts` };
 	} catch {
 		return { why: `${named}: its ${PREBUILT_DIR}/${MANIFEST} cannot be read` };
 	}
-	if (manifest.format !== FORMAT) return { why: `${named} comes compiled for another build of amxts` };
+}
+
+/**
+ * The prebuilt .aot of a module from npm for `system`, when it is what the
+ * project would compile; else why not. Null for a module that has none.
+ */
+export function prebuiltOf(pkg: ModulePackage, system: System, sources: Sources): PrebuiltUse | null {
+	const manifest = manifestOf(pkg);
+	if (!manifest || 'why' in manifest) return manifest;
+	const named = `${pkg.short} ${pkg.version}`;
 	const aot = manifest.systems[system];
 	if (!aot) return { why: `${named} comes compiled for ${Object.keys(manifest.systems).map(each => SYSTEM_NAME[each as System]).join(' and ')}, not ${SYSTEM_NAME[system]}` };
+	const why = mismatch(manifest, pkg, sources);
+	if (why) return { why };
+	for (const [name, declared] of Object.entries(manifest.forwards)) {
+		if (declarationOf(name) !== declared) return { why: `the includes declare the forward ${name} otherwise than when ${named} was built` };
+	}
 
+	const bytes = new Uint8Array(readFileSync(join(pkg.dir, aot.file)));
+	if (sha256(bytes) !== aot.sha256) return { why: `${named}: ${aot.file} is not the file its manifest lists` };
+	return { aot: bytes, natives: manifest.natives, beside: manifest.beside };
+}
+
+/**
+ * The surface a module from npm came with (scripts/shared-modules.ts), when
+ * it is what the project would make; else why not. Null for a module that
+ * has none.
+ */
+export function prebuiltSurface(pkg: ModulePackage, sources: Sources): { surface: ModuleSurface } | { why: string } | null {
+	const manifest = manifestOf(pkg);
+	if (!manifest || 'why' in manifest) return manifest;
+	if (!manifest.surface) return { why: `${pkg.short} ${pkg.version} comes without its analysis` };
+	const why = mismatch(manifest, pkg, sources);
+	return why ? { why } : { surface: manifest.surface };
+}
+
+/** Why the project would not compile a module as its manifest says it was: another core or package, other options, a file in the way; null when it would. */
+function mismatch(manifest: PrebuiltManifest, pkg: ModulePackage, sources: Sources): string | null {
+	const named = `${pkg.short} ${pkg.version}`;
 	for (const [name, built] of Object.entries(manifest.from)) {
 		const have = installed(name, sources);
-		if (!have) return { why: `${named} was built with ${name}, which the project does not have` };
-		if (have.version !== built.version) return { why: `${named} was built for ${name} ${built.version}, the project has ${have.version}` };
+		if (!have) return `${named} was built with ${name}, which the project does not have`;
+		if (have.version !== built.version) return `${named} was built for ${name} ${built.version}, the project has ${have.version}`;
 		if (!fromRegistry(have.dir) && have.hash() !== built.hash) {
-			return { why: `${named} was built from another ${name} ${built.version} than the one in ${posix(relative(sources.project.dir, have.dir)) || '.'}` };
+			return `${named} was built from another ${name} ${built.version} than the one in ${posix(relative(sources.project.dir, have.dir)) || '.'}`;
 		}
 	}
 	for (const [name, options] of Object.entries(manifest.options)) {
 		const module = sources.project.packages.find(each => each.name === name)!;
 		if (JSON.stringify(optionsOf(sources.project, module.definition)) !== JSON.stringify(options)) {
-			return { why: `${named} was built with ${name === pkg.name ? 'its' : `${module.short}'s`} default options, and amxts.config.ts sets ${module.definition.configKey}` };
+			return `${named} was built with ${name === pkg.name ? 'its' : `${module.short}'s`} default options, and amxts.config.ts sets ${module.definition.configKey}`;
 		}
-	}
-	for (const [name, declared] of Object.entries(manifest.forwards)) {
-		if (declarationOf(name) !== declared) return { why: `the includes declare the forward ${name} otherwise than when ${named} was built` };
 	}
 	const own = resolve(sources.project.pluginsDir) !== resolve(CORE_PLUGINS);
 	const shadow = own ? manifest.places.find(place => existsSync(join(sources.project.pluginsDir, place))) : undefined;
-	if (shadow) return { why: `${posix(relative(sources.project.dir, join(sources.project.pluginsDir, shadow)))} takes the place of a file ${named} was built from` };
-
-	const bytes = new Uint8Array(readFileSync(join(pkg.dir, aot.file)));
-	if (sha256(bytes) !== aot.sha256) return { why: `${named}: ${aot.file} is not the file its manifest lists` };
-	return { aot: bytes, natives: manifest.natives, beside: manifest.beside };
+	if (shadow) return `${posix(relative(sources.project.dir, join(sources.project.pluginsDir, shadow)))} takes the place of a file ${named} was built from`;
+	return null;
 }
 
 /** The `new Forward<...>("name")` calls of a package whose arguments are not all text: their names. */
@@ -255,6 +294,7 @@ async function prebuild(pkg: ModulePackage, sources: Sources): Promise<string> {
 		natives,
 		beside: nativesBeside(natives),
 		systems,
+		surface: await moduleSurface(CORE_PLUGINS, pkg.short),
 	};
 	writeFileSync(join(dir, MANIFEST), `${JSON.stringify(manifest, null, '\t')}\n`);
 	const sizes = SYSTEMS.map(system => `${SYSTEM_NAME[system]} ${(systems[system]!.size / 1024).toFixed(0)} KB`).join(', ');

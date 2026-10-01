@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -157,6 +158,33 @@ describe('an object the module exports', () => {
 			expect(serveSource(analysis)).toContain('__handles.id(changetype<usize>(__m.tally));');
 		} finally {
 			rmSync(root, { recursive: true, force: true });
+		}
+	});
+});
+
+describe('a module\'s surface', () => {
+	test('is kept on disk in the project: another process takes it from there while the module is the same', () => {
+		const project = mkdtempSync(join(tmpdir(), 'amxts-surface-'));
+		const root = join(project, 'plugins');
+		mkdirSync(join(project, 'node_modules'));
+		mkdirSync(join(root, 'modules'), { recursive: true });
+		const module = (text: string) => writeFileSync(join(root, 'modules', 'tally.ts'), `export function add(value: number) {\n\treturn value + ${text};\n}\n`);
+		module('1');
+		writeFileSync(join(root, 'tally.ts'), 'import * as tally from "~/modules/tally";\n');
+		// A process of its own each time: what it took from the disk, and what it made.
+		const script = [
+			`import { keptSurfaces, moduleSurface } from ${JSON.stringify(join(process.cwd(), 'scripts/shared-modules.ts'))};`,
+			`const surface = await moduleSurface(${JSON.stringify(root)}, 'tally');`,
+			'console.log(JSON.stringify({ counts: keptSurfaces().counts, proxy: surface.proxy.includes("export function add(value: number): f64") }));',
+		].join('\n');
+		const run = () => JSON.parse(spawnSync(process.execPath, ['-e', script], { cwd: project, encoding: 'utf8' }).stdout);
+		try {
+			expect(run()).toEqual({ counts: { hits: 0, misses: 1 }, proxy: true });
+			expect(run()).toEqual({ counts: { hits: 1, misses: 0 }, proxy: true });
+			module('2');
+			expect(run()).toEqual({ counts: { hits: 0, misses: 1 }, proxy: true });
+		} finally {
+			rmSync(project, { recursive: true, force: true });
 		}
 	});
 });
