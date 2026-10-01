@@ -529,7 +529,7 @@ async function header(): Promise<void> {
 	const module = (pkg: ModulePackage) => {
 		const notes = [
 			!fromRegistry(pkg.dir) && 'local',
-			!used.includes(pkg) && 'no plugin uses it',
+			pkg.library ? 'library' : !used.includes(pkg) && 'no plugin uses it',
 		].filter(Boolean);
 		return `${pkg.short} ${pkg.version}${notes.length ? c.dim(` (${notes.join(', ')})`) : ''}`;
 	};

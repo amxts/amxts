@@ -218,6 +218,14 @@ export function moduleSurface(root: string, name: string): Promise<ModuleSurface
 
 /** The module's exports, as the compiler sees them. */
 export async function analyzeModule(root: string, name: string): Promise<ModuleAnalysis> {
+	return describe(await compileAlone(root, name), name);
+}
+
+/**
+ * Compiles `~/modules/<name>` on its own, its exported functions as exports:
+ * the compiler's program, or an error with what asc said.
+ */
+export async function compileAlone(root: string, name: string): Promise<any> {
 	let program: any = null;
 	const playerFields = playerFieldsBuild();
 	const sources = sourcesFor(root);
@@ -234,8 +242,7 @@ export async function analyzeModule(root: string, name: string): Promise<ModuleA
 		transforms: [playerFields.transform, class { afterCompile() { program = (this as any).program; } }],
 	});
 	if (error || !program) throw new Error(`~/modules/${name} does not compile:\n${stderr.toString() || String(error?.message ?? error)}`);
-
-	return describe(program, name);
+	return program;
 }
 
 function describe(program: any, name: string): ModuleAnalysis {

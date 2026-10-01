@@ -2,7 +2,8 @@
 // module's folder, as a CI step:
 //
 // - package.json's "amxts" field points at files that are there;
-// - the module file declares itself with defineModule, meta.name its name;
+// - the module file declares itself with defineModule, meta.name its name -
+//   or, for a library (`"library": true`), has none and compiles;
 // - README.md and LICENSE are there;
 // - the natives compile, and include/<name>.inc is what the build writes from
 //   them - not stale after an edit of natives.ts. With `"contract": true`
@@ -18,6 +19,7 @@ import { importedName } from './auto-imports';
 import { compileToWasm } from './compile';
 import { includeName, pawnInclude } from './plugin-natives';
 import { CORE_PLUGINS, loadProject, readDefinition, readPackage, sourcesFor } from './project';
+import { compileAlone } from './shared-modules';
 import { c, log } from './ui';
 
 function fail(message: string): void {
@@ -44,8 +46,9 @@ if (pkg) {
 	passed.push(`"amxts" points at ${[pkg.module, pkg.natives, pkg.include].filter(Boolean).map(file => relative(dir, file!).replace(/\\/g, '/')).join(', ')}`);
 
 	try {
-		const definition = readDefinition(pkg.module);
-		if (!definition) problems.push(`${relative(dir, pkg.module)}: no \`export default defineModule({ meta: { name: "${pkg.short}" }, ... })\``);
+		const definition = pkg.library ? null : readDefinition(pkg.module);
+		if (pkg.library) passed.push('a library: compiled into each plugin that imports it');
+		else if (!definition) problems.push(`${relative(dir, pkg.module)}: no \`export default defineModule({ meta: { name: "${pkg.short}" }, ... })\``);
 		else if (!definition.name) problems.push(`${relative(dir, pkg.module)}: defineModule has no meta.name - "${pkg.short}"`);
 		else passed.push(`defineModule: ${definition.name}${definition.configKey ? `, options under "${definition.configKey}"` : ''}${definition.imports.length ? `, plugins use it as ${definition.imports.map(importedName).join(', ')}` : ''}`);
 	} catch (problem) {
@@ -59,6 +62,17 @@ if (pkg) {
 	const project = loadProject(dir);
 	problems.push(...project.problems);
 	if (pkg.natives && project.problems.length === 0) await checkNatives(pkg);
+	if (pkg.library && project.problems.length === 0) await checkLibrary(pkg);
+}
+
+async function checkLibrary(library: NonNullable<typeof pkg>) {
+	const file = relative(dir, library.module).replace(/\\/g, '/');
+	try {
+		await compileAlone(CORE_PLUGINS, library.short);
+		passed.push(`${file} compiles`);
+	} catch (problem) {
+		problems.push((problem as Error).message.replace(`~/modules/${library.short}`, file));
+	}
 }
 
 async function checkNatives(module: NonNullable<typeof pkg>) {

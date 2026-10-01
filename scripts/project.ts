@@ -11,6 +11,10 @@
 //
 //   "amxts": { "module": "src/index.ts", "natives": "src/natives.ts", "include": "include/menu_core.inc" }
 //
+// - or, for a library, `"amxts": { "module": "src/index.ts", "library": true }`:
+// code compiled into each plugin that imports it, as an npm library is, with
+// no instance on the server, no owner, no proxy and no defineModule.
+//
 // and in its module file, with the global defineModule:
 //
 //   export default defineModule<MenuCoreOptions>({     // src/index.ts
@@ -124,6 +128,12 @@ export interface ModulePackage {
 	dir: string;
 	/** The module file: the API plugins import. */
 	module: string;
+	/**
+	 * `"library": true`: compiled into each plugin that imports it, like an
+	 * npm library - no instance on the server, so no owner, no proxy, no
+	 * defineModule, natives, include or test kit.
+	 */
+	library: boolean;
 	/**
 	 * Its Pawn natives: the plugin that owns the module - its one instance on
 	 * the server. Without one, the build generates an owner that only runs it.
@@ -376,7 +386,16 @@ export function readPackage(dir: string): ModulePackage | null {
 	const include = typeof amxts.include === 'string' ? resolve(dir, amxts.include) : null;
 
 	const short = String(json.name).replace(/^@[^/]+\//, '');
-	const definition = readDefinition(module) ?? { name: null, configKey: null, requires: [], defaults: {}, imports: [], optionsType: null, hasSetup: false };
+	const library = amxts.library === true;
+	const owned = ['natives', 'include', 'contract', 'testing'].filter(key => amxts[key] !== undefined);
+	if (library && owned.length) {
+		throw new Error(`${json.name}: a library is compiled into each plugin that imports it and runs no plugin of its own - it has no ${owned.map(key => `"${key}"`).join(', ')} (package.json, "amxts")`);
+	}
+	const read = readDefinition(module);
+	if (library && read) {
+		throw new Error(`${json.name}: a library has no defineModule - no options, no instance on the server; plugins import what it exports. Leave "library": true out to make it a module`);
+	}
+	const definition = read ?? { name: null, configKey: null, requires: [], defaults: {}, imports: [], optionsType: null, hasSetup: false };
 	if (definition.name && definition.name !== short) {
 		throw new Error(`${json.name}: defineModule's meta.name is "${definition.name}" - it is the package's name without the scope, "${short}"`);
 	}
@@ -388,7 +407,7 @@ export function readPackage(dir: string): ModulePackage | null {
 	if (include && amxts.contract === true && !existsSync(include)) throw new Error(`${json.name}: its contract ${amxts.include} is not there (package.json, "amxts".include)`);
 	const testing = typeof amxts.testing === 'string' ? resolve(dir, amxts.testing) : null;
 	if (testing && !existsSync(testing)) throw new Error(`${json.name}: its test kit ${amxts.testing} is not there (package.json, "amxts".testing)`);
-	return { name: json.name, short, dir: resolve(dir), module, natives, include, contract: amxts.contract === true, testing, version: String(json.version ?? '0.0.0'), description: String(json.description ?? ''), definition };
+	return { name: json.name, short, dir: resolve(dir), module, library, natives, include, contract: amxts.contract === true, testing, version: String(json.version ?? '0.0.0'), description: String(json.description ?? ''), definition };
 }
 
 /**
@@ -653,8 +672,13 @@ export function projectPlugins(project: Project): string[] {
 		.map(f => join(project.pluginsDir, f));
 }
 
+/** The modules that run on the server - each in its owner plugin: every one but a library. */
+export function shared(modules: ModulePackage[]): ModulePackage[] {
+	return modules.filter(pkg => !pkg.library);
+}
+
 /** plugins.ini: the modules' owners in load order, then the project's plugins. */
-export function pluginList(project: Project, plugins: string[], modules = project.modules): string[] {
+export function pluginList(project: Project, plugins: string[], modules = shared(project.modules)): string[] {
 	const owners = modules.map(pkg => `${pkg.short}.aot`);
 	return [...owners, ...plugins.filter(plugin => !owners.includes(plugin))];
 }
@@ -665,11 +689,12 @@ export function pluginList(project: Project, plugins: string[], modules = projec
  * the files they import - with what those modules import and require, and
  * the ones `pawn` keeps for Pawn plugins, whose use no build can see.
  * Without amxts.config.ts every module is in use: a module's own
- * repository, testing itself.
+ * repository, testing itself. A library is never one: it is compiled into
+ * the plugins, and what it imports is reached through them.
  */
 export function modulesInUse(sources: Sources, plugins: string[]): ModulePackage[] {
 	const { project } = sources;
-	if (!project.config) return project.modules;
+	if (!project.config) return shared(project.modules);
 	const used = new Set(project.config.pawn ?? []);
 	const reached = new Set<string>();
 	const reach = (source: string) => sources.reach(join(sources.root, sources.entry(source)), reached);
@@ -677,7 +702,7 @@ export function modulesInUse(sources: Sources, plugins: string[]): ModulePackage
 	// A module in use brings what its owner imports and what it requires.
 	for (let before = -1; used.size !== before;) {
 		before = used.size;
-		for (const pkg of project.modules) {
+		for (const pkg of shared(project.modules)) {
 			const imported = reached.has(join(sources.root, 'modules', `${pkg.short}.ts`));
 			if (!imported && !used.has(pkg.name)) continue;
 			reach(sources.ownerSource(pkg));
@@ -685,7 +710,7 @@ export function modulesInUse(sources: Sources, plugins: string[]): ModulePackage
 			for (const required of pkg.definition.requires) used.add(required);
 		}
 	}
-	return project.modules.filter(pkg => used.has(pkg.name));
+	return shared(project.modules).filter(pkg => used.has(pkg.name));
 }
 
 // ---------------------------------------------------------------- the tree
@@ -796,7 +821,7 @@ export class Sources {
 	generated(path: string): string | null {
 		const owner = this.rel(path).match(/^([^/]+)\.ts$/);
 		const pkg = owner ? this.moduleNamed(owner[1]) : null;
-		if (!pkg || pkg.natives || this.real(path)) return null;
+		if (!pkg || pkg.natives || pkg.library || this.real(path)) return null;
 		return [
 			`// GENERATED by scripts/project.ts: the plugin that runs ${pkg.name} - its one instance on the server.`,
 			'import { plugin } from "~/facade";',

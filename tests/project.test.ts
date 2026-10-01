@@ -11,7 +11,7 @@ import { installMenus } from '@amxts/menu-core/testing';
 // plugin that writes "@amxts/menu-core" gets the module.
 // @ts-ignore - bun:test types not available during type checking
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { loadProject, mergeOptions, moduleSource, pluginList, PROJECT_GAME_FOLDERS, readDefinition, setProjectDir, Sources } from '../scripts/project';
+import { CORE_PLUGINS, loadProject, mergeOptions, modulesInUse, moduleSource, pluginList, PROJECT_GAME_FOLDERS, readDefinition, setProjectDir, Sources } from '../scripts/project';
 
 setDefaultTimeout(240_000);
 
@@ -420,6 +420,94 @@ describe('test-utils: setup() and test kits', () => {
 		const server = new FakeServer();
 		await server.load('@test/timer');
 		expect(server.kits.get('@test/timer')).toBe('the timer kit');
+	});
+});
+
+/** A library: "library": true, compiled into each plugin that imports it - a class from a file of its own, state, async functions. */
+const COUNTER = {
+	'modules/counter/package.json': JSON.stringify({ name: '@test/counter', version: '1.0.0', amxts: { module: 'src/index.ts', library: true } }),
+	'modules/counter/src/index.ts': [
+		'export { Tally } from "./tally";',
+		'',
+		'let calls = 0;',
+		'',
+		'export function next(): number {',
+		'\treturn ++calls;',
+		'}',
+		'',
+		'async function echo(text: string): Promise<string> {',
+		'\treturn text;',
+		'}',
+		'',
+		'export async function twice(text: string): Promise<string> {',
+		'\tconst once = await echo(text);',
+		'\treturn once + once;',
+		'}',
+		'',
+	].join('\n'),
+	'modules/counter/src/tally.ts': 'export class Tally {\n\tcount: number = 0;\n\n\tadd(): number {\n\t\treturn ++this.count;\n\t}\n}\n',
+};
+
+/** A plugin over the counter library: `<name>_next`, `<name>_tally` natives and a `<name>_twice` command. */
+function counting(name: string) {
+	return [
+		'import { next, Tally, twice } from "@test/counter";',
+		'',
+		'const tally = new Tally();',
+		'',
+		`export function ${name}_next() {`,
+		'\treturn next();',
+		'}',
+		'',
+		`export function ${name}_tally() {`,
+		'\treturn tally.add();',
+		'}',
+		'',
+		`server.addServerCommand("${name}_twice", async () => {`,
+		`\tconsole.log(\`${name} \${await twice("${name}")}\`);`,
+		'});',
+		'',
+	].join('\n');
+}
+
+describe('a library', () => {
+	test('compiled into each plugin that imports it: its own state there, a class and async functions as written, no plugin of its own', async () => {
+		const dir = project({
+			...COUNTER,
+			'amxts.config.ts': 'export default defineConfig({ modules: ["@test/counter"] });\n',
+			'plugins/a.ts': counting('a'),
+			'plugins/b.ts': counting('b'),
+		});
+
+		const server = await setup({ rootDir: dir });
+		expect(loaded(server)).toEqual(['a.ts', 'b.ts']);
+		expect([server.native('a_next'), server.native('a_next'), server.native('b_next')]).toEqual([1, 2, 1]);
+		expect([server.native('a_tally'), server.native('b_tally'), server.native('a_tally')]).toEqual([1, 1, 2]);
+
+		const from = server.logLines.length;
+		server.serverCommand('a_twice');
+		server.serverCommand('b_twice');
+		await server.responses();
+		expect(server.logLines.slice(from)).toEqual(['a aa', 'b bb']);
+
+		const sources = new Sources(CORE_PLUGINS, loadProject(dir));
+		expect(modulesInUse(sources, [join(dir, 'plugins/a.ts')])).toEqual([]);
+		expect(pluginList(loadProject(dir), ['a.aot', 'b.aot'])).toEqual(['a.aot', 'b.aot']);
+		await expect(new FakeServer().load('@test/counter')).rejects.toThrow('@test/counter is a library: it runs inside the plugins that import it - load one of them');
+	});
+
+	test('a library has no defineModule, natives, include, contract or test kit', () => {
+		const library = (amxts: Record<string, unknown>, index = 'export const one = 1;\n') => project({
+			'package.json': JSON.stringify({ name: '@test/lib', version: '1.0.0', amxts: { module: 'src/index.ts', library: true, ...amxts } }),
+			'src/index.ts': index,
+			'src/natives.ts': '',
+			'testing.ts': '',
+		});
+		expect(() => loadProject(library({ natives: 'src/natives.ts', testing: 'testing.ts' })))
+			.toThrow('@test/lib: a library is compiled into each plugin that imports it and runs no plugin of its own - it has no "natives", "testing"');
+		expect(() => loadProject(library({}, 'export default defineModule({ meta: { name: "lib" } });\n')))
+			.toThrow('@test/lib: a library has no defineModule');
+		expect(loadProject(library({})).modules.map(pkg => [pkg.name, pkg.library])).toEqual([['@test/lib', true]]);
 	});
 });
 

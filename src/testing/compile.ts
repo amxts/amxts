@@ -70,6 +70,7 @@ function moduleOwner(source: string): string | null {
 	if (!/^@?[\w.-]+(?:\/[\w.-]+)?$/.test(source) || source.endsWith('.ts')) return null;
 	const sources = sourcesFor(PLUGINS_ROOT);
 	const pkg = sources.project.modules.find(each => each.name === source);
+	if (pkg?.library) throw new Error(`${source} is a library: it runs inside the plugins that import it - load one of them`);
 	return pkg ? sources.ownerSource(pkg) : null;
 }
 

@@ -50,7 +50,7 @@ import ts from 'typescript';
 import { compileToMachineCode, compileToWasm } from './compile';
 import { codeFiles } from './compile-cache';
 import { includeForward, nativesBeside } from './plugin-natives';
-import { CORE_DIR, CORE_PLUGINS, loadProject, optionsOf, sourcesFor } from './project';
+import { CORE_DIR, CORE_PLUGINS, loadProject, optionsOf, shared, sourcesFor } from './project';
 import { moduleSurface } from './shared-modules';
 import { SYSTEM_NAME, SYSTEMS, wamrcPath } from './system';
 import { c, log, since } from './ui';
@@ -304,5 +304,6 @@ async function prebuild(pkg: ModulePackage, sources: Sources): Promise<string> {
 if (import.meta.main) {
 	const project = loadProject(process.cwd());
 	if (project.problems.length) throw new Error(project.problems.join('\n'));
-	for (const pkg of project.modules) log.success(await prebuild(pkg, sourcesFor(CORE_PLUGINS)));
+	// A library has no owner to compile: it is compiled into the plugins that import it.
+	for (const pkg of shared(project.modules)) log.success(await prebuild(pkg, sourcesFor(CORE_PLUGINS)));
 }
