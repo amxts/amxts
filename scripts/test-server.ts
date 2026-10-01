@@ -144,17 +144,34 @@ const CONFIGS_READ = ['hamdata.ini'];
 let web: { http: string; https: string; stop: () => void } | null = null;
 
 async function startWeb(suites: Suite[]): Promise<void> {
+	await startFtp(suites);
 	const file = join(CORE_DIR, 'tests/http-server.ts');
 	if (!suites.some(suite => suite.name === 'fetch') || !existsSync(file)) return;
 	const { startTestHttp } = await import(file);
 	web = !linux ? startTestHttp() : startTestHttp(process.platform === 'win32' ? '127.0.0.1' : '0.0.0.0', 'host.docker.internal');
 }
 
+// The kit's request suite (tests/server/net-request.ts) talks to an FTP and
+// an SFTP server of the runner's own, tests/ftp-servers.ts, on this machine's
+// loopback; its SSH key goes into the test's configs folder. A server in
+// Docker is not given them: FTP's passive connections would need the host's
+// address announced, and the suite checks nothing without them.
+let ftpServers: { ftp: { url: string; stop: () => Promise<void> }; sftp: { url: string; hostKey: string; privateKey: string; stop: () => Promise<void> } } | null = null;
+
+async function startFtp(suites: Suite[]): Promise<void> {
+	const file = join(CORE_DIR, 'tests/ftp-servers.ts');
+	if (linux || !suites.some(suite => suite.name === 'net-request') || !existsSync(file)) return;
+	const { startTestFtp, startTestSftp } = await import(file);
+	const [ftp, sftp] = await Promise.all([startTestFtp(), startTestSftp()]);
+	ftpServers = { ftp, sftp };
+}
+
 // What a suite is given after its command.
 const SUITE_ARGS: Record<string, () => string> = {
-	time: () => String(Date.now()),
+	'time': () => String(Date.now()),
 	// Quoted: the engine's console splits a word at a colon.
-	fetch: () => (web ? `"${web.http}" "${web.https}"` : ''),
+	'fetch': () => (web ? `"${web.http}" "${web.https}"` : ''),
+	'net-request': () => (ftpServers ? `"${ftpServers.ftp.url}" "${ftpServers.sftp.url}" "${ftpServers.sftp.hostKey}"` : ''),
 };
 
 const START_TIMEOUT = 90_000;
@@ -583,6 +600,7 @@ function stage(built: string[], pawn: string[], password: string): void {
 	}
 	writeFileSync(join(amxx, 'core.ini'), testCoreIni());
 	if (existsSync(join(suitesDir, 'fixtures'))) cpSync(join(suitesDir, 'fixtures'), join(amxx, 'configs'), { recursive: true });
+	if (ftpServers) writeFileSync(join(amxx, 'configs', 'net-request-key.pem'), ftpServers.sftp.privateKey);
 
 	mkdirSync(join(testDir, 'logs'));
 	writeFileSync(join(testDir, 'server.cfg'), [
@@ -847,6 +865,7 @@ async function main(): Promise<number> {
 		return report(results, problems);
 	} finally {
 		web?.stop();
+		await Promise.all([ftpServers?.ftp.stop(), ftpServers?.sftp.stop()]);
 		if (keep && isAlive(pid)) {
 			console.log(`\nleft running: ${linux ? `container ${CONTAINER}` : `pid ${pid}`}, 127.0.0.1:${PORT}, rcon_password "${password}"`);
 			console.log(`its console: ${linux ? `docker logs ${CONTAINER}` : join(rootDir, 'qconsole.log')}`);
