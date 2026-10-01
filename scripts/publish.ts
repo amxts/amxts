@@ -55,7 +55,8 @@
 // @amxts packages and create-amxts live there, everything else comes from npm
 // through it. --reset empties it first, so the same version can go in again,
 // and takes the packages out of Bun's cache, which would install the earlier
-// tarball of that version.
+// tarball of that version. AMXTS_NPM_DIR moves dist-npm/ and AMXTS_REGISTRY_PORT
+// the port: a registry of its own beside this one (bun run test:release).
 import type { Manifest } from './release-check';
 import type { System } from './system';
 import { spawn, spawnSync } from 'node:child_process';
@@ -70,13 +71,14 @@ import { HOST_SYSTEM } from './system';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const NEIGHBOURS = resolve(CORE, '..');
-const OUT = join(CORE, 'dist-npm');
+const OUT = process.env.AMXTS_NPM_DIR ?? join(CORE, 'dist-npm');
 const STAGE = join(OUT, 'stage');
 const PACKS = join(OUT, 'packs');
 const VERDACCIO = join(OUT, 'verdaccio');
 /** Verdaccio itself, installed once: out of the storage --reset empties. */
 const VERDACCIO_TOOL = join(OUT, 'verdaccio-tool');
-const LOCAL_REGISTRY = 'http://localhost:4873/';
+const LOCAL_PORT = process.env.AMXTS_REGISTRY_PORT ?? '4873';
+const LOCAL_REGISTRY = `http://localhost:${LOCAL_PORT}/`;
 const REPO = process.env.AMXTS_RELEASE_REPO ?? 'amxts/amxts';
 const WINDOWS = process.platform === 'win32';
 /** A GitHub Actions job that may ask for an OIDC token: npm's trusted publishing. */
@@ -511,7 +513,7 @@ async function startRegistry(reset: boolean) {
 	if (!existsSync(bin)) run('npm', ['install', 'verdaccio@6', '--prefix', VERDACCIO_TOOL, '--no-audit', '--no-fund'], { quiet: true });
 	// Node itself, detached and without a shell: on Windows a detached shell has
 	// no console, and whatever it starts would open a window of its own.
-	const child = spawn('node', [bin, '--config', join(VERDACCIO, 'config.yaml'), '--listen', '4873'], {
+	const child = spawn('node', [bin, '--config', join(VERDACCIO, 'config.yaml'), '--listen', LOCAL_PORT], {
 		cwd: VERDACCIO,
 		detached: true,
 		stdio: ['ignore', log, log],
