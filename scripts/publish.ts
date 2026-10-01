@@ -533,10 +533,27 @@ function clearBunCache() {
 	if (ours.length) console.log(`took the packages out of Bun's cache (${cache})`);
 }
 
+/**
+ * Takes the installs of `npm create amxts` / `npx` out of npm's _npx folder:
+ * npx keeps create-amxts and the command it pulls in there, and runs them
+ * again whatever the registry now holds - `npm cache clean` leaves them.
+ */
+function clearNpxCache() {
+	const cache = spawnSync('npm', ['config', 'get', 'cache'], { encoding: 'utf8', shell: true }).stdout?.trim();
+	const npx = cache ? join(cache, '_npx') : '';
+	if (!npx || !existsSync(npx)) return;
+	const ours = readdirSync(npx).filter(dir => ['create-amxts', '@amxts'].some(name => existsSync(join(npx, dir, 'node_modules', name))));
+	for (const dir of ours) rmSync(join(npx, dir), { recursive: true, force: true });
+	if (ours.length) console.log(`took create-amxts out of npx's cache (${npx})`);
+}
+
 /** Packs every package and publishes them to the local registry. */
 async function publishLocal(options: { reset: boolean; wamrcFolder?: string; skipGenerate: boolean }) {
 	const packs = packAll({ strict: false, wamrcFolder: options.wamrcFolder, skipGenerate: options.skipGenerate });
-	if (options.reset) clearBunCache();
+	if (options.reset) {
+		clearBunCache();
+		clearNpxCache();
+	}
 	await startRegistry(options.reset);
 	const token = await localToken();
 	publishAll(packs, LOCAL_REGISTRY, [`--${LOCAL_REGISTRY.replace(/^http:/, '')}:_authToken=${token}`]);
