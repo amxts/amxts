@@ -35,6 +35,7 @@
 #define NET_TEXT_STATUS  1
 #define NET_TEXT_URL     2
 #define NET_TEXT_HEADERS 3
+#define NET_TEXT_KIND    4
 
 struct NetRequest {
 	int32_t            id;
@@ -56,13 +57,19 @@ struct NetRequest {
 	std::string              user;
 	std::string              password;
 	std::string              keyFile;
+	std::string              keyPassphrase;
 	std::string              hostKey;
 	std::vector<std::string> quote;
 	std::vector<std::string> postquote;
 	bool                     upload;
 	bool                     list;
 	bool                     createDirs;
-	bool                     ftpSsl;
+	long                     ssl;        // CURLUSESSL_*: FTP's TLS, asked for with AUTH TLS
+	long                     timeoutMs;  // the whole request's; 0 for none
+	// A file of the game folder the response is written into, or - with
+	// `upload` - the upload is read from: as the plugin named it, and where it is.
+	std::string              fileName;
+	std::string              file;
 
 	// The worker's while it runs.
 	CURL              *easy;
@@ -70,11 +77,13 @@ struct NetRequest {
 	struct curl_slist *quoteList;
 	struct curl_slist *postquoteList;
 	size_t             uploaded;
+	FILE              *fp;   // the file, open; a download goes to file + ".part" until it ends well
 	char               errorBuffer[CURL_ERROR_SIZE];
 
 	// The outcome.
 	CURLcode    code;
 	long        status;
+	long        reply;   // the protocol's last reply code: HTTP's status, FTP's, SFTP's status
 	long        redirects;
 	std::string statusText;
 	std::string responseHeaders;
@@ -84,8 +93,8 @@ struct NetRequest {
 
 	NetRequest()
 		: id(0), inst(NULL), fn(0), sent(false), ended(false), cancelled(false), method("GET"), hasBody(false), follow(true),
-		  upload(false), list(false), createDirs(false), ftpSsl(false), easy(NULL), headerList(NULL),
-		  quoteList(NULL), postquoteList(NULL), uploaded(0), code(CURLE_OK), status(0), redirects(0)
+		  upload(false), list(false), createDirs(false), ssl(CURLUSESSL_NONE), timeoutMs(0), easy(NULL), headerList(NULL),
+		  quoteList(NULL), postquoteList(NULL), uploaded(0), fp(NULL), code(CURLE_OK), status(0), reply(0), redirects(0)
 	{
 		errorBuffer[0] = 0;
 	}
@@ -157,6 +166,86 @@ static size_t NetRead(char *buffer, size_t size, size_t count, void *user)
 	return n;
 }
 
+// A download into a file and an upload from one: curl streams them, the
+// bytes never pass through the plugin.
+static size_t NetWriteFile(char *data, size_t size, size_t count, void *user)
+{
+	return fwrite(data, 1, size * count, ((NetRequest *)user)->fp);
+}
+
+static size_t NetReadFile(char *buffer, size_t size, size_t count, void *user)
+{
+	NetRequest *r = (NetRequest *)user;
+	size_t n = fread(buffer, 1, size * count, r->fp);
+	return n == 0 && ferror(r->fp) ? CURL_READFUNC_ABORT : n;
+}
+
+/** Where a download is written until it has ended well: an older file of the name stays until then. */
+static std::string NetPartial(const NetRequest *r)
+{
+	return r->file + ".part";
+}
+
+/** Opens the request's file: false, with the error said, when it cannot. */
+static bool NetOpenFile(NetRequest *r)
+{
+	if (r->upload) {
+		r->fp = fopen(r->file.c_str(), "rb");
+		if (!r->fp) {
+			r->code = CURLE_READ_ERROR;
+			r->error = "cannot read " + r->fileName;
+			return false;
+		}
+		fseek(r->fp, 0, SEEK_END);
+		long size = ftell(r->fp);
+		fseek(r->fp, 0, SEEK_SET);
+		curl_easy_setopt(r->easy, CURLOPT_UPLOAD, 1L);
+		curl_easy_setopt(r->easy, CURLOPT_READFUNCTION, NetReadFile);
+		curl_easy_setopt(r->easy, CURLOPT_READDATA, r);
+		curl_easy_setopt(r->easy, CURLOPT_INFILESIZE_LARGE, (curl_off_t)size);
+		return true;
+	}
+	r->fp = fopen(NetPartial(r).c_str(), "wb");
+	if (!r->fp) {
+		r->code = CURLE_WRITE_ERROR;
+		r->error = "cannot write " + r->fileName;
+		return false;
+	}
+	curl_easy_setopt(r->easy, CURLOPT_WRITEFUNCTION, NetWriteFile);
+	return true;
+}
+
+/**
+ * Closes the request's file. A download takes its name when the request
+ * ended well - curl's code and no HTTP error status - and is deleted
+ * otherwise, so a failed one leaves the older file as it was.
+ */
+static void NetCloseFile(NetRequest *r, bool ran)
+{
+	if (!r->fp)
+		return;
+	fclose(r->fp);
+	r->fp = NULL;
+	if (r->upload)
+		return;
+
+	std::string partial = NetPartial(r);
+	if (!ran || r->code != CURLE_OK || r->status >= 400) {
+		remove(partial.c_str());
+		return;
+	}
+#ifdef _WIN32
+	bool moved = MoveFileExA(partial.c_str(), r->file.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
+#else
+	bool moved = rename(partial.c_str(), r->file.c_str()) == 0;
+#endif
+	if (!moved) {
+		remove(partial.c_str());
+		r->code = CURLE_WRITE_ERROR;
+		r->error = "cannot write " + r->fileName;
+	}
+}
+
 static struct curl_slist *NetList(const std::vector<std::string> &lines)
 {
 	struct curl_slist *list = NULL;
@@ -179,6 +268,80 @@ static bool NetHasHeader(const std::vector<std::string> &headers, const char *na
 		}
 	}
 	return false;
+}
+
+static bool NetIsSftp(const std::string &url)
+{
+	if (url.size() < 5)
+		return false;
+	std::string scheme = url.substr(0, 5);
+	for (size_t i = 0; i < scheme.size(); i++)
+		scheme[i] = (char)tolower((unsigned char)scheme[i]);
+	return scheme == "sftp:";
+}
+
+/**
+ * SFTP's status code (SSH_FX_*) of a failed request. curl keeps it to
+ * itself and says it in words, one text a status (its sftp_libssh2_strerror,
+ * of the curl this module is built with); "No such file or directory" is
+ * also SSH_FX_NO_SUCH_PATH's, and is given as SSH_FX_NO_SUCH_FILE. 0 when
+ * the error names none - a refused login, a lost connection.
+ */
+static long NetSftpStatus(const std::string &error)
+{
+	static const struct { long code; const char *text; } statuses[] = {
+		{ 2, "No such file or directory" }, { 3, "Permission denied" }, { 4, "Operation failed" },
+		{ 5, "Bad message from SFTP server" }, { 6, "Not connected to SFTP server" },
+		{ 7, "Connection to SFTP server lost" }, { 8, "Operation not supported by SFTP server" },
+		{ 9, "Invalid handle" }, { 11, "File already exists" }, { 12, "File is write protected" },
+		{ 13, "No media" }, { 14, "Disk full" }, { 15, "User quota exceeded" }, { 16, "Unknown principal" },
+		{ 17, "File lock conflict" }, { 18, "Directory not empty" }, { 19, "Not a directory" },
+		{ 20, "Invalid filename" }, { 21, "Link points to itself" },
+	};
+	for (size_t i = 0; i < sizeof(statuses) / sizeof(statuses[0]); i++)
+		if (error.find(statuses[i].text) != std::string::npos)
+			return statuses[i].code;
+	return 0;
+}
+
+/** What kind of failure a request's curl code is, as net_text names it: "" when there was none. */
+static const char *NetErrorKind(CURLcode code)
+{
+	switch (code) {
+	case CURLE_OK:
+		return "";
+	case CURLE_LOGIN_DENIED:
+	case CURLE_AUTH_ERROR:
+		return "login";
+	case CURLE_REMOTE_ACCESS_DENIED:
+		return "denied";
+	case CURLE_REMOTE_FILE_NOT_FOUND:
+		return "notFound";
+	case CURLE_COULDNT_RESOLVE_PROXY:
+	case CURLE_COULDNT_RESOLVE_HOST:
+	case CURLE_COULDNT_CONNECT:
+		return "refused";
+	case CURLE_OPERATION_TIMEDOUT:
+	case CURLE_FTP_ACCEPT_TIMEOUT:
+		return "timeout";
+	case CURLE_SSL_CONNECT_ERROR:
+	case CURLE_PEER_FAILED_VERIFICATION:
+	case CURLE_SSL_CERTPROBLEM:
+	case CURLE_SSL_CIPHER:
+	case CURLE_SSL_CACERT_BADFILE:
+	case CURLE_USE_SSL_FAILED:
+	case CURLE_SSL_SHUTDOWN_FAILED:
+	case CURLE_SSL_CRL_BADFILE:
+	case CURLE_SSL_ISSUER_ERROR:
+	case CURLE_SSL_PINNEDPUBKEYNOTMATCH:
+	case CURLE_SSL_INVALIDCERTSTATUS:
+	case CURLE_SSL_CLIENTCERT:
+		return "tls";
+	case CURLE_ABORTED_BY_CALLBACK:
+		return "aborted";
+	default:
+		return "other";
+	}
 }
 
 /** Puts a request on the multi handle; false when curl would not take it. */
@@ -210,7 +373,10 @@ static bool NetStart(NetRequest *r)
 	// The method. A custom one keeps itself across a redirect, except that
 	// a 303 turns it into GET, as fetch does (CURLFOLLOW_OBEYCODE).
 	bool custom = false;
-	if (r->upload) {
+	if (r->upload && !r->file.empty()) {
+		// From the file: NetOpenFile, below.
+	}
+	else if (r->upload) {
 		curl_easy_setopt(e, CURLOPT_UPLOAD, 1L);
 		curl_easy_setopt(e, CURLOPT_READFUNCTION, NetRead);
 		curl_easy_setopt(e, CURLOPT_READDATA, r);
@@ -268,10 +434,14 @@ static bool NetStart(NetRequest *r)
 		curl_easy_setopt(e, CURLOPT_PASSWORD, r->password.c_str());
 	if (!r->keyFile.empty())
 		curl_easy_setopt(e, CURLOPT_SSH_PRIVATE_KEYFILE, r->keyFile.c_str());
+	if (!r->keyPassphrase.empty())
+		curl_easy_setopt(e, CURLOPT_KEYPASSWD, r->keyPassphrase.c_str());
 	if (!r->hostKey.empty())
 		curl_easy_setopt(e, CURLOPT_SSH_HOST_PUBLIC_KEY_SHA256, r->hostKey.c_str());
-	if (r->ftpSsl)
-		curl_easy_setopt(e, CURLOPT_USE_SSL, (long)CURLUSESSL_ALL);
+	if (r->ssl != CURLUSESSL_NONE)
+		curl_easy_setopt(e, CURLOPT_USE_SSL, r->ssl);
+	if (r->timeoutMs > 0)
+		curl_easy_setopt(e, CURLOPT_TIMEOUT_MS, r->timeoutMs);
 	if (r->list)
 		curl_easy_setopt(e, CURLOPT_DIRLISTONLY, 1L);
 	if (r->createDirs)
@@ -284,6 +454,8 @@ static bool NetStart(NetRequest *r)
 		r->postquoteList = NetList(r->postquote);
 		curl_easy_setopt(e, CURLOPT_POSTQUOTE, r->postquoteList);
 	}
+	if (!r->file.empty() && !NetOpenFile(r))
+		return false;
 
 	CURLMcode added = curl_multi_add_handle(g_netMulti, e);
 	if (added != CURLM_OK) {
@@ -307,6 +479,8 @@ static void NetFinish(NetRequest *r, bool ran)
 		if (curl_easy_getinfo(r->easy, CURLINFO_EFFECTIVE_URL, &url) == CURLE_OK && url)
 			r->finalUrl = url;
 	}
+	r->reply = r->status;
+	NetCloseFile(r, ran);
 
 	curl_multi_remove_handle(g_netMulti, r->easy);
 	curl_easy_cleanup(r->easy);
@@ -318,6 +492,8 @@ static void NetFinish(NetRequest *r, bool ran)
 
 	if (r->code != CURLE_OK && r->error.empty())
 		r->error = r->errorBuffer[0] ? r->errorBuffer : curl_easy_strerror(r->code);
+	if (r->reply == 0 && r->code != CURLE_OK && NetIsSftp(r->url))
+		r->reply = NetSftpStatus(r->error);
 }
 
 static void NetWorker()
@@ -544,7 +720,38 @@ static bool NetFlag(const std::string &value)
 	return !value.empty() && value != "0" && value != "false";
 }
 
-// net_option(id, name, value) - one setting of a request not yet sent: 1 when known.
+/**
+ * A path of the game folder (`maps/de_dust2.bsp`), as @amxts/core/fs takes
+ * one, made absolute - or "" when it would leave the folder: an absolute
+ * path, a drive, or a `..` among its parts.
+ */
+static std::string NetGamePath(const std::string &path)
+{
+	if (path.empty() || path[0] == '/' || path[0] == '\\' || path.find(':') != std::string::npos)
+		return "";
+	for (size_t start = 0;;) {
+		size_t end = path.find_first_of("/\\", start);
+		if (path.compare(start, end == std::string::npos ? std::string::npos : end - start, "..") == 0)
+			return "";
+		if (end == std::string::npos)
+			break;
+		start = end + 1;
+	}
+	return MF_BuildPathname("%s", path.c_str());
+}
+
+/** FTP's TLS: "try", "control" or "all" (or a flag, all) - CURLUSESSL_*. */
+static long NetSslMode(const std::string &value)
+{
+	if (value == "try") return CURLUSESSL_TRY;
+	if (value == "control") return CURLUSESSL_CONTROL;
+	if (value == "none") return CURLUSESSL_NONE;
+	return NetFlag(value) ? CURLUSESSL_ALL : CURLUSESSL_NONE;
+}
+
+// net_option(id, name, value) - one setting of a request not yet sent: 1 when
+// known and taken; 0 for a name it does not know, or a path (`file`,
+// `keyFile`) that leaves the game folder.
 static int32_t w_net_option(wasm_exec_env_t env, int32_t id, int32_t name, int32_t value)
 {
 	NetRequest *r = NetOf(env, id, NET_SETTING);
@@ -561,14 +768,27 @@ static int32_t w_net_option(wasm_exec_env_t env, int32_t id, int32_t name, int32
 	else if (key == "ca") r->ca = text;
 	else if (key == "user") r->user = text;
 	else if (key == "password") r->password = text;
-	else if (key == "keyFile") r->keyFile = text;
+	else if (key == "keyPassphrase") r->keyPassphrase = text;
 	else if (key == "hostKey") r->hostKey = text;
 	else if (key == "quote") r->quote.push_back(text);
 	else if (key == "postquote") r->postquote.push_back(text);
 	else if (key == "upload") r->upload = NetFlag(text);
 	else if (key == "list") r->list = NetFlag(text);
 	else if (key == "createDirs") r->createDirs = NetFlag(text);
-	else if (key == "ssl") r->ftpSsl = NetFlag(text);
+	else if (key == "ssl") r->ssl = NetSslMode(text);
+	else if (key == "timeout") r->timeoutMs = atol(text.c_str());
+	else if (key == "keyFile" || key == "file") {
+		std::string path = NetGamePath(text);
+		if (path.empty())
+			return 0;
+		if (key == "keyFile") {
+			r->keyFile = path;
+		}
+		else {
+			r->fileName = text;
+			r->file = path;
+		}
+	}
 	else return 0;
 	return 1;
 }
@@ -643,12 +863,23 @@ static int32_t w_net_text(wasm_exec_env_t env, int32_t id, int32_t what, int32_t
 	NetRequest *r = NetOf(env, id, NET_ENDED);
 	if (!r)
 		return 0;
+	if (what == NET_TEXT_KIND)
+		return CopyText(Inst(env), NetErrorKind(r->code), out, max);
 	const std::string *text = what == NET_TEXT_ERROR ? &r->error
 		: what == NET_TEXT_STATUS ? &r->statusText
 		: what == NET_TEXT_URL ? &r->finalUrl
 		: what == NET_TEXT_HEADERS ? &r->responseHeaders
 		: NULL;
 	return text ? CopyText(Inst(env), *text, out, max) : 0;
+}
+
+// net_reply(id) - the protocol's last reply code, a failed request's too:
+// HTTP's status, FTP's reply (230, 550), SFTP's status (2 for no such
+// file); 0 when there was none.
+static int32_t w_net_reply(wasm_exec_env_t env, int32_t id)
+{
+	NetRequest *r = NetOf(env, id, NET_ENDED);
+	return r ? (int32_t)r->reply : 0;
 }
 
 // net_size(id) - the response body's length in bytes.
