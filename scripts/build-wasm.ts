@@ -1,6 +1,5 @@
 import type { Plugin } from './compile';
-import type { PluginNative } from './plugin-natives';
-import type { ModulePackage } from './project';
+import type { ModulePackage, Sources } from './project';
 import { createSocket } from 'node:dgram';
 // Builds a project's plugins into .aot files the server can load, and
 // optionally copies them there. The project is the current folder: its
@@ -38,16 +37,17 @@ import { createSocket } from 'node:dgram';
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { includePath } from './compile';
+import { compileAll } from './compile-pool';
 import { followConsoles, projectContainers, runCommand } from './docker-server';
 import { FileContents, sourceIn, sourcesIn } from './file-contents';
 import { serverIncludes } from './includes';
 import { pluginCache } from './plugin-cache';
 import { includeName } from './plugin-natives';
-import { fromRegistry, prebuiltOf } from './prebuilt';
+import { fromRegistry, prebuiltOf, prebuiltSurface } from './prebuilt';
 import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, projectPlugins, sourcesFor } from './project';
 import { sharedModulesBuild } from './shared-modules';
 import { describeSystem, serverSystem, SYSTEM_NAME, WAMRC_PACKAGE, wamrcPath } from './system';
-import { c, log, progress, since } from './ui';
+import { c, live, log, progress, since } from './ui';
 
 function fail(message: string, hint?: string): void {
 	log.error(message.trim());
@@ -159,22 +159,23 @@ for (const plugin of ownPlugins()) {
 	}
 }
 
-/** The owners of the modules the plugins use, in load order. */
-function moduleOwners(): Target[] {
-	const sources = sourcesFor(CORE_PLUGINS);
+/**
+ * The owners of the modules the plugins use, in load order. A save's
+ * rebuild reads the sources once (`sources`), for this and what it affects.
+ */
+function moduleOwners(sources = sourcesFor(CORE_PLUGINS)): Target[] {
 	return modulesInUse(sources, ownPlugins().map(plugin => plugin.source)).map(pkg => ({ source: sources.ownerSource(pkg), name: pkg.short, pkg }));
 }
 
 /** The modules' owners, in load order, then the project's plugins. */
-function allPlugins(): Target[] {
-	return [...moduleOwners(), ...ownPlugins()];
+function allPlugins(sources: Sources): Target[] {
+	return [...moduleOwners(sources), ...ownPlugins()];
 }
 
 /** The plugins a change to these files has to rebuild: every one importing them. */
-function affected(files: string[]): Target[] {
-	const sources = sourcesFor(CORE_PLUGINS);
+function affected(files: string[], sources: Sources): Target[] {
 	const changed = files.map(file => resolve(file));
-	return allPlugins().filter((plugin) => {
+	return allPlugins(sources).filter((plugin) => {
 		const reached = [...sources.reach(join(CORE_PLUGINS, sources.entry(plugin.source)))].map(place => sources.real(place) ?? place);
 		return changed.some(file => reached.includes(file));
 	});
@@ -211,22 +212,30 @@ const includes = new Map<string, string>();
  * wrote. Named before the first build as after it, or a dev started again
  * would compile everything again.
  */
-const cache = pluginCache(project.dir, [
+const cacheIncludes = [
 	'amxts',
 	...[...project.modules.map(pkg => pkg.short), ...ownPlugins().map(plugin => plugin.name)].map(includeName),
 	...project.modules.flatMap(pkg => (pkg.include ? [basename(pkg.include).replace(/\.inc$/, '')] : [])),
 	...readdirSync(outDir).filter(file => file.endsWith('.inc')).map(file => file.replace(/\.inc$/, '')),
-]);
+];
+const cache = pluginCache(project.dir, cacheIncludes);
 
 /**
  * Builds these plugins: a module that comes compiled for this project is
  * put in place as it came (scripts/prebuilt.ts), one an earlier build kept,
- * from the same files, likewise; the rest are compiled. The first build of a
- * run says when it has a module to compile. Returns the .aot names, or null
- * after printing the error.
+ * from the same files, likewise; the rest are compiled, several at once when
+ * there is room (scripts/compile-pool.ts). The first build of a run says when
+ * it has a module to compile. Returns the .aot names, or null after printing
+ * the errors.
  */
-async function compile(plugins: Target[], first: boolean): Promise<string[] | null> {
-	const sources = sourcesFor(CORE_PLUGINS);
+async function compile(plugins: Target[], first: boolean, sources: Sources): Promise<string[] | null> {
+	// Why a module is not taken as it came, said once.
+	const said = new Set<string>();
+	const say = (why: string, instead: string) => {
+		if (said.has(why)) return;
+		said.add(why);
+		log.info(`${why} - ${instead}`);
+	};
 	const planned = plugins.map((each) => {
 		const plugin: Plugin = {
 			source: each.source,
@@ -240,31 +249,53 @@ async function compile(plugins: Target[], first: boolean): Promise<string[] | nu
 			quick,
 		};
 		const prebuilt = each.pkg ? prebuiltOf(each.pkg, target.system, sources) : null;
-		if (prebuilt && 'why' in prebuilt) log.info(`${prebuilt.why} - compiling it here`);
+		if (prebuilt && 'why' in prebuilt) say(prebuilt.why, 'compiling it here');
 		if (prebuilt && 'aot' in prebuilt) return { ...each, plugin, how: 'prebuilt', natives: cache.take(plugin, prebuilt) };
 		return { ...each, plugin, how: 'unchanged', natives: cache.reuse(plugin) };
 	});
+	// The surface a plugin compiles a module's proxy from (scripts/shared-modules.ts) comes with it too.
+	for (const each of first ? plugins : []) {
+		const shipped = each.pkg ? prebuiltSurface(each.pkg, sources) : null;
+		if (shipped && 'why' in shipped) say(shipped.why, 'analysing it here');
+	}
 	const fresh = planned.filter(each => !each.natives);
 	if (first && fresh.some(each => each.pkg)) {
 		log.info('The first build compiles the modules to machine code: it takes about a minute.');
 	}
-	// What comes prebuilt or unchanged is taken quietly: only what is compiled shows.
+	// What comes prebuilt or unchanged is taken quietly: only what is compiled
+	// shows - a line for each as it is done, and as it starts: in a terminal
+	// one line, rewritten, says what is being compiled now.
+	const running = new Map<number, number>();
+	let step: ReturnType<typeof progress> | null = null;
+	const counted = (index: number) => c.dim(`${index + 1}/${fresh.length}`);
+	const redraw = (done?: string) => {
+		step?.end(done);
+		const names = [...running.keys()].map(index => c.bold(fresh[index].name)).join(', ');
+		step = running.size ? progress(`compiling ${names} ${counted(Math.max(...running.keys()))}`) : null;
+	};
+	const compiled = await compileAll(fresh.map(each => each.plugin), {
+		dir: project.dir,
+		includes: cacheIncludes,
+		here: (plugin, natives) => cache.compile(plugin, natives),
+		started(index) {
+			running.set(index, performance.now());
+			if (live) redraw();
+			else progress(`compiling ${c.bold(fresh[index].name)} ${counted(index)}`);
+		},
+		finished(index, { problem }) {
+			const done = problem ? undefined : `${c.bold(fresh[index].name)} ${c.dim(`· ${since(running.get(index)!)}`)}`;
+			running.delete(index);
+			if (live) redraw(done);
+			else if (done) log.success(done);
+		},
+	}).finally(() => step?.end());
 
-	for (const [i, each] of fresh.entries()) {
-		const natives: PluginNative[] = [];
-		const started = performance.now();
-		const step = progress(`compiling ${c.bold(each.name)} ${c.dim(`${i + 1}/${fresh.length}`)}`);
-		const problem = await cache.compile(each.plugin, natives).catch((error) => {
-			step.end();
-			throw error;
-		});
-		step.end(problem ? undefined : `${c.bold(each.name)} ${c.dim(`· ${since(started)}`)}`);
-		if (problem) {
-			fail(`${c.bold(each.name)} does not compile:\n${readable(problem)}\n`, keepWatching ? 'The server keeps the last good build.' : undefined);
-			return null;
-		}
-		each.natives = natives;
+	const failures = compiled.flatMap((each, index) => (each?.problem ? [`${c.bold(fresh[index].name)} does not compile:\n${readable(each.problem)}\n`] : []));
+	if (failures.length) {
+		fail(failures.join('\n'), keepWatching ? 'The server keeps the last good build.' : undefined);
+		return null;
 	}
+	for (const [index, each] of fresh.entries()) each.natives = compiled[index]!.natives;
 
 	for (const each of planned) {
 		includes.set(`${each.name}.aot`, includePath(each.plugin.output, each.natives!));
@@ -454,11 +485,11 @@ function writeList(owners: Target[]) {
  * the files a rebuild is for. A module a save brings into use is built with
  * the plugin that uses it.
  */
-async function run(plugins: Target[], verb: string, why = ''): Promise<boolean> {
+async function run(plugins: Target[], verb: string, why = '', sources = sourcesFor(CORE_PLUGINS)): Promise<boolean> {
 	const started = performance.now();
-	const owners = moduleOwners();
+	const owners = moduleOwners(sources);
 	const fresh = owners.filter(owner => !listed?.includes(owner.name) && !plugins.some(plugin => plugin.name === owner.name));
-	const built = await compile([...fresh, ...plugins], listed === null);
+	const built = await compile([...fresh, ...plugins], listed === null, sources);
 	if (!built) return false;
 	writeList(owners);
 
@@ -560,8 +591,9 @@ async function flush(): Promise<void> {
 
 	const files = contents.changed([...heard]);
 	heard.clear();
-	const plugins = affected(files);
-	if (plugins.length > 0) await run(plugins, 'rebuilt', `${files.map(shown).join(', ')} changed: `).catch(error => fail(String(error)));
+	const sources = sourcesFor(CORE_PLUGINS);
+	const plugins = affected(files, sources);
+	if (plugins.length > 0) await run(plugins, 'rebuilt', `${files.map(shown).join(', ')} changed: `, sources).catch(error => fail(String(error)));
 
 	building = false;
 	void flush();

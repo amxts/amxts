@@ -53,6 +53,8 @@
 		"scripts/build-wasm.ts",
 		"scripts/check.ts",
 		"scripts/compile-cache.ts",
+		"scripts/compile-pool.ts",
+		"scripts/compile-worker.ts",
 		"scripts/compile.ts",
 		"scripts/docker-server.ts",
 		"scripts/docs",

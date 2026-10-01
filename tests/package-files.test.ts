@@ -1,7 +1,8 @@
 // What the core's npm package carries: every file an installed project runs -
-// the bin, the cli-api, the tasks the command starts, the test utils, the lint
-// plugin - and everything they import is in package.json's "files". The
-// patched AssemblyScript is not: scripts/publish.ts adds it.
+// the bin, the cli-api, the tasks the command starts and the processes a
+// build starts, the test utils, the lint plugin - and everything they import
+// is in package.json's "files". The patched AssemblyScript is not:
+// scripts/publish.ts adds it.
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +11,7 @@ import { expect, test } from 'bun:test';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const pkg = JSON.parse(readFileSync(join(CORE, 'package.json'), 'utf8'));
-const ENTRIES = ['bin/amxts.mjs', 'src/cli-api.mjs', 'src/testing/index.ts', 'lint/oxlint-plugin.mjs', 'scripts/run.ts', 'scripts/prepare.ts', 'scripts/build-wasm.ts', 'scripts/check.ts', 'scripts/upgrade.ts'];
+const ENTRIES = ['bin/amxts.mjs', 'src/cli-api.mjs', 'src/testing/index.ts', 'lint/oxlint-plugin.mjs', 'scripts/run.ts', 'scripts/prepare.ts', 'scripts/build-wasm.ts', 'scripts/compile-worker.ts', 'scripts/check.ts', 'scripts/upgrade.ts'];
 
 /** The files an entry imports, itself included, by relative imports. */
 function reached(entries: string[]) {

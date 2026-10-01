@@ -45,6 +45,9 @@ export function since(started: number): string {
 	return `${((performance.now() - started) / 1000).toFixed(1)}s`;
 }
 
+/** Whether a line is rewritten in place: a terminal, not CI's log. */
+export const live = Boolean(process.stdout.isTTY) && !process.env.CI;
+
 /**
  * A step that takes a while, said as it starts - `◇ compiling hello` - and
  * ended with the line that says it is done, or with none when an error says
@@ -52,7 +55,6 @@ export function since(started: number): string {
  * (CI, a pipe) the start is a line of its own.
  */
 export function progress(text: string) {
-	const live = Boolean(process.stdout.isTTY) && !process.env.CI;
 	process.stdout.write(`${c.cyan('◇')} ${text}${live ? '' : '\n'}`);
 	return {
 		end(done?: string) {
