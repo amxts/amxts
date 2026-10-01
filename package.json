@@ -66,6 +66,7 @@
 		"scripts/prebuilt.ts",
 		"scripts/prepare.ts",
 		"scripts/project.ts",
+		"scripts/reapi-events.ts",
 		"scripts/run.ts",
 		"scripts/shared-modules.ts",
 		"scripts/system.ts",

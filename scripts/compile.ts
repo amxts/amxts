@@ -20,6 +20,7 @@ import { ascMain } from './asc';
 import { playerFieldsBuild } from './player-fields';
 import { includeName, nativeContract, nativesTransform, pawnInclude } from './plugin-natives';
 import { ascPath, sourcesFor } from './project';
+import { targetTransforms } from './reapi-events';
 import { sharedModulesBuild } from './shared-modules';
 import { HOST_SYSTEM, TARGET_ABI } from './system';
 
@@ -294,9 +295,14 @@ async function compileWasm(
 				return [];
 			},
 
-			transforms: natives
-				? [HoistImports, nativesTransform(entry, natives, plugin.root), playerFields.transform, shared.transform]
-				: [HoistImports, playerFields.transform, shared.transform],
+			transforms: [
+				HoistImports,
+				...(natives ? [nativesTransform(entry, natives, plugin.root)] : []),
+				playerFields.transform,
+				shared.transform,
+				// A project for plain HLDS listens for no event reapi alone delivers.
+				...targetTransforms(sources.project.config?.target),
+			],
 		},
 	);
 

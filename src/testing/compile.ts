@@ -10,6 +10,7 @@ import { ASYNC_EXPORTS, asyncify, BASE_EXPORTS, compileToWasm, HoistImports, HOO
 import { playerFieldsBuild } from '../../scripts/player-fields';
 import { nativesBeside, nativesTransform, setNativesBeside } from '../../scripts/plugin-natives';
 import { ascPath, CONFIG_FILE, currentProjectDir, sourcesFor } from '../../scripts/project';
+import { targetTransforms } from '../../scripts/reapi-events';
 import { sharedModulesBuild } from '../../scripts/shared-modules';
 import { existsSync, hashOf } from '../../scripts/tracked-fs';
 import { cached } from './compile-cache';
@@ -143,7 +144,7 @@ async function buildWith(path: string, hoodExports: string): Promise<Omit<Compil
 				if (typeof contents !== 'string') binary = contents;
 			},
 			listFiles: () => [],
-			transforms: [HoistImports, nativesTransform(entry, natives, PLUGINS_ROOT), playerFields.transform, shared.transform],
+			transforms: [HoistImports, nativesTransform(entry, natives, PLUGINS_ROOT), playerFields.transform, shared.transform, ...targetTransforms(sources.project.config?.target)],
 		},
 	);
 
