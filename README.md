@@ -87,7 +87,7 @@ npx amxts test             # the tests, on a fake server
 // plugins/hello.ts
 plugin({ name: "Hello", version: "1.0.0", author: "you", description: "An example" });
 
-server.addCommand("/hp", sayHp);
+server.addCommand("/hp", ({ player }) => sayHp(player));
 server.addEventListener("putinserver", (event) => {
 	print(0, `${event.player.name} joined`);
 });

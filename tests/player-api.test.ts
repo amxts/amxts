@@ -59,7 +59,7 @@ test('joinTeam: the side, with reapi and without it; no side to join is false', 
 
 		alice.command('pl_join CT');
 		alice.command('pl_join TERRORIST');
-		alice.command('pl_join none');
+		alice.command('pl_join UNASSIGNED');
 
 		expect(alice.console.split('\n')).toEqual(['true CT', 'true TERRORIST', 'false TERRORIST']);
 	}

@@ -314,6 +314,8 @@ export class FakePlayer extends FakeEntity {
 	readonly info = new Map<string, string>();
 	/** The menu of AMX Mod X's own on his screen (menu_display), or null; `menuselect <key>` answers it. */
 	menu: MenuScreen | null = null;
+	/** His userid, the number `#12` names him by in a command: the server counts them up as players come. */
+	readonly userid: number;
 
 	constructor(server: FakeServer, id: number, public name: string, options: JoinOptions) {
 		super(server, id, 'player');
@@ -322,6 +324,7 @@ export class FakePlayer extends FakeEntity {
 		this.authid = options.authid ?? (this.bot ? 'BOT' : `STEAM_0:0:${id}`);
 		this.ip = options.ip ?? `127.0.0.${id}:27005`;
 		this.flags = flagBits(options.flags ?? 'z');
+		this.userid = server.nextUserid();
 		this.team = options.team ?? 'CT';
 		this.health = options.health ?? 100;
 		this.armor = options.armor ?? 0;
@@ -658,6 +661,13 @@ export class FakeServer {
 	/** menu_makecallback's publics, by the number it gave. @internal */
 	readonly menuCallbacks: Slot[] = [];
 	private menuIds = 0;
+	private userids = 1;
+
+	/** A userid for a player who comes: one more than the last. @internal */
+	nextUserid(): number {
+		return this.userids++;
+	}
+
 	/** What precache_model and precache_sound were asked for, in order: the index is the place + 1. */
 	readonly precached: string[] = [];
 	/**

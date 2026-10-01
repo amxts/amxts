@@ -4,7 +4,7 @@
 import { get_entvar, get_member, set_entvar, set_member } from "@amxts/core/natives";
 import { m_rgAmmo, m_szTeamName, var_classname, var_gravity, var_origin } from "@amxts/core/constants";
 
-server.addCommand("fields", readAndWrite);
+server.addCommand("fields", ({ player }) => readAndWrite(player));
 
 server.addEventListener("pfnPlaybackevent", (event) => {
 	console.log(`played ${event.eventid} at ${event.origin.x},${event.origin.y},${event.origin.z} delay ${event.delay} last ${event.bparam2}`);

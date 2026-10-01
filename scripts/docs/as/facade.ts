@@ -1173,10 +1173,6 @@ export default {
 			Pawn: \`get_players\`
 		`,
 	},
-	'CommandHandler': {
-		en: `A command's handler: gets the player who typed it and the words after the command's name.`,
-		ru: `Обработчик команды: получает игрока, который её набрал, и слова после имени команды.`,
-	},
 	'CommandOptions': {
 		en: `The options of a command: who may use it and its description in a listing.`,
 		ru: `Параметры команды: кому она доступна и её описание в списке.`,
@@ -1186,8 +1182,8 @@ export default {
 		ru: `Право админа, которое нужно игроку для команды; если не указано, команда доступна всем.`,
 	},
 	'CommandOptions.description': {
-		en: `The command's description, shown by \`amx_help\` and the like.`,
-		ru: `Описание команды, которое показывают \`amx_help\` и подобные.`,
+		en: `The command's description, shown by \`amx_help\` and in \`server.commands\`.`,
+		ru: `Описание команды, которое показывают \`amx_help\` и \`server.commands\`.`,
 	},
 	'accessOf': {
 		en: `
@@ -1202,10 +1198,6 @@ export default {
 
 			Pawn: \`read_flags\`
 		`,
-	},
-	'ServerCommandHandler': {
-		en: `A server command's handler: gets the words after the command's name.`,
-		ru: `Обработчик серверной команды: получает слова после имени команды.`,
 	},
 	'HudOptions': {
 		en: `
@@ -1968,65 +1960,6 @@ export default {
 			\`server.command("changelevel de_dust2")\`. Текст уходит как есть: \`%\` остаётся \`%\`.
 
 			Pawn: \`server_cmd\`
-		`,
-	},
-	'Server.addCommand': {
-		en: `
-			Adds a command players type, e.g. \`"/hp"\` in chat, or a name without the slash
-			in the console.
-
-			\`\`\`ts
-			server.addCommand("/hp", (player) => print(player, \`\${player.health} HP\`));
-			server.addCommand("/kick", kick, { access: "Kick", description: "Kick a player" });
-			\`\`\`
-
-			\`args\` are the words after the command. A chat command is not repeated in
-			chat, and it does not run for a player without the \`access\` right.
-			\`"say time"\` runs when a player writes exactly \`"time"\` in chat.
-
-			Pawn: \`register_clcmd\`
-		`,
-		ru: `
-			Добавляет команду, которую набирают игроки, например \`"/hp"\` в чате или имя без
-			слеша — в консоли.
-
-			\`\`\`ts
-			server.addCommand("/hp", (player) => print(player, \`\${player.health} HP\`));
-			server.addCommand("/kick", kick, { access: "Kick", description: "Kick a player" });
-			\`\`\`
-
-			\`args\` — слова после команды. Чат-команда не повторяется в чате и не
-			срабатывает у игрока без права \`access\`. \`"say time"\` срабатывает, когда
-			игрок пишет в чат ровно \`"time"\`.
-
-			Pawn: \`register_clcmd\`
-		`,
-	},
-	'Server.addServerCommand': {
-		en: `
-			Adds a command of the server console - typed there, sent over rcon or run by
-			another plugin. Players cannot use it.
-
-			\`\`\`ts
-			server.addServerCommand("myplugin_reset", (args) => reset(args.length > 0 ? args[0] : "all"));
-			\`\`\`
-
-			\`args\` are the words after the command. It may be added at the top level of
-			the file.
-
-			Pawn: \`register_srvcmd\`
-		`,
-		ru: `
-			Добавляет команду консоли сервера — набранную там, пришедшую по rcon или
-			вызванную другим плагином. Игроки её не набирают.
-
-			\`\`\`ts
-			server.addServerCommand("myplugin_reset", (args) => reset(args.length > 0 ? args[0] : "all"));
-			\`\`\`
-
-			\`args\` — слова после команды. Её можно добавлять на верхнем уровне файла.
-
-			Pawn: \`register_srvcmd\`
 		`,
 	},
 	'Server.showHud': {
@@ -3521,6 +3454,72 @@ export default {
 			закрывается, когда он выбирает пункт или выходит из меню.
 
 			Pawn: \`menu_display\`
+		`,
+	},
+	'Client.kick': {
+		en: `Kicks the player off the server, with the reason he is shown: \`client.kick("Spam")\`.`,
+		ru: `Кикает игрока с сервера с причиной, которую он видит: \`client.kick("Спам")\`.`,
+	},
+	'Player.kick': {
+		en: `
+			Kicks the player off the server, with the reason he is shown:
+			\`player.kick("Spam")\`; without one, the game's own.
+
+			Pawn: \`server_cmd("kick #%d")\`
+		`,
+		ru: `
+			Кикает игрока с сервера с причиной, которую он видит:
+			\`player.kick("Спам")\`; без неё — собственной причиной игры.
+
+			Pawn: \`server_cmd("kick #%d")\`
+		`,
+	},
+	'CommandInfo': {
+		en: `A command the plugin added, as \`server.commands\` lists it: what a \`/help\` shows.`,
+		ru: `Команда, которую добавил плагин, как её перечисляет \`server.commands\`: то, что показывает \`/help\`.`,
+	},
+	'CommandInfo.usage': {
+		en: `The command's usage, as it is typed, e.g. \`"/kick <target> [reason]"\`.`,
+		ru: `Использование команды, как её набирают, например \`"/kick <target> [reason]"\`.`,
+	},
+	'CommandInfo.description': {
+		en: `The command's description, as its \`description\` option gave it; \`""\` without one.`,
+		ru: `Описание команды, как его дала настройка \`description\`; \`""\`, если описания нет.`,
+	},
+	'CommandInfo.access': {
+		en: `The admin right the command needs; \`null\` when everyone may use it.`,
+		ru: `Право админа, которое нужно команде; \`null\`, если пользоваться ей может каждый.`,
+	},
+	'CommandInfo.server': {
+		en: `Whether it is a command of the server console rather than a player's.`,
+		ru: `Команда ли это консоли сервера, а не игрока.`,
+	},
+	'Server.commands': {
+		en: `
+			The commands this plugin added, players' and the server's, in the order
+			they were added: each one's \`usage\`, \`description\` and \`access\` - what a
+			\`/help\` prints.
+
+			\`\`\`ts
+			server.addCommand("/help", ({ player }) => {
+			  for (const command of server.commands) {
+			    if (command.access == null || player.access.includes(command.access)) print(player, command.usage);
+			  }
+			});
+			\`\`\`
+		`,
+		ru: `
+			Команды, которые добавил этот плагин, игроков и сервера, в порядке
+			добавления: у каждой \`usage\`, \`description\` и \`access\` — то, что
+			печатает \`/help\`.
+
+			\`\`\`ts
+			server.addCommand("/help", ({ player }) => {
+			  for (const command of server.commands) {
+			    if (command.access == null || player.access.includes(command.access)) print(player, command.usage);
+			  }
+			});
+			\`\`\`
 		`,
 	},
 };

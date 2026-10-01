@@ -32,7 +32,7 @@ import {
 	set_dhudmessage, show_dhudmessage, CreateHudSyncObj, ShowSyncHudMsg, ClearSyncHud,
 	precache_model, precache_sound, precache_generic, query_client_cvar, register_touch,
 	register_message, get_msg_args, get_msg_argtype, get_msg_arg_int, get_msg_arg_float, get_msg_arg_string,
-	set_msg_arg_int, set_msg_arg_float, set_msg_arg_string
+	set_msg_arg_int, set_msg_arg_float, set_msg_arg_string, get_user_userid
 } from "./natives";
 // Promise, async/await and AbortSignal, as the globals they are in JavaScript.
 import "./promise";
@@ -1241,6 +1241,8 @@ export interface Client {
 	readonly signal: AbortSignal;
 	/** Runs a command in the player's console, as if he had typed it: `client.command("stop")`. */
 	command(text: string): void;
+	/** Kicks the player off the server, with the reason he is shown: `client.kick("Spam")`. */
+	kick(reason?: string): void;
 	/** Joins a side as the game joins a player who picks it in the team menu: `client.joinTeam("CT")`. `false` if the game refused. */
 	joinTeam(team: Team): boolean;
 	/** Asks the player's game for one of its cvars: `await client.queryCvar("fps_max")`, the value as text, or `null` when his game has none. */
@@ -1636,6 +1638,17 @@ export class Player extends PlayerFields implements Client {
 	}
 
 	/**
+	 * Kicks the player off the server, with the reason he is shown:
+	 * `player.kick("Spam")`; without one, the game's own.
+	 *
+	 * Pawn: `server_cmd("kick #%d")`
+	 */
+	kick(reason: string = ""): void {
+		const said = reason.replaceAll("\"", "'");
+		server.command(said.length > 0 ? `kick #${get_user_userid(this.id)} "${said}"` : `kick #${get_user_userid(this.id)}`);
+	}
+
+	/**
 	 * Asks the player's game for one of its cvars: `await
 	 * player.queryCvar("fps_max")` is the value as text, e.g. `"100"`, or
 	 * `null` when his game has no such cvar or will not tell. The answer is
@@ -1757,23 +1770,184 @@ export function playerIds(flags: string = "", team: string = ""): number[] {
 
 // ---------------------------------------------------------------- commands
 
-/** A command's handler: gets the player who typed it and the words after the command's name. */
-export type CommandHandler = (player: Player, args: string[]) => void;
+// A command is added by its usage - "/kick <target> [reason]" - and its words
+// are read by code the build writes for that call (scripts/typed-commands.ts):
+// a parser over __CommandWords, which reads each word as the argument's type
+// says and answers the one who typed it with the usage when a word is wrong.
+// The editor's signatures of addCommand and addServerCommand are in amxts.d.ts.
 
 /** The options of a command: who may use it and its description in a listing. */
 export interface CommandOptions {
 	/** The admin right a player needs to use the command; left out, everyone may. */
 	access?: Access;
-	/** The command's description, shown by `amx_help` and the like. */
+	/** The command's description, shown by `amx_help` and in `server.commands`. */
 	description?: string;
 }
 
+/** A command the plugin added, as `server.commands` lists it: what a `/help` shows. */
+export class CommandInfo {
+	constructor(
+		/** The command's usage, as it is typed, e.g. `"/kick <target> [reason]"`. */
+		readonly usage: string,
+		/** The command's description, as its `description` option gave it; `""` without one. */
+		readonly description: string,
+		/** The admin right the command needs; `null` when everyone may use it. */
+		readonly access: Access | null,
+		/** Whether it is a command of the server console rather than a player's. */
+		readonly server: boolean
+	) {}
+}
+
+/** A command's name: the usage's first word - or, for a chat phrase, `"say <phrase>"` whole. */
+function commandName(usage: string): string {
+	const text = usage.trim();
+	if (text.startsWith("say ")) return text;
+	const space = text.indexOf(" ");
+	return space < 0 ? text : text.substring(0, space);
+}
+
+/** The players a command's word names: `#userid`; else the whole name, in any case; else a part of it. */
+function playersNamed(word: string): Player[] {
+	const players = Player.all();
+	if (word.startsWith("#")) {
+		const userid = <i32>Number(word.substring(1));
+		return players.filter((player: Player) => get_user_userid(player.id) == userid);
+	}
+	const lower = word.toLowerCase();
+	const whole = players.filter((player: Player) => player.name.toLowerCase() == lower);
+	return whole.length > 0 ? whole : players.filter((player: Player) => player.name.toLowerCase().includes(lower));
+}
+
+let commonLoaded = false;
+
+/** A line of AMX Mod X's `common.txt` in the player's language: the words of its own admin commands. */
+function commonText(player: Player | null, key: string): string {
+	if (!commonLoaded) commonLoaded = lang.load("common");
+	return lang.translate(player, key);
+}
+
+/**
+ * @hidden The words a command was typed with, as the build's code for one
+ * command reads its arguments (scripts/typed-commands.ts): each by its place,
+ * as its type says. A word that is not what the command takes answers the
+ * one who typed it with the usage, and sets `failed`: the handler does not run.
+ */
+export class __CommandWords {
+	/** Set once a word is wrong: the one who typed it has been told. */
+	failed: bool = false;
+
+	constructor(
+		/** The player who typed it; `null` for the server's console. */
+		readonly player: Player | null,
+		readonly usage: string,
+		readonly words: string[],
+		/** The line from each word on, as typed: what the last text argument takes. */
+		readonly rests: string[]
+	) {}
+
+	get count(): i32 {
+		return this.words.length;
+	}
+
+	/** The word at `at`; `""` when it was not typed. */
+	text(at: i32): string {
+		return at < this.words.length ? this.words[at] : "";
+	}
+
+	/** The rest of the line from the word at `at`. */
+	rest(at: i32): string {
+		return at < this.rests.length ? this.rests[at] : "";
+	}
+
+	/** The word at `at` as a number; a word that is not one fails. */
+	number(at: i32): number {
+		const word = this.text(at);
+		const value = Number(word);
+		if (word.length == 0 || isNaN(value)) this.fail("");
+		return value;
+	}
+
+	/** The word at `at`, one of `names`; another fails. */
+	name(at: i32, names: string[]): string {
+		const word = this.text(at);
+		if (!names.includes(word)) this.fail("");
+		return word;
+	}
+
+	/** The player the word at `at` names - `#userid`, the whole name or a part of it. None, or several, fails. */
+	target(at: i32): Player | null {
+		const found = playersNamed(this.text(at));
+		if (found.length == 1) return found[0];
+		this.fail(found.length == 0
+			? commonText(this.player, "CL_NOT_FOUND")
+			: `${commonText(this.player, "MORE_CL_MATCHT")}: ${found.map<string>((one: Player) => one.name).join(", ")}`);
+		return null;
+	}
+
+	/** Whether at least `count` words were typed; fewer fails. */
+	need(count: i32): bool {
+		if (this.words.length < count) this.fail("");
+		return !this.failed;
+	}
+
+	/** Whether no word is left over after the first `count`; one more fails. */
+	done(count: i32): bool {
+		if (this.words.length > count) this.fail("");
+		return !this.failed;
+	}
+
+	/** Tells the one who typed it what was wrong, and the usage. */
+	private fail(why: string): void {
+		if (this.failed) return;
+		this.failed = true;
+		const usage = `${commonText(this.player, "USAGE")}: ${this.usage}`;
+		const player = this.player;
+		if (player == null) {
+			if (why.length > 0) console.log(why);
+			console.log(usage);
+			return;
+		}
+		if (why.length > 0) print(player, why);
+		print(player, usage);
+	}
+}
+
+/** A chat line's words - one in double quotes is one word - and the line from each word on. */
+function chatWords(player: Player, usage: string, line: string): __CommandWords {
+	const words: string[] = [];
+	const rests: string[] = [];
+	let i = 0;
+	while (i < line.length) {
+		while (i < line.length && line.charAt(i) == " ") i++;
+		if (i >= line.length) break;
+		const quoted = line.charAt(i) == "\"";
+		const close = quoted ? line.indexOf("\"", i + 1) : line.indexOf(" ", i);
+		const end = close < 0 ? line.length : close;
+		const word = line.substring(quoted ? i + 1 : i, end);
+		// A quoted last word is the rest without its quotes.
+		rests.push(quoted && close >= 0 && line.substring(close + 1).trim().length == 0 ? word : line.substring(i).trim());
+		words.push(word);
+		i = end + 1;
+	}
+	return new __CommandWords(player, usage, words, rests);
+}
+
+/** A console command's words, as the engine split them. */
+function consoleWords(player: Player | null, usage: string): __CommandWords {
+	const words: string[] = [];
+	const count = read_argc();
+	for (let i = 1; i < count; i++) words.push(read_argv(i));
+	const rests: string[] = [];
+	for (let i = 0; i < words.length; i++) rests.push(words.slice(i).join(" "));
+	return new __CommandWords(player, usage, words, rests);
+}
+
 // The commands of this plugin, by name. One trampoline serves them all - the
-// host calls it by its table index - and it finds the handler by the name the
+// host calls it by its table index - and it finds the command by the name the
 // player typed.
 const commandNames: string[] = [];
-const commandHandlers: CommandHandler[] = [];
-const commandAccess: string[] = [];
+const commandRuns: ((words: __CommandWords) => void)[] = [];
+const commandInfos: CommandInfo[] = [];
 let chatHooked = false;
 
 function findCommand(name: string): i32 {
@@ -1796,23 +1970,20 @@ export function accessOf(letters: string): Access[] {
 
 /** Whether a player holds the admin flag a command asks for. */
 function mayRun(id: i32, at: i32): bool {
-	const access = commandAccess[at];
-	if (access.length == 0) return true;
+	const access = commandInfos[at].access;
+	if (access == null) return true;
 	return (get_user_flags(id) & ACCESS.bitOf(access)) != 0;
 }
 
-/** say /name a b - the chat text split on spaces, the first word the name. */
+/** say /name a b - the chat text, its first word the name; or a phrase added as "say <phrase>", the whole line. */
 function chatCommand(player: number, level: number, cid: number, unused: number): void {
 	const id = <i32>player;
 	const text = read_argv(1).trim();
+	const space = text.indexOf(" ");
 	const slash = text.startsWith("/");
-
-	// "/name a b" - or a phrase added as "say <phrase>", which is the whole line.
-	const words = text.split(" ").filter((word: string) => word.length > 0);
-	const at = slash && words.length > 0 ? findCommand(words[0]) : findCommand("say " + text);
+	const at = slash ? findCommand(space < 0 ? text : text.substring(0, space)) : findCommand("say " + text);
 	if (at < 0 || !mayRun(id, at)) { _outcome(0); return; }
-	if (!slash) words.length = 1;
-	runCommand(at, id, words.slice(1));
+	runCommand(at, id, chatWords(new Player(id), commandInfos[at].usage, slash && space >= 0 ? text.substring(space + 1) : ""));
 }
 
 /** name a b - a console command, its arguments as the engine split them. */
@@ -1820,7 +1991,7 @@ function consoleCommand(player: number, level: number, cid: number, unused: numb
 	const id = <i32>player;
 	const at = findCommand(read_argv(0));
 	if (at < 0 || !mayRun(id, at)) { _outcome(0); return; }
-	runCommand(at, id, commandArgs());
+	runCommand(at, id, consoleWords(new Player(id), commandInfos[at].usage));
 }
 
 /**
@@ -1828,29 +1999,19 @@ function consoleCommand(player: number, level: number, cid: number, unused: numb
  * (see __co_ambient_player); the command is handled, so a chat command is not
  * repeated in chat, as a Pawn command's PLUGIN_HANDLED does.
  */
-function runCommand(at: i32, id: i32, args: string[]): void {
+function runCommand(at: i32, id: i32, words: __CommandWords): void {
 	const ambient = __co_ambient_player;
 	__co_ambient_player = id;
-	commandHandlers[at](new Player(id), args);
+	commandRuns[at](words);
 	__co_ambient_player = ambient;
 	handled();
 }
 
-/** The words after the command's name, as the engine split them. */
-function commandArgs(): string[] {
-	const args: string[] = [];
-	const count = read_argc();
-	for (let i = 1; i < count; i++) args.push(read_argv(i));
-	return args;
-}
-
-/** A server command's handler: gets the words after the command's name. */
-export type ServerCommandHandler = (args: string[]) => void;
-
 // The server commands of this plugin, by name, and the ones still waiting for
 // plugin_init. One trampoline serves them all, as it does the player commands.
 const serverCommandNames: string[] = [];
-const serverCommandHandlers: ServerCommandHandler[] = [];
+const serverCommandRuns: ((words: __CommandWords) => void)[] = [];
+const serverCommandUsages: string[] = [];
 const waitingServerCommands: string[] = [];
 
 // A touch the engine module filters by class, so a touch nobody listens for -
@@ -1891,7 +2052,7 @@ function serverCommand(a: number, b: number, c: number, d: number): void {
 	const at = serverCommandNames.indexOf(read_argv(0).toLowerCase());
 	if (at < 0) { _outcome(0); return; }
 
-	serverCommandHandlers[at](commandArgs());
+	serverCommandRuns[at](consoleWords(null, serverCommandUsages[at]));
 	handled();
 }
 
@@ -2831,27 +2992,34 @@ export class Server {
 	}
 
 	/**
-	 * Adds a command players type, e.g. `"/hp"` in chat, or a name without the slash
-	 * in the console.
+	 * The commands this plugin added, players' and the server's, in the order
+	 * they were added: each one's `usage`, `description` and `access` - what a
+	 * `/help` prints.
 	 *
 	 * ```ts
-	 * server.addCommand("/hp", (player) => print(player, `${player.health} HP`));
-	 * server.addCommand("/kick", kick, { access: "Kick", description: "Kick a player" });
+	 * server.addCommand("/help", ({ player }) => {
+	 *   for (const command of server.commands) {
+	 *     if (command.access == null || player.access.includes(command.access)) print(player, command.usage);
+	 *   }
+	 * });
 	 * ```
-	 *
-	 * `args` are the words after the command. A chat command is not repeated in
-	 * chat, and it does not run for a player without the `access` right.
-	 * `"say time"` runs when a player writes exactly `"time"` in chat.
-	 *
-	 * Pawn: `register_clcmd`
 	 */
-	addCommand(name: string, handler: CommandHandler, options: CommandOptions = {}): void {
+	get commands(): CommandInfo[] {
+		return commandInfos.slice(0);
+	}
+
+	/**
+	 * @hidden A player's command, its words read by `run` - the parser the
+	 * build writes for each `addCommand` call (scripts/typed-commands.ts).
+	 */
+	__addCommand(usage: string, run: (words: __CommandWords) => void, options: CommandOptions = {}): void {
+		const name = commandName(usage);
 		const chat = name.startsWith("/") || name.startsWith("say ");
 		const access = options.access;
 
 		commandNames.push(name.toLowerCase());
-		commandHandlers.push(handler);
-		commandAccess.push(access ?? "");
+		commandRuns.push(run);
+		commandInfos.push(new CommandInfo(usage, options.description ?? "", access ?? null, false));
 
 		if (!chat) {
 			const flags = access != null ? ACCESS.bitOf(access) : 0;
@@ -2865,23 +3033,13 @@ export class Server {
 		_clcmd("say_team", chatCommand.index, 0, "", SHAPE_WIDE);
 	}
 
-	/**
-	 * Adds a command of the server console - typed there, sent over rcon or run by
-	 * another plugin. Players cannot use it.
-	 *
-	 * ```ts
-	 * server.addServerCommand("myplugin_reset", (args) => reset(args.length > 0 ? args[0] : "all"));
-	 * ```
-	 *
-	 * `args` are the words after the command. It may be added at the top level of
-	 * the file.
-	 *
-	 * Pawn: `register_srvcmd`
-	 */
-	addServerCommand(name: string, handler: ServerCommandHandler): void {
-		const lower = name.toLowerCase();
+	/** @hidden A command of the server console, its words read by `run`, as `__addCommand`'s are. */
+	__addServerCommand(usage: string, run: (words: __CommandWords) => void): void {
+		const lower = commandName(usage).toLowerCase();
 		serverCommandNames.push(lower);
-		serverCommandHandlers.push(handler);
+		serverCommandRuns.push(run);
+		serverCommandUsages.push(usage);
+		commandInfos.push(new CommandInfo(usage, "", null, true));
 
 		if (serverUp) registerServerCommand(lower);
 		else waitingServerCommands.push(lower);

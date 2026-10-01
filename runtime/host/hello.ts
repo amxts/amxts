@@ -10,7 +10,7 @@ plugin({
 	description: "An example to edit",
 });
 
-server.addCommand("/hp", sayHp, { description: "Show health" });
+server.addCommand("/hp", ({ player }) => sayHp(player), { description: "Show health" });
 
 // The event's type comes from its name: `event.player` is a Player. A listener
 // is a closure, as in JavaScript: it may use the variables around it.

@@ -1,7 +1,7 @@
 // A fixture for tests/game-api.test.ts: the game rules as fields of `game`,
 // and touches filtered by class.
 
-server.addCommand("game_rules", rules);
+server.addCommand("game_rules", ({ player }) => rules(player));
 
 game.addEventListener("touch", onPlayers, { toucher: "player", touched: "player" });
 game.addEventListener("touch", onBox, { touched: "myplugin_box" });

@@ -49,7 +49,7 @@ const GREETER = module('greeter', 'greeter', 'export function greet(player: Play
 const COUNTER = module('counter', 'counter', 'let count = 0;\n\nexport function next(player: Player) {\n\treturn `${player.name} ${++count}`;\n}\n');
 
 /** A plugin that greets through the module when a player says /hi, with no import line. */
-const WELCOME = 'server.addCommand("/hi", (player) => print(player, greeter.greet(player)));\n';
+const WELCOME = 'server.addCommand("/hi", ({ player }) => print(player, greeter.greet(player)));\n';
 
 const table = (entries: { name: string; from: string; namespace?: boolean }[]) => new Map(entries.map(entry => [entry.name, { namespace: false, ...entry }]));
 const free = (code: string) => [...freeNames(ts.createSourceFile('a.ts', code, ts.ScriptTarget.Latest, true))].sort();
@@ -201,7 +201,7 @@ describe('a project', () => {
 				'',
 			].join('\n'),
 			'amxts.config.ts': 'export default defineConfig({ modules: ["@test/tally"] });\n',
-			'plugins/scores.ts': 'server.addCommand("/add", (player) => {\n\ttally.total = tally.total + 5;\n\tprint(player, `total ${tally.total}`);\n});\n',
+			'plugins/scores.ts': 'server.addCommand("/add", ({ player }) => {\n\ttally.total = tally.total + 5;\n\tprint(player, `total ${tally.total}`);\n});\n',
 		});
 		const server = await setup({ rootDir: dir });
 		const alice = server.join('Alice');
@@ -229,7 +229,7 @@ describe('a project', () => {
 				'import { print } from "@amxts/core";',
 				'import * as greeter from "@test/greeter";',
 				'',
-				'server.addCommand("/hi", (player) => {',
+				'server.addCommand("/hi", ({ player }) => {',
 				'\tconst lang = "local";',
 				'\tprint(player, `${greeter.greet(player)} (${lang})`);',
 				'});',

@@ -207,4 +207,90 @@ export default {
 		en: `Stops calling a listener added with \`addEventListener\` - the same function and the same field.`,
 		ru: `Перестаёт вызывать обработчик, добавленный через \`addEventListener\`, — ту же функцию с тем же полем.`,
 	},
+	'Server.addCommand': {
+		en: `
+			Adds a command players type, by its usage: the name, then the
+			arguments, \`<name>\` required and \`[name]\` optional. Their types are an
+			interface, the type argument; without it each is text.
+
+			\`\`\`ts
+			interface KickArgs {
+			  target: Player;
+			  reason?: string;
+			}
+
+			server.addCommand<KickArgs>("/kick <target> [reason]", ({ player, target, reason }) => {
+			  target.kick(reason ?? \`Kicked by \${player.name}\`);
+			}, { access: "Kick" });
+			server.addCommand("/hp", ({ player }) => print(player, \`\${player.health} HP\`));
+			\`\`\`
+
+			A name with \`/\` is a chat command, one without a console command, and
+			\`"say <phrase>"\` a phrase written in chat. A \`number\` argument is
+			parsed, a \`Player\` found by \`#userid\`, the whole name or a part of it,
+			a \`string\` taken as it is - the last one takes the rest of the line. A
+			word that is not what the command takes answers the player with the
+			usage, and the handler does not run.
+
+			Pawn: \`register_clcmd\`
+		`,
+		ru: `
+			Добавляет команду, которую набирают игроки, по её использованию: имя,
+			затем аргументы, \`<name>\` — обязательный, \`[name]\` — необязательный.
+			Их типы — интерфейс, аргумент типа; без него каждый — текст.
+
+			\`\`\`ts
+			interface KickArgs {
+			  target: Player;
+			  reason?: string;
+			}
+
+			server.addCommand<KickArgs>("/kick <target> [reason]", ({ player, target, reason }) => {
+			  target.kick(reason ?? \`Kicked by \${player.name}\`);
+			}, { access: "Kick" });
+			server.addCommand("/hp", ({ player }) => print(player, \`\${player.health} HP\`));
+			\`\`\`
+
+			Имя со \`/\` — команда чата, без него — команда консоли, а
+			\`"say <фраза>"\` — фраза, написанная в чат. Аргумент \`number\`
+			разбирается как число, \`Player\` находится по \`#userid\`, имени целиком
+			или его части, \`string\` берётся как есть — последний забирает остаток
+			строки. На слово, которое команда не принимает, игрок получает её
+			использование, и обработчик не запускается.
+
+			Pawn: \`register_clcmd\`
+		`,
+	},
+	'Server.addServerCommand': {
+		en: `
+			Adds a command of the server console - typed there, sent over rcon or
+			run by another plugin - by its usage, its arguments read as a player's
+			command's are. No player types it.
+
+			\`\`\`ts
+			interface ResetArgs {
+			  what?: "scores" | "all";
+			}
+
+			server.addServerCommand<ResetArgs>("myplugin_reset [what]", ({ what }) => reset(what ?? "all"));
+			\`\`\`
+
+			Pawn: \`register_srvcmd\`
+		`,
+		ru: `
+			Добавляет команду консоли сервера — её набирают там, присылают по rcon
+			или запускает другой плагин — по её использованию; аргументы читаются
+			так же, как у команды игрока. Игрок её не набирает.
+
+			\`\`\`ts
+			interface ResetArgs {
+			  what?: "scores" | "all";
+			}
+
+			server.addServerCommand<ResetArgs>("myplugin_reset [what]", ({ what }) => reset(what ?? "all"));
+			\`\`\`
+
+			Pawn: \`register_srvcmd\`
+		`,
+	},
 };

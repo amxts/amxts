@@ -49,7 +49,7 @@ shop.addItem("Купить AWP", {
 });
 shop.addItem("Закрыть", { action: "CLOSE_MENU", spaceBefore: 1 });
 
-server.addCommand("/shop", (player) => shop.show(player));
+server.addCommand("/shop", ({ player }) => shop.show(player));
 ```
 
 Текст — заголовок, пункт, `message` погашенного пункта — это сам текст или

@@ -123,7 +123,7 @@ export function xn_load(path: string) {
 	return fs.readFileSync(path) || "";
 }
 
-server.addCommand("/fs", checkFs);
+server.addCommand("/fs", ({ player }) => checkFs(player));
 
 async function checkFs(player: Player) {
 	const check = new Checks("api-natives", player);

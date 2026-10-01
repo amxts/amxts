@@ -2,11 +2,11 @@
 import "./player-state";
 import "./data-fields";
 
-server.addCommand("data_write", write);
+server.addCommand("data_write [tag]", ({ player, tag }) => write(player, tag ?? ""));
 
-function write(player: Player, args: string[]) {
+function write(player: Player, tag: string) {
 	player.ghost = true;
 	player.kills = player.kills + 1.5;
-	player.tag = args.join(" ");
+	player.tag = tag;
 	print(player, `written: ${player.kills}`, "console");
 }

@@ -8,7 +8,7 @@ const joined = new Forward<Player, Team>("myplugin_on_player_joined_team");
 let heard = "";
 
 joined.subscribe(onJoined);
-server.addCommand("fw_join", join);
+server.addCommand("fw_join", ({ player }) => join(player));
 
 function onJoined(player: Player, team: Team) {
 	heard = team;

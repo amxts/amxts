@@ -13,8 +13,12 @@ game.addEventListener("use", onUse, { classname: "func_button" });
 game.addEventListener("isBot", () => true);
 game.addEventListener("think", () => console.log("no class"));
 
-server.addCommand("ham_stab", stab);
-server.addCommand("ham_deploy", deploy);
+server.addCommand<WeaponArgs>("ham_stab <id>", ({ id }) => stab(id));
+server.addCommand<WeaponArgs>("ham_deploy <id>", ({ id }) => deploy(id));
+
+interface WeaponArgs {
+	id: number;
+}
 
 function onSlash(event: PrimaryAttackEvent) {
 	const knife = event.weapon;
@@ -42,12 +46,12 @@ function onUse(event: UseEvent) {
 	event.useType = "off";
 }
 
-function stab(_player: Player, args: string[]) {
-	const knife = new Weapon(parseInt(args[0]));
+function stab(id: number) {
+	const knife = new Weapon(id);
 	knife.secondaryAttack({ hooks: false });
 }
 
-function deploy(_player: Player, args: string[]) {
-	const c4 = new Weapon(parseInt(args[0]));
+function deploy(id: number) {
+	const c4 = new Weapon(id);
 	console.log(`deployed ${c4.deploy()}`);
 }

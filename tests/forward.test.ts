@@ -56,7 +56,7 @@ test('a number goes as a Float where the declaration says Float, and as a cell o
 import { Forward, plugin, server } from "@amxts/core";
 plugin({ name: "probe", version: "1", author: "x", include: "PROBE_INC" });
 const speed = new Forward<number, number>("probe_on_speed");
-server.addCommand("fw_speed", (player, args) => { speed.emit(2.5, 3); });
+server.addCommand("fw_speed", () => { speed.emit(2.5, 3); });
 `, 'forward probe_on_speed(Float:speed, count);\n', async (file) => {
 		const server = await loadPlugin(file);
 		server.join('Alice').command('fw_speed');
@@ -98,11 +98,11 @@ plugin({ name: "probe", version: "1", author: "x", include: "PROBE_INC" });
 const ended = new Forward<RoundWinner>("probe_on_round_end");
 let heard = "";
 ended.subscribe(onEnded);
-server.addCommand("fw_end", end);
+server.addCommand("fw_end", ({ player }) => end(player));
 function onEnded(winner: RoundWinner) {
 	heard = winner;
 }
-function end(player: Player, args: string[]) {
+function end(player: Player) {
 	ended.emit("TERRORIST");
 	print(player, \`heard \${heard}\`, "console");
 }
@@ -122,7 +122,7 @@ const EVERY_KIND = `
 import { Float, Forward, Player, Vector, server } from "@amxts/core";
 const bought = new Forward<Player, string, number, Float, boolean, number[], Vector, string>("probe_on_every_kind");
 bought.subscribe(onBought);
-server.addCommand("fw_every", (player) => {
+server.addCommand("fw_every", ({ player }) => {
 	bought.emit(player, "раз два", 7, 2.5, true, [1, 2, 3], new Vector(1.5, 2.5, 3.5), "x".repeat(700));
 });
 function onBought(player: Player, word: string, count: number, speed: Float, flag: boolean, list: number[], at: Vector, long: string) {
@@ -160,7 +160,7 @@ test('a forward takes 32 arguments, as many as AMX Mod X gives one', async () =>
 import { Forward, server } from "@amxts/core";
 const wide = new Forward<${names.map(() => 'number').join(', ')}>("probe_on_wide");
 wide.subscribe(onWide);
-server.addCommand("fw_wide", (player) => {
+server.addCommand("fw_wide", ({ player }) => {
 	wide.emit(${names.map((_, i) => i + 1).join(', ')});
 });
 function onWide(${names.map(n => `${n}: number`).join(', ')}) {

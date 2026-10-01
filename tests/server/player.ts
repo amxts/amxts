@@ -7,9 +7,9 @@ import { Checks } from "@amxts/core/check";
 let caller = "";
 let words = "";
 
-server.addCommand("/amxts_ping", (player, args) => {
+server.addCommand("/amxts_ping [words]", ({ player, words: typed }) => {
 	caller = player.name;
-	words = args.join(" ");
+	words = typed ?? "";
 });
 
 server.addServerCommand("amxts_test_player", run);

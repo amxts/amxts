@@ -403,7 +403,7 @@ function discoverSuites(): { suites: Suite[]; plugins: string[]; pawn: string[] 
 	for (const file of files) {
 		const source = readFileSync(join(suitesDir, file), 'utf-8');
 		const expectedLog = [...source.matchAll(/^\/\/ @log (.+)$/gm)].map(m => m[1].trim());
-		for (const [, tail] of source.matchAll(/(?:addServerCommand|register_srvcmd)\(\s*["']amxts_test_(\w+)["']/g)) {
+		for (const [, tail] of source.matchAll(/(?:addServerCommand(?:<\w+>)?|register_srvcmd)\(\s*["']amxts_test_(\w+)[\s"']/g)) {
 			suites.push({ name: tail.replace(/_/g, '-'), command: `amxts_test_${tail}`, expectedLog });
 		}
 	}

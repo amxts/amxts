@@ -76,7 +76,7 @@ function showTip() {
 	for (const player of Player.all({ humans: true })) print(player, tip.text);
 }
 
-server.addCommand("/tour", tour, { description: "Walk through the plugin API" });
+server.addCommand("/tour", ({ player }) => tour(player), { description: "Walk through the plugin API" });
 
 function tour(player: Player) {
 	if (!player.isAlive) {

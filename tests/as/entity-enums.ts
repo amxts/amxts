@@ -1,10 +1,10 @@
 // A fixture for tests/entity-enums.test.ts: fields that hold an engine enum
 // read and written as names, and the masks read as lists of names.
 
-server.addCommand("enum_write", write);
-server.addCommand("enum_read", read);
-server.addCommand("enum_unknown", writeUnknown);
-server.addCommand("enum_masks", masks);
+server.addCommand("enum_write", ({ player }) => write(player));
+server.addCommand("enum_read", ({ player }) => read(player));
+server.addCommand("enum_unknown", ({ player }) => writeUnknown(player));
+server.addCommand("enum_masks", ({ player }) => masks(player));
 
 function write(player: Player) {
 	player.renderMode = "additive";

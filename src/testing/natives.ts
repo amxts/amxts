@@ -487,6 +487,7 @@ export const NATIVES: Record<string, Native> = {
 
 	read_argc: c => c.server.argv.length,
 	read_argv: (c, [index, buffer, length]) => c.memory.setText(buffer, length, c.server.argv[index] ?? ''),
+	get_user_userid: (c, [id]) => player(c, id)?.userid ?? -1,
 	read_args: (c, [buffer, length]) => c.memory.setText(buffer, length, c.server.argv.slice(1).join(' ')),
 
 	// ------------------------------------------------------------ players

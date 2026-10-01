@@ -1,11 +1,11 @@
 // A fixture for tests/screen.test.ts: player.screen, one command a message.
 
-server.addCommand("scr_fade", fade);
-server.addCommand("scr_black", black);
-server.addCommand("scr_shake", shake);
-server.addCommand("scr_icon", icon);
-server.addCommand("scr_hud", hud);
-server.addCommand("scr_bar", bar);
+server.addCommand("scr_fade", ({ player }) => fade(player));
+server.addCommand("scr_black", ({ player }) => black(player));
+server.addCommand("scr_shake", ({ player }) => shake(player));
+server.addCommand("scr_icon", ({ player }) => icon(player));
+server.addCommand("scr_hud", ({ player }) => hud(player));
+server.addCommand("scr_bar", ({ player }) => bar(player));
 
 function fade(player: Player) {
 	player.screen.fade({ color: [200, 0, 0, 100], duration: 0.5 });

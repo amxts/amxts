@@ -49,7 +49,7 @@ shop.addItem("Buy AWP", {
 });
 shop.addItem("Close", { action: "CLOSE_MENU", spaceBefore: 1 });
 
-server.addCommand("/shop", (player) => shop.show(player));
+server.addCommand("/shop", ({ player }) => shop.show(player));
 ```
 
 Text — the title, an item, the `message` of a greyed-out item — is the text

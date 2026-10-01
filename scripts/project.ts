@@ -52,6 +52,7 @@ import ts from 'typescript';
 import { coreImports, importedName, importTable, withAutoImports } from './auto-imports';
 import { includeDirs } from './includes';
 import { existsSync, readdirSync, readFileSync, statSync } from './tracked-fs';
+import { typedCommands } from './typed-commands';
 import { typedConfigs } from './typed-configs';
 
 /** The core's folder: the package this file ships in. */
@@ -835,7 +836,7 @@ export class Sources {
 		return this.rel(this.place(real));
 	}
 
-	/** Each file's typed configs, made once a compile (scripts/typed-configs.ts). */
+	/** Each file's typed configs and commands, made once a compile (scripts/typed-configs.ts, scripts/typed-commands.ts). */
 	private typed = new Map<string, { text: string; out: string }>();
 
 	/**
@@ -851,14 +852,14 @@ export class Sources {
 		if (known && known.text === text) return known.out;
 
 		const display = posix(relative(this.project.dir, this.real(at) ?? at));
-		const made = typedConfigs(at, display, text, (from, spec) => {
+		const reader = (from: string, spec: string) => {
 			const file = this.resolveImport(from, spec);
 			const found = file ? this.readPlain(file) : null;
 			return file && found !== null ? { path: file, text: found } : null;
-		});
-		for (const problem of made.problems) {
-			if (!this.problems.includes(problem)) this.problems.push(problem);
-		}
+		};
+		const configs = typedConfigs(at, display, text, reader);
+		const made = typedCommands(at, display, configs.text, reader);
+		for (const problem of [...configs.problems, ...made.problems]) this.problem(problem);
 		this.typed.set(at, { text, out: made.text });
 		return made.text;
 	}

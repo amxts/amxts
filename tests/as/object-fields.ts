@@ -18,25 +18,25 @@ declare module "@amxts/core" {
 	}
 }
 
-server.addCommand("sc_on", (player) => {
+server.addCommand("sc_on", ({ player }) => {
 	player.glow.enabled = true;
 });
 
-server.addCommand("sc_default", (player) => {
+server.addCommand("sc_default", ({ player }) => {
 	player.glow.enabled = "default";
 });
 
 /** The whole object at once: off, and seen by everyone else. */
-server.addCommand("sc_all", (player) => {
+server.addCommand("sc_all", ({ player }) => {
 	player.glow = { enabled: false, seenBy: othersThan(player) };
 });
 
-server.addCommand("sc_push", (player) => {
+server.addCommand("sc_push", ({ player }) => {
 	const others = othersThan(player);
 	if (others.length > 0) player.glow.seenBy.push(others[0]);
 });
 
-server.addCommand("sc_read", (player) => {
+server.addCommand("sc_read", ({ player }) => {
 	const glow = player.glow;
 	const enabled = glow.enabled;
 	const seenBy = glow.seenBy.map(other => other.id);
@@ -48,7 +48,7 @@ server.addCommand("sc_read", (player) => {
 	print(player, `off=${off} on=${on} default=${byDefault} seenBy=${seenBy.join(",")} includes=${knows}`, "console");
 });
 
-server.addCommand("badge_write", (player) => {
+server.addCommand("badge_write", ({ player }) => {
 	const badge: Badge = { title: "Охотник", level: 2, shown: true, color: "blue", fans: [] };
 	player.badge = badge;
 	player.badge.level = player.badge.level + 0.5;
@@ -58,7 +58,7 @@ server.addCommand("badge_write", (player) => {
 	player.friends = [others[0], player];
 });
 
-server.addCommand("badge_read", (player) => {
+server.addCommand("badge_read", ({ player }) => {
 	const badge = player.badge;
 	const fans = badge.fans.map(fan => fan.id);
 	const friends = player.friends.map(friend => friend.id);

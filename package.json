@@ -69,6 +69,7 @@
 		"scripts/shared-modules.ts",
 		"scripts/system.ts",
 		"scripts/tracked-fs.ts",
+		"scripts/typed-commands.ts",
 		"scripts/typed-configs.ts",
 		"scripts/ui.ts",
 		"scripts/upgrade.ts",

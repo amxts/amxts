@@ -5,7 +5,7 @@
 // Only the editor reads this file. The build reads a module's definition from
 // its source and evaluates amxts.config.ts with a defineConfig of its own
 // (scripts/project.ts); asc never compiles either call.
-import type { ModuleOptions, Player, PlayerChangeEvent } from "./facade";
+import type { CommandOptions, ModuleOptions, Player, PlayerChangeEvent } from "./facade";
 
 declare global {
 	/** A module's name and config key. */
@@ -128,6 +128,21 @@ type PlayerFieldValue<F extends string> = F extends `${infer O}.${infer M}`
 	? O extends keyof Player ? (M extends keyof Player[O] ? Player[O][M] : never) : never
 	: F extends keyof Player ? Player[F] : never;
 
+// A command's arguments, typed. The build reads the type argument and the
+// usage the same way (scripts/typed-commands.ts); the editor reads them here.
+
+/** The names a usage requires: `<target>` in `"/kick <target> [reason]"`. */
+type RequiredNames<U extends string> = U extends `${string}<${infer N}>${infer R}` ? N | RequiredNames<R> : never;
+
+/** The names a usage may leave out: `[reason]`. */
+type OptionalNames<U extends string> = U extends `${string}[${infer N}]${infer R}` ? N | OptionalNames<R> : never;
+
+/** A usage's arguments, each text; any name for a usage made at run time, which the build reads. */
+type UsageArgs<U extends string> = string extends U ? Record<string, string | undefined> : { [K in RequiredNames<U>]: string } & { [K in OptionalNames<U>]?: string };
+
+/** A command's arguments: the type argument's, or else the usage's, as text. */
+type CommandArgsOf<T, U extends string> = [T] extends [never] ? UsageArgs<U> : T;
+
 declare module "./facade" {
 	interface PlayerChangeEvent<F extends string = string> {
 		/** The field's value after the change; with `{ field }`, of the field's type. */
@@ -147,6 +162,51 @@ declare module "./facade" {
 		/** Stops calling a listener added with `addEventListener` - the same function and the same field. */
 		// oxlint-disable-next-line typescript/method-signature-style -- an overload, merged into the class's method
 		removeEventListener<F extends PlayerFieldName>(type: "playerchange", listener: (event: PlayerChangeEvent<F>) => void, options: { field: F }): void;
+		/**
+		 * Adds a command players type, by its usage: the name, then the
+		 * arguments, `<name>` required and `[name]` optional. Their types are an
+		 * interface, the type argument; without it each is text.
+		 *
+		 * ```ts
+		 * interface KickArgs {
+		 *   target: Player;
+		 *   reason?: string;
+		 * }
+		 *
+		 * server.addCommand<KickArgs>("/kick <target> [reason]", ({ player, target, reason }) => {
+		 *   target.kick(reason ?? `Kicked by ${player.name}`);
+		 * }, { access: "Kick" });
+		 * server.addCommand("/hp", ({ player }) => print(player, `${player.health} HP`));
+		 * ```
+		 *
+		 * A name with `/` is a chat command, one without a console command, and
+		 * `"say <phrase>"` a phrase written in chat. A `number` argument is
+		 * parsed, a `Player` found by `#userid`, the whole name or a part of it,
+		 * a `string` taken as it is - the last one takes the rest of the line. A
+		 * word that is not what the command takes answers the player with the
+		 * usage, and the handler does not run.
+		 *
+		 * Pawn: `register_clcmd`
+		 */
+		// oxlint-disable-next-line typescript/method-signature-style -- the editor's signature of the class's method, which the build writes per call
+		addCommand<T extends object = never, const U extends string = string>(usage: U, handler: (args: CommandArgsOf<T, U> & { player: Player }) => void, options?: CommandOptions): void;
+		/**
+		 * Adds a command of the server console - typed there, sent over rcon or
+		 * run by another plugin - by its usage, its arguments read as a player's
+		 * command's are. No player types it.
+		 *
+		 * ```ts
+		 * interface ResetArgs {
+		 *   what?: "scores" | "all";
+		 * }
+		 *
+		 * server.addServerCommand<ResetArgs>("myplugin_reset [what]", ({ what }) => reset(what ?? "all"));
+		 * ```
+		 *
+		 * Pawn: `register_srvcmd`
+		 */
+		// oxlint-disable-next-line typescript/method-signature-style -- the editor's signature of the class's method, which the build writes per call
+		addServerCommand<T extends object = never, const U extends string = string>(usage: U, handler: (args: CommandArgsOf<T, U>) => void): void;
 	}
 }
 

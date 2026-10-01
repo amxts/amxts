@@ -9,7 +9,11 @@
 import { get_time } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
-server.addServerCommand("amxts_test_time", run);
+interface TimeArgs {
+	now?: number;
+}
+
+server.addServerCommand<TimeArgs>("amxts_test_time [now]", ({ now }) => run(now ?? 0));
 
 /** Две цифры, как у strftime: 7 - "07". */
 function twoDigits(value: number) {
@@ -28,10 +32,9 @@ function localTime(check: Checks) {
 	check.expect(Math.abs(date.getTime() - Date.now()) < 1000.0, "new Date() - сейчас").toBe(true);
 }
 
-function run(args: string[]) {
+function run(runner: number) {
 	const check = new Checks("time");
 
-	const runner = args.length > 0 ? parseFloat(args[0]) : 0.0;
 	const now = Date.now();
 	check.expect(Math.abs(now - runner) < 60000.0, `Date.now() совпадает с часами раннера (${now})`).toBe(true);
 

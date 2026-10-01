@@ -60,7 +60,7 @@ test('in Russian the editor reads a copy in .amxts/api, the installed core stays
 			'import { user_slap } from "@amxts/core/natives";',
 			'import { twice } from "~/lib/twice";',
 			'',
-			'server.addCommand("/slap", (player) => {',
+			'server.addCommand("/slap", ({ player }) => {',
 			'\tuser_slap(player.id, twice(2));',
 			'\tprint(player, "!gSlapped");',
 			'});',

@@ -1156,3 +1156,37 @@ test('38: plugin and module code imports the core\'s API by the package\'s name'
 	const findings = plugins.flatMap(file => coreByAlias(file, readFileSync(file, 'utf8'), renames)).map(f => `${f.where}  ${f.rule}`);
 	expect(findings).toEqual([]);
 });
+
+/** 37. A generic's type is an interface beside the code, passed by its name: a type literal in a call's type arguments is reported. */
+export function typeLiteralArguments(file: string, source: string): Finding[] {
+	const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+	const found: Finding[] = [];
+	const visit = (node: ts.Node) => {
+		if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && node.typeArguments?.some(ts.isTypeLiteralNode)) {
+			const line = parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1;
+			found.push({ where: `${file}:${line}`, rule: '37: a type written in place - declare an interface beside it and pass it by name' });
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(parsed);
+	return found;
+}
+
+test('37: a type literal as a type argument is found', () => {
+	const found = typeLiteralArguments('a.ts', [
+		'server.addCommand<{ target: Player }>("/kick <target>", () => {});',
+		'server.addCommand<KickArgs>("/kick <target>", () => {});',
+		'const shop = new Menu<{ category: string }>("Shop");',
+	].join('\n'));
+	expect(found.map(f => f.where)).toEqual(['a.ts:1', 'a.ts:3']);
+});
+
+test('37: plugin and module code passes a generic its type by name', () => {
+	const project = loadProject();
+	const plugins = [
+		...['tests/as', 'tests/server'].flatMap(dir => readdirSync(dir).filter(name => name.endsWith('.ts')).map(name => `${dir}/${name}`)),
+		'runtime/host/hello.ts',
+		...project.modules.flatMap(pkg => [join(pkg.dir, 'src'), join(pkg.dir, 'playground', 'plugins')]).filter(existsSync).flatMap(dir => pluginFiles(dir)),
+	];
+	expect(plugins.flatMap(file => typeLiteralArguments(file, readFileSync(file, 'utf8'))).map(f => `${f.where}  ${f.rule}`)).toEqual([]);
+});

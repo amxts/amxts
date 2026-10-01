@@ -11,11 +11,11 @@ server.addEventListener("precache", () => {
 });
 
 server.addCommand("fx_indexes", indexes);
-server.addCommand("fx_cylinder", cylinder);
-server.addCommand("fx_follow", follow);
+server.addCommand("fx_cylinder", ({ player }) => cylinder(player));
+server.addCommand("fx_follow", ({ player }) => follow(player));
 server.addCommand("fx_explosion", explosion);
 server.addCommand("fx_light", light);
-server.addCommand("fx_break", breakGlass);
+server.addCommand("fx_break", ({ player }) => breakGlass(player));
 server.addCommand("fx_missing", notPrecached);
 server.addCommand("fx_late", late);
 

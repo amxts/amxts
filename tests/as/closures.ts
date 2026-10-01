@@ -8,7 +8,11 @@ server.addEventListener("putinserver", (event) => {
 	setTimeout(() => print(player, `${greeting}, ${player.name}!`), 2000);
 });
 
-server.addCommand("/count", (player, args) => countdown(player, args.length > 0 ? parseInt(args[0]) : 3));
+interface CountArgs {
+	from?: number;
+}
+
+server.addCommand<CountArgs>("/count [from]", ({ player, from }) => countdown(player, from ?? 3));
 
 function countdown(player: Player, from: number) {
 	let left = from;
@@ -37,7 +41,7 @@ class Scoreboard {
 			this.hits++;
 			if (event.damage > 50) event.preventDefault();
 		});
-		server.addCommand("/hits", player => print(player, `${this.hits} hits`));
+		server.addCommand("/hits", ({ player }) => print(player, `${this.hits} hits`));
 	}
 }
 

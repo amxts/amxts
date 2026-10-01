@@ -9,21 +9,28 @@ let total = 0;
 
 step.addEventListener("change", event => console.log(`step ${event.oldValue} -> ${event.value}`));
 
-server.addCommand("counter_add", add, { description: "Adds the step to the counter" });
-server.addCommand("counter_time", playedTime);
-server.addCommand("counter_near", countNear);
-server.addServerCommand("counter_reset", reset);
+server.addCommand<AddArgs>("counter_add [times]", ({ player, times }) => add(player, times ?? 1), { description: "Adds the step to the counter" });
+server.addCommand("counter_time", ({ player }) => playedTime(player));
+server.addCommand("counter_near", ({ player }) => countNear(player));
+server.addServerCommand<ResetArgs>("counter_reset [to]", ({ to }) => reset(to ?? 0));
 
 nativeFn("counter_total", reportTotal);
 
-function add(player: Player, args: string[]) {
-	const times = args.length > 0 ? parseInt(args[0]) : 1;
+interface AddArgs {
+	times?: number;
+}
+
+interface ResetArgs {
+	to?: number;
+}
+
+function add(player: Player, times: number) {
 	total += step.number * times;
 	print(player, `Counter: ${total}`, "console");
 }
 
-function reset(args: string[]) {
-	total = args.length > 0 ? parseInt(args[0]) : 0;
+function reset(to: number) {
+	total = to;
 	console.log(`reset to ${total}`);
 }
 

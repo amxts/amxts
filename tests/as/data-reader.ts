@@ -3,7 +3,7 @@
 import "./player-state";
 import "./data-fields";
 
-server.addCommand("data_read", read);
+server.addCommand("data_read", ({ player }) => read(player));
 server.addEventListener("disconnected", event => console.log(`left with ${describe(event.player)}`));
 
 function read(player: Player) {

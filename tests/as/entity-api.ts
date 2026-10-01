@@ -1,10 +1,10 @@
 // A fixture for tests/entity-api.test.ts: what an entity does - whether it is
 // still in the world, its model and size, a sound from it, its health.
 
-server.addCommand("ent_exists", exists);
-server.addCommand("ent_sound", sound);
-server.addCommand("ent_box", box);
-server.addCommand("ent_health", health);
+server.addCommand<EntityArgs>("ent_exists <id>", ({ player, id }) => exists(player, id));
+server.addCommand("ent_sound", ({ player }) => sound(player));
+server.addCommand("ent_box", ({ player }) => box(player));
+server.addCommand("ent_health", ({ player }) => health(player));
 
 const precached: number[] = [];
 
@@ -13,8 +13,12 @@ server.addEventListener("precache", () => {
 	console.log(`precached ${precached.join(" ")}`);
 });
 
-function exists(player: Player, args: string[]) {
-	const entity = new Entity(parseInt(args[0]));
+interface EntityArgs {
+	id: number;
+}
+
+function exists(player: Player, id: number) {
+	const entity = new Entity(id);
 	print(player, `${entity.exists}`, "console");
 }
 
