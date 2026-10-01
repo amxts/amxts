@@ -71,7 +71,7 @@ async function download(source: Source, offline: string): Promise<Uint8Array> {
 			problem = (error as Error).message;
 		}
 		if (attempt >= 3) throw new SetupError(`Could not download ${source.name} ${source.version}: ${problem}`, offline);
-		await Bun.sleep(attempt * 3000);
+		await new Promise(done => setTimeout(done, attempt * 3000));
 	}
 }
 
