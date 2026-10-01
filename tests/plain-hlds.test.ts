@@ -69,6 +69,7 @@ test('without reapi a new round is the HLTV message before the respawn, and the 
 	expect(server.logLines.filter(line => line.startsWith('new round'))).toEqual(['new round']);
 	playback(decals);
 	expect(server.logLines.filter(line => line.startsWith('new round'))).toEqual(['new round', 'new round, respawned']);
+	expect(server.logLines.filter(line => line === 'map cleaned up')).toHaveLength(1);
 
 	// HLTV of another kind is no new round.
 	server.sendMessage('HLTV', [1, 0]);

@@ -19,7 +19,7 @@ import {
 import { Entity } from "./entities";
 import {
 	HookEvent, AddAccountEvent, BounceGibTouchEvent, BuyGunAmmoEvent, BuyItemEvent, BuyWeaponByWeaponIdEvent,
-	CanPlayerHearPlayerEvent, ChangeLevelEvent, ChooseAppearanceEvent, ChooseTeamEvent, ClientConnectedEvent,
+	CanPlayerHearPlayerEvent, ChangeLevelEvent, CleanUpMapEvent, ChooseAppearanceEvent, ChooseTeamEvent, ClientConnectedEvent,
 	ClientUserInfoChangedEvent, ConnectClientEvent, DeathNoticeEvent, DeathSoundEvent, DefuseBombEndEvent,
 	DefuseBombStartEvent, DropClientEvent, DropPlayerItemEvent, ExplodeBombEvent, GameThinkEvent, GibSpawnEvent,
 	GiveC4Event, GoToIntermissionEvent, HasRestrictItemEvent, MakeBomberEvent, MakeVipEvent, OnRoundFreezeEndEvent,
@@ -203,27 +203,39 @@ function newRound(fire: Fire<RestartRoundEvent>): void {
 	settle(event, "restartRound");
 }
 
-/**
- * The round once its players have respawned: the game resets the map's decals
- * last, and nothing else does at the HLTV message's time. The engine's
- * playback forward is heard for that one event alone, compared in the module.
- */
+// The map's decals reset: the game's CleanUpMap plays events/decal_reset.sc
+// as a round restarts, after its players have respawned, and nothing else
+// does. The engine's playback forward is heard for that one event alone,
+// compared in the module: it fires on every shot.
+const decalHearers: (() => void)[] = [];
+
+function onDecalsReset(hearer: () => void): void {
+	if (decalHearers.length == 0) {
+		__whenUp((): void => {
+			const decals = <i32>new Call(NATIVE_engfunc).num(EngFunc_PrecacheEvent).ref(1).str("events/decal_reset.sc").run();
+			__onCell("pfn_playbackevent", decalsReset.index, 2, decals);
+		});
+	}
+	decalHearers.push(hearer);
+}
+
+function decalsReset(a: i32): void {
+	for (let i = 0; i < decalHearers.length; i++) decalHearers[i]();
+}
+
+/** The round once its players have respawned: the decals' reset at its HLTV message's time. */
 export function restartRoundPostHlds(fire: Fire<RestartRoundEvent>): void {
-	__whenUp((): void => {
-		const decals = <i32> new Call(NATIVE_engfunc).num(EngFunc_PrecacheEvent).ref(1).str("events/decal_reset.sc").run();
-		__onCell("pfn_playbackevent", decalsReset.index, 2, decals);
-		restartRoundAfter = fire;
+	onDecalsReset((): void => {
+		if (get_gametime() != newRoundAt) return;
+		const event = new RestartRoundEvent();
+		fire(event, true);
+		settle(event, "restartRound");
 	});
 }
 
-let restartRoundAfter: Fire<RestartRoundEvent> | null = null;
-
-function decalsReset(a: i32): void {
-	const fire = restartRoundAfter;
-	if (fire == null || get_gametime() != newRoundAt) return;
-	const event = new RestartRoundEvent();
-	fire(event, true);
-	settle(event, "restartRound");
+/** The map cleaned up for a new round: the decals' reset, its last step. */
+export function cleanUpMapHlds(fire: Fire<CleanUpMapEvent>): void {
+	onDecalsReset((): void => hear(fire, new CleanUpMapEvent(), "cleanUpMap"));
 }
 
 /** The freeze time is over: the game logs "Round_Start". */

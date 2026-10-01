@@ -18,6 +18,7 @@ function onRoundEnd(event: RoundEndEvent) {
 game.addEventListener("restartRound", () => console.log("new round"));
 game.addEventListener("restartRound", () => console.log("new round, respawned"), true);
 game.addEventListener("onRoundFreezeEnd", () => console.log("round start"));
+game.addEventListener("cleanUpMap", () => console.log("map cleaned up"));
 game.addEventListener("playerSpawn", event => console.log(`spawned ${event.player.id}`));
 game.addEventListener("addAccount", event => console.log(`money ${event.player.id} ${event.amount}`));
 game.addEventListener("defuseBombEnd", event => console.log(`defused ${event.player.id} ${event.defused}`));
