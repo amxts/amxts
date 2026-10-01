@@ -94,6 +94,12 @@ test('without reapi a round\'s end is its log line, with the winner and the reas
 	expect(server.logLines.filter(line => line.startsWith('round'))).toEqual(['round start', 'round TERRORIST targetBomb 5', 'round TERRORIST targetBomb 5']);
 });
 
+test('without reapi game.endRound with dispatch tells the roundEnd listeners, as the game tells its own', async () => {
+	const server = await loadPlugin(PLUGIN, PLAIN);
+	server.serverCommand('end_told');
+	expect(server.logLines.filter(line => line.startsWith('round '))).toEqual(['round CT ctsWin 4', 'round CT ctsWin 4']);
+});
+
 test('without reapi money is the Money message, by how much it moved', async () => {
 	const server = await loadPlugin(PLUGIN, PLAIN);
 	// He comes with none, and the game gives him the starting money.

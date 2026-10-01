@@ -32,7 +32,8 @@ import {
 	set_dhudmessage, show_dhudmessage, CreateHudSyncObj, ShowSyncHudMsg, ClearSyncHud,
 	precache_model, precache_sound, precache_generic, query_client_cvar, register_touch,
 	register_message, get_msg_args, get_msg_argtype, get_msg_arg_int, get_msg_arg_float, get_msg_arg_string,
-	set_msg_arg_int, set_msg_arg_float, set_msg_arg_string, get_user_userid
+	set_msg_arg_int, set_msg_arg_float, set_msg_arg_string, get_user_userid,
+	emessage_begin, ewrite_byte, ewrite_short, ewrite_string, emessage_end, elog_message
 } from "./natives";
 // Promise, async/await and AbortSignal, as the globals they are in JavaScript.
 import "./promise";
@@ -3295,15 +3296,39 @@ export class Game extends GameFields {
 		// Without reapi, what rg_round_end does through the game's
 		// TerminateRound: the winner, the moment the next round starts, and the
 		// round marked as ending, so the game does not end it again meanwhile;
-		// then the message and the sound. Nobody is told: the roundEnd event is
-		// reapi's.
+		// then the message and the sound.
 		this.roundWinner = options.winner;
 		this.roundTerminating = true;
 		this.restartRoundTime = this.time + delay;
 		const text = message == "default" ? ROUND_MESSAGES[status] : message;
-		if (text.length > 0) client_print(0, print_center, text);
 		const radio = sound == "default" ? ROUND_SOUNDS[status] : sound;
-		if (radio.length > 0) broadcastAudio(`%!MRAD_${radio}`);
+		if (!(options.dispatch ?? false)) {
+			if (text.length > 0) client_print(0, print_center, text);
+			if (radio.length > 0) broadcastAudio(`%!MRAD_${radio}`);
+			return;
+		}
+
+		// Told as the game tells a round's end - the message and the sound
+		// through the engine, where every plugin's hooks hear them, then its
+		// log lines, which the roundEnd listeners hear on plain HLDS - Pawn
+		// plugins' logevents too.
+		if (text.length > 0) {
+			emessage_begin(MSG_ALL, get_user_msgid("TextMsg"));
+			ewrite_byte(print_center);
+			ewrite_string(text);
+			emessage_end();
+		}
+		if (radio.length > 0) {
+			emessage_begin(MSG_ALL, get_user_msgid("SendAudio"));
+			ewrite_byte(0);
+			ewrite_string(`%!MRAD_${radio}`);
+			ewrite_short(100);
+			emessage_end();
+		}
+		const score = `(CT "${this.numCtWins}") (T "${this.numTerroristWins}")`;
+		if (status == 3) elog_message(`World triggered "Round_Draw" ${score}`);
+		else if (status > 0) elog_message(`Team "${status == 1 ? "CT" : "TERRORIST"}" triggered "${status == 1 ? "CTs_Win" : "Terrorists_Win"}" ${score}`);
+		elog_message(`World triggered "Round_End"`);
 	}
 }
 

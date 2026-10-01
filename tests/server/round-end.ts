@@ -1,7 +1,7 @@
 // game.endRound кончает раунд, как его кончает игра: победитель, момент
 // следующего раунда, раунд помечен кончающимся, счёт не тронут. С dispatch
-// он зовёт обработчики roundEnd, и они видят победителя и причину словами -
-// это событие reapi, и без него его нет: раунд кончается всё равно.
+// он зовёт обработчики roundEnd, и они видят победителя и причину словами:
+// с reapi - его событие, без него - строки лога, как пишет их игра.
 // Раунд правда кончается и начинается заново, поэтому набор идёт почти
 // последним (наборы идут по имени файла): проверки других попали бы в новый раунд.
 import { Checks } from "@amxts/core/check";
@@ -32,11 +32,9 @@ function run() {
 	check.expect(game.restartRoundTime - game.time, "следующий раунд через delay").toBeCloseTo(3);
 	check.expect(game.numCtWins, "счёт не тронут").toBe(ctWins);
 
-	if (hasModule("reapi")) {
-		check.expect(heard, "обработчик roundEnd услышал конец раунда").toBe(true);
-		check.expect(winner, "event.winner").toBe("CT");
-		check.expect(reason, "event.reason").toBe("ctsWin");
-		check.expect(delay, "event.delay").toBe(3);
-	}
+	check.expect(heard, "обработчик roundEnd услышал конец раунда").toBe(true);
+	check.expect(winner, "event.winner").toBe("CT");
+	check.expect(reason, "event.reason").toBe("ctsWin");
+	check.expect(delay, "event.delay").toBeCloseTo(3);
 	check.done();
 }

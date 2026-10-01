@@ -941,6 +941,19 @@ export const NATIVES: Record<string, Native> = {
 		for (const listener of c.server.messageListeners) listener(message);
 		return 1;
 	},
+	// emessage_end: the message goes out through the engine, so every plugin's
+	// register_message hooks hear it on its way - a plugin's message_end they do not.
+	emessage_end: (c) => {
+		const message = c.server.writing;
+		if (!message) return 1;
+		c.server.writing = null;
+		const target = c.server.player(message.player);
+		const sent = c.server.sendMessage(message.name, message.args, target ? { player: target } : {});
+		if (sent.prevented) return 1;
+		message.args = sent.args;
+		c.server.writing = message;
+		return NATIVES.message_end(c, []) as number;
+	},
 	write_coord_f: (c, [value]) => {
 		c.server.writing?.args.push(bitsFloat(value));
 		return 1;
@@ -1039,11 +1052,10 @@ const SAME_AS: Record<string, string> = {
 	write_char: 'write_byte',
 	write_short: 'write_byte',
 	write_long: 'write_byte',
-	// What other plugins' message listeners hear on a server; the fake hears no plugin's message either way.
+	// A message sent through the engine, which every plugin's message hooks hear (emessage_end).
 	emessage_begin: 'message_begin',
 	ewrite_byte: 'write_byte',
 	ewrite_short: 'write_byte',
 	ewrite_string: 'write_string',
-	emessage_end: 'message_end',
 };
 for (const [name, same] of Object.entries(SAME_AS)) NATIVES[name] = NATIVES[same];
