@@ -2563,35 +2563,6 @@ export class ClientMessage {
 		const id = <i32>this.__number(arg);
 		return id >= 1 && id <= get_maxplayers() ? new Player(id) : null;
 	}
-}
-
-// One register_message per message name, its listeners behind it: the engine
-// hands the plugin only the messages it listens to. Registered when the
-// server is up - a message's id is known from plugin_init - and a reload
-// takes the same public back.
-class MessageChannel {
-	listeners: ((event: ClientMessage) => void)[] = [];
-	constructor(public name: string, public make: () => ClientMessage) {}
-}
-
-const messageChannels: MessageChannel[] = [];
-const waitingMessages: MessageChannel[] = [];
-
-function messageChannel(name: string): MessageChannel | null {
-	for (let i = 0; i < messageChannels.length; i++) {
-		if (messageChannels[i].name == name) return messageChannels[i];
-	}
-	return null;
-}
-
-function addMessageListener<E>(name: string, listener: (event: E) => void): void {
-	let channel = messageChannel(name);
-
-	if (channel == null) {
-		channel = new MessageChannel(name, (): ClientMessage => changetype<ClientMessage>(instantiate<E>()));
-		messageChannels.push(channel);
-		if (serverUp) registerMessage(channel);
-		else waitingMessages.push(channel);
 
 	/** @hidden Three coordinates from the argument on. */
 	protected __vector(arg: i32): Vector {
@@ -2625,6 +2596,35 @@ function addMessageListener<E>(name: string, listener: (event: E) => void): void
 		const mask = <i32>this.__number(arg);
 		this.__setNumber(arg, on ? mask | bit : mask & ~bit);
 	}
+}
+
+// One register_message per message name, its listeners behind it: the engine
+// hands the plugin only the messages it listens to. Registered when the
+// server is up - a message's id is known from plugin_init - and a reload
+// takes the same public back.
+class MessageChannel {
+	listeners: ((event: ClientMessage) => void)[] = [];
+	constructor(public name: string, public make: () => ClientMessage) {}
+}
+
+const messageChannels: MessageChannel[] = [];
+const waitingMessages: MessageChannel[] = [];
+
+function messageChannel(name: string): MessageChannel | null {
+	for (let i = 0; i < messageChannels.length; i++) {
+		if (messageChannels[i].name == name) return messageChannels[i];
+	}
+	return null;
+}
+
+function addMessageListener<E>(name: string, listener: (event: E) => void): void {
+	let channel = messageChannel(name);
+
+	if (channel == null) {
+		channel = new MessageChannel(name, (): ClientMessage => changetype<ClientMessage>(instantiate<E>()));
+		messageChannels.push(channel);
+		if (serverUp) registerMessage(channel);
+		else waitingMessages.push(channel);
 	}
 
 	channel.listeners.push(changetype<(event: ClientMessage) => void>(listener));
