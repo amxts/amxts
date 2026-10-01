@@ -136,9 +136,25 @@ const EXTRA_PLUGINS = [...project.modules.map(pkg => modulesSources.ownerSource(
 // copies of the server's.
 const CONFIGS_READ = ['hamdata.ini'];
 
+// The core's network suite (tests/server/fetch.ts) talks to a web server of
+// the runner's own, tests/http-server.ts, started when the suite is there: on
+// this machine's loopback, or for a container on the address Docker gives
+// this machine there, host.docker.internal (Docker Desktop forwards it to the
+// loopback; on Linux it is the bridge, so every interface listens).
+let web: { http: string; https: string; stop: () => void } | null = null;
+
+async function startWeb(suites: Suite[]): Promise<void> {
+	const file = join(CORE_DIR, 'tests/http-server.ts');
+	if (!suites.some(suite => suite.name === 'fetch') || !existsSync(file)) return;
+	const { startTestHttp } = await import(file);
+	web = !linux ? startTestHttp() : startTestHttp(process.platform === 'win32' ? '127.0.0.1' : '0.0.0.0', 'host.docker.internal');
+}
+
 // What a suite is given after its command.
 const SUITE_ARGS: Record<string, () => string> = {
 	time: () => String(Date.now()),
+	// Quoted: the engine's console splits a word at a colon.
+	fetch: () => (web ? `"${web.http}" "${web.https}"` : ''),
 };
 
 const START_TIMEOUT = 90_000;
@@ -209,7 +225,7 @@ function ensureImage(): void {
 function startContainer(argv: string[]): number {
 	ensureImage();
 	if (containerExists()) docker(['rm', '-f', CONTAINER]);
-	const created = docker(['create', '--name', CONTAINER, '-t', '-p', `127.0.0.1:${PORT}:27015/udp`, IMAGE, ...argv]);
+	const created = docker(['create', '--name', CONTAINER, '-t', '-p', `127.0.0.1:${PORT}:27015/udp`, '--add-host', 'host.docker.internal:host-gateway', IMAGE, ...argv]);
 	if (created.status !== 0) throw new Error(`docker create failed: ${created.stderr.trim()}`);
 
 	// The configs a module reads, from the image: Linux offsets, not Windows'.
@@ -731,6 +747,7 @@ async function main(): Promise<number> {
 
 	const started = performance.now();
 	const { suites, plugins, pawn } = discoverSuites();
+	await startWeb(suites);
 	const built = await build(plugins, pawn);
 	if (!built) return 1;
 	console.log(`built ${built.length} plugins and ${pawn.length} Pawn suite(s) (${((performance.now() - started) / 1000).toFixed(1)}s)`);
@@ -829,6 +846,7 @@ async function main(): Promise<number> {
 		if (!alive()) problems.push('the server exited during the run (a crash? see the log below)');
 		return report(results, problems);
 	} finally {
+		web?.stop();
 		if (keep && isAlive(pid)) {
 			console.log(`\nleft running: ${linux ? `container ${CONTAINER}` : `pid ${pid}`}, 127.0.0.1:${PORT}, rcon_password "${password}"`);
 			console.log(`its console: ${linux ? `docker logs ${CONTAINER}` : join(rootDir, 'qconsole.log')}`);
