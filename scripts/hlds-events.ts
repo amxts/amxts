@@ -28,8 +28,8 @@ export interface HeardEvent {
 }
 
 const after: Text = {
-	en: 'heard after the game has acted: `preventDefault()` and changing a field do nothing',
-	ru: 'слышно, когда игра уже сделала своё: `preventDefault()` и запись поля ничего не делают',
+	en: 'heard after the game has acted, so `preventDefault()` and changing a field do nothing',
+	ru: 'слышно, когда игра уже сделала своё, поэтому `preventDefault()` и запись поля ничего не делают',
 };
 
 /** `after`, then more. */
@@ -49,7 +49,7 @@ function buy(en: string, ru: string): Text {
 }
 
 function thrown(en: string, ru: string): Text {
-	return afterAnd(`heard when the grenade gets its model; ${en}`, `слышно, когда граната получает модель; ${ru}`);
+	return afterAnd(`it is heard as the grenade gets its model${en}`, `слышно, когда граната получает модель${ru}`);
 }
 
 const precached: Text = {
@@ -71,10 +71,10 @@ export const HEARD: Record<string, HeardEvent> = {
 	onRoundFreezeEnd: { class: 'B', backend: 'logevent World triggered "Round_Start"', gaps: after },
 	roundEnd: {
 		class: 'B',
-		backend: 'logevent World triggered "Round_End"; winner and reason from the TextMsg, or SendAudio, before it',
+		backend: 'logevent World triggered "Round_End"; winner and reason from the TextMsg, the trigger log line or SendAudio before it',
 		gaps: afterAnd(
-			'`delay` is the original game\'s: 3 seconds for "gameCommencing", 5 for the rest; returning an answer does nothing, and `game.endRound` is not heard',
-			'`delay` — как в оригинальной игре: 3 секунды для "gameCommencing", 5 для остальных; ответ ничего не делает, и `game.endRound` не слышен',
+			'returning an answer does nothing; `delay` is the original game\'s 5 seconds, 3 for `"gameCommence"`, unless `game.endRound` set it',
+			'ответ ничего не делает; `delay` — 5 секунд оригинальной игры, 3 для `"gameCommence"`, если его не задал `game.endRound`',
 		),
 	},
 	gameThink: { class: 'B', backend: 'server_frame', gaps: after },
@@ -113,8 +113,8 @@ export const HEARD: Record<string, HeardEvent> = {
 	makeVip: { class: 'B', backend: 'logevent "Became_VIP"', gaps: after },
 	plantBomb: {
 		class: 'B',
-		backend: 'logevent "Planted_The_Bomb"; the bomb is the grenade with the C4 model',
-		gaps: noAnswer(afterAnd('`velocity` reads as zero', '`velocity` читается нулевым').en, afterAnd('`velocity` reads as zero', '`velocity` читается нулевым').ru),
+		backend: 'FM_SetModel w_c4.mdl on a grenade: its planter, place and velocity are set',
+		gaps: afterAnd('it is heard as the bomb gets its model; returning an answer does nothing', 'слышно, когда бомба получает модель; ответ ничего не делает'),
 	},
 	defuseBombStart: { class: 'B', backend: 'logevent "Begin_Bomb_Defuse_With_Kit" / "_Without_Kit"', gaps: after },
 	defuseBombEnd: {
@@ -133,13 +133,13 @@ export const HEARD: Record<string, HeardEvent> = {
 		class: 'B',
 		backend: 'Money message: the change from the last amount the player was sent',
 		gaps: afterAnd(
-			'`amount` is the change his money got, `reason` reads as `"none"`, and a change a plugin makes (`cs_set_user_money`) is heard too',
-			'`amount` — на сколько изменились его деньги, `reason` читается как `"none"`, и изменение, сделанное плагином (`cs_set_user_money`), тоже слышно',
+			'`amount` is how much his money moved since the game last sent it to him, and `reason` reads as `"none"`',
+			'`amount` — на сколько сдвинулись его деньги с тех пор, как игра в последний раз их ему прислала, а `reason` читается как `"none"`',
 		),
 	},
 	buyWeaponByWeaponId: { class: 'B', backend: 'cstrike CS_OnBuy, a weapon', gaps: buy('`event.result` reads as `null`', '`event.result` читается как `null`') },
 	buyItem: { class: 'B', backend: 'cstrike CS_OnBuy, the equipment', gaps: buy('heard for the equipment menu\'s items', 'слышно для предметов меню снаряжения') },
-	buyGunAmmo: { class: 'B', backend: 'cstrike CS_OnBuy, ammo', gaps: buy('`blinkMoney` reads as `true`', '`blinkMoney` читается как `true`') },
+	buyGunAmmo: { class: 'B', backend: 'cstrike CS_OnBuy, ammo', gaps: buy('`weapon_entity` reads as 0, `blinkMoney` as `true`', '`weapon_entity` читается как 0, `blinkMoney` — как `true`') },
 	hasRestrictItem: {
 		class: 'B',
 		backend: 'cstrike CS_OnBuyAttempt',
@@ -213,10 +213,10 @@ export const HEARD: Record<string, HeardEvent> = {
 			ru: 'спрашивается, когда игра сообщает движку, кто кого слышит, — и при включённом `sv_alltalk`, и для игрока, заглушившего другого: ответ перекрывает и то и другое',
 		},
 	},
-	throwHeGrenade: { class: 'B', backend: 'FM_SetModel w_hegrenade.mdl', gaps: thrown('`usEvent` reads as 0', '`usEvent` читается как 0') },
-	throwFlashbang: { class: 'B', backend: 'FM_SetModel w_flashbang.mdl', gaps: thrown('every field is there', 'все поля на месте') },
-	throwSmokeGrenade: { class: 'B', backend: 'FM_SetModel w_smokegrenade.mdl', gaps: thrown('`usEvent` reads as 0', '`usEvent` читается как 0') },
-	throwGrenade: { class: 'B', backend: 'FM_SetModel of a thrown grenade', gaps: thrown('`usEvent` reads as 0', '`usEvent` читается как 0') },
+	throwHeGrenade: { class: 'B', backend: 'FM_SetModel w_hegrenade.mdl', gaps: thrown(', and `usEvent` reads as 0', ', а `usEvent` читается как 0') },
+	throwFlashbang: { class: 'B', backend: 'FM_SetModel w_flashbang.mdl', gaps: thrown('', '') },
+	throwSmokeGrenade: { class: 'B', backend: 'FM_SetModel w_smokegrenade.mdl', gaps: thrown(', and `usEvent` reads as 0', ', а `usEvent` читается как 0') },
+	throwGrenade: { class: 'B', backend: 'FM_SetModel of a thrown grenade', gaps: thrown(', and `usEvent` reads as 0', ', а `usEvent` читается как 0') },
 	setModel: {
 		class: 'B',
 		backend: 'FM_SetModel on a weaponbox',

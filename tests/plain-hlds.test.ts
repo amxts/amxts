@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { constant, loadPlugin, setup } from '@amxts/core/test-utils';
@@ -195,6 +195,17 @@ test('each of them is heard on plain HLDS, fully or with its gaps, or is not, wi
 	expect([...unheardEvents()].sort()).toEqual(Object.keys(NOT_HEARD).sort());
 	for (const event of ['playerSpawn', 'roundEnd', 'restartRound', 'onRoundFreezeEnd', 'addAccount', 'plantBomb']) expect(HEARD[event]?.class).toBe('B');
 	for (const event of ['flPlayerFallDamage', 'move', 'canHavePlayerItem']) expect(NOT_HEARD[event]).toBeString();
+});
+
+test('the game events page lists what plain HLDS does not give of each, in both languages', () => {
+	const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+	for (const [lang, heading] of [['en', '## A server without ReAPI'], ['ru', '## Сервер без ReAPI']] as const) {
+		const page = readFileSync(`docs/${lang}/2.core/02.hooks.md`, 'utf8');
+		const section = page.slice(page.indexOf(heading), page.indexOf('\n## ', page.indexOf(heading) + 1));
+		const rows = [...section.matchAll(/^\| `(\w+)` \| (.+) \|$/gm)].map(([, event, text]) => `${event}: ${text}`);
+		const gaps = Object.entries(HEARD).filter(([, heard]) => heard.class === 'B').map(([event, heard]) => `${event}: ${sentence(heard.gaps![lang])}`);
+		expect(rows).toEqual(gaps.sort());
+	}
 });
 
 test('so is each game rules field of ReGameDLL\'s own', () => {
