@@ -201,3 +201,24 @@ export function run(): f64 {
 	expect(error).toBe('');
 	expect(run()).toBe(1 + 5 + 6);
 });
+
+test('a return of the caught error in a catch: the error is an Error', async () => {
+	const { error, run } = await compile(`
+function nameOf(fail: bool) {
+	try {
+		if (fail) throw new RangeError("out");
+		return "none";
+	} catch (caught) {
+		return caught.name;
+	}
+}
+function lengthOf<T>(value: T): i32 {
+	return changetype<string>(value).length;
+}
+export function run(): i32 {
+	return lengthOf(nameOf(true)) * 100 + lengthOf(nameOf(false));
+}
+`);
+	expect(error).toBe('');
+	expect(run()).toBe('RangeError'.length * 100 + 'none'.length);
+});
