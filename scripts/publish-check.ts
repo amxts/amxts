@@ -44,6 +44,9 @@ const env: NodeJS.ProcessEnv = {
 	...Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(?:amxts_|npm_)/i.test(name))),
 	NPM_CONFIG_REGISTRY: REGISTRY,
 	npm_config_cache: join(folder, '.npm-cache'),
+	// npm create runs a create-amxts installed globally when its version fits -
+	// one linked from a checkout (`npm link`) - rather than the registry's.
+	npm_config_prefix: join(folder, '.npm-global'),
 	// npm create asks before it installs create-amxts: nobody is there to answer.
 	npm_config_yes: 'true',
 };
