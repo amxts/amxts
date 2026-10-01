@@ -4,14 +4,16 @@
 # plugin on the server. A project's plugins, configs and files come from the
 # folder mounted at /project, at every start (start.sh).
 #
-#   bun run server:image        the Linux kit, then this image, amxts-server
+#   docker run --rm -it -p 27015:27015/udp -v <project>:/project ghcr.io/amxts/server
 #
-#   docker run --rm -it -p 27015:27015/udp -v <project>:/project amxts-server
+# CI publishes it for every release as ghcr.io/amxts/server:<version> and
+# :latest (.github/workflows/publish.yml), built with the release's Linux
+# server kit. `bun run server:image` builds it from a checkout under the name
+# of the checkout's version, after `bun run build:linux`. The kit is a build
+# context of its own, `kit` - dist-server/linux, which `bun run serverkit
+# --os linux` assembles:
 #
-# The kit is a build context of its own, `kit` - dist-server/linux, which
-# `bun run serverkit --os linux` assembles:
-#
-#   docker build -t amxts-server --build-context kit=dist-server/linux docker/server
+#   docker build -t ghcr.io/amxts/server:<version> --build-context kit=dist-server/linux docker/server
 #
 # Two stages: everything is downloaded and unpacked in the first, and the
 # second - the image - is a slim Debian with the 32-bit C libraries hlds_linux
@@ -76,6 +78,13 @@ RUN printf 'amxts_host.amxx\n' >> /hlds/cstrike/addons/amxmodx/configs/plugins.i
 	&& chmod 755 /hlds/cstrike/addons/amxts/tools/amxts-compile /hlds/cstrike/addons/amxts/tools/wamrc
 
 FROM debian:bookworm-slim
+
+# The version, the commit and the date are added by the build that publishes
+# it.
+LABEL org.opencontainers.image.title="amxts server" \
+	org.opencontainers.image.description="A Counter-Strike 1.6 server with amxts: HLDS, ReHLDS, ReGameDLL, Metamod-R, AMX Mod X and ReAPI; a project mounted at /project" \
+	org.opencontainers.image.source="https://github.com/amxts/amxts" \
+	org.opencontainers.image.url="https://amxts.github.io"
 
 # The 32-bit C and C++ libraries hlds_linux and the modules link against; the
 # CA roots Steam's client connects with; tini, so that the server is not

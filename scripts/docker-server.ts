@@ -1,14 +1,23 @@
-// The Docker server a project runs on (docker/server, the amxts-server image):
-// which running containers mount the project, and their console.
+// The Docker server a project runs on (docker/server, published as
+// ghcr.io/amxts/server): which running containers mount the project, and
+// their console.
 //
 // `amxts dev --docker` builds into dist/, which such a container reads where
 // it is - its module reloads a plugin whose .aot changed - so nothing is
 // deployed. What is left is showing the developer the server's answer, and
 // that is the container's console: its amxts lines, as they come.
 import { spawn, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import process from 'node:process';
 import { c } from './ui';
+
+/**
+ * The server image of this core's version. Its module loads only the .aot of
+ * the same release's wamrc, so a project runs on the image of its own core;
+ * `bun run server:image` builds it from a checkout under the same name.
+ */
+export const SERVER_IMAGE = `ghcr.io/amxts/server:${JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version}`;
 
 /** Where the image takes a project from. */
 const PROJECT_MOUNT = '/project';
@@ -69,5 +78,5 @@ export function followConsoles(names: string[]): void {
 
 /** The command that starts the server for this project. */
 export function runCommand(projectDir: string): string {
-	return `docker run --rm -it -p 27015:27015/udp -v "${resolve(projectDir)}:${PROJECT_MOUNT}" amxts-server`;
+	return `docker run --rm -it -p 27015:27015/udp -v "${resolve(projectDir)}:${PROJECT_MOUNT}" ${SERVER_IMAGE}`;
 }
