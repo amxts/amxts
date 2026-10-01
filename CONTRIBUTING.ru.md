@@ -121,6 +121,7 @@ bun run test           # the suite, on a fake server
 bun run test:fast      # the quick ones: the style test, the generators, the include parser
 bun run test:server    # the server suites, on a test server of the AMXTS_SERVER install
 bun run test:server --linux   # the same suites on a Linux server, in Docker
+bun run test:server --plain   # the same on Linux without ReHLDS, ReGameDLL, ReAPI
 bun run test:server --quick   # the same suites compiled as `amxts dev` compiles them
 ```
 

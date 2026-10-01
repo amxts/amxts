@@ -4,6 +4,7 @@
 //   bun run test:server --keep     leave the test server running afterwards
 //   bun run test:server --stop     stop a server left by --keep and clean up
 //   bun run test:server --linux    the same suites on a Linux server, in Docker
+//   bun run test:server --plain    the same on Linux without ReHLDS, ReGameDLL, ReAPI
 //   bun run test:server --quick    the suites compiled as `amxts dev` compiles them
 //
 // It runs the suites of the project in the current folder, as the build does
@@ -55,6 +56,10 @@
 // test's folder and the module are copied into the container before it
 // starts, its console is `docker logs`, and it is
 // removed at the end. AMXTS_SERVER is not needed; the map is de_dust2.
+// --plain is --linux on the amxts-hlds-plain image (docker/hlds-plain):
+// Valve's HLDS with metamod-p and AMX Mod X's stock modules, no reapi. Its
+// container, its build folder and its port (27017) are its own, so it runs
+// beside a --linux one.
 import { spawnSync } from 'node:child_process';
 import { createSocket } from 'node:dgram';
 import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -72,10 +77,11 @@ function fail(message: string): void {
 const args = process.argv.slice(2);
 const keep = args.includes('--keep');
 const stopOnly = args.includes('--stop');
-const linux = args.includes('--linux');
+const plain = args.includes('--plain');
+const linux = plain || args.includes('--linux');
 const quick = args.includes('--quick');
 const portArg = args.indexOf('--port');
-const PORT = Number(portArg >= 0 ? args[portArg + 1] : process.env.AMXTS_TEST_PORT ?? 27016);
+const PORT = Number(portArg >= 0 ? args[portArg + 1] : process.env.AMXTS_TEST_PORT ?? (plain ? 27017 : 27016));
 const MAP = process.env.AMXTS_TEST_MAP ?? (linux ? 'de_dust2' : 'c21_kitty');
 
 const amxtsDir = process.env.AMXTS_SERVER ?? '';
@@ -103,7 +109,7 @@ if (project.problems.length) {
 // The core's own suites are in tests/server, a project's in test/server.
 const suitesDir = ['test/server', 'tests/server'].map(dir => join(project.dir, dir)).find(dir => existsSync(dir)) ?? join(project.dir, 'test/server');
 // A Linux .aot is another file than a Windows one (scripts/system.ts).
-const buildDir = join(project.outDir, linux ? 'test-server-linux' : 'test-server');
+const buildDir = join(project.outDir, plain ? 'test-server-plain' : linux ? 'test-server-linux' : 'test-server');
 
 // Where the test's folder is made. On Windows: in the install, beside the
 // server's own. For Linux: in the build folder, as addons/amxts/test of a
@@ -117,7 +123,8 @@ const MARKER = '.amxts-test';
 const amxxpc = amxxpcPath();
 const wamrc = wamrcPath();
 const signatures = process.env.AMXTS_NATIVES ?? join(CORE_DIR, 'runtime/natives.txt');
-const moduleDll = modulePath(linux ? 'linux' : 'windows');
+// AMXTS_TEST_MODULE: another build of the module, e.g. one made beside a running test.
+const moduleDll = process.env.AMXTS_TEST_MODULE ?? modulePath(linux ? 'linux' : 'windows');
 
 // Plugins a suite needs beside the suites themselves: the modules
 // amxts.config.ts lists, as their owners, in load order, then the project's
@@ -163,8 +170,9 @@ interface SuiteResult {
 // ---------------------------------------------------------------- process
 
 // The Linux server: one container, named after its port.
-const IMAGE = process.env.AMXTS_TEST_IMAGE ?? 'amxts-hlds';
-const CONTAINER = `amxts-test-${PORT}`;
+const IMAGE_DIR = plain ? 'docker/hlds-plain' : 'docker/hlds';
+const IMAGE = process.env.AMXTS_TEST_IMAGE ?? (plain ? 'amxts-hlds-plain' : 'amxts-hlds');
+const CONTAINER = `amxts-test-${plain ? 'plain-' : ''}${PORT}`;
 const CONTAINER_GAME = '/hlds/cstrike';
 
 function docker(argv: string[]) {
@@ -180,15 +188,16 @@ function containerRunning(): boolean {
 }
 
 /**
- * The image from docker/hlds: SteamCMD and the releases, a few minutes the
- * first time, the cache's answer after that - so a changed Dockerfile is
- * built again. An image named by AMXTS_TEST_IMAGE is taken as it is.
+ * The image from docker/hlds (docker/hlds-plain): SteamCMD and the releases,
+ * a few minutes the first time, the cache's answer after that - so a changed
+ * Dockerfile is built again. An image named by AMXTS_TEST_IMAGE is taken as
+ * it is.
  */
 function ensureImage(): void {
 	const present = docker(['image', 'inspect', IMAGE]).status === 0;
 	if (present && process.env.AMXTS_TEST_IMAGE) return;
-	if (!present) console.log(`building the ${IMAGE} image (docker/hlds) - a few minutes, once`);
-	const built = spawnSync('docker', ['build', '--load', '--quiet', '-t', IMAGE, join(CORE_DIR, 'docker/hlds')], { stdio: ['ignore', 'ignore', 'inherit'] });
+	if (!present) console.log(`building the ${IMAGE} image (${IMAGE_DIR}) - a few minutes, once`);
+	const built = spawnSync('docker', ['build', '--load', '--quiet', '-t', IMAGE, join(CORE_DIR, IMAGE_DIR)], { stdio: ['ignore', 'ignore', 'inherit'] });
 	if (built.status !== 0) throw new Error(`docker build of ${IMAGE} failed`);
 }
 
@@ -823,7 +832,7 @@ async function main(): Promise<number> {
 		if (keep && isAlive(pid)) {
 			console.log(`\nleft running: ${linux ? `container ${CONTAINER}` : `pid ${pid}`}, 127.0.0.1:${PORT}, rcon_password "${password}"`);
 			console.log(`its console: ${linux ? `docker logs ${CONTAINER}` : join(rootDir, 'qconsole.log')}`);
-			console.log(`stop it and remove its folders with: bun run test:server --stop${linux ? ' --linux' : ''}`);
+			console.log(`stop it and remove its folders with: bun run test:server --stop${plain ? ' --plain' : linux ? ' --linux' : ''}`);
 		} else {
 			if (isAlive(pid)) stopProcess(pid);
 			await until(10_000, () => (isAlive(pid) ? null : true), () => true);
