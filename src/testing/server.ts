@@ -17,6 +17,7 @@ import { Coroutines, nextTaskId } from './coroutines';
 import { installKitFor } from './kits';
 import { bitsFloat, floatBits, Memory, utf8Fit } from './memory';
 import { NATIVES, WEAPON_NAMES } from './natives';
+import { FakeNetwork } from './network';
 import { constant, tables } from './tables';
 
 declare const WebAssembly: any;
@@ -931,6 +932,24 @@ export class FakeServer {
 		return player;
 	}
 
+	/** The module's network client: the requests plugins sent with fetch. @internal */
+	readonly network = new FakeNetwork(this);
+
+	/**
+	 * Waits for the responses to the requests the plugins sent with `fetch`,
+	 * and hands each to its plugin as the server's next frame would; a
+	 * request sent on the way is waited for too. A timer between two tries
+	 * waits for `advance()`.
+	 *
+	 * ```ts
+	 * player.say("/weather");
+	 * await server.responses();
+	 * ```
+	 */
+	async responses(): Promise<void> {
+		await this.network.settle();
+	}
+
 	/**
 	 * Moves the clock forward and runs every timer that comes due on the way,
 	 * in order - a repeating one as many times as it fits.
@@ -1730,6 +1749,41 @@ export class FakeServer {
 		amxts_rpc_result(this: FakeServer, plugin: PluginInstance, to: number) {
 			plugin.memory.setRaw(to, this.rpcResult);
 			this.rpcResult = new Uint8Array(0);
+		},
+
+		// The network client: module.cpp's w_net_*, over Bun's fetch (network.ts).
+		net_open(this: FakeServer, plugin: PluginInstance, url: number) {
+			return this.network.open(plugin, plugin.memory.string(url));
+		},
+		net_option(this: FakeServer, plugin: PluginInstance, id: number, name: number, value: number) {
+			return this.network.option(plugin, id, plugin.memory.string(name), plugin.memory.string(value));
+		},
+		net_body(this: FakeServer, plugin: PluginInstance, id: number, data: number, length: number) {
+			this.network.body(plugin, id, new Uint8Array(plugin.instance.exports.memory.buffer, data, length).slice());
+		},
+		net_send(this: FakeServer, plugin: PluginInstance, id: number, fn: number) {
+			return this.network.send(plugin, id, fn);
+		},
+		net_cancel(this: FakeServer, plugin: PluginInstance, id: number) {
+			this.network.cancel(plugin, id);
+		},
+		net_close(this: FakeServer, plugin: PluginInstance, id: number) {
+			this.network.cancel(plugin, id);
+		},
+		net_status(this: FakeServer, plugin: PluginInstance, id: number) {
+			return this.network.status(plugin, id);
+		},
+		net_redirects(this: FakeServer, plugin: PluginInstance, id: number) {
+			return this.network.redirects(plugin, id);
+		},
+		net_text(this: FakeServer, plugin: PluginInstance, id: number, what: number, out: number, max: number) {
+			return this.network.text(plugin, id, what, out, max);
+		},
+		net_size(this: FakeServer, plugin: PluginInstance, id: number) {
+			return this.network.size(plugin, id);
+		},
+		net_read(this: FakeServer, plugin: PluginInstance, id: number, out: number, max: number) {
+			return this.network.read(plugin, id, out, max);
 		},
 
 		abort(this: FakeServer, plugin: PluginInstance, message: number, file: number, line: number, column: number) {

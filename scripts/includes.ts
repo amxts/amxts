@@ -4,7 +4,7 @@
  * standard set; the core's includes/ carries its own - order.txt and the
  * contracts of the Pawn plugins the official modules stand in for - and
  * includes/vendor/ the third-party ones the API is generated from (ReAPI and
- * the rehlds constants, easy_http, resemiclip), which `bun run setup` fetches
+ * the rehlds constants, resemiclip), which `bun run setup` fetches
  * as includes/sources.json pins them.
  *
  * A project looks in its own folders first: its includes/ (the includes of

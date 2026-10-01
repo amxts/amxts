@@ -30,7 +30,7 @@
 - Для модуля и `wamrc` под Linux и для тестового сервера на Linux:
   [Docker](https://www.docker.com). Всё остальное для них есть в образах.
 - Сеть при первом запуске `bun run setup`: он скачивает сторонние include,
-  закреплённые в `includes/sources.json` (ReAPI, easy_http, resemiclip),
+  закреплённые в `includes/sources.json` (ReAPI, resemiclip),
   сверяет sha256 каждого файла и кладёт их в `includes/vendor/`
   ([includes/README.md](includes/README.md)).
 

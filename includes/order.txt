@@ -13,7 +13,6 @@ hamsandwich
 cstrike
 engine
 nvault
-easy_http
 resemiclip
 universal_config
 menu_core
@@ -21,8 +20,8 @@ menu_core
 # engine, nvault and geoip are stock AMX Mod X modules shipped with the server
 # (addons/amxmodx/modules/); geoip is listed in modules.ini and the other two
 # are auto-detected from the `#pragma reqlib` amxxpc writes into the .amxx.
-# easy_http and resemiclip are third-party modules, both present as DLLs and
-# both enabled explicitly in modules.ini.
+# resemiclip is a third-party module, present as a DLL and enabled explicitly
+# in modules.ini.
 #
 # universal_config and menu_core are not modules: their natives come from
 # universal_config.amxx and menu_core.amxx, which plugins.ini loads ahead of

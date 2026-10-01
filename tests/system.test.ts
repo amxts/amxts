@@ -71,10 +71,7 @@ function embedded(): Map<string, { text: string; keep: boolean }> {
 
 test('a server start writes the whole API as it is, the editor\'s files and the example', () => {
 	const files = embedded();
-	const api = [
-		...readdirSync('as').filter(name => name.endsWith('.ts')),
-		...readdirSync('as/modules').map(name => `modules/${name}`),
-	];
+	const api = readdirSync('as').filter(name => name.endsWith('.ts'));
 
 	for (const file of api) expect({ file, text: files.get(`plugins/${file}`)?.text }).toEqual({ file, text: readFileSync(`as/${file}`, 'utf8').replace(/\r/g, '') });
 	expect(files.get('tools/natives.txt')?.text).toBe(readFileSync('runtime/natives.txt', 'utf8').replace(/\r/g, ''));
@@ -86,7 +83,7 @@ test('a server start writes the whole API as it is, the editor\'s files and the 
 	expect(tsconfig.compilerOptions?.paths['~/*']).toEqual(['./*']);
 	// The core's API by the package's name, its files beside the plugins: only the entries it exports.
 	expect(tsconfig.compilerOptions?.paths['@amxts/core/natives']).toEqual(['./natives.ts']);
-	expect(tsconfig.compilerOptions?.paths['@amxts/core/http']).toEqual(['./modules/http.ts']);
+	expect(tsconfig.compilerOptions?.paths['@amxts/core/os']).toEqual(['./os.ts']);
 	expect(tsconfig.compilerOptions?.paths['@amxts/core/*']).toBeUndefined();
 
 	expect([...files].filter(([, file]) => file.keep).map(([path]) => path).sort()).toEqual(['plugins.ini', 'plugins/hello.ts']);

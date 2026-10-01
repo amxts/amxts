@@ -4,13 +4,13 @@
 // differ.
 //
 // The API a plugin compiled on the server imports lives beside the plugins,
-// where `~/` points there: every file at the top of as/ and the extensions in
-// as/modules. With it go the editor's files - tsconfig.json and imports.d.ts -
-// and the signature table wamrc reads. They all belong to one build of the
-// module, so a start writes them over; plugins.ini and the example are the
-// author's, written only while missing.
-import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+// where `~/` points there: every file at the top of as/. With it go the
+// editor's files - tsconfig.json and imports.d.ts - and the signature table
+// wamrc reads. They all belong to one build of the module, so a start writes
+// them over; plugins.ini and the example are the author's, written only while
+// missing.
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { coreImports, importsDeclaration } from './auto-imports';
 import { CORE_ENTRIES } from './project';
@@ -63,19 +63,12 @@ export function serverTsconfig(): string {
 	}, null, '\t')}\n`;
 }
 
-function filesUnder(dir: string): string[] {
-	return readdirSync(dir, { recursive: true, withFileTypes: true })
-		.filter(entry => entry.isFile())
-		.map(entry => relative(dir, join(entry.parentPath, entry.name)).replace(/\\/g, '/'));
-}
-
 /** What goes into addons/amxts, in the order it is written. */
 export function serverFiles(): ServerFile[] {
 	const read = (path: string) => readFileSync(join(CORE, path), 'utf8');
 	const own = (path: string, text: string): ServerFile => ({ path, text, keep: false });
 	return [
 		...apiFiles().map(file => own(`plugins/${file}`, read(`as/${file}`))),
-		...filesUnder(join(CORE, 'as/modules')).map(file => own(`plugins/modules/${file}`, read(`as/modules/${file}`))),
 		// What a plugin uses without an import, as globals for the editor: the
 		// compiler adds the imports (scripts/auto-imports.ts).
 		own('plugins/imports.d.ts', importsDeclaration(coreImports(join(CORE, 'as/facade.ts')))),

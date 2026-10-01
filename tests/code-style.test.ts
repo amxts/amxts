@@ -28,8 +28,7 @@ const ROOT = 'as';
 // The modules the project uses (amxts.config.ts - the official ones, from
 // their repositories beside this one): their src/ is plugin code like as/.
 const MODULES = loadProject().modules.map(pkg => join(pkg.dir, 'src'));
-const MODULE_WRAPPERS = new Set(['as/modules/http.ts']);
-const EXEMPT = new Set(['facade.ts', 'kit.ts', 'fs.ts', 'os.ts', 'promise.ts', 'promise.types.d.ts', 'amxts.d.ts', 'natives.ts', 'remote.ts', 'constants.ts', 'events.ts', 'flags.ts', 'entities.ts', 'hooks.ts', 'vector.ts', 'effects.ts']);
+const EXEMPT = new Set(['facade.ts', 'kit.ts', 'fs.ts', 'os.ts', 'promise.ts', 'promise.types.d.ts', 'amxts.d.ts', 'natives.ts', 'remote.ts', 'constants.ts', 'events.ts', 'flags.ts', 'entities.ts', 'hooks.ts', 'vector.ts', 'effects.ts', 'fetch.ts']);
 
 /**
  * Natives the facade has its own way of doing, and that way. It grows with
@@ -197,10 +196,6 @@ function pluginFiles(dir: string = ROOT): string[] {
 
 	for (const name of readdirSync(dir)) {
 		const path = join(dir, name);
-
-		// A wrapper over a third-party module's natives is hood, like the facade;
-		// anything else in as/modules is ordinary TypeScript and is read as such.
-		if (MODULE_WRAPPERS.has(path.replace(/\\/g, '/'))) continue;
 
 		if (statSync(path).isDirectory()) found.push(...pluginFiles(path));
 		else if (name.endsWith('.ts') && !(dir === ROOT && EXEMPT.has(name))) found.push(path);

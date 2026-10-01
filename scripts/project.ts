@@ -615,7 +615,7 @@ export function optionsOf(project: Project, definition: ModuleDefinition): Optio
  * Everything in the core's as/ that is not a plugin: the facade a plugin
  * imports, the kit a module imports and the generated native layer under them.
  */
-export const NOT_PLUGINS = new Set(['facade.ts', 'kit.ts', 'promise.ts', 'vector.ts', 'effects.ts', 'fs.ts', 'os.ts', 'natives.ts', 'remote.ts', 'constants.ts', 'events.ts', 'entities.ts', 'flags.ts', 'hooks.ts']);
+export const NOT_PLUGINS = new Set(['facade.ts', 'kit.ts', 'promise.ts', 'vector.ts', 'effects.ts', 'fetch.ts', 'fs.ts', 'os.ts', 'natives.ts', 'remote.ts', 'constants.ts', 'events.ts', 'entities.ts', 'flags.ts', 'hooks.ts']);
 
 /**
  * The core's API a plugin imports, by the package's name, and its file in
@@ -628,7 +628,6 @@ export const CORE_ENTRIES: Record<string, string> = {
 	'@amxts/core/constants': 'constants.ts',
 	'@amxts/core/fs': 'fs.ts',
 	'@amxts/core/os': 'os.ts',
-	'@amxts/core/http': 'modules/http.ts',
 	'@amxts/core/kit': 'kit.ts',
 	'@amxts/core/check': 'lib/check.ts',
 };

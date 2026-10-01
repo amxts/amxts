@@ -99,7 +99,7 @@ export function task(name, args = []) {
 
 /**
  * The third-party includes this core's API is generated from, as
- * includes/sources.json pins them, by id: `reapi`, `easy_http`, `resemiclip`,
+ * includes/sources.json pins them, by id: `reapi`, `resemiclip`,
  * each `{ name, version, license, home, url, sha256, include? }` - `url` gives
  * a file whose sha256 is `sha256`; for a .zip, `include` is the folder in it
  * whose .inc files are the includes. The command fetches ReAPI's for a

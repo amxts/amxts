@@ -25,7 +25,6 @@ sha256 and puts the includes there:
 | source | version | license | files |
 | --- | --- | --- | --- |
 | [ReAPI](https://github.com/rehlds/ReAPI) | 5.29.0.358 | GPL-3.0 | `reapi*.inc` and ReGameDLL's `cssdk_const.inc`, from the release archive |
-| [AmxxEasyHttp](https://github.com/Next21Team/AmxxEasyHttp) | 1.4.0 | MIT | `easy_http.inc`, the release's asset |
 | [ReSemiclip AMXX](https://github.com/Next21Team/resemiclip-amxx) | 2.3.9-amxx | GPL-2.0 | `resemiclip.inc`, from the tag |
 
 A source already fetched is not fetched again (`vendor/sources.lock.json`).

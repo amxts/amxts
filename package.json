@@ -29,7 +29,6 @@
 		"./constants": "./as/constants.ts",
 		"./fs": "./as/fs.ts",
 		"./os": "./as/os.ts",
-		"./http": "./as/modules/http.ts",
 		"./kit": "./as/kit.ts",
 		"./check": "./as/lib/check.ts",
 		"./test-utils": "./src/testing/index.ts",

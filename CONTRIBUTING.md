@@ -31,8 +31,8 @@ plugin author needs none of this: a project gets the core from its package
   [Docker](https://www.docker.com). Everything else they need is in the
   images.
 - A connection the first time `bun run setup` runs: it downloads the
-  third-party includes `includes/sources.json` pins (ReAPI, easy_http,
-  resemiclip), checks each file's sha256 and puts them in `includes/vendor/`
+  third-party includes `includes/sources.json` pins (ReAPI, resemiclip),
+  checks each file's sha256 and puts them in `includes/vendor/`
   ([includes/README.md](includes/README.md)).
 
 `amxmodx/`, `runtime/deps/`, `runtime/build/`, `includes/vendor/` and every

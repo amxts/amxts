@@ -275,7 +275,7 @@ describe('the core\'s API by the package\'s name', () => {
 			'plugins/a.ts': [
 				'import { get_maxplayers } from "~/natives";',
 				'import { readFileSync } from "~/fs";',
-				'import { fetch } from "~/modules/http";',
+				'import { EOL } from "~/os";',
 				'import * as greeter from "~/modules/greeter";',
 				'import { Coroutine } from "@amxts/core/promise";',
 				'',
@@ -288,7 +288,7 @@ describe('the core\'s API by the package\'s name', () => {
 		setProjectDir(dir);
 
 		const error = await new FakeServer().load(join(dir, 'plugins/a.ts')).then(() => '', (failure: Error) => failure.message);
-		for (const [spec, instead] of [['~/natives', '@amxts/core/natives'], ['~/fs', '@amxts/core/fs'], ['~/modules/http', '@amxts/core/http'], ['~/modules/greeter', '@test/greeter']]) {
+		for (const [spec, instead] of [['~/natives', '@amxts/core/natives'], ['~/fs', '@amxts/core/fs'], ['~/os', '@amxts/core/os'], ['~/modules/greeter', '@test/greeter']]) {
 			expect(error).toContain(`plugins/a.ts: ${spec} is not a file of the project - \`~/\` is the plugins folder; import ${instead} (npx amxts upgrade rewrites these imports)`);
 		}
 		expect(error).toContain('modules/greeter/src/index.ts: ~/facade is not a file of the project - `~/` is the plugins folder; import @amxts/core ');
@@ -298,14 +298,14 @@ describe('the core\'s API by the package\'s name', () => {
 	test('on a server, where the core\'s API lies beside the plugins, ~/ to it is refused too', () => {
 		const dir = project({
 			'natives.ts': 'export function user_slap(id: number, damage: number): void {}\n',
-			'modules/http.ts': 'import { user_slap } from "../natives";\n',
+			'os.ts': 'import { user_slap } from "./natives";\n',
 			'lib/twice.ts': 'export function twice(n: number) {\n\treturn n * 2;\n}\n',
-			'a.ts': 'import { user_slap } from "~/natives";\nimport { fetch } from "@amxts/core/http";\nimport { twice } from "~/lib/twice";\n',
+			'a.ts': 'import { user_slap } from "~/natives";\nimport { EOL } from "@amxts/core/os";\nimport { twice } from "~/lib/twice";\n',
 		});
 		// A server's plugins folder is the project and the tree at once: no plugins/ in it.
 		const server = new Sources(dir, { ...loadProject(dir), pluginsDir: join(dir, 'plugins'), modules: [], autoImports: [] });
-		expect(server.read(join(dir, 'a.ts'))).toContain('from "~/modules/http"');
-		server.read(join(dir, 'modules/http.ts'));
+		expect(server.read(join(dir, 'a.ts'))).toContain('from "~/os"');
+		server.read(join(dir, 'os.ts'));
 		expect(server.problems).toEqual(['a.ts: ~/natives is not a file of the project - `~/` is the plugins folder; import @amxts/core/natives (npx amxts upgrade rewrites these imports)']);
 	});
 });

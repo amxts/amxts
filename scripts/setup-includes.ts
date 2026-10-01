@@ -13,7 +13,7 @@
 // Offline, a file put by hand into includes/vendor/.download/ under its URL's
 // name is taken instead of downloading it, after the same check.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -115,6 +115,15 @@ async function setup() {
 	const sources = readJson<Record<string, Source>>(join(INCLUDES, 'sources.json'), {});
 	const lock = readJson<Record<string, { sha256: string; files: string[] }>>(LOCK, {});
 	mkdirSync(VENDOR, { recursive: true });
+	// A source sources.json no longer pins goes, with its files: a generated
+	// API from them would have natives no server is told to load.
+	for (const [id, known] of Object.entries(lock)) {
+		if (sources[id]) continue;
+		for (const file of known.files) rmSync(join(VENDOR, file), { force: true });
+		delete lock[id];
+		writeFileSync(LOCK, `${JSON.stringify(lock, null, '\t')}\n`);
+		log.success(`${id}: no longer pinned, its ${known.files.join(', ')} removed`);
+	}
 	for (const [id, source] of Object.entries(sources)) {
 		const known = lock[id];
 		if (known?.sha256 === source.sha256 && known.files.every(file => existsSync(join(VENDOR, file)))) continue;

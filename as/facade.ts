@@ -4586,6 +4586,8 @@ import { GameAnswerMap, GameEventMap, addGameListener, removeGameListener } from
 // Three numbers with vector math - what entity.origin and the rest return.
 export * from "./vector";
 export * from "./effects";
+// fetch, URL and useFetch, over the module's network client.
+export * from "./fetch";
 export { EntityFilter } from "./entities";
 
 // =============================================================================

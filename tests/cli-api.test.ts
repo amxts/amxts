@@ -50,7 +50,7 @@ test('the official modules from this machine, TypeScript, the compilers', async 
 test('the includes the API is generated from: pinned releases with a sha256', async () => {
 	const api = await cliApi();
 	const sources = api.includeSources();
-	expect(Object.keys(sources).sort()).toEqual(['easy_http', 'reapi', 'resemiclip']);
+	expect(Object.keys(sources).sort()).toEqual(['reapi', 'resemiclip']);
 	for (const source of Object.values<{ url: string; sha256: string; version: string }>(sources)) {
 		expect(source.url).toStartWith('https://');
 		expect(source.url).toContain(source.version);

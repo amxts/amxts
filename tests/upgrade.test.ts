@@ -23,7 +23,6 @@ const PLUGIN = [
 	'import { get_maxplayers } from "~/natives";',
 	'import { MAX_PLAYERS } from \'~/constants\';',
 	'import * as fs from "~/fs";',
-	'import { fetch } from "~/modules/http";',
 	'import { Weapon } from "~/entities";',
 	'import * as menus from "~/modules/menu-core";',
 	'import { typed } from "~/modules/menu-core/src/typed";',
@@ -49,7 +48,6 @@ test('every import of the core\'s API and of a module package by ~/ is rewritten
 		.replace('"~/natives";', '"@amxts/core/natives";')
 		.replace('\'~/constants\'', '\'@amxts/core/constants\'')
 		.replace('"~/fs"', '"@amxts/core/fs"')
-		.replace('"~/modules/http"', '"@amxts/core/http"')
 		.replace('"~/entities"', '"@amxts/core"')
 		.replace('"~/modules/menu-core";', '"@amxts/menu-core";')
 		.replace('"~/modules/menu-core/src/typed"', '"@amxts/menu-core/src/typed"')
@@ -60,13 +58,12 @@ test('every import of the core\'s API and of a module package by ~/ is rewritten
 		'plugins/a.ts:1 ~/natives -> @amxts/core/natives',
 		'plugins/a.ts:2 ~/constants -> @amxts/core/constants',
 		'plugins/a.ts:3 ~/fs -> @amxts/core/fs',
-		'plugins/a.ts:4 ~/modules/http -> @amxts/core/http',
-		'plugins/a.ts:5 ~/entities -> @amxts/core',
-		'plugins/a.ts:6 ~/modules/menu-core -> @amxts/menu-core',
-		'plugins/a.ts:7 ~/modules/menu-core/src/typed -> @amxts/menu-core/src/typed',
-		'plugins/a.ts:9 ~/os -> @amxts/core/os',
-		'plugins/a.ts:11 ~/facade -> @amxts/core',
-		'plugins/a.ts:19 ~/natives -> @amxts/core/natives',
+		'plugins/a.ts:4 ~/entities -> @amxts/core',
+		'plugins/a.ts:5 ~/modules/menu-core -> @amxts/menu-core',
+		'plugins/a.ts:6 ~/modules/menu-core/src/typed -> @amxts/menu-core/src/typed',
+		'plugins/a.ts:8 ~/os -> @amxts/core/os',
+		'plugins/a.ts:10 ~/facade -> @amxts/core',
+		'plugins/a.ts:18 ~/natives -> @amxts/core/natives',
 	]);
 
 	// A second run finds nothing.

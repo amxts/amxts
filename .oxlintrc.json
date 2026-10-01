@@ -99,7 +99,7 @@
 		"as/remote.ts",
 		"as/vector.ts",
 		"as/effects.ts",
-		"as/modules/http.ts",
+		"as/fetch.ts",
 		".superpowers/**"
 	],
 	"rules": {

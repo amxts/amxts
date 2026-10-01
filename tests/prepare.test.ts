@@ -75,7 +75,7 @@ test('in Russian the editor reads a copy in .amxts/api, the installed core stays
 
 	expect(config.compilerOptions.paths['~/*']).toEqual(['../plugins/*']);
 	expect(config.compilerOptions.paths['@amxts/core']).toEqual(['./api/core/facade.ts']);
-	expect(config.compilerOptions.paths['@amxts/core/http']).toEqual(['./api/core/modules/http.ts']);
+	expect(config.compilerOptions.paths['@amxts/core/os']).toEqual(['./api/core/os.ts']);
 	expect(config.include).toContain('./api/core/*.d.ts');
 	const ru = printWords(join(dir, '.amxts/tsconfig.json'));
 	expect(ru.facade).toBe(resolve(dir, '.amxts/api/core/facade.ts'));
