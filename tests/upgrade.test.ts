@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 // @ts-ignore - bun:test types not available during type checking
 import { afterEach, expect, test } from 'bun:test';
 import { setProjectDir } from '../scripts/project';
-import { renamesFor, upgradeHandlers, upgradeProject, upgradeText } from '../scripts/upgrade';
+import { dropHttpImports, renamesFor, upgradeHandlers, upgradeProject, upgradeText } from '../scripts/upgrade';
 
 const HERE = process.cwd();
 const made: string[] = [];
@@ -136,4 +136,20 @@ test('a command handler takes one object: the player by name, a function by its 
 	expect(changes.map(change => `${change.line} ${change.from} -> ${change.to}`)).toEqual(['1 player -> { player }', '2 player -> ({ player })', '3 who: Player -> { player: who }', '4 showRules -> ({ player }) => showRules(player)']);
 	expect(left.map(each => each.line)).toEqual([5, 8]);
 	expect(upgradeHandlers('plugins/a.ts', text).changes).toEqual([]);
+});
+
+test('an import of fetch from @amxts/core/http goes - fetch is a global - and the file is listed to read its response anew', () => {
+	const source = [
+		'import { fetch, Response } from "@amxts/core/http";',
+		'import { fetch as get } from "~/modules/http";',
+		'const text = "@amxts/core/http";',
+		'',
+	].join('\n');
+	const { text, changes, left } = dropHttpImports('plugins/a.ts', source);
+
+	expect(text).toBe('const text = "@amxts/core/http";\n');
+	expect(changes.map(change => `${change.line} ${change.from} -> ${change.to}`)).toEqual(['1 @amxts/core/http -> fetch, a global', '2 ~/modules/http -> fetch, a global']);
+	expect(left.map(each => each.line)).toEqual([1]);
+	expect(left[0].why).toContain('await response.text()');
+	expect(dropHttpImports('plugins/a.ts', text)).toEqual({ text, changes: [], left: [] });
 });

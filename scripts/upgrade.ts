@@ -12,8 +12,9 @@
 // one is left alone, and only the text between the quotes changes. A
 // command's handler takes one object: `(player) =>` becomes `({ player })
 // =>`; one that reads the words after the name is listed, to be written by
-// hand with the words in the usage. What is rewritten no longer matches, so a
-// second run changes nothing.
+// hand with the words in the usage. An import of `@amxts/core/http` goes:
+// fetch is a global, and what reads its response the old way is listed. What
+// is rewritten no longer matches, so a second run changes nothing.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,7 +34,7 @@ export interface Change {
 }
 
 /** The facade's own files, whose exports it gives as its own. */
-const FACADE_PARTS = ['entities', 'events', 'flags', 'hooks', 'vector', 'effects'];
+const FACADE_PARTS = ['entities', 'events', 'flags', 'hooks', 'vector', 'effects', 'fetch'];
 
 /**
  * What `~/<place>` meant and is now written: the core's entries, the files
@@ -97,6 +98,36 @@ export interface Left {
 	file: string;
 	line: number;
 	why: string;
+}
+
+/** Where fetch was imported from before it was a global. */
+const HTTP = new Set(['@amxts/core/http', '~/modules/http']);
+
+const HTTP_BY_HAND = 'fetch is a global now, as in the browser: the body is `await response.text()` (or `response.json<T>()`), headers an object `{ name: value }`, and useFetch<T>(url) reads JSON in one call';
+
+/**
+ * A file's imports of fetch from `@amxts/core/http` taken out, each with its
+ * line: fetch, Response and RequestInit are globals. What reads a response's
+ * `text` as a field is the author's to change, so every file that had the
+ * import is listed.
+ */
+export function dropHttpImports(file: string, text: string): { text: string; changes: Change[]; left: Left[] } {
+	if (!text.includes('http')) return { text, changes: [], left: [] };
+	const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+	const found = source.statements.filter((statement): statement is ts.ImportDeclaration =>
+		ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier) && HTTP.has(statement.moduleSpecifier.text));
+	let out = text;
+	for (const statement of [...found].reverse()) {
+		const end = statement.getEnd();
+		const next = out.startsWith('\r\n', end) ? end + 2 : out.startsWith('\n', end) ? end + 1 : end;
+		out = out.slice(0, statement.getStart(source)) + out.slice(next);
+	}
+	const lineOf = (statement: ts.Node) => source.getLineAndCharacterOfPosition(statement.getStart(source)).line + 1;
+	return {
+		text: out,
+		changes: found.map(statement => ({ file, line: lineOf(statement), from: (statement.moduleSpecifier as ts.StringLiteral).text, to: 'fetch, a global' })),
+		left: found.slice(0, 1).map(statement => ({ file, line: lineOf(statement), why: HTTP_BY_HAND })),
+	};
 }
 
 const BY_HAND = 'it reads the words after the name: write them in the usage, "/give <amount>", and take them by name, ({ player, amount })';
@@ -191,12 +222,13 @@ export function upgradeProject(dir: string): { changes: Change[]; left: Left[] }
 	for (const file of codeFiles(project.dir, new Set([project.outDir]))) {
 		const text = readFileSync(file, 'utf8');
 		const name = relative(project.dir, file).replace(/\\/g, '/');
-		const imports = text.includes('~/') ? upgradeText(name, text, renames) : { text, changes: [] };
+		const http = dropHttpImports(name, text);
+		const imports = http.text.includes('~/') ? upgradeText(name, http.text, renames) : { text: http.text, changes: [] };
 		const handlers = upgradeHandlers(name, imports.text);
-		left.push(...handlers.left);
+		left.push(...http.left, ...handlers.left);
 		if (handlers.text === text) continue;
 		writeFileSync(file, handlers.text);
-		changes.push(...imports.changes, ...handlers.changes);
+		changes.push(...http.changes, ...imports.changes, ...handlers.changes);
 	}
 	return { changes, left };
 }
