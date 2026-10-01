@@ -54,6 +54,27 @@ function readJson<T>(path: string, fallback: T): T {
 	}
 }
 
+/**
+ * The file at the source's URL. GitHub's release downloads answer 5xx now and
+ * then for a moment: such an answer, or a network error, is tried again
+ * twice, a few seconds apart; a 4xx is not.
+ */
+async function download(source: Source, offline: string): Promise<Uint8Array> {
+	for (let attempt = 1; ; attempt++) {
+		let problem: string;
+		try {
+			const response = await fetch(source.url, { signal: AbortSignal.timeout(60_000) });
+			if (response.ok) return new Uint8Array(await response.arrayBuffer());
+			problem = `${source.url} answered ${response.status}`;
+			if (response.status < 500) attempt = 3;
+		} catch (error) {
+			problem = (error as Error).message;
+		}
+		if (attempt >= 3) throw new SetupError(`Could not download ${source.name} ${source.version}: ${problem}`, offline);
+		await Bun.sleep(attempt * 3000);
+	}
+}
+
 /** What `url` gives: the file in .download/ when it is there, else the download, saved there. */
 async function fetchChecked(source: Source): Promise<Uint8Array> {
 	const saved = join(DOWNLOADS, basename(new URL(source.url).pathname));
@@ -63,14 +84,7 @@ async function fetchChecked(source: Source): Promise<Uint8Array> {
 	if (local) {
 		data = readFileSync(saved);
 	} else {
-		let response: Response;
-		try {
-			response = await fetch(source.url, { signal: AbortSignal.timeout(60_000) });
-		} catch (error) {
-			throw new SetupError(`Could not download ${source.name} ${source.version}: ${(error as Error).message}`, offline);
-		}
-		if (!response.ok) throw new SetupError(`Could not download ${source.name} ${source.version}: ${source.url} answered ${response.status}`, offline);
-		data = new Uint8Array(await response.arrayBuffer());
+		data = await download(source, offline);
 	}
 	const got = sha256(data);
 	if (got !== source.sha256) {

@@ -54,6 +54,13 @@ runs:
           (cd amxts-modules/$module && npm install --no-package-lock --prefer-offline --no-audit --no-fund --ignore-scripts)
         done
 
+    # The pinned includes (ReAPI, easy_http, resemiclip) as they were
+    # downloaded: GitHub's release downloads fail now and then for a moment.
+    - uses: actions/cache@v4
+      with:
+        path: amxts/includes/vendor/.download
+        key: includes-${{ hashFiles('amxts/includes/sources.json') }}
+
     - name: Cache the patched AssemblyScript
       id: asc
       uses: actions/cache@v4
