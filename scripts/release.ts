@@ -3,16 +3,20 @@
 //
 //   bun run release:windows [--dry-run]   build the Windows files on Windows, attach them
 //   bun run release:linux   [--dry-run]   the same for Linux (CI on a tag; on Windows through Docker)
+//   bun run release:upload  [--dry-run]   attach what dist-release/ holds for the tag
 //   bun run release:publish [--dry-run]   check both are there, of one version, then publish
 //
 // Each system's build makes dist-release/<system>/: the module, amxts-compile,
 // wamrc, the server kit as one archive, and amxts-<system>.json - the version,
 // the tag, the commit and every file's size and sha256. It finds the draft
-// release of the tag, or creates it (a release that is already published is
-// left alone), and attaches the files. `publish` reads both manifests back
-// from the release and refuses while a system is missing, a file is not
-// attached or differs in size, or the versions, tags or commits disagree
-// (scripts/release-check.ts); then it takes the draft off.
+// release of the tag, or creates it with the version's section of
+// CHANGELOG.md as its notes (scripts/changelog.ts; a release that is already
+// published is left alone), and attaches the files; --no-upload stops at
+// dist-release/. CI builds each system in a job of its own with --no-upload
+// and attaches both from one (`upload`), so the draft is made once. `publish`
+// reads both manifests back from the release and refuses while a system is
+// missing, a file is not attached or differs in size, or the versions, tags
+// or commits disagree (scripts/release-check.ts); then it takes the draft off.
 //
 // The tag is --tag, else GITHUB_REF_NAME in CI, else the tag at HEAD, and must
 // be v<package.json's version>. The repository is AMXTS_RELEASE_REPO, else
@@ -32,6 +36,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { releaseNotes } from './changelog';
 import { manifestName, releaseProblems } from './release-check';
 import { executable, HOST_SYSTEM, MODULE_FILE, modulePath, SYSTEM_NAME, wamrcPath } from './system';
 
@@ -40,6 +45,7 @@ const args = process.argv.slice(2);
 const command = args[0];
 const dryRun = args.includes('--dry-run');
 const skipBuild = args.includes('--skip-build');
+const noUpload = args.includes('--no-upload');
 function option(name: string): string | undefined {
 	const at = args.indexOf(name);
 	return at >= 0 ? args[at + 1] : undefined;
@@ -240,8 +246,12 @@ function upload(tag: string, files: string[]): void {
 }
 
 function createRelease(tag: string): void {
+	const changes = releaseNotes(CORE, VERSION);
+	if (changes === null && !dryRun) throw new ReleaseError(`CHANGELOG.md has no section v${VERSION}: bun run changelog, commit it, then tag again`);
 	const notes = [
-		`amxts ${tag}: the core for Windows and Linux servers.`,
+		changes ?? '(dry run: CHANGELOG.md has no section for this version yet)',
+		'',
+		'### 📦 Files',
 		'',
 		'- `amxts-server-windows-x64.zip`, `amxts-server-linux-x64.tar.gz` - the server kit: the module, the host plugin, and the compiler for `.ts` plugins written on the server.',
 		'- `amxts_amxx.dll`, `amxts_amxx_i386.so` - the module alone.',
@@ -253,6 +263,22 @@ function createRelease(tag: string): void {
 	// --verify-tag: the tag has to be on GitHub already; gh would otherwise make
 	// one from the default branch.
 	gh(['release', 'create', tag, '--repo', REPO, '--draft', '--verify-tag', '--title', `amxts ${tag}`, '--notes-file', file]);
+}
+
+/** What dist-release/ holds for this tag, by system: each system's files and its manifest. */
+function packed(tag: string): string[] {
+	const systems = existsSync(OUT) ? readdirSync(OUT).filter(system => existsSync(join(OUT, system, manifestName(system as System)))) : [];
+	const files = systems.flatMap((system) => {
+		const manifest = JSON.parse(readFileSync(join(OUT, system, manifestName(system as System)), 'utf8')) as Manifest;
+		if (manifest.tag !== tag) {
+			console.log(`  ${system}: packed for ${manifest.tag}, not ${tag} - left out`);
+			return [];
+		}
+		console.log(`  ${system}: ${manifest.files.length} files, ${manifest.commit.slice(0, 10)}`);
+		return [...manifest.files.map(each => join(OUT, system, each.name)), join(OUT, system, manifestName(system as System))];
+	});
+	if (files.length === 0) throw new ReleaseError(`dist-release/ holds nothing for ${tag}: bun run release:windows|linux --no-upload first`);
+	return files;
 }
 
 /** Both manifests and the assets: from the release, or with --local from dist-release. */
@@ -302,13 +328,19 @@ try {
 		if (dirty && !dryRun) throw new ReleaseError('the working tree has uncommitted changes: a release is built from a commit');
 		const notes = skipBuild ? [] : command === 'windows' ? buildWindows() : buildLinux();
 		const files = pack(command, tag);
-		upload(tag, files);
+		if (!noUpload) upload(tag, files);
 		for (const note of notes) console.log(`note: ${note}`);
-		console.log(`\n${dryRun ? '(dry run) ' : ''}✅ ${SYSTEM_NAME[command]} files for ${tag}${dryRun ? ' are in dist-release, not uploaded' : ` are on the draft release; bun run release:publish once both systems are there`}`);
+		const where = dryRun || noUpload ? ' are in dist-release, not uploaded' : ' are on the draft release; bun run release:publish once both systems are there';
+		console.log(`\n${dryRun ? '(dry run) ' : ''}✅ ${SYSTEM_NAME[command]} files for ${tag}${where}`);
+	} else if (command === 'upload') {
+		const tag = releaseTag();
+		step(`dist-release/ for ${tag}`);
+		upload(tag, packed(tag));
+		console.log(`\n${dryRun ? '(dry run) ' : ''}✅ dist-release/ is on the draft release ${tag}`);
 	} else if (command === 'publish') {
 		publish(releaseTag());
 	} else {
-		throw new ReleaseError('bun scripts/release.ts windows|linux|publish [--tag v<version>] [--dry-run] [--skip-build] [--local]');
+		throw new ReleaseError('bun scripts/release.ts windows|linux|upload|publish [--tag v<version>] [--dry-run] [--skip-build] [--no-upload] [--local]');
 	}
 } catch (error) {
 	if (!(error instanceof ReleaseError)) throw error;

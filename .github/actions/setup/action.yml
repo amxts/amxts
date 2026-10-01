@@ -2,7 +2,8 @@
 # modules checked out beside the core (the folders the core's package.json and
 # theirs link to), Node and Bun, the dependencies, the patched AssemblyScript,
 # AMX Mod X and the generated API. The core itself is checked out as `amxts`
-# by the job, which then runs this.
+# by the job, which then runs this - on Linux, or on Windows for the Windows
+# half of a release.
 name: Setup
 description: The core's neighbours, toolchain, dependencies and generated API
 
@@ -31,6 +32,7 @@ runs:
 
     # amxxpc, AMX Mod X's Pawn compiler, is a 32-bit program.
     - name: 32-bit libraries for amxxpc
+      if: runner.os == 'Linux'
       shell: bash
       run: sudo apt-get update -qq && sudo apt-get install -y -qq libc6-i386 lib32stdc++6 lib32gcc-s1
 
@@ -38,7 +40,7 @@ runs:
     # npm's download cache is keyed by the package.json files.
     - uses: actions/cache@v4
       with:
-        path: ~/.npm
+        path: ${{ runner.os == 'Windows' && '~/AppData/Local/npm-cache' || '~/.npm' }}
         key: npm-${{ runner.os }}-${{ hashFiles('amxts/package.json', 'amxts-cli/package.json', 'amxts-cli/packages/*/package.json', 'amxts-modules/*/package.json') }}
         restore-keys: npm-${{ runner.os }}-
     - name: Install

@@ -1,18 +1,22 @@
-# The core's checks, and the Linux half of a release.
+# The core's checks, and the server's files of a release.
 #
 # On every push and pull request, side by side: the type check and lint; the
 # test suite in three parts; and the Linux module and wamrc built in Docker,
 # then the server suites on a Linux test server in Docker (bun run
-# test:server --linux). On a tag v*, once all of them pass, the Linux files are
-# attached to that tag's draft release (created if missing); the Windows files
-# come from a developer's machine (bun run release:windows), and the Publish
-# workflow takes the draft off once both are there.
+# test:server --linux). On a tag v*, the Windows files are built too, on a
+# Windows runner (bun run release:windows); once everything passes, both
+# systems' files go to the tag's draft release (created with the version's
+# section of CHANGELOG.md as its notes), and the Publish workflow is started:
+# the draft taken off, the npm packages, the server image. Run by hand
+# (workflow_dispatch), it builds the Windows files as a dry run - a release's
+# rehearsal - and keeps them as an artifact.
 #
 # Every job checks the core out as `amxts` and runs .github/actions/setup,
 # which puts the command and the official modules beside it. What does not
 # change from run to run is cached: npm's downloads, the patched AssemblyScript,
-# each test part's compiled plugins, the Docker images and the Linux build's
-# work folder (wamrc and the objects of the module).
+# each test part's compiled plugins, the Docker images, the Linux build's work
+# folder (wamrc and the objects of the module) and the part of LLVM that
+# wamrc.exe links.
 name: CI
 
 on:
@@ -20,6 +24,7 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -34,6 +39,12 @@ jobs:
         with:
           path: amxts
       - uses: ./amxts/.github/actions/setup
+      # A release's notes are its version's section of CHANGELOG.md: a tag
+      # without one stops here, not after the builds.
+      - name: The release's notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: amxts
+        run: bun scripts/changelog.ts release "$GITHUB_REF_NAME" --dry-run
       - name: Type check
         working-directory: amxts
         run: bun run check
@@ -133,14 +144,73 @@ jobs:
             amxts/runtime/build/linux/wamrc
             amxts/dist-server/linux
 
+  # The Windows files: the module (MSVC, Win32), wamrc.exe against LLVM's
+  # prebuilt package, the host plugin and the kit - what a developer's
+  # `bun run release:windows` does, on a Windows runner.
+  windows:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    timeout-minutes: 90
+    env:
+      LLVM_VERSION: 18.1.8
+    steps:
+      # The patches apply to LF files: no CRLF in the checkouts.
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          path: amxts
+      - uses: ./amxts/.github/actions/setup
+
+      # Of LLVM's 1 GB package wamrc links only the headers, the LLVM
+      # libraries and the CMake package; every other file the package's
+      # exports name becomes an empty one, as in docker/build/Dockerfile.
+      - name: Cache LLVM
+        id: llvm
+        uses: actions/cache@v4
+        with:
+          path: llvm
+          key: llvm-${{ env.LLVM_VERSION }}-windows-wamrc
+      - name: LLVM
+        if: steps.llvm.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          name="clang+llvm-$LLVM_VERSION-x86_64-pc-windows-msvc"
+          curl -fsSL -o llvm.tar.xz "https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/$name.tar.xz"
+          tar -xJf llvm.tar.xz --wildcards --no-anchored '*/include/*' '*/lib/LLVM*.lib' '*/lib/LTO.lib' '*/lib/Remarks.lib' '*/lib/cmake/llvm/*'
+          rm llvm.tar.xz
+          mv "$name" llvm
+          grep -ho '"${_IMPORT_PREFIX}/[^"]*"' llvm/lib/cmake/llvm/LLVMExports-*.cmake \
+            | sed 's|"${_IMPORT_PREFIX}|llvm|; s|"$||' | sort -u \
+            | while read -r file; do [ -e "$file" ] || { mkdir -p "$(dirname "$file")"; touch "$file"; }; done
+
+      - name: The patched WAMR
+        shell: bash
+        working-directory: amxts
+        run: |
+          git clone -q --depth 1 --branch WAMR-2.4.5 https://github.com/bytecodealliance/wasm-micro-runtime runtime/deps/wamr
+          git -C runtime/deps/wamr apply ../../patches/wamr-2.4.5-amxts.patch
+
+      - name: The Windows files
+        shell: bash
+        working-directory: amxts
+        env:
+          LLVM_DIR: ${{ github.workspace }}/llvm/lib/cmake/llvm
+        run: bun run release:windows ${{ startsWith(github.ref, 'refs/tags/v') && '--no-upload' || '--dry-run' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: amxts-windows
+          path: amxts/dist-release/windows
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check, tests, linux]
+    needs: [check, tests, linux, windows]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       # The draft release and its files.
       contents: write
+      # Starting the Publish workflow.
+      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -150,8 +220,20 @@ jobs:
         with:
           name: amxts-linux
           path: amxts
-      - name: Attach the Linux files to the draft release
+      - uses: actions/download-artifact@v4
+        with:
+          name: amxts-windows
+          path: amxts/dist-release/windows
+      - name: Both systems' files on the draft release
         working-directory: amxts
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bun run release:linux --skip-build
+        run: |
+          bun run release:linux --skip-build --no-upload
+          bun run release:upload
+      # The Publish workflow of the tag: the draft taken off, then npm and the
+      # server image. Run by hand with the tag, it does the same.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" -f tag="$GITHUB_REF_NAME"

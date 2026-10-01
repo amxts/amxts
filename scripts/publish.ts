@@ -3,6 +3,7 @@
 //
 //   bun run publish:npm --dry-run       pack every package into dist-npm/packs, say what each carries
 //   bun run publish:npm [--otp <code>]  pack them and publish them to npm, in order
+//   bun run publish:npm --only <names>  pack them all, publish the ones named (comma-separated)
 //   bun run publish:local [--reset]     pack them and publish them to a local registry (Verdaccio)
 //   bun run publish:local --stop        stop the local registry
 //
@@ -40,6 +41,13 @@
 // at the first failure, saying what went out. npm asks for the one-time
 // password; --otp passes one.
 //
+// In GitHub Actions with `id-token: write` it publishes as npm's trusted
+// publisher of the workflow - no token, no npm login - with provenance, and
+// a checkout is the commit it was checked out at (the Publish workflow,
+// .github/workflows/npm.yml). npm takes a package only from the workflow its
+// trusted publisher names, in the repository its package.json names: each
+// repository publishes its own packages with --only.
+//
 // The local registry is Verdaccio 6 from npm (installed into
 // dist-npm/verdaccio-tool/), started in the background with no window, on
 // localhost:4873; its config, storage and log are in dist-npm/verdaccio/. The
@@ -51,7 +59,7 @@ import type { Manifest } from './release-check';
 import type { System } from './system';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
@@ -70,6 +78,8 @@ const VERDACCIO_TOOL = join(OUT, 'verdaccio-tool');
 const LOCAL_REGISTRY = 'http://localhost:4873/';
 const REPO = process.env.AMXTS_RELEASE_REPO ?? 'amxts/amxts';
 const WINDOWS = process.platform === 'win32';
+/** A GitHub Actions job that may ask for an OIDC token: npm's trusted publishing. */
+const TRUSTED = Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
 
 const VERSION = String(readJson(join(CORE, 'package.json')).version);
 
@@ -154,8 +164,14 @@ function sha256(file: string) {
 	return createHash('sha256').update(readFileSync(file)).digest('hex');
 }
 
-/** Whether a git checkout has changes to its tracked files. */
+/**
+ * Whether a git checkout has changes to its tracked files. In CI a checkout is
+ * the commit it was checked out at: what changes there is `bun run generate`
+ * writing the tooltips into the facade's files, which a fresh clone has no
+ * clean filter for (scripts/release.ts trusts it the same way).
+ */
 function dirty(dir: string) {
+	if (process.env.GITHUB_ACTIONS === 'true') return false;
 	return run('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: dir, quiet: true }).stdout.trim() !== '';
 }
 
@@ -204,6 +220,8 @@ function wamrcBinaries(folder: string, strict: boolean): Record<System, string> 
 			if (strict) throw new PublishError(`${file}: ${problem}`);
 			warn(`${WAMRC_ASSET[system]}: ${problem} - fine for a try, not for npm`);
 		}
+		// gh downloads it without its execute bit; this system's compiles the modules.
+		if (system === HOST_SYSTEM && !WINDOWS) chmodSync(file, 0o755);
 		found[system] = file;
 	}
 	return found;
@@ -559,6 +577,15 @@ async function publishLocal(options: { reset: boolean; wamrcFolder?: string; ski
 	publishAll(packs, LOCAL_REGISTRY, [`--${LOCAL_REGISTRY.replace(/^http:/, '')}:_authToken=${token}`]);
 }
 
+/** The packages --only names, checked; null without it - all of them. */
+function onlyNames(names: string | undefined): string[] | null {
+	if (!names) return null;
+	const wanted = names.split(/[\s,]+/).filter(Boolean);
+	const unknown = wanted.filter(name => !NAMES.has(name));
+	if (unknown.length) throw new PublishError(`--only ${unknown.join(', ')}: not one of ${[...NAMES].join(', ')}`);
+	return wanted;
+}
+
 function option(args: string[], name: string) {
 	const at = args.indexOf(name);
 	return at >= 0 ? args[at + 1] : undefined;
@@ -572,10 +599,11 @@ async function main(args: string[]) {
 		packAll({ strict: false, wamrcFolder, skipGenerate });
 		console.log('\nA dry run: nothing was published. bun run publish:check tries these packages as a user would.');
 	} else if (command === 'npm') {
-		if (!run('npm', ['whoami'], { quiet: true, allowFail: true }).ok) throw new PublishError('npm has no user logged in: npm login, then run it again');
-		const packs = packAll({ strict: true, wamrcFolder, skipGenerate });
+		if (!TRUSTED && !run('npm', ['whoami'], { quiet: true, allowFail: true }).ok) throw new PublishError('npm has no user logged in: npm login, then run it again');
+		const wanted = onlyNames(option(args, '--only'));
+		const packs = packAll({ strict: true, wamrcFolder, skipGenerate }).filter(pack => !wanted || wanted.includes(pack.name));
 		const otp = option(args, '--otp');
-		publishAll(packs, 'https://registry.npmjs.org/', otp ? ['--otp', otp] : []);
+		publishAll(packs, 'https://registry.npmjs.org/', TRUSTED ? ['--provenance'] : otp ? ['--otp', otp] : []);
 	} else if (command === 'local' && args.includes('--stop')) {
 		console.log(stopRegistry() ? 'the local registry is stopped' : 'no local registry of this script is running');
 	} else if (command === 'local') {
@@ -596,7 +624,7 @@ async function main(args: string[]) {
 			'Stop the registry: bun run publish:local --stop',
 		].join('\n'));
 	} else {
-		throw new PublishError('bun run publish:npm [--dry-run] [--otp <code>] | bun run publish:local [--reset | --stop]; both take --wamrc <folder> and --skip-generate');
+		throw new PublishError('bun run publish:npm [--dry-run] [--otp <code>] [--only <names>] | bun run publish:local [--reset | --stop]; both take --wamrc <folder> and --skip-generate');
 	}
 }
 

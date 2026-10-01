@@ -88,6 +88,7 @@
 		"server:image": "bun scripts/pack-server.ts --os linux && docker build --load -t amxts-server --build-context kit=dist-server/linux docker/server",
 		"release:windows": "bun scripts/release.ts windows",
 		"release:linux": "bun scripts/release.ts linux",
+		"release:upload": "bun scripts/release.ts upload",
 		"release:publish": "bun scripts/release.ts publish",
 		"changelog": "bun scripts/changelog.ts",
 		"publish:npm": "bun scripts/publish.ts npm",

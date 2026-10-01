@@ -1,7 +1,14 @@
-# Takes a release's draft off once it is whole: both systems' files attached,
-# of the tag's version and one commit (scripts/release-check.ts). Refuses
-# otherwise, and says what is missing. The same as `bun run release:publish`
-# on a developer's machine.
+# A release, published: the draft GitHub Release taken off once it is whole -
+# both systems' files, of the tag's version and one commit
+# (scripts/release-check.ts) - then, side by side, the core's npm packages
+# and the server image. CI starts it on a tag once the files are attached;
+# run by hand with the tag, it does the same, and what is published already
+# is left as it is - so it also finishes a release that stopped half way.
+#
+# npm takes @amxts/wamrc-win32-x64, @amxts/wamrc-linux-x64 and @amxts/core
+# from this file of amxts/amxts, their trusted publisher, without a token
+# (npm.yml). The other packages are published by their own repositories'
+# publish.yml, through the same npm.yml.
 name: Publish
 
 on:
@@ -12,8 +19,9 @@ on:
         required: true
 
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
@@ -28,3 +36,63 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
         run: bun scripts/release.ts publish --tag "$TAG"
+
+  npm:
+    needs: release
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/npm.yml
+    with:
+      tag: ${{ inputs.tag }}
+      packages: "@amxts/wamrc-win32-x64,@amxts/wamrc-linux-x64,@amxts/core"
+
+  # ghcr.io/<owner>/server:<version>, and :latest for the newest release:
+  # docker/server with the release's own Linux server kit.
+  image:
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - name: The release's Linux server kit, and the image's tags
+        id: image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern amxts-server-linux-x64.tar.gz --dir "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/kit"
+          tar -xzf "$RUNNER_TEMP/amxts-server-linux-x64.tar.gz" -C "$RUNNER_TEMP/kit"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/server"
+          tags="$image:${TAG#v}"
+          if [ "$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)" = "$TAG" ]; then tags="$tags,$image:latest"; fi
+          {
+            echo "tags=$tags"
+            echo "version=${TAG#v}"
+            echo "revision=$(git rev-parse HEAD)"
+            echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: docker/server
+          build-contexts: kit=${{ runner.temp }}/kit
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.image.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.image.outputs.revision }}
+            org.opencontainers.image.created=${{ steps.image.outputs.created }}
+          cache-from: type=gha,scope=amxts-server
+          cache-to: type=gha,mode=max,scope=amxts-server
