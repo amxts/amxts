@@ -42,6 +42,7 @@ import { followConsoles, projectContainers, runCommand } from './docker-server';
 import { FileContents, sourceIn, sourcesIn } from './file-contents';
 import { serverIncludes } from './includes';
 import { pluginCache } from './plugin-cache';
+import { includeName } from './plugin-natives';
 import { fromRegistry, prebuiltOf } from './prebuilt';
 import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, projectPlugins, sourcesFor } from './project';
 import { sharedModulesBuild } from './shared-modules';
@@ -205,9 +206,17 @@ const includes = new Map<string, string>();
 /**
  * What the build keeps of the plugins it compiled (scripts/plugin-cache.ts).
  * A deploy copies the plugins' includes, and amxts.inc, where the server's
- * includes are: the ones built before are the build's own, not what it reads.
+ * includes are: they are the build's own, not what it reads - the ones it
+ * writes under its plugins' and modules' names, and any an earlier build
+ * wrote. Named before the first build as after it, or a dev started again
+ * would compile everything again.
  */
-const cache = pluginCache(project.dir, ['amxts', ...readdirSync(outDir).filter(file => file.endsWith('.inc')).map(file => file.replace(/\.inc$/, ''))]);
+const cache = pluginCache(project.dir, [
+	'amxts',
+	...[...project.modules.map(pkg => pkg.short), ...ownPlugins().map(plugin => plugin.name)].map(includeName),
+	...project.modules.flatMap(pkg => (pkg.include ? [basename(pkg.include).replace(/\.inc$/, '')] : [])),
+	...readdirSync(outDir).filter(file => file.endsWith('.inc')).map(file => file.replace(/\.inc$/, '')),
+]);
 
 /**
  * Builds these plugins: a module that comes compiled for this project is
