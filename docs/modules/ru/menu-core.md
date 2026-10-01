@@ -166,15 +166,18 @@ menus.setListSource("LIST_FPS_CHECK", rows);   // rows(viewer) возвраща�
 menus.show(player, "MAIN_MENU", { resetHistory: true });
 ```
 
-Проект перечисляет menu-core в `amxts.config.ts`, а config-core
-приходит вместе с ним: меню menu-core читает через `@amxts/config-core` —
-плагина config-core. Сборка ставит оба плагина в `plugins.ini`,
-config-core первым.
+Проект перечисляет в `amxts.config.ts` menu-core, а сразу за ним
+config-core: меню menu-core читает через `@amxts/config-core` — плагина
+config-core. `npx amxts module add menu-core` ставит и вписывает оба.
+Сборка ставит оба плагина в `plugins.ini`, config-core первым.
 
 ```ts
 // amxts.config.ts
 export default defineConfig({
-	modules: ["@amxts/menu-core"],
+	modules: [
+		"@amxts/menu-core",
+		"@amxts/config-core", // needed by menu-core
+	],
 	menus: { file: "myplugin/menu" },     // configs/myplugin/menu.ini, .yaml или .json
 });
 ```
