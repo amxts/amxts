@@ -3,7 +3,8 @@
 # (scripts/build-linux.ts runs it):
 #
 #   /src    the repository, read-only - runtime/ with the generated
-#           natives.h and embedded.h (`bun run generate` first)
+#           natives.h and embedded.h (`bun run generate` first) and the
+#           compiled host plugin, host.h (`bun run host`)
 #   /work   the checkouts and build folders, kept between runs
 #   /out    what comes out: amxts_amxx_i386.so and wamrc
 #

@@ -111,15 +111,16 @@ jobs:
           path: linux-work
           key: linux-work-${{ hashFiles('amxts/docker/build/**', 'amxts/runtime/patches/wamr-*.patch', 'amxts/runtime/CMakeLists.txt', 'amxts/runtime/src/**') }}
           restore-keys: linux-work-
+      # The host plugin first: the module carries it.
+      - name: The host plugin
+        working-directory: amxts
+        run: bun run host
       - name: The Linux module and wamrc
         working-directory: amxts
         env:
           JOBS: 4
           AMXTS_BUILD_VOLUME: ${{ github.workspace }}/linux-work
         run: bun run build:linux
-      - name: The host plugin
-        working-directory: amxts
-        run: bun run host
 
       - name: The server suites on Linux
         working-directory: amxts
@@ -144,9 +145,9 @@ jobs:
             amxts/runtime/build/linux/wamrc
             amxts/dist-server/linux
 
-  # The Windows files: the module (MSVC, Win32), wamrc.exe against LLVM's
-  # prebuilt package, the host plugin and the kit - what a developer's
-  # `bun run release:windows` does, on a Windows runner.
+  # The Windows files: the host plugin, the module that carries it (MSVC,
+  # Win32), wamrc.exe against LLVM's prebuilt package and the kit - what a
+  # developer's `bun run release:windows` does, on a Windows runner.
   windows:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: windows-2025

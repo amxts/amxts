@@ -5,7 +5,8 @@
 // binding per native, resolve natives by name in the host plugin's native
 // table. The host plugin is generated and holds no logic — it only pulls
 // natives into its table, relays AMXX forwards, and keeps a pool of publics
-// for plugin callbacks.
+// for plugin callbacks. The module carries it and has AMX Mod X load it
+// (InstallHost), so a server installs the module alone.
 //
 // What changed is the engine. A plugin is now a .aot file produced by
 // `asc` and `wamrc`, so its code is machine code by the time the server loads
@@ -750,6 +751,10 @@ struct Frame {
 // The API a plugin imports, carried inside the module so it cannot be a
 // different generation from the thunks above.
 #include "embedded.h"
+
+// The host plugin, compiled (`bun run host`): written out for AMX Mod X on
+// every start (InstallHost).
+#include "host.h"
 
 /**
  * Set by amxts_trace in the server console.
@@ -2806,10 +2811,11 @@ static void EnsureDirectory(const char *relative)
 /**
  * Lays out addons/amxts beside the module, on every start.
  *
- * A server owner installs two files - the module and the host plugin - and the
- * rest appears: the folders, the API a plugin imports, the editor's files, the
- * signature table the compiler reads, and an example to edit - the list
- * scripts/server-files.ts makes (embedded.h).
+ * A server owner installs one file - the module - and the rest appears: the
+ * folders, the API a plugin imports, the editor's files, the signature table
+ * the compiler reads, and an example to edit - the list
+ * scripts/server-files.ts makes (embedded.h). The host plugin is written
+ * apart from these (InstallHost), on a test server too.
  *
  * The API is rewritten every time rather than only when missing. It is not
  * the author's: it is this module's own, and a copy left over from an older
@@ -2851,6 +2857,122 @@ static void InstallFiles()
 
 		fclose(f);
 	}
+}
+
+// ---------------------------------------------------------------- the host plugin
+
+#define HOST_FILE "amxts_host.amxx"
+
+/**
+ * The host plugin as AMX Mod X loads it, and the list that names it, both
+ * under AMX Mod X's own folders (InstallHost).
+ *
+ * The host has to be a plugin in AMX Mod X's list. The module API loads a
+ * script (LoadAmxScript) and even binds the natives plugins registered, but
+ * the script is not a plugin: AMX Mod X finds the plugin behind an AMX by
+ * userdata only a plugin sets, so set_task, register_srvcmd, register_event,
+ * RegisterHookChain and their like find none, and a forward - plugin_init,
+ * client_putinserver, one a Pawn plugin creates - reaches the publics of the
+ * plugins in the list only. The module API has no way to add one.
+ *
+ * So the module writes the plugin into the plugins folder and names it in
+ * configs/plugins-amxts.ini. AMX Mod X reads every configs/plugins-*.ini
+ * after plugins.ini, before the map's own lists, so the host loads after the
+ * plugins of plugins.ini; natives are bound once every plugin has loaded,
+ * whichever list named it. Windows' AMX Mod X passes over the first *.ini its
+ * search of the folder finds, which is modules.ini or another before
+ * "plugins-" on a server. Both files are written when the module attaches -
+ * before AMX Mod X reads its lists, on every map, since a map change reloads
+ * the module - and removed when it detaches, so a server whose module is
+ * taken out does not load a host nobody serves.
+ */
+static std::string g_hostFile;
+static std::string g_hostList;
+
+static bool WriteWhole(const std::string &path, const void *data, size_t size)
+{
+	FILE *f = fopen(path.c_str(), "wb");
+	if (!f)
+		return false;
+	bool written = fwrite(data, 1, size, f) == size;
+	return fclose(f) == 0 && written;
+}
+
+/**
+ * Says that plugins.ini can lose its line for the host - an install from
+ * before the module carried it - once a server's run.
+ *
+ * The line does no harm: AMX Mod X loads a plugin of one name once, so the
+ * host loads at that line, from the file InstallHost has just written, and
+ * plugins-amxts.ini's line is passed over. Once: a map change reloads the
+ * module and its memory with it, so the process's environment keeps what has
+ * been said.
+ */
+static void NoteHostLine(const std::string &pluginsIni)
+{
+	if (getenv("AMXTS_HOST_LINE_NOTED"))
+		return;
+
+	FILE *f = fopen(pluginsIni.c_str(), "r");
+	if (!f)
+		return;
+
+	// Read as AMX Mod X reads it: a ';' ends a line, and `disabled` after the
+	// name keeps the plugin out (the host too, which OnPluginsLoaded says).
+	bool named = false;
+	char line[512];
+	while (!named && fgets(line, sizeof(line), f)) {
+		char *comment = strchr(line, ';');
+		if (comment)
+			*comment = 0;
+		char name[256] = "", flag[256] = "";
+		sscanf(line, "%255s %255s", name, flag);
+		named = !strcmp(name, HOST_FILE) && strcmp(flag, "disabled") != 0;
+	}
+	fclose(f);
+
+	if (!named)
+		return;
+
+#ifdef _WIN32
+	_putenv("AMXTS_HOST_LINE_NOTED=1");
+#else
+	setenv("AMXTS_HOST_LINE_NOTED", "1", 1);
+#endif
+	MF_PrintSrvConsole("[amxts] %s names " HOST_FILE ": the amxts_amxx module loads the host plugin itself, so that line can go\n",
+	                   pluginsIni.c_str());
+}
+
+static void InstallHost()
+{
+	// Copied at once: the engine answers a localinfo lookup from four buffers
+	// it takes in turn.
+	std::string plugins = MF_GetLocalInfo("amxx_pluginsdir", "addons/amxmodx/plugins");
+	std::string configs = MF_GetLocalInfo("amxx_configsdir", "addons/amxmodx/configs");
+	std::string pluginsIni = MF_GetLocalInfo("amxx_plugins", "addons/amxmodx/configs/plugins.ini");
+
+	g_hostFile = MF_BuildPathname("%s/" HOST_FILE, plugins.c_str());
+	g_hostList = MF_BuildPathname("%s/plugins-amxts.ini", configs.c_str());
+
+	static const char list[] =
+		"; Written by the amxts_amxx module when it starts, and removed when it stops:\n"
+		"; the host plugin the module carries. Nothing here is to be edited.\n"
+		HOST_FILE "\n";
+
+	if (!WriteWhole(g_hostFile, g_hostPlugin, sizeof(g_hostPlugin)))
+		MF_PrintSrvConsole("[amxts] cannot write %s - without it no amxts plugin runs\n", g_hostFile.c_str());
+	if (!WriteWhole(g_hostList, list, sizeof(list) - 1))
+		MF_PrintSrvConsole("[amxts] cannot write %s - without it no amxts plugin runs\n", g_hostList.c_str());
+
+	NoteHostLine(MF_BuildPathname("%s", pluginsIni.c_str()));
+}
+
+static void RemoveHost()
+{
+	if (!g_hostList.empty())
+		remove(g_hostList.c_str());
+	if (!g_hostFile.empty())
+		remove(g_hostFile.c_str());
 }
 
 // ---------------------------------------------------------------- boot
@@ -3998,10 +4120,25 @@ void OnAmxxAttach()
 
 	MF_AddNatives(g_natives);
 	ReadListFile();
+	InstallHost();
+}
+
+/**
+ * Every plugin has loaded, the host among them - unless AMX Mod X did not
+ * load it: a `disabled` line for it in plugins.ini, a plugins folder it could
+ * not write, a configs folder whose plugins-amxts.ini AMX Mod X did not read.
+ * Its log names the reason; this says what it costs.
+ */
+void OnPluginsLoaded()
+{
+	if (!g_host)
+		MF_PrintSrvConsole("[amxts] AMX Mod X did not load the host plugin (%s, named in %s), and no amxts plugin runs without it - AMX Mod X's log says why\n",
+		                   g_hostFile.c_str(), g_hostList.c_str());
 }
 
 void OnAmxxDetach()
 {
 	Teardown();
+	RemoveHost();
 	wasm_runtime_destroy();
 }

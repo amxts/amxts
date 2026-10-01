@@ -34,7 +34,7 @@ copy_tree() {
 	echo "amxts-server: $1 -> $2"
 }
 
-# A line a file must have, moved to its end - where the host plugin belongs.
+# A line a file must have, moved to its end.
 keep_line() {
 	file=$1 line=$2
 	touch "$file"
@@ -75,7 +75,6 @@ fi
 
 keep_line "$GAME/addons/amxmodx/configs/modules.ini" reapi
 keep_line "$GAME/addons/amxmodx/configs/modules.ini" amxts_amxx
-keep_line "$GAME/addons/amxmodx/configs/plugins.ini" amxts_host.amxx
 
 # server.cfg runs after the command line, so what the environment sets goes
 # into it - over the lines of the same name.

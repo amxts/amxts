@@ -15,5 +15,6 @@
 // forwards. Enable USE_METAMOD only if engine-level hooks become necessary.
 #define FN_AMXX_ATTACH OnAmxxAttach
 #define FN_AMXX_DETACH OnAmxxDetach
+#define FN_AMXX_PLUGINSLOADED OnPluginsLoaded
 
 #endif

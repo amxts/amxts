@@ -6,6 +6,8 @@ import type { MessageField } from './client-messages';
 //   1. pull natives into its table so the module can resolve them by name;
 //   2. relay AMXX forwards into the plugins through amxts_event();
 //   3. keep a pool of publics that the plugins' callbacks attach to.
+// scripts/compile-host.ts compiles it into runtime/src/host.h: the module
+// carries it and has AMX Mod X load it, so a server installs the module alone.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IncludeParser } from '../src/parser/include-parser';

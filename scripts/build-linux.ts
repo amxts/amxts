@@ -8,8 +8,9 @@
 // live in the Docker volume amxts-linux-work, so a second run only rebuilds
 // what changed. What it builds is docker/build/build.sh.
 //
-// The module carries the generated natives.h and embedded.h, so this comes
-// after `bun run generate`, like the Windows build.
+// The module carries the generated natives.h and embedded.h and the compiled
+// host plugin (host.h), so this comes after `bun run generate` and `bun run
+// host`, like the Windows build.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -32,8 +33,8 @@ function docker(args: string[]): void {
 	if (result.status !== 0) fail(`docker ${args[0]} failed (exit ${result.status})`);
 }
 
-for (const file of ['runtime/src/natives.h', 'runtime/src/embedded.h']) {
-	if (!existsSync(join(CORE, file))) fail(`${file} is missing - run bun run generate first`);
+for (const [file, step] of [['runtime/src/natives.h', 'generate'], ['runtime/src/embedded.h', 'generate'], ['runtime/src/host.h', 'host']]) {
+	if (!existsSync(join(CORE, file))) fail(`${file} is missing - run bun run ${step} first`);
 }
 
 mkdirSync(OUT, { recursive: true });

@@ -118,7 +118,6 @@ const amxxpc = amxxpcPath();
 const wamrc = wamrcPath();
 const signatures = process.env.AMXTS_NATIVES ?? join(CORE_DIR, 'runtime/natives.txt');
 const moduleDll = modulePath(linux ? 'linux' : 'windows');
-const hostPlugin = join(CORE_DIR, 'runtime/host/amxts_host.amxx');
 
 // Plugins a suite needs beside the suites themselves: the modules
 // amxts.config.ts lists, as their owners, in load order, then the project's
@@ -534,16 +533,16 @@ function stage(built: string[], pawn: string[], password: string): void {
 	for (const file of built) copyFileSync(join(buildDir, file), join(testDir, 'plugins', file));
 	writeFileSync(join(testDir, 'plugins.ini'), `${built.join('\n')}\n`);
 
-	// AMX Mod X: the host plugin and the Pawn suites, the modules with the
-	// amxts module under test, and the configs a suite reads.
+	// AMX Mod X: the Pawn suites, the modules with the amxts module under
+	// test, and the configs a suite reads. The host plugin is the module's: it
+	// writes it into this plugins folder and names it in this configs folder.
 	const amxx = join(testDir, 'amxx');
 	const serverAmxx = join(gameDir, 'addons/amxmodx');
 	for (const dir of ['plugins', 'modules', 'configs', 'logs']) mkdirSync(join(amxx, dir), { recursive: true });
 
 	// This run's Pawn suites, not whatever an older run left in the build folder.
-	copyFileSync(hostPlugin, join(amxx, 'plugins', 'amxts_host.amxx'));
 	for (const file of pawn) copyFileSync(join(buildDir, file), join(amxx, 'plugins', file));
-	writeFileSync(join(amxx, 'plugins.ini'), `${['amxts_host.amxx', ...pawn].join('\n')}\n`);
+	writeFileSync(join(amxx, 'plugins.ini'), `${pawn.join('\n')}\n`);
 
 	// The container's modules and configs come from its image (startContainer).
 	if (!linux) {
@@ -701,7 +700,7 @@ async function main(): Promise<number> {
 		return 0;
 	}
 
-	for (const needed of [...(linux ? [] : [hlds]), moduleDll, hostPlugin, amxxpc, wamrc, signatures]) {
+	for (const needed of [...(linux ? [] : [hlds]), moduleDll, amxxpc, wamrc, signatures]) {
 		if (!existsSync(needed)) {
 			fail(`missing ${needed}${needed === moduleDll && linux ? ' - bun run build:linux builds it' : ''}`);
 			return 1;
@@ -782,14 +781,24 @@ async function main(): Promise<number> {
 		}
 
 		// The first thing to know: whether it is loading the test's plugins
-		// and nothing else. If not, it stops here before anything runs.
+		// and nothing else. If not, it stops here before anything runs. The
+		// host plugin has no line in plugins.ini: the module loads it, once -
+		// the console says so when the host attaches (`amxx plugins` cuts a
+		// file name to 11 characters).
 		const listed = await rcon(password, 'amxx plugins') ?? '';
 		const running = [...listed.matchAll(/(\S+\.amxx)\s+running/g)].map(m => m[1]);
-		const expected = new Set(['amxts_host.amxx', ...pawn.map(f => basename(f).replace(/\.sma$/, '.amxx'))]);
+		const expected = new Set(pawn.map(f => basename(f).replace(/\.sma$/, '.amxx')));
 		const strangers = running.filter(file => !expected.has(file));
-		const ownList = consoleLines().some(line => line.includes('[amxts] plugin list') && line.replace(/\\/g, '/').includes(`${TEST}/plugins.ini`));
-		if (strangers.length > 0 || !ownList) {
-			problems.push(`isolation failed - ${strangers.length ? `AMX Mod X runs ${strangers.join(', ')}` : 'the amxts module did not take the test\'s plugin list (is runtime/build the new module?)'}`);
+		const lines = consoleLines();
+		const hosts = lines.filter(line => line.includes('[amxts] host native table')).length;
+		const ownList = lines.some(line => line.includes('[amxts] plugin list') && line.replace(/\\/g, '/').includes(`${TEST}/plugins.ini`));
+		const isolation = ([
+			[strangers.length > 0, `AMX Mod X runs ${strangers.join(', ')}`],
+			[hosts !== 1, hosts ? `the host plugin attached ${hosts} times` : 'the amxts module did not load its host plugin'],
+			[!ownList, 'the amxts module did not take the test\'s plugin list (is runtime/build the new module?)'],
+		] as const).find(([failed]) => failed);
+		if (isolation) {
+			problems.push(`isolation failed - ${isolation[1]}`);
 			return report(results, problems);
 		}
 

@@ -16,6 +16,7 @@ as/flags.ts
 as/hooks.ts
 runtime/src/natives.h
 runtime/src/embedded.h
+runtime/src/host.h
 runtime/natives.txt
 runtime/host/amxts_host.sma
 

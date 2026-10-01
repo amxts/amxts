@@ -48,7 +48,6 @@ const out = join('./dist-server', system);
 const wamrc = process.env.AMXTS_KIT_WAMRC
 	?? (system === HOST_SYSTEM ? wamrcPath() : system === 'linux' ? './runtime/build/linux/wamrc' : '');
 const module_ = modulePath(system);
-const host = './runtime/host/amxts_host.amxx';
 // Bun's baseline build: no AVX2 needed, which not every game server's CPU has.
 const BUN_TARGET: Record<System, string> = { windows: 'bun-windows-x64-baseline', linux: 'bun-linux-x64-baseline' };
 
@@ -69,7 +68,6 @@ mkdirSync(join(out, 'addons/amxts/tools'), { recursive: true });
 mkdirSync(join(out, 'addons/amxts/plugins'), { recursive: true });
 mkdirSync(join(out, 'addons/amxts/build'), { recursive: true });
 mkdirSync(join(out, 'addons/amxmodx/modules'), { recursive: true });
-mkdirSync(join(out, 'addons/amxmodx/plugins'), { recursive: true });
 
 // One executable rather than a JS runtime and a node_modules: nothing on a
 // game server should need `bun install`.
@@ -123,24 +121,27 @@ if (!existsSync(std)) {
 cpSync(join(std, 'assembly'), join(out, 'addons/amxts/plugins/.assemblyscript/assembly'), { recursive: true });
 cpSync(join(std, 'types'), join(out, 'addons/amxts/plugins/.assemblyscript/types'), { recursive: true });
 
+// The module carries the host plugin and writes it out for AMX Mod X itself.
 if (existsSync(module_)) {
 	copyFileSync(module_, join(out, 'addons/amxmodx/modules', MODULE_FILE[system]));
 } else {
 	process.stdout.write(`note: ${module_} is not built, the kit has no module\n`);
 }
-if (existsSync(host)) copyFileSync(host, join(out, 'addons/amxmodx/plugins/amxts_host.amxx'));
 // The module's natives for Pawn plugins: the fields plugins add to Player.
 mkdirSync(join(out, 'addons/amxmodx/scripting/include'), { recursive: true });
 copyFileSync('./runtime/host/amxts.inc', join(out, 'addons/amxmodx/scripting/include/amxts.inc'));
 
 writeFileSync(join(out, 'README.txt'), `amxts — write AMX Mod X plugins in TypeScript
 
-Copy addons/ over your server's addons/, then add two lines:
+Copy addons/ over your server's addons/, then add one line to
+addons/amxmodx/configs/modules.ini:
 
-  addons/amxmodx/configs/modules.ini    amxts_amxx
-  addons/amxmodx/configs/plugins.ini    amxts_host.amxx
+  amxts_amxx
 
-amxts_host.amxx must come after any plugin whose natives you intend to call.
+That is all: plugins.ini needs no line. The module loads its host plugin
+itself - on every start it writes amxts_host.amxx into addons/amxmodx/plugins
+and names it in addons/amxmodx/configs/plugins-amxts.ini, and it removes both
+when the server stops.
 This kit is for a ${SYSTEM_NAME[system]} server: the module is ${MODULE_FILE[system]}.
 
 Writing a plugin

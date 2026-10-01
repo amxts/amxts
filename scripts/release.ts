@@ -126,6 +126,9 @@ function buildWindows(): string[] {
 	const notes: string[] = [];
 	step('the generated API');
 	run('bun', ['run', 'generate']);
+	// Before the module, which carries it.
+	step('the host plugin');
+	run('bun', ['run', 'host']);
 
 	step('amxts_amxx.dll');
 	ensureAmxxSdk();
@@ -145,8 +148,6 @@ function buildWindows(): string[] {
 		notes.push(`wamrc.exe was not rebuilt (no LLVM_DIR): ${wamrcPath()} from ${new Date(statSync(wamrcPath()).mtime).toISOString()}`);
 	}
 
-	step('the host plugin');
-	run('bun', ['run', 'host']);
 	step('the server kit');
 	run('bun', ['scripts/pack-server.ts', '--os', 'windows']);
 	return notes;
@@ -155,10 +156,10 @@ function buildWindows(): string[] {
 function buildLinux(): string[] {
 	step('the generated API');
 	run('bun', ['run', 'generate']);
-	step('amxts_amxx_i386.so and wamrc (Docker)');
-	run('bun', ['scripts/build-linux.ts']);
 	step('the host plugin');
 	run('bun', ['run', 'host']);
+	step('amxts_amxx_i386.so and wamrc (Docker)');
+	run('bun', ['scripts/build-linux.ts']);
 	step('the server kit');
 	run('bun', ['scripts/pack-server.ts', '--os', 'linux']);
 	return [];
@@ -253,7 +254,7 @@ function createRelease(tag: string): void {
 		'',
 		'### 📦 Files',
 		'',
-		'- `amxts-server-windows-x64.zip`, `amxts-server-linux-x64.tar.gz` - the server kit: the module, the host plugin, and the compiler for `.ts` plugins written on the server.',
+		'- `amxts-server-windows-x64.zip`, `amxts-server-linux-x64.tar.gz` - the server kit: the module, and the compiler for `.ts` plugins written on the server.',
 		'- `amxts_amxx.dll`, `amxts_amxx_i386.so` - the module alone.',
 		'- `amxts-compile-*`, `wamrc-*` - the on-server compiler and WAMR\'s AOT compiler, per system.',
 		'- `amxts-windows.json`, `amxts-linux.json` - what each was built from, with every file\'s sha256.',
