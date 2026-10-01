@@ -868,8 +868,21 @@ export class Sources {
 	private readPlain(path: string): string | null {
 		const real = this.real(path);
 		if (!real) return this.generated(path);
+		const raw = readFileSync(real, 'utf8');
+		const at = resolve(path);
+		const known = this.plain.get(at);
+		if (known?.raw === raw) return known.out;
+		const out = this.plainOf(path, real, raw);
+		this.plain.set(at, { raw, out });
+		return out;
+	}
+
+	/** Each file's plain text, made once a compile: a build reaches the facade from every plugin. */
+	private plain = new Map<string, { raw: string; out: string }>();
+
+	private plainOf(path: string, real: string, raw: string): string {
 		// A module's ModuleOptions augmentation may be in any of its files (types.ts).
-		const text = withoutOptionsAugmentation(this.rewrite(real, this.withImports(real, readFileSync(real, 'utf8'))));
+		const text = withoutOptionsAugmentation(this.rewrite(real, this.withImports(real, raw)));
 		const pkg = this.project.modules.find(each => each.module === real);
 		if (pkg) return moduleSource(real, text, optionsOf(this.project, pkg.definition));
 		if (/^modules\/[^/]+\.ts$/.test(this.rel(path)) && text.includes('defineModule')) {
