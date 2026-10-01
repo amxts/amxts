@@ -12,6 +12,10 @@ folder into the kit as `addons/amxts/tools/licenses/`, with amxts' own
 | `Bun-LICENSE.md` | [Bun](https://github.com/oven-sh/bun) 1.4.2, the runtime `bun build --compile` puts in - MIT, with the libraries it links statically | `amxts-compile` |
 | `WAMR-LICENSE` | [WAMR](https://github.com/bytecodealliance/wasm-micro-runtime) 2.4.5, **patched** (`runtime/patches/wamr-2.4.5-amxts.patch`) - Apache-2.0 with LLVM exceptions | `wamrc`, the `amxts_amxx` module |
 | `AMXX-LICENSE.txt`, `GPL-3.0.txt` | [AMX Mod X](https://github.com/alliedmodders/amxmodx) - GPL-3.0-or-later with AMX Mod X's exceptions: its module SDK is linked into the module and its includes build the host plugin the module carries, so the module is distributed under GPL-3.0-or-later (its sources in this repository are MIT) | the `amxts_amxx` module |
+| `curl-COPYING` | [curl](https://curl.se) 8.22.0, linked into the module statically for `fetch` - the curl license (MIT-style) | the `amxts_amxx` module |
+| `mbedTLS-LICENSE` | [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) 3.6.7, linked into the module statically for HTTPS, FTPS and SFTP - Apache-2.0 (or GPL-2.0-or-later) | the `amxts_amxx` module |
+| `libssh2-COPYING` | [libssh2](https://libssh2.org) 1.11.1, linked into the module statically for SFTP - BSD-3-Clause | the `amxts_amxx` module |
+| `MPL-2.0.txt` | Mozilla's list of certificate authorities, as [curl publishes it](https://curl.se/docs/caextract.html), carried inside the module for HTTPS - MPL-2.0 | the `amxts_amxx` module |
 | `LLVM-LICENSE.TXT` | [LLVM](https://github.com/llvm/llvm-project) 18.1.8, linked into `wamrc` statically - Apache-2.0 with LLVM exceptions | `wamrc` |
 
 The npm packages carry them too. `@amxts/core` has this folder, AMX Mod X's

@@ -12,6 +12,12 @@
 // `asc` and `wamrc`, so its code is machine code by the time the server loads
 // it, and a call into a host native is a direct call rather than an
 // interpreter round trip.
+// The network client's headers come first: curl's winsock2.h before anything
+// that brings windows.h in, and <thread> before amxxmodule.h, whose `#define
+// execv _execv` breaks the process.h it reads on Windows.
+#include <curl/curl.h>
+#include <mutex>
+#include <thread>
 #include "amxxmodule.h"
 #include "wasm_export.h"
 
@@ -1447,7 +1453,7 @@ static int32_t w_clcmd(wasm_exec_env_t env, int32_t pattern, int32_t fn, int32_t
  * w_clcmd, w_task, w_hook and w_ham each park a function in a slot and then
  * call the one AMXX native they were built for. Every other AMXX facility that
  * takes a callback by name - register_message, register_touch, query_client_cvar,
- * ezhttp_post, set_native_filter, menu_core's registrars - would need another
+ * set_native_filter, menu_core's registrars - would need another
  * wrapper each. This is the same first half with no second half: the plugin
  * gets the slot and passes "__amxts_cb<n>" to whatever native it likes.
  *
@@ -2571,6 +2577,16 @@ static void w_rpcResult(wasm_exec_env_t env, int32_t to)
 	g_rpcResult.clear();
 }
 
+// ---------------------------------------------------------------- network
+
+// fetch's requests, run on a worker thread: net_open and the rest, and NetFrame.
+#include "network.h"
+
+// ---------------------------------------------------------------- fields
+
+// Entity fields and the game's members, read in memory: ent_get and the rest.
+#include "fields.h"
+
 static NativeSymbol g_wasmNatives[] = {
 	{ "abort",        (void *)w_abort,        "(iiii)", NULL },
 	{ "print_client", (void *)w_print_client, "(iii)",  NULL },
@@ -2631,12 +2647,24 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "player_change_listen",   (void *)w_playerChangeListen,  "(ii)",    NULL },
 	{ "player_change_get",      (void *)w_playerChangeGet,     "(i)F",    NULL },
 	{ "player_change_get_text", (void *)w_playerChangeGetText, "(iii)i",  NULL },
+	FIELD_NATIVES
 	{ "amxts_serve",      (void *)w_serve,     "(ii)",    NULL },
 	{ "amxts_owner",      (void *)w_owner,     "(ii)i",   NULL },
 	{ "amxts_rpc",        (void *)w_rpc,       "(iiii)i", NULL },
 	{ "amxts_rpc_take",   (void *)w_rpcTake,   "(i)",     NULL },
 	{ "amxts_rpc_reply",  (void *)w_rpcReply,  "(ii)",    NULL },
-	{ "amxts_rpc_result", (void *)w_rpcResult, "(i)",     NULL }
+	{ "amxts_rpc_result", (void *)w_rpcResult, "(i)",     NULL },
+	{ "net_open",      (void *)w_net_open,      "(i)i",    NULL },
+	{ "net_option",    (void *)w_net_option,    "(iii)i",  NULL },
+	{ "net_body",      (void *)w_net_body,      "(iii)",   NULL },
+	{ "net_send",      (void *)w_net_send,      "(ii)i",   NULL },
+	{ "net_cancel",    (void *)w_net_cancel,    "(i)",     NULL },
+	{ "net_close",     (void *)w_net_close,     "(i)",     NULL },
+	{ "net_status",    (void *)w_net_status,    "(i)i",    NULL },
+	{ "net_redirects", (void *)w_net_redirects, "(i)i",    NULL },
+	{ "net_text",      (void *)w_net_text,      "(iiii)i", NULL },
+	{ "net_size",      (void *)w_net_size,      "(i)i",    NULL },
+	{ "net_read",      (void *)w_net_read,      "(iii)i",  NULL }
 };
 
 // ---------------------------------------------------------------- pawn -> wasm
@@ -2992,6 +3020,9 @@ static void RemoveHost()
  */
 static void UnloadPlugins()
 {
+	// Their requests are taken back: a response has nowhere to go.
+	NetForgetAll();
+
 	for (size_t i = 0; i < g_plugins.size(); i++) {
 		Plugin &p = g_plugins[i];
 		// Their timers and requests come back to orphaned slots, which do nothing.
@@ -3025,6 +3056,9 @@ static void UnloadPlugins()
 
 static void Teardown()
 {
+	// The worker stops before the plugins its requests point at go.
+	NetShutdown();
+
 	for (size_t i = 0; i < g_plugins.size(); i++) {
 		Plugin &p = g_plugins[i];
 		if (p.env)    wasm_runtime_destroy_exec_env(p.env);
@@ -3864,6 +3898,11 @@ static cell AMX_NATIVE_CALL n_event(AMX *amx, cell *params)
 		leaver.id = id ? (int)*id : 0;
 	}
 
+	// The responses that came in since the last frame go to their plugins
+	// first, whoever listens to the frame.
+	if (strcmp(name, "server_frame") == 0)
+		NetFrame();
+
 	// Reachable before amxts_init: AMX Mod X dispatches plugin_natives and
 	// plugin_modules ahead of plugin_init. Nothing is loaded yet, so nothing
 	// handled this.
@@ -4119,6 +4158,7 @@ void OnAmxxAttach()
 		MF_PrintSrvConsole("[amxts] generated natives failed to register\n");
 
 	MF_AddNatives(g_natives);
+	FieldsAttach();
 	ReadListFile();
 	InstallHost();
 }
@@ -4138,6 +4178,7 @@ void OnPluginsLoaded()
 
 void OnAmxxDetach()
 {
+	FieldsDetach();
 	Teardown();
 	RemoveHost();
 	wasm_runtime_destroy();

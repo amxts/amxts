@@ -173,7 +173,9 @@ which the compiler refuses rather than running slowly.
 
 tools/licenses/ has the licenses of what they are built from: AssemblyScript
 and WAMR, both patched by amxts (the patches are in the amxts repository,
-runtime/patches), Binaryen, Bun and LLVM. amxts itself is MIT.
+runtime/patches), Binaryen, Bun and LLVM - and of what the module carries for
+web requests: curl, Mbed TLS, libssh2 and Mozilla's certificate authorities.
+amxts itself is MIT.
 `);
 
 console.log(`✅ ${out}`);

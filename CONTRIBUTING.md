@@ -106,7 +106,9 @@ bun run build:linux                       # runtime/build/linux: amxts_amxx_i386
 ```
 
 The module carries the compiled host plugin and has AMX Mod X load it, so a
-server gets the module alone.
+server gets the module alone. It links its network client in too - curl,
+mbedTLS and libssh2, which its first build downloads (pinned in
+`runtime/network.cmake`) and builds static.
 
 The module carries part of the API, so after a change to `as/` or the
 includes rebuild in this order: generate, the host, the module.

@@ -22,6 +22,9 @@ set(WAMR_BUILD_LIBC_WASI 0)
 set(WAMR_BUILD_MULTI_MODULE 0)
 include("${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake")
 
+# fetch's network client: libcurl, mbedTLS and libssh2, built static.
+include(network.cmake)
+
 add_library(amxts_amxx SHARED
 	src/module.cpp
 	"${AMXX}/public/sdk/amxxmodule.cpp"
@@ -35,6 +38,7 @@ target_include_directories(amxts_amxx PRIVATE
 )
 
 set_target_properties(amxts_amxx PROPERTIES PREFIX "")
+target_link_libraries(amxts_amxx PRIVATE net)
 
 if(WIN32)
 	# amxts_amxx.dll
@@ -53,7 +57,10 @@ else()
 	set_target_properties(amxts_amxx PROPERTIES OUTPUT_NAME "amxts_amxx_i386")
 	target_compile_options(amxts_amxx PRIVATE -m32 -fvisibility=hidden -fno-strict-aliasing -Wno-unused-parameter)
 	target_compile_definitions(amxts_amxx PRIVATE HAVE_STDINT_H _FILE_OFFSET_BITS=64)
-	target_link_options(amxts_amxx PRIVATE -m32 -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/exports.map -Wl,--no-undefined)
+	# The network libraries are built in sections, so what the module does not
+	# call stays out (--gc-sections); src/glibc-compat.c keeps them off glibc 2.25.
+	target_sources(amxts_amxx PRIVATE src/glibc-compat.c)
+	target_link_options(amxts_amxx PRIVATE -m32 -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/exports.map -Wl,--no-undefined -Wl,--gc-sections)
 	target_link_libraries(amxts_amxx PRIVATE pthread dl m)
 endif()
 
