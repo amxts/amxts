@@ -3244,7 +3244,26 @@ export class Game extends GameFields {
 	 */
 	endRound(options: EndRoundOptions): void {
 		const status = max(WINNER_NAMES.indexOf(options.winner), 0);
-		rg_round_end(options.delay ?? 5.0, status, ROUND_REASONS[status], options.message ?? "default", options.sound ?? "default", options.dispatch ?? false);
+		const delay = options.delay ?? 5.0;
+		const message = options.message ?? "default";
+		const sound = options.sound ?? "default";
+		if (__hasReapi()) {
+			rg_round_end(delay, status, ROUND_REASONS[status], message, sound, options.dispatch ?? false);
+			return;
+		}
+
+		// Without reapi, what rg_round_end does through the game's
+		// TerminateRound: the winner, the moment the next round starts, and the
+		// round marked as ending, so the game does not end it again meanwhile;
+		// then the message and the sound. Nobody is told: the roundEnd event is
+		// reapi's.
+		this.roundWinner = options.winner;
+		this.roundTerminating = true;
+		this.restartRoundTime = this.time + delay;
+		const text = message == "default" ? ROUND_MESSAGES[status] : message;
+		if (text.length > 0) client_print(0, print_center, text);
+		const radio = sound == "default" ? ROUND_SOUNDS[status] : sound;
+		if (radio.length > 0) broadcastAudio(`%!MRAD_${radio}`);
 	}
 }
 
@@ -3422,10 +3441,10 @@ export {
 } from "./entities";
 import {
 	NATIVE_server_cmd, NATIVE_client_cmd, NATIVE_CreateMultiForward, NATIVE_ExecuteForward, get_gametime, get_mapname,
-	nvault_open, nvault_set, nvault_remove, rg_round_end
+	nvault_open, nvault_set, nvault_remove, rg_round_end, client_print
 } from "./natives";
 import { ET_IGNORE, ET_STOP, FP_ARRAY, FP_CELL, FP_FLOAT, FP_STRING } from "./constants";
-import { ROUND_NONE, ROUND_CTS_WIN, ROUND_TERRORISTS_WIN, ROUND_END_DRAW } from "./constants";
+import { ROUND_NONE, ROUND_CTS_WIN, ROUND_TERRORISTS_WIN, ROUND_END_DRAW, print_center } from "./constants";
 import { PluginInitEvent, PluginPrecacheEvent, ServerEventMap, addServerListener, removeServerListener } from "./events";
 
 function variantOf(variant: VariantName): number {
@@ -4123,6 +4142,20 @@ const WINNER_NAMES: RoundWinner[] = ["none", "CT", "TERRORIST", "draw"];
 
 /** The reason a round ends with, by WinStatus number: rg_round_end's `event`. */
 const ROUND_REASONS: i32[] = [ROUND_NONE, ROUND_CTS_WIN, ROUND_TERRORISTS_WIN, ROUND_END_DRAW];
+
+// The game's message and radio phrase for a round's end, by WinStatus
+// number: what rg_round_end's "default" stands for.
+const ROUND_MESSAGES: string[] = ["", "#CTs_Win", "#Terrorists_Win", "#Round_Draw"];
+const ROUND_SOUNDS: string[] = ["", "ctwin", "terwin", "rounddraw"];
+
+/** A radio phrase to everyone, as the game broadcasts the round's end. */
+function broadcastAudio(sample: string): void {
+	message_begin(MSG_ALL, get_user_msgid("SendAudio"), [0, 0, 0], 0);
+	write_byte(0);
+	write_string(sample);
+	write_short(100);
+	message_end();
+}
 
 /** A name that crosses as a number - a Team or a RoundWinner - as that number. */
 function nameCell(name: string, crossing: string): i32 {
