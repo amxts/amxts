@@ -6,9 +6,12 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // signature: strings, Float bits, array + size, out-buffers), and fs against
 // the fake's in-memory game folder.
 // @ts-ignore - bun:test types not available during type checking
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { pawnInclude, setNativesBeside } from '../scripts/plugin-natives';
 import { pluginProbe } from './probe';
+
+// A probe compiles a plugin of its own, which takes more than a few seconds on a loaded machine.
+setDefaultTimeout(60_000);
 
 const server = await loadPlugin('tests/as/natives.ts');
 
