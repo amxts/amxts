@@ -96,6 +96,27 @@ describe('enum and flag arguments are names', () => {
 		expect(server.log).toContain('menu classCT');
 	});
 
+	// HitBoxGroup: HITGROUP_HEAD 1, HITGROUP_CHEST 2; ItemID: ITEM_AWP 18, ITEM_DEFUSEKIT 32;
+	// ItemRestType: ITEM_TYPE_BUYING 0.
+	test('pain: the body part by name, written back as its number', async () => {
+		const server = await loadPlugin('tests/as/hook-names.ts');
+		const player = server.join('Alice');
+		const pained = server.fireHook('pain', [player.id, 1, 0]);
+
+		expect(server.log).toContain('pain head');
+		expect(pained.args[1]).toBe(2);
+	});
+
+	test('hasRestrictItem: the item by its kind', async () => {
+		const server = await loadPlugin('tests/as/hook-names.ts');
+		const player = server.join('Alice');
+
+		expect(server.fireHook('hasRestrictItem', [player.id, 18, 0], { result: false }).result).toBe(true);
+		expect(server.fireHook('hasRestrictItem', [player.id, 32, 0], { result: false }).result).toBe(false);
+		expect(server.log).toContain('restrict awp buying');
+		expect(server.log).toContain('restrict defusekit buying');
+	});
+
 	test('sendDeathMessage: flags are arrays of names; unnamed bits survive a write', async () => {
 		const server = await loadPlugin('tests/as/hook-names.ts');
 		const killer = server.join('Alice');

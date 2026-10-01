@@ -263,9 +263,43 @@ export const GAME: Record<string, GameDoc> = {
 		},
 		fields: {
 			player,
+			item: {
+				en: `The item asked about, by its kind, e.g. \`"awp"\`, \`"hegrenade"\`, \`"kevlar"\`, \`"defusekit"\`.`,
+				ru: `Предмет, о котором спрашивают, по его виду, например \`"awp"\`, \`"hegrenade"\`, \`"kevlar"\`, \`"defusekit"\`.`,
+			},
 			restriction: {
 				en: `The way the player would get the item, one of \`"buying"\`, \`"touched"\` (picked up) or \`"equipped"\` (given on spawn).`,
 				ru: `Способ, которым игрок получит предмет, — одно из \`"buying"\` (покупка), \`"touched"\` (подобрал) или \`"equipped"\` (выдан при спавне).`,
+			},
+		},
+	},
+	pain: {
+		summary: {
+			en: `A player cries out in pain after a hit.`,
+			ru: `Игрок вскрикивает от боли после попадания.`,
+		},
+		fields: {
+			player,
+			lastHitGroup: {
+				en: `The body part the hit struck, e.g. \`"head"\`, \`"chest"\`, \`"leftLeg"\`.`,
+				ru: `Часть тела, куда пришлось попадание, например \`"head"\`, \`"chest"\`, \`"leftLeg"\`.`,
+			},
+			hasArmour: {
+				en: `\`true\` when the player wears armour: the game picks the sound by it.`,
+				ru: `\`true\`, когда на игроке броня: по ней игра выбирает звук.`,
+			},
+		},
+	},
+	setAnimation: {
+		summary: {
+			en: `The game sets the animation a player's model plays: walking, jumping, attacking, reloading.`,
+			ru: `Игра задаёт анимацию, которую играет модель игрока: ходьба, прыжок, атака, перезарядка.`,
+		},
+		fields: {
+			player,
+			playerAnim: {
+				en: `The animation, e.g. \`"jump"\`, \`"attack1"\`, \`"reload"\`.`,
+				ru: `Анимация, например \`"jump"\`, \`"attack1"\`, \`"reload"\`.`,
 			},
 		},
 	},

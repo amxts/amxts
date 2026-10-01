@@ -91,6 +91,9 @@ test('a Pawn enum argument is a union of names, from the include', () => {
 	expect(classBody('BuyWeaponByWeaponIdEvent')).toContain('get weapon(): WeaponKind');
 	expect(classBody('AddAccountEvent')).toContain('get reason(): RewardReason');
 	expect(classBody('HasRestrictItemEvent')).toContain('get restriction(): ItemRestriction');
+	expect(classBody('HasRestrictItemEvent')).toContain('get item(): ItemKind');
+	expect(classBody('PainEvent')).toContain('get lastHitGroup(): HitGroup');
+	expect(classBody('SetAnimationEvent')).toContain('get playerAnim(): PlayerAnimation');
 	expect(classBody('AddResourceEvent')).toContain('get resourceType(): ResourceType');
 	expect(classBody('AddResourceEvent')).toContain('get resourceIndex(): number');
 	expect(classBody('OnEventEvent')).toContain('get gameEvent(): BotEvent');
@@ -104,6 +107,10 @@ test('a Pawn enum argument is a union of names, from the include', () => {
 	expect(hooks).toContain('case 12: return "targetSaved";');
 	expect(hooks).toContain('case 27: return "classCT";');
 	expect(hooks).toContain('case 5: return "eventscript";');
+	// ITEM_NONE is -1, ITEM_DEFUSEKIT 32, HITGROUP_LEFTARM 4: the names HitGroup already has.
+	expect(hooks).toContain('case -1: return "none";');
+	expect(hooks).toContain('case 32: return "defusekit";');
+	expect(hooks).toContain('case 4: return "leftArm";');
 	expect(hooks).toMatch(/export type TeamChoice =\n\t\| "TERRORIST"\n\t\| "CT"\n\t\| "VIP"\n\t\| "auto"\n\t\| "SPECTATOR"\n\t\| "unknown";/);
 	expect(hooks).toContain('["Headshot", "KillerBlind", "NoScope", "Penetrated", "ThruSmoke", "AssistedFlash", "DominationBegan", "Domination", "Revenge", "InAir"]');
 	// No Pawn-dodge names are left.

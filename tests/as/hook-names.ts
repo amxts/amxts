@@ -4,6 +4,14 @@
 game.addEventListener("roundEnd", onRoundEnd);
 game.addEventListener("showVguiMenu", onShowVguiMenu);
 game.addEventListener("sendDeathMessage", onDeathMessage);
+game.addEventListener("pain", (event) => {
+	console.log(`pain ${event.lastHitGroup}`);
+	if (event.lastHitGroup == "head") event.lastHitGroup = "chest";
+});
+game.addEventListener("hasRestrictItem", (event) => {
+	console.log(`restrict ${event.item} ${event.restriction}`);
+	return event.item == "awp";
+});
 
 function onRoundEnd(event: RoundEndEvent) {
 	console.log(`roundEnd ${event.winner} ${event.reason} ${event.delay}`);
