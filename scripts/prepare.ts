@@ -1,7 +1,8 @@
 // What an editor needs to read a project: .amxts/tsconfig.json, which the
 // project's tsconfig.json extends.
 //
-//   npx amxts prepare        (also the first step of `amxts build`)
+//   npx amxts prepare        (also the first step of `amxts build`, with --quiet:
+//                            the line it prints only under --debug)
 //
 // The project's own tsconfig.json extends it: { "extends": "./.amxts/tsconfig.json" }.
 // It says what the build says - `~/` is the project's plugins over the
@@ -17,7 +18,7 @@ import { dirname, isAbsolute, join, relative } from 'node:path';
 import { applyProject, docsLang } from './apply-docs';
 import { importsDeclaration } from './auto-imports';
 import { CONFIG_FILE, CORE_DIR, CORE_PLUGINS, loadProject } from './project';
-import { c, log } from './ui';
+import { c, debug, log } from './ui';
 
 function fail(message: string): void {
 	log.error(message);
@@ -127,5 +128,7 @@ writeFileSync(join(out, 'modules.d.ts'), [
 
 writeFileSync(join(out, 'imports.d.ts'), importsDeclaration(project.autoImports));
 
+// A step of dev, build and typecheck, which say what the project is
+// themselves: they pass --quiet, and --debug shows it all the same.
 const modules = project.modules.map(pkg => pkg.short).join(', ') || 'no modules';
-log.step(c.dim(`prepared ${(relative(process.cwd(), out) || '.').replace(/\\/g, '/')}/tsconfig.json (${modules})${docs ? ` · ${docs}` : ''}`));
+if (!process.argv.includes('--quiet') || debug()) log.step(c.dim(`prepared ${(relative(process.cwd(), out) || '.').replace(/\\/g, '/')}/tsconfig.json (${modules})${docs ? ` · ${docs}` : ''}`));

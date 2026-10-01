@@ -55,6 +55,7 @@
 		"scripts/player-fields.ts",
 		"scripts/plugin-cache.ts",
 		"scripts/plugin-natives.ts",
+		"scripts/prebuilt.ts",
 		"scripts/prepare.ts",
 		"scripts/project.ts",
 		"scripts/run.ts",

@@ -29,6 +29,10 @@
 //   and long - and, for the editor and a module's tsconfig, AssemblyScript's
 //   typings patched as npm install patches them (scripts/patch-typings.ts),
 //   bundled as its node_modules/assemblyscript.
+// - a module: its owner plugin compiled for Windows and for Linux, fully
+//   optimised, in prebuilt/ with the manifest a build checks it against
+//   (scripts/prebuilt.ts) - compiled here, with this system's wamrc of the
+//   release, which writes either system's .aot.
 // - a package without a LICENSE of its own gets its repository's.
 //
 // Publishing to npm refuses a folder with uncommitted changes and a wamrc
@@ -40,15 +44,20 @@
 // dist-npm/verdaccio-tool/), started in the background with no window, on
 // localhost:4873; its config, storage and log are in dist-npm/verdaccio/. The
 // @amxts packages and create-amxts live there, everything else comes from npm
-// through it. --reset empties it first, so the same version can go in again.
+// through it. --reset empties it first, so the same version can go in again,
+// and takes the packages out of Bun's cache, which would install the earlier
+// tarball of that version.
 import type { Manifest } from './release-check';
 import type { System } from './system';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { PREBUILT_DIR } from './prebuilt';
+import { HOST_SYSTEM } from './system';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const NEIGHBOURS = resolve(CORE, '..');
@@ -135,7 +144,11 @@ function run(file: string, args: string[], options: { cwd?: string; quiet?: bool
 	return { ok: result.status === 0, stdout: result.stdout ?? '' };
 }
 
-const npmJson = (dir: string, args: string[]) => JSON.parse(run('npm', args, { cwd: dir, quiet: true }).stdout);
+/** `npm pack --json` in a folder: what it says of the one package - a list of it up to npm 11, an object by its name from npm 12. */
+function npmPack(dir: string, args: string[]) {
+	const out = JSON.parse(run('npm', ['pack', '--json', '--ignore-scripts', ...args], { cwd: dir, quiet: true }).stdout);
+	return Array.isArray(out) ? out[0] : Object.values(out)[0] as any;
+}
 
 function sha256(file: string) {
 	return createHash('sha256').update(readFileSync(file)).digest('hex');
@@ -216,7 +229,7 @@ function releaseWamrcFolder(strict: boolean): string {
 
 /** Copies a package's files, as `npm pack` takes them from its folder, into its stage. */
 function stageFiles(pkg: Package, stage: string) {
-	const [listing] = npmJson(pkg.dir, ['pack', '--dry-run', '--json', '--ignore-scripts']);
+	const listing = npmPack(pkg.dir, ['--dry-run']);
 	for (const { path } of listing.files as { path: string }[]) {
 		mkdirSync(dirname(join(stage, path)), { recursive: true });
 		copyFileSync(join(pkg.dir, path), join(stage, path));
@@ -272,20 +285,53 @@ interface Pack {
 	files: { path: string; size: number; mode: number }[];
 }
 
-interface PackOptions {
-	wamrc: Record<System, string>;
+/** A package in its stage: the folder it is packed from, and its package.json as it is published. */
+interface Staged {
+	name: string;
+	dir: string;
+	manifest: any;
 }
 
-/** Stages one package and packs it into dist-npm/packs. */
-function pack(pkg: Package, options: PackOptions): Pack {
-	const stage = join(STAGE, pkg.name.replace('/', '__'));
-	const manifest = stageFiles(pkg, stage);
+/** Copies one package into its stage, with what it gets besides its own files. */
+function stage(pkg: Package, wamrc: Record<System, string>): Staged {
+	const dir = join(STAGE, pkg.name.replace('/', '__'));
+	const manifest = stageFiles(pkg, dir);
 	if (pkg.name !== manifest.name) throw new PublishError(`${pkg.dir} is ${manifest.name}, not ${pkg.name}`);
-	if (pkg.wamrc) stageWamrc(stage, pkg.wamrc, options.wamrc[pkg.wamrc]);
-	if (pkg.dir === CORE) stageCore(stage, manifest);
-	writeJson(join(stage, 'package.json'), manifest);
-	const [packed] = npmJson(stage, ['pack', '--json', '--ignore-scripts', '--pack-destination', PACKS]);
-	return { name: pkg.name, file: join(PACKS, packed.filename), size: packed.size, unpackedSize: packed.unpackedSize, files: packed.files };
+	if (pkg.wamrc) stageWamrc(dir, pkg.wamrc, wamrc[pkg.wamrc]);
+	if (pkg.dir === CORE) stageCore(dir, manifest);
+	writeJson(join(dir, 'package.json'), manifest);
+	return { name: pkg.name, dir, manifest };
+}
+
+/**
+ * The modules compiled into their stages' prebuilt/, for both systems, with
+ * the manifest a build checks them against (scripts/prebuilt.ts) - as a
+ * project that installed them would compile them: one of its own in the
+ * system's temporary folder, outside the checkouts, the staged modules in its
+ * node_modules, none of this machine's AMXTS_ settings, and `wamrc` the
+ * release's. Either system's wamrc writes either system's .aot.
+ */
+function prebuildModules(modules: Staged[], wamrc: string) {
+	const project = join(tmpdir(), 'amxts-prebuilt');
+	rmSync(project, { recursive: true, force: true });
+	for (const each of modules) cpSync(each.dir, join(project, 'node_modules', each.name), { recursive: true });
+	mkdirSync(join(project, 'plugins'));
+	writeJson(join(project, 'package.json'), { name: 'amxts-prebuilt', private: true });
+	writeFileSync(join(project, 'amxts.config.ts'), `export default defineConfig({ modules: ${JSON.stringify(modules.map(each => each.name))} });\n`);
+	const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('AMXTS_')));
+	run(process.execPath, [join(CORE, 'scripts/prebuilt.ts')], { cwd: project, env: { ...env, AMXTS_WAMRC: wamrc } });
+	for (const each of modules) {
+		cpSync(join(project, 'node_modules', each.name, PREBUILT_DIR), join(each.dir, PREBUILT_DIR), { recursive: true });
+		each.manifest.files = [...each.manifest.files, PREBUILT_DIR];
+		writeJson(join(each.dir, 'package.json'), each.manifest);
+	}
+	rmSync(project, { recursive: true, force: true });
+}
+
+/** Packs a staged package into dist-npm/packs. */
+function pack(staged: Staged): Pack {
+	const packed = npmPack(staged.dir, ['--pack-destination', PACKS]);
+	return { name: staged.name, file: join(PACKS, packed.filename), size: packed.size, unpackedSize: packed.unpackedSize, files: packed.files };
 }
 
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -301,6 +347,9 @@ function describe(pack: Pack) {
 	console.log(`\n${pack.name}@${VERSION}  ${mb(pack.size)} packed, ${mb(pack.unpackedSize)} unpacked, ${pack.files.length} files  (${pack.file})`);
 	for (const [top, { count, size }] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
 		console.log(`    ${top.padEnd(28)} ${String(count).padStart(5)} ${count === 1 ? 'file ' : 'files'} ${mb(size).padStart(9)}`);
+	}
+	for (const file of pack.files.filter(each => each.path.startsWith(`${PREBUILT_DIR}/`))) {
+		console.log(`      ${file.path.padEnd(36)} ${`${(file.size / 1024).toFixed(0)} KB`.padStart(9)}`);
 	}
 }
 
@@ -329,10 +378,13 @@ function packAll(options: { strict: boolean; wamrcFolder?: string; skipGenerate:
 	rmSync(STAGE, { recursive: true, force: true });
 	rmSync(PACKS, { recursive: true, force: true });
 	mkdirSync(PACKS, { recursive: true });
-	const packs = PACKAGES.map((pkg) => {
-		console.log(`packing ${pkg.name}`);
-		return pack(pkg, { wamrc });
+	const staged = PACKAGES.map((pkg) => {
+		console.log(`staging ${pkg.name}`);
+		return stage(pkg, wamrc);
 	});
+	console.log('compiling the modules for Windows and Linux');
+	prebuildModules(staged.filter(each => each.manifest.amxts?.module), wamrc[HOST_SYSTEM]);
+	const packs = staged.map(pack);
 	packs.forEach(describe);
 	const total = packs.reduce((sum, each) => sum + each.size, 0);
 	console.log(`\n${packs.length} packages, ${mb(total)} packed, in ${PACKS}`);
@@ -469,9 +521,22 @@ async function localToken(): Promise<string> {
 	return body.token;
 }
 
+/**
+ * Takes the packages out of Bun's cache, which keeps a tarball by its name,
+ * version and registry: a version published again would install as it was.
+ */
+function clearBunCache() {
+	const cache = process.env.BUN_INSTALL_CACHE_DIR ?? join(process.env.BUN_INSTALL ?? join(homedir(), '.bun'), 'install', 'cache');
+	if (!existsSync(cache)) return;
+	const ours = readdirSync(cache).filter(name => name === '@amxts' || name.startsWith('create-amxts'));
+	for (const name of ours) rmSync(join(cache, name), { recursive: true, force: true });
+	if (ours.length) console.log(`took the packages out of Bun's cache (${cache})`);
+}
+
 /** Packs every package and publishes them to the local registry. */
 async function publishLocal(options: { reset: boolean; wamrcFolder?: string; skipGenerate: boolean }) {
 	const packs = packAll({ strict: false, wamrcFolder: options.wamrcFolder, skipGenerate: options.skipGenerate });
+	if (options.reset) clearBunCache();
 	await startRegistry(options.reset);
 	const token = await localToken();
 	publishAll(packs, LOCAL_REGISTRY, [`--${LOCAL_REGISTRY.replace(/^http:/, '')}:_authToken=${token}`]);
@@ -510,7 +575,7 @@ async function main(args: string[]) {
 			'  cd my-test',
 			'  npx amxts dev',
 			'',
-			'After --reset, clear npm\'s cache of the old packages: npm cache clean --force',
+			'After --reset, clear npm\'s cache of the old packages too (Bun\'s is cleared): npm cache clean --force',
 			'Stop the registry: bun run publish:local --stop',
 		].join('\n'));
 	} else {

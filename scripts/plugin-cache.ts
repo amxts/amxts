@@ -56,12 +56,10 @@ export function pluginCache(dir: string | null, ownIncludes: string[] = []) {
 		/** The plugin as an earlier build kept it, put in place; its natives. Null when there is none to take. */
 		reuse(plugin: Plugin): PluginNative[] | null {
 			const kept = cache.find<Kept>(partsOf(plugin));
-			if (!kept) return null;
-			setNativesBeside(kept.natives, kept.beside);
-			place(plugin.output, kept.aot);
-			writeInclude(plugin.output, kept.natives);
-			return kept.natives;
+			return kept && take(plugin, kept);
 		},
+
+		take,
 
 		/** compilePlugin, and what it made kept: what went wrong, or null. `natives` gets the plugin's natives. */
 		async compile(plugin: Plugin, natives: PluginNative[]): Promise<string | null> {
@@ -72,6 +70,17 @@ export function pluginCache(dir: string | null, ownIncludes: string[] = []) {
 			return 'problem' in made ? made.problem : null;
 		},
 	};
+}
+
+/**
+ * A plugin compiled before - kept by a build, or come with its module
+ * (scripts/prebuilt.ts) - put in place as the plugin, with its include; its natives.
+ */
+function take(plugin: Plugin, kept: Kept): PluginNative[] {
+	setNativesBeside(kept.natives, kept.beside);
+	place(plugin.output, kept.aot);
+	writeInclude(plugin.output, kept.natives);
+	return kept.natives;
 }
 
 /** The .aot into the build folder, unless it is there already - beside it first, then over it. */

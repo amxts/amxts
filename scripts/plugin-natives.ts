@@ -895,6 +895,11 @@ function includeForwards(): Map<string, ForwardDeclaration> {
 	return knownForwards;
 }
 
+/** The forward as the first include that declares it has it - what decides how a Forward's arguments cross - or null. */
+export function includeForward(name: string): ForwardDeclaration | null {
+	return includeForwards().get(name) ?? null;
+}
+
 /** A file of the plugin, as opposed to AssemblyScript's library and the hood. */
 function isPluginFile(source: any): boolean {
 	const path: string = source.internalPath;

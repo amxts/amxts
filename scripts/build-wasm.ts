@@ -18,7 +18,8 @@ import { createSocket } from 'node:dgram';
 //   --os windows|linux         the server's system, when AMXTS_SERVER does not say
 //
 // Every module the plugins use is built too, as its owner plugin - <name>.aot,
-// the module's one instance on the server - and plugins.ini lists the modules
+// the module's one instance on the server; one from npm that comes compiled
+// is taken as it came (scripts/prebuilt.ts) - and plugins.ini lists the modules
 // first, each after what it requires, then the project's plugins. A module the
 // config lists and no plugin uses is left out, unless `pawn` keeps it for Pawn
 // plugins (modulesInUse).
@@ -39,10 +40,12 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import { includePath } from './compile';
 import { followConsoles, projectContainers, runCommand } from './docker-server';
 import { FileContents, sourceIn, sourcesIn } from './file-contents';
+import { serverIncludes } from './includes';
 import { pluginCache } from './plugin-cache';
+import { fromRegistry, prebuiltOf } from './prebuilt';
 import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, projectPlugins, sourcesFor } from './project';
 import { sharedModulesBuild } from './shared-modules';
-import { describeSystem, serverSystem, WAMRC_PACKAGE, wamrcPath } from './system';
+import { describeSystem, serverSystem, SYSTEM_NAME, WAMRC_PACKAGE, wamrcPath } from './system';
 import { c, log, progress, since } from './ui';
 
 function fail(message: string, hint?: string): void {
@@ -207,12 +210,14 @@ const includes = new Map<string, string>();
 const cache = pluginCache(project.dir, ['amxts', ...readdirSync(outDir).filter(file => file.endsWith('.inc')).map(file => file.replace(/\.inc$/, ''))]);
 
 /**
- * Builds these plugins: one an earlier build kept, from the same files, is
- * put in place, the rest are compiled. The first build of a run says when
- * it has to compile every one. Returns the .aot names, or null after
- * printing the error.
+ * Builds these plugins: a module that comes compiled for this project is
+ * put in place as it came (scripts/prebuilt.ts), one an earlier build kept,
+ * from the same files, likewise; the rest are compiled. The first build of a
+ * run says when it has a module to compile. Returns the .aot names, or null
+ * after printing the error.
  */
 async function compile(plugins: Target[], first: boolean): Promise<string[] | null> {
+	const sources = sourcesFor(CORE_PLUGINS);
 	const planned = plugins.map((each) => {
 		const plugin: Plugin = {
 			source: each.source,
@@ -225,23 +230,26 @@ async function compile(plugins: Target[], first: boolean): Promise<string[] | nu
 			system: target.system,
 			quick,
 		};
-		return { ...each, plugin, kind: each.pkg ? 'module · ' : '', natives: cache.reuse(plugin) };
+		const prebuilt = each.pkg ? prebuiltOf(each.pkg, target.system, sources) : null;
+		if (prebuilt && 'why' in prebuilt) log.info(`${prebuilt.why} - compiling it here`);
+		if (prebuilt && 'aot' in prebuilt) return { ...each, plugin, how: 'prebuilt', natives: cache.take(plugin, prebuilt) };
+		return { ...each, plugin, how: 'unchanged', natives: cache.reuse(plugin) };
 	});
 	const fresh = planned.filter(each => !each.natives);
-	if (first && fresh.length > 0 && fresh.length === planned.length) {
-		log.info('The first build compiles every plugin and module to machine code: it takes about a minute.');
+	if (first && fresh.some(each => each.pkg)) {
+		log.info('The first build compiles the modules to machine code: it takes about a minute.');
 	}
-	for (const each of planned.filter(each => each.natives)) log.success(`${c.bold(each.name)} ${c.dim(`${each.kind}unchanged`)}`);
+	for (const each of planned.filter(each => each.natives)) log.success(`${c.bold(each.name)} ${c.dim(`· ${each.how}`)}`);
 
 	for (const [i, each] of fresh.entries()) {
 		const natives: PluginNative[] = [];
 		const started = performance.now();
-		const step = progress(`compiling ${c.bold(each.name)} ${c.dim(`${each.kind}${i + 1}/${fresh.length}`)}`);
+		const step = progress(`compiling ${c.bold(each.name)} ${c.dim(`${i + 1}/${fresh.length}`)}`);
 		const problem = await cache.compile(each.plugin, natives).catch((error) => {
 			step.end();
 			throw error;
 		});
-		step.end(problem ? undefined : `compiled ${c.bold(each.name)} ${c.dim(`${each.kind}${since(started)}`)}`);
+		step.end(problem ? undefined : `${c.bold(each.name)} ${c.dim(`· ${since(started)}`)}`);
 		if (problem) {
 			fail(`${c.bold(each.name)} does not compile:\n${readable(problem)}\n`, keepWatching ? 'The server keeps the last good build.' : undefined);
 			return null;
@@ -307,16 +315,17 @@ function ask(message: string, wait: number): Promise<string | null> {
 }
 
 /**
- * Copies the built plugins to the server, then reloads it. Returns the step
- * that finishes the one-line report, and prints what the server answered.
+ * Copies the built plugins to the server, then reloads it. Returns the
+ * report's line - what happened to `names` - with what the server answered
+ * under it.
  *
  * The module also reloads by itself when a plugin's .aot is newer than the
  * one it loaded. Reloading twice would run every plugin_init twice, so when
  * rcon can reload, the copies keep the old file's time and only rcon does.
  * When it cannot, they get a new time and the module's watcher does it.
  */
-async function deployAndReload(built: string[]): Promise<string> {
-	if (!existsSync(serverDir)) return `not deployed: no server at ${serverDir}`;
+async function deployAndReload(built: string[], names: string): Promise<string> {
+	if (!existsSync(serverDir)) return `${names} not deployed: there is no ${shown(serverDir)}`;
 
 	// Without amxts.config.ts the list is the server's, not the build's: a
 	// deploy names what it has just built and has never seen named, and leaves
@@ -376,11 +385,11 @@ async function deployAndReload(built: string[]): Promise<string> {
 	// server: api-async loaded that way).
 	for (const file of added) log.info(`new plugin ${c.bold(file.replace(/\.aot$/, ''))}: added to plugins.ini`);
 
-	if (!challenge) return 'deployed (server not running, nothing to reload)';
+	if (!challenge) return `deployed ${names} - the server is not running`;
 
 	if (!password) {
 		log.warn(`no rcon_password in ${serverCfg}: add a line  rcon_password "something"  and restart the server (until then the module reloads on its own)`);
-		return 'deployed → the module reloads on its own';
+		return `deployed ${names} - the module reloads them on its own`;
 	}
 
 	const reply = await ask(`rcon ${challenge} "${password}" ${RELOAD_COMMAND}`, 5000);
@@ -389,11 +398,11 @@ async function deployAndReload(built: string[]): Promise<string> {
 		// Nothing reloaded them, so let the module's watcher see the new files.
 		const now = new Date();
 		for (const file of built) utimesSync(join(serverDir, 'plugins', file), now, now);
-		return `deployed → rcon ${reply === null ? 'got no answer' : 'refused the password'}, the module reloads on its own`;
+		return `deployed ${names} - rcon ${reply === null ? 'got no answer' : 'refused the password'}, the module reloads them on its own`;
 	}
 
 	const lines = reply.split('\n').map(line => line.trimEnd()).filter(Boolean);
-	return ['deployed → reloaded', ...lines.map(line => c.dim(`  ${line}`))].join('\n');
+	return [`deployed, the server reloaded ${names}`, ...lines.map(line => c.dim(`  ${line}`))].join('\n');
 }
 
 /**
@@ -417,14 +426,13 @@ let listed: string[] | null = null;
 
 /**
  * plugins.ini: the modules the plugins use, then the plugins. A module the
- * config lists that leaves the list - at the first build, or on a save that
- * stops using it - is said, and its .aot goes from the build folder.
+ * config lists that no plugin uses has no .aot in the build folder; one a
+ * save stops using is said (the header says it of the first build).
  */
 function writeList(owners: Target[]) {
 	const names = owners.map(owner => owner.name);
-	for (const pkg of project.modules) {
-		if (names.includes(pkg.short) || (listed && !listed.includes(pkg.short))) continue;
-		log.info(`module "${pkg.short}" is installed but no plugin uses it - left out`);
+	for (const pkg of project.modules.filter(each => !names.includes(each.short))) {
+		if (listed?.includes(pkg.short)) log.info(`module "${pkg.short}" is no longer used by any plugin - left out`);
 		rmSync(join(outDir, `${pkg.short}.aot`), { force: true });
 	}
 	listed = names;
@@ -445,13 +453,59 @@ async function run(plugins: Target[], verb: string, why = ''): Promise<boolean> 
 	if (!built) return false;
 	writeList(owners);
 
-	const names = built.map(file => file.replace(/\.aot$/, '')).join(', ');
-	const head = `${why}${verb} ${c.bold(names)} ${c.dim(`(${since(started)}, for ${describeSystem(target)})`)}`;
+	const names = c.bold(built.map(file => file.replace(/\.aot$/, '')).join(', '));
+	const [first, ...rest] = (deploy ? await deployAndReload(built, names) : `${verb} ${names} into ${shown(outDir)}`).split('\n');
 	const time = keepWatching ? `${c.dim(new Date().toLocaleTimeString())} ` : '';
-
-	log.success(`${time}${head} → ${deploy ? await deployAndReload(built) : shown(outDir)}`);
+	log.success([`${time}${why}${first} ${c.dim(`(${since(started)})`)}`, ...rest].join('\n'));
 	return true;
 }
+
+/**
+ * The server the plugins are for: its folder, its system, ReHLDS or HLDS (as
+ * its includes - or `target` without them - say) and, for a deploy, whether
+ * it runs.
+ */
+async function serverLine(): Promise<string> {
+	const system = SYSTEM_NAME[target.system];
+	if (forDocker) return `the Docker one that mounts this project · ${system}`;
+	if (!serverDir) return `${c.dim('none - AMXTS_SERVER is not set')} · the plugins are for ${system}`;
+	const folder = serverDir.replace(/\\/g, '/');
+	if (!existsSync(serverDir)) return `${folder} ${c.yellow('is not there')} · the plugins are for ${system}`;
+	const includes = serverIncludes();
+	const rehlds = includes ? existsSync(join(includes, 'reapi.inc')) : project.config?.target !== 'hlds';
+	const running = deploy ? ` · ${(await ask('challenge rcon', 1000)) === null ? 'not running' : 'running'}` : '';
+	return `${folder} · ${system} · ${rehlds ? 'ReHLDS' : 'HLDS'}${running}`;
+}
+
+/**
+ * What a build works with, before it starts: the core, the modules - each
+ * with what brings it, or that no plugin uses it - the server and the
+ * plugins. A module or a core from a folder on this machine is "local".
+ */
+async function header(): Promise<void> {
+	const used = moduleOwners().map(owner => owner.pkg!);
+	const listedFirst = project.config?.modules ?? [];
+	const order = (pkg: ModulePackage) => (listedFirst.includes(pkg.name) ? listedFirst.indexOf(pkg.name) : listedFirst.length);
+	const module = (pkg: ModulePackage) => {
+		const notes = [
+			!fromRegistry(pkg.dir) && 'local',
+			...used.filter(each => each.definition.requires.includes(pkg.name)).map(each => `for ${each.short}`),
+			!used.includes(pkg) && 'no plugin uses it',
+		].filter(Boolean);
+		return `${pkg.short} ${pkg.version}${notes.length ? c.dim(` (${notes.join(', ')})`) : ''}`;
+	};
+	const core = JSON.parse(readFileSync(join(CORE_DIR, 'package.json'), 'utf8'));
+	const plugins = ownPlugins().length;
+	const rows = [
+		['Core', `@amxts/core ${core.version}${fromRegistry(CORE_DIR) ? '' : c.dim(' (local)')}`],
+		['Modules', [...project.modules].sort((a, b) => order(a) - order(b)).map(module).join(c.dim(' · ')) || c.dim('none')],
+		['Server', await serverLine()],
+		['Plugins', `${plugins || 'none'} in ${shown(sourceDir)}/`],
+	];
+	console.log(['', ...rows.map(([label, value]) => `  ${c.dim(label.padEnd(8))}  ${value}`), ''].join('\n'));
+}
+
+await header();
 
 // The containers are looked for before the first build, so that their answer
 // to it - the reload - is shown too.

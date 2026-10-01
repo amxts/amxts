@@ -33,6 +33,12 @@ const CORE = resolve(dirname(fileURLToPath(import.meta.url)), '..');
  * `entries`, this file and what they import, read off their import lines.
  */
 export function codeIdentity(entries: string[]): string {
+	const parts = codeFiles(entries).map(file => `${file}:${existsSync(file) ? hashOf(readFileSync(file)) : 'missing'}`);
+	return hashOf(parts.join('\n'));
+}
+
+/** The files codeIdentity hashes, sorted. */
+export function codeFiles(entries: string[]): string[] {
 	const files = new Set<string>();
 	const visit = (file: string) => {
 		if (files.has(file) || !existsSync(file)) return;
@@ -53,8 +59,7 @@ export function codeIdentity(entries: string[]): string {
 	]) {
 		files.add(file);
 	}
-	const parts = [...files].sort().map(file => `${file}:${existsSync(file) ? hashOf(readFileSync(file)) : 'missing'}`);
-	return hashOf(parts.join('\n'));
+	return [...files].sort();
 }
 
 /**

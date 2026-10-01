@@ -1,6 +1,7 @@
 // The packages as a user gets them, before they go to npm: published to the
 // local registry (bun run publish:local --reset), then a project created from
-// it in an empty folder outside the checkouts - built, tested and type-checked.
+// it in an empty folder outside the checkouts - built, tested and type-checked,
+// its modules taken as they came compiled.
 //
 //   bun run publish:check [--wamrc <folder>] [--skip-generate] [--keep]
 //
@@ -65,6 +66,12 @@ const problems = [
 	!existsSync(wamrc) && `no ${wamrc}`,
 	!existsSync(join(core, 'node_modules/assemblyscript/std/assembly.json')) && 'no bundled assemblyscript typings in @amxts/core',
 	!readdirSync(join(project, 'dist')).some(file => file.endsWith('.aot')) && 'no .aot in dist/',
+	// The modules came compiled, and the build took them as they came.
+	...['menu-core', 'config-core'].map((name) => {
+		const prebuilt = join(project, 'node_modules/@amxts', name, 'prebuilt', WINDOWS ? 'windows' : 'linux', `${name}.aot`);
+		const built = join(project, 'dist', `${name}.aot`);
+		return !(existsSync(prebuilt) && existsSync(built) && readFileSync(prebuilt).equals(readFileSync(built))) && `dist/${name}.aot is not the one @amxts/${name} came with`;
+	}),
 ].filter(Boolean);
 if (problems.length) fail(problems.join('; '));
 

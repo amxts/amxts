@@ -115,11 +115,20 @@ export async function compilePlugin(plugin: Plugin, natives: PluginNative[] = []
 
 	const problem = await compileToWasm(plugin, wasm, false, natives);
 	if (problem) return problem;
+	return compileToMachineCode(plugin, wasm, natives);
+}
 
+/**
+ * The second half of compilePlugin: wamrc, from `wasm` to the plugin's .aot
+ * for its system, with the include of its `natives` beside it. One wasm
+ * makes the .aot of either system (scripts/prebuilt.ts makes both).
+ */
+export function compileToMachineCode(plugin: Plugin, wasm: string, natives: PluginNative[]): string | null {
 	// Written beside the .aot and moved over it once it passed: a server that
 	// reads the build folder where it is - the Docker one - reloads a plugin
 	// the moment its file changes, and must never see half of one; and a
 	// plugin that fails keeps the last good build.
+	mkdirSync(dirname(plugin.output), { recursive: true });
 	const part = `${plugin.output}.part`;
 	const wamrc = (level: string[]) => spawnSync(plugin.wamrc, [
 		'--target=i386',
