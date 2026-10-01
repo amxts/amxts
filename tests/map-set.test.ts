@@ -59,6 +59,35 @@ export function text(): string {
 			expect(text()).toBe('5,0,true,ann,ann,true,none,false,true');
 		});
 
+		test('map.has(key) ? map.get(key) : fallback is the value type, as the editor types it', async () => {
+			const { error, text } = await compile(`
+class Player { constructor(public name: string) {} }
+const prefixes = new Map<number, string>();
+const players = new Map<number, Player>();
+function prefixFor(plugin: number): string { return prefixes.has(plugin) ? prefixes.get(plugin) : "core"; }
+function playerFor(id: number): Player { return !players.has(id) ? new Player("nobody") : players.get(id); }
+function length(text: string): number { return text.length; }
+export function text(): string {
+	prefixes.set(1, "mine");
+	players.set(1, new Player("ann"));
+	const found = prefixes.has(2) ? prefixes.get(2) : "none";
+	let named: string = prefixes.has(1) ? prefixes.get(1) : "none";
+	return [prefixFor(1), prefixFor(2), playerFor(1).name, playerFor(2).name, found, named,
+		length(prefixes.has(1) ? prefixes.get(1) : "").toString()].join(",");
+}
+`, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('mine,core,ann,nobody,none,mine,4');
+		});
+
+		test('a ternary with a null of its own is not the value type', async () => {
+			const { error } = await compile(`
+const prefixes = new Map<number, string>();
+export function text(): string { return prefixes.has(1) ? prefixes.get(1) : null; }
+`, optimize);
+			expect(error).toContain('is not assignable to type \'~lib/string/String\'');
+		});
+
 		test('an object read with map.get and used as there is checked where it runs', async () => {
 			const { error, exports } = await probe({ 'probe.ts': `
 class Player { constructor(public id: number) {} }
