@@ -712,9 +712,15 @@ function gameSummary(camel: string, comment: string) {
  */
 function withoutReapi(camel: string) {
 	const heard = HEARD[camel];
-	if (heard?.gaps) return say(`\n\nWithout ReAPI (plain HLDS): ${heard.gaps.en}.`, `\n\nБез ReAPI (чистый HLDS): ${heard.gaps.ru}.`);
+	if (heard?.gaps) return say(`Without ReAPI (plain HLDS): ${heard.gaps.en}.`, `Без ReAPI (чистый HLDS): ${heard.gaps.ru}.`);
 	if (heard) return '';
-	return say('\n\nWithout ReAPI (plain HLDS) nothing hears it.', '\n\nБез ReAPI (чистый HLDS) его ничто не слышит.');
+	return say('Without ReAPI (plain HLDS) nothing hears it.', 'Без ReAPI (чистый HLDS) его ничто не слышит.');
+}
+
+/** Two texts as sentences one after the other: the first ended with its full stop. */
+function sentences(first: string, second: string) {
+	if (!first || !second) return first || second;
+	return `${/[.!?]$/.test(first) ? first : `${first}.`} ${second}`;
 }
 
 /**
@@ -820,7 +826,7 @@ for (const [hook, id] of [...idOfName].sort((a, b) => a[0].localeCompare(b[0])))
 		params: paramsOf(hook, constant, paramsLine),
 		result: resultOf(hook, line(comment, 'Return type') || UNDOCUMENTED_RESULTS[constant] || ''),
 		// An event Ham Sandwich delivers too is heard the same without reapi.
-		summary: gameSummary(camel, comment) + (ham ? '' : withoutReapi(camel)),
+		summary: ham ? gameSummary(camel, comment) : sentences(gameSummary(camel, comment), withoutReapi(camel)),
 		pawn: `\`${constant}\`${paramsLine ? ` ${paramsLine}` : ''}${ham ? `, \`${ham.ham}\`` : ''}`,
 		extra: [],
 	};
