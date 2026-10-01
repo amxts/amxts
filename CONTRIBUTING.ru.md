@@ -123,7 +123,14 @@ bun run test:server    # the server suites, on a test server of the AMXTS_SERVER
 bun run test:server --linux   # the same suites on a Linux server, in Docker
 bun run test:server --plain   # the same on Linux without ReHLDS, ReGameDLL, ReAPI
 bun run test:server --quick   # the same suites compiled as `amxts dev` compiles them
+bun run test:release          # пакеты npm от начала до конца: локальный реестр, npx create-amxts, сервер в Docker
 ```
+
+`bun run test:release` публикует восемь пакетов в свой локальный реестр,
+создаёт проект через `npx create-amxts`, собирает и тестирует его и
+запускает на образе сервера в Docker; ему нужны файлы выпуска обеих систем
+в `dist-release/` (`bun run release:linux --no-upload --dry-run` и файлы
+`release:windows`), а CI запускает его на теге перед выпуском.
 
 Наборы запускаются с `--smol`; полный прогон занимает около 1,2 ГБ памяти и
 меньше 2 ГБ, когда компилирует всё с пустым кэшем компиляции (CI);
