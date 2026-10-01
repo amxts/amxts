@@ -2441,6 +2441,18 @@ function precacheWaiting(event: PluginPrecacheEvent): void {
 	for (let i = 0; i < waitingPrecaches.length; i++) precacheNow(waitingPrecaches[i]);
 	waitingPrecaches.length = 0;
 }
+
+// @ts-ignore: decorator
+@external("env", "on_cell") declare function _onCell(event: string, fn: i32, shape: i32, arg: i32, value: i32): void;
+
+/**
+ * @hidden A forward the host relays, heard by `fn` (a one-cell handler) only
+ * when its argument `arg` is `value`: the module compares it, so a forward
+ * that comes often crosses into the plugin for that value alone.
+ */
+export function __onCell(event: string, fn: i32, arg: i32, value: i32): void {
+	_onCell(event, fn, 0, arg, value);
+}
 addServerListener<PluginPrecacheEvent>(precacheWaiting);
 
 // ScreenFade's flags (hlsdk shake.h), which no include carries.

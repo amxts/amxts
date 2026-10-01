@@ -181,6 +181,14 @@ struct Handler {
 	 * alone would run without them. See w_tag and hostIndex in as/facade.ts.
 	 */
 	int32_t  tag = 0;
+	/**
+	 * on_cell's filter: the forward reaches the handler only when its argument
+	 * at whereArg is whereValue - compared here, so a forward that fires on
+	 * every shot (pfn_playbackevent) crosses into the plugin for its one event
+	 * alone. -1 for none.
+	 */
+	int      whereArg = -1;
+	cell     whereValue = 0;
 };
 
 static std::map<std::string, std::vector<Handler> > g_events;
@@ -1173,6 +1181,22 @@ static void w_on(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t shape)
 	h.plugin = g_currentPlugin;
 	h.fn = (uint32_t)fn;
 	h.shape = shape;
+	g_events[AsString(Inst(env), name)].push_back(h);
+}
+
+// on_cell(event, handler, shape, arg, value) - on, for the calls whose
+// argument `arg` is `value` alone.
+static void w_on_cell(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t shape, int32_t arg, int32_t value)
+{
+	if (g_currentPlugin < 0)
+		return;
+
+	Handler h;
+	h.plugin = g_currentPlugin;
+	h.fn = (uint32_t)fn;
+	h.shape = shape;
+	h.whereArg = arg;
+	h.whereValue = value;
 	g_events[AsString(Inst(env), name)].push_back(h);
 }
 
@@ -2624,6 +2648,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "performance.now", (void *)w_performance_now, "()F",  NULL },
 	{ "seed",            (void *)w_seed,            "()F",  NULL },
 	{ "on",           (void *)w_on,           "(iii)",  NULL },
+	{ "on_cell",      (void *)w_on_cell,      "(iiiii)", NULL },
 	{ "subscribe",    (void *)w_subscribe,    "(iii)",  NULL },
 	{ "emit_local",   (void *)w_emit_local,   "(iiii)", NULL },
 	{ "clcmd",        (void *)w_clcmd,        "(iiiii)i", NULL },
@@ -3958,6 +3983,9 @@ static cell AMX_NATIVE_CALL n_event(AMX *amx, cell *params)
 
 	cell result = 0;
 	for (size_t h = 0; h < handlers.size(); h++) {
+		int where = handlers[h].whereArg;
+		if (where >= 0 && (where >= argc || args[where] != handlers[h].whereValue))
+			continue;
 		cell one = Fire(handlers[h], argv, n, 0);
 		if (one > result)
 			result = one;

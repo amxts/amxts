@@ -65,6 +65,8 @@ interface Handler {
 	shape: number;
 	/** A closure's number: fn is then the plugin's dispatcher, called with it first (Handler.tag in module.cpp). */
 	tag?: number;
+	/** on_cell's filter: the handler hears the forward only when this argument is `value`. */
+	where?: { arg: number; value: number };
 }
 
 /** A host public standing in for a handler: `__amxts_cb<index>`. */
@@ -990,6 +992,7 @@ export class FakeServer {
 
 			let result = 0;
 			for (const handler of [...(this.events.get(name) ?? [])]) {
+				if (handler.where && Number(args[handler.where.arg]) !== handler.where.value) continue;
 				const one = this.call(handler, [first], 0);
 				if (one > result) result = one;
 			}
@@ -1859,6 +1862,14 @@ export class FakeServer {
 			let list = this.events.get(event);
 			if (!list) this.events.set(event, list = []);
 			list.push({ plugin, fn, shape });
+		},
+
+		// on, for the calls whose argument `arg` is `value` alone - compared before the plugin, as module.cpp does.
+		on_cell(this: FakeServer, plugin: PluginInstance, name: number, fn: number, shape: number, arg: number, value: number) {
+			const event = plugin.memory.string(name);
+			let list = this.events.get(event);
+			if (!list) this.events.set(event, list = []);
+			list.push({ plugin, fn, shape, where: { arg, value } });
 		},
 
 		subscribe(this: FakeServer, plugin: PluginInstance, name: number, fn: number, tag: number) {
