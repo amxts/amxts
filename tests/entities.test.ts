@@ -15,10 +15,26 @@ function typeOf(name: string) {
 	return m ? m[1] : null;
 }
 
+// The module reads a field where the game keeps it: an entvar by its offset,
+// a member by its place in the file's member table. Both lists name reapi's
+// field: `// var_gravity 284`, `"CBasePlayer", "m_iAccount", // m_iAccount`.
+const entvarAt = new Map([...source.matchAll(/^\/\/ (var_\w+) (\d+)/gm)].map(m => [m[2], m[1]]));
+const members = [...source.matchAll(/^\t"\w+", "\w+", \/\/ (\w+)$/gm)].map(m => m[1]);
+
+/** The reapi field an access reads: `entvarCell(this.id, 284)` is var_gravity, `memberCell(this.id, 3)` the table's fourth. */
+function fieldOf(access: string) {
+	const entvar = access.match(/(?:entvar\w*|Entvar\w*)\(this\.id, (\d+)/);
+	if (entvar) return entvarAt.get(entvar[1]) ?? null;
+	const member = access.match(/(?:member\w*|Member\w*)\(this\.id, (\d+)/);
+	if (member) return members[Number(member[1])] ?? null;
+	const named = access.match(/\b(var_\w+|m_\w+|EV_SZ_\w+)\b/);
+	return named ? named[1].replace(/^EV_SZ_/, 'var_') : null;
+}
+
 /** The reapi field a getter reads; a string entvar goes through EV_SZ_<name>. */
 function reapiOf(name: string) {
-	const m = source.match(new RegExp(`\\tget ${name}\\(\\)[^\\n]*(?:\\n\\t\\t[^\\n]*)*?\\b(var_\\w+|m_\\w+|EV_SZ_\\w+)\\b`));
-	return m ? m[1].replace(/^EV_SZ_/, 'var_') : null;
+	const m = source.match(new RegExp(`\\tget ${name}\\(\\)[^\\n]*(?:\\n\\t\\t[^\\n]*)*`));
+	return m ? fieldOf(m[0]) : null;
 }
 
 test.each([
@@ -59,8 +75,10 @@ test('hand-written Player properties are not generated', () => {
 test('health is Entity\'s; a player\'s fov is m_iFOV, written with pev->fov', () => {
 	expect(reapiOf('health')).toBe('var_health');
 	expect(reapiOf('fov')).toBe('var_fov');
-	expect(source).toContain('\tget fov(): number { return memberCell(this.id, m_iFOV); }');
-	expect(source).toContain('\t\tsetMemberCell(this.id, m_iFOV, <i32>value);\n\t\tsetEntvarCell(this.id, var_fov, <i32>floatCell(value));');
+	const fov = members.indexOf('m_iFOV');
+	expect(source).toContain(`\tget fov(): number { return memberCell(this.id, ${fov}); }`);
+	expect(source).toContain(`\t\tsetMemberCell(this.id, ${fov}, <i32>value);\n\t\tsetEntvarCell(this.id, 532, <i32>floatCell(value));`);
+	expect(entvarAt.get('532')).toBe('var_fov');
 });
 
 // The weapon: CBasePlayerItem and CBasePlayerWeapon members, with m_Weapon_
@@ -76,7 +94,7 @@ test.each([
 	['nextSecondaryAttack', 'm_Weapon_flNextSecondaryAttack', 'number'],
 ])('Weapon.%s is %s as %s', (name: string, reapi: string, type: string) => {
 	const weapon = weaponSource();
-	expect(weapon).toContain(`(this.id, ${reapi})`);
+	expect(weapon).toContain(`(this.id, ${members.indexOf(reapi)})`);
 	expect(weapon).toContain(`\tget ${name}(): ${type} {`);
 });
 
@@ -134,16 +152,20 @@ test('a field\'s tooltip says what it is, then the engine name on its last line'
 });
 
 test('every entry in scripts/docs/entities.ts is a generated field', () => {
+	const accesses = [...source.matchAll(/^\tget \w+\(\)[^\n]*(?:\n\t\t[^\n]*)*/gm)].map(m => fieldOf(m[0]));
 	for (const reapi of Object.keys(ENTITY_FIELDS)) {
-		// get_entvar(this.id, var_x), a vector's .num(this.id).num(var_x), a string's EV_SZ_x.
 		// An entry keyed by a property name (observerMode) documents a property read another way.
-		const read = source.includes(`(this.id, ${reapi})`)
-			|| source.includes(`	get ${reapi}(`)
-			|| source.includes(`.num(this.id).num(${reapi})`)
-			// A game rules field: its natives take no index.
-			|| source.includes(`gameCell(${reapi})`)
-			|| source.includes(`get_member_game<string>(${reapi})`)
-			|| (reapi.startsWith('var_') && source.includes(`EV_SZ_${reapi.slice(4)})`));
+		const read = accesses.includes(reapi) || source.includes(`	get ${reapi}(`);
 		expect([reapi, read]).toEqual([reapi, true]);
 	}
+});
+
+test('a field is read where the game keeps it, not through reapi\'s natives', () => {
+	expect(source).not.toContain('NATIVE_get_entvar');
+	expect(source).not.toContain('NATIVE_get_member)');
+	expect(source).toContain('\tget gravity(): number { return cellFloat(entvarCell(this.id, 284)); }');
+	// The game rules are read in memory too, through reapi only where the gamedata cannot find them.
+	expect(source).toMatch(/\tget numCtWins\(\): number \{ return gameCell\(\d+, m_iNumCTWins\); \}/);
+	// ReGameDLL's own member is reapi's alone, and says so on a server without it.
+	expect(source).toContain('\tget gameDesc(): string { return reapiGameText(m_GameDesc, "gameDesc"); }');
 });

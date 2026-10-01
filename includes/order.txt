@@ -12,14 +12,17 @@ reapi
 hamsandwich
 cstrike
 engine
+fakemeta
 nvault
 resemiclip
 universal_config
 menu_core
 
-# engine, nvault and geoip are stock AMX Mod X modules shipped with the server
-# (addons/amxmodx/modules/); geoip is listed in modules.ini and the other two
-# are auto-detected from the `#pragma reqlib` amxxpc writes into the .amxx.
+# engine, fakemeta, nvault and geoip are stock AMX Mod X modules shipped with
+# the server (addons/amxmodx/modules/); geoip is listed in modules.ini and the
+# others are auto-detected from the `#pragma reqlib` amxxpc writes into the
+# .amxx. The module itself calls engine's get_global_int and fakemeta's
+# pev_valid and get_pdata_int to find the engine's edicts (runtime/src/fields.h).
 # resemiclip is a third-party module, present as a DLL and enabled explicitly
 # in modules.ini.
 #

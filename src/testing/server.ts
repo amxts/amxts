@@ -16,7 +16,7 @@ import { compile } from './compile';
 import { Coroutines, nextTaskId } from './coroutines';
 import { installKitFor } from './kits';
 import { bitsFloat, floatBits, Memory, utf8Fit } from './memory';
-import { NATIVES, WEAPON_NAMES } from './natives';
+import { fieldCell, NATIVES, setFieldCell, WEAPON_NAMES } from './natives';
 import { FakeNetwork } from './network';
 import { constant, tables } from './tables';
 
@@ -620,6 +620,8 @@ export class FakeServer {
 
 	/** The game rules' members a plugin set (set_member_game), by member. */
 	readonly rules = new Map<number, number>();
+	/** The members plugins asked member_slot for, by slot: each one's reapi constant. */
+	private readonly memberSlots: number[] = [];
 	/** Rounds a plugin ended with rg_round_end, in order. */
 	readonly roundEnds: { status: number; event: number; delay: number; message: string; sound: string; trigger: boolean }[] = [];
 	/** Sounds played: from an entity (emit_sound, rh_emit_sound2), or to a player alone (SendAudio, rg_send_audio). */
@@ -2014,6 +2016,64 @@ export class FakeServer {
 			const length = utf8Fit(bytes, max);
 			this.callArgs[index] = new TextDecoder().decode(bytes.subarray(0, length));
 			return length;
+		},
+
+		// Entity fields and members, as the module reads them where the game
+		// keeps them (runtime/src/fields.h): an entvar by its offset in
+		// entvars_t, a member by the slot member_slot gave its gamedata name,
+		// the game rules' by the id -1.
+		ent_get(this: FakeServer, plugin: PluginInstance, id: number, offset: number) {
+			const at = tables().entvarAt.get(offset);
+			return at ? fieldCell(this.entities.get(id), at.field, at.component) : 0;
+		},
+
+		ent_set(this: FakeServer, plugin: PluginInstance, id: number, offset: number, cell: number) {
+			const at = tables().entvarAt.get(offset);
+			if (at) setFieldCell(this.entities.get(id), at.field, cell, at.component);
+		},
+
+		ent_entity(this: FakeServer, plugin: PluginInstance, id: number, offset: number) {
+			const at = tables().entvarAt.get(offset);
+			return at ? fieldCell(this.entities.get(id), at.field) : 0;
+		},
+
+		ent_set_entity(this: FakeServer, plugin: PluginInstance, id: number, offset: number, index: number) {
+			const at = tables().entvarAt.get(offset);
+			if (at) setFieldCell(this.entities.get(id), at.field, Math.max(index, 0));
+		},
+
+		member_slot(this: FakeServer, plugin: PluginInstance, className: number, name: number) {
+			const key = `${plugin.memory.string(className)}::${plugin.memory.string(name)}`;
+			const field = tables().memberNamed.get(key);
+			if (field === undefined) throw new Error(`no reapi member is ${key} in the gamedata`);
+			const slot = this.memberSlots.indexOf(field);
+			return slot >= 0 ? slot : this.memberSlots.push(field) - 1;
+		},
+
+		member_get(this: FakeServer, plugin: PluginInstance, id: number, slot: number, element: number) {
+			const field = this.memberSlots[slot];
+			if (id === -1) return this.rules.get(field) ?? 0;
+			return fieldCell(this.entities.get(id), field, element);
+		},
+
+		member_set(this: FakeServer, plugin: PluginInstance, id: number, slot: number, element: number, cell: number) {
+			const field = this.memberSlots[slot];
+			if (id === -1) this.rules.set(field, cell);
+			else setFieldCell(this.entities.get(id), field, cell, element);
+		},
+
+		member_text(this: FakeServer, plugin: PluginInstance, id: number, slot: number, out: number, max: number) {
+			const value = this.entities.get(id)?.fields.get(FakeEntity.key(this.memberSlots[slot]));
+			return plugin.memory.setUtf8(out, max, typeof value === 'string' ? value : '');
+		},
+
+		member_set_text(this: FakeServer, plugin: PluginInstance, id: number, slot: number, text: number) {
+			this.entities.get(id)?.fields.set(FakeEntity.key(this.memberSlots[slot]), plugin.memory.string(text));
+		},
+
+		// The fake keeps its game rules where the module would find them.
+		game_rules() {
+			return 1;
 		},
 
 		// The fields plugins add to Player: the imports their generated accessors call.

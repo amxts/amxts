@@ -1178,6 +1178,30 @@ export function hasModule(name: ModuleName): boolean {
 	return loaded;
 }
 
+// The backend the hood picks for a game event, an action or a field of
+// ReGameDLL's own, asked once rather than on every call: 1 reapi, 0 the
+// stock modules, -1 not asked yet.
+let reapiHere: i32 = -1;
+
+/** @hidden Whether the server has reapi: the hood's choice of backend, made once. */
+export function __hasReapi(): bool {
+	if (reapiHere < 0) reapiHere = hasModule("reapi") ? 1 : 0;
+	return reapiHere == 1;
+}
+
+const saidOnce = new Set<string>();
+
+/**
+ * @hidden A line in the console the first time it is said: what this server
+ * cannot do, where a plugin asks for it - not on every call, which a field
+ * read in a frame listener makes every frame.
+ */
+export function __sayOnce(text: string): void {
+	if (saidOnce.has(text)) return;
+	saidOnce.add(text);
+	console.warn(text);
+}
+
 /** Tells everyone's scoreboard a player's frags and deaths - what cs_set_user_deaths sends. */
 function sendScoreInfo(id: number, frags: number, deaths: number, team: number) {
 	message_begin(MSG_ALL, get_user_msgid("ScoreInfo"), [0, 0, 0], 0);
@@ -1326,12 +1350,12 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `cs_get_user_deaths`, `cs_set_user_deaths`
 	 */
 	get deaths(): number {
-		return hasModule("reapi") ? get_member(this.id, m_iDeaths) : cs_get_user_deaths(this.id);
+		return __hasReapi() ? get_member(this.id, m_iDeaths) : cs_get_user_deaths(this.id);
 	}
 
 	/** The deaths on the scoreboard; setting them tells the scoreboard too. */
 	set deaths(value: number) {
-		if (hasModule("reapi")) {
+		if (__hasReapi()) {
 			set_member(this.id, m_iDeaths, value);
 			sendScoreInfo(this.id, this.frags, value, get_member(this.id, m_iTeam));
 			return;
@@ -1346,7 +1370,7 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `cs_get_user_team`, `rg_set_user_team`
 	 */
 	get team(): Team {
-		const index = hasModule("reapi") ? get_member(this.id, m_iTeam) : cs_get_user_team(this.id);
+		const index = __hasReapi() ? get_member(this.id, m_iTeam) : cs_get_user_team(this.id);
 		return index >= 0 && index < TEAM_NAMES.length ? TEAM_NAMES[index] : "UNASSIGNED";
 	}
 
@@ -1357,7 +1381,7 @@ export class Player extends PlayerFields implements Client {
 	 */
 	set team(value: Team) {
 		const index = teamCell(value);
-		if (hasModule("reapi")) {
+		if (__hasReapi()) {
 			rg_set_user_team(this.id, index, MODEL_AUTO, true, false);
 			return;
 		}
@@ -1376,7 +1400,7 @@ export class Player extends PlayerFields implements Client {
 	 */
 	joinTeam(team: Team): boolean {
 		if (team == "UNASSIGNED") return false;
-		if (hasModule("reapi")) return rg_join_team(this.id, teamCell(team)) != 0;
+		if (__hasReapi()) return rg_join_team(this.id, teamCell(team)) != 0;
 
 		// Without reapi, what the player would type: the team menu's slot, then
 		// the appearance menu's automatic pick.
@@ -1525,7 +1549,7 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `rg_give_item`, `give_item`
 	 */
 	give(item: ItemName): boolean {
-		if (hasModule("reapi")) return rg_give_item(this.id, item) > 0;
+		if (__hasReapi()) return rg_give_item(this.id, item) > 0;
 		return give_item(this.id, item) > 0;
 	}
 
@@ -1536,7 +1560,7 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `rg_remove_all_items`, `strip_user_weapons`
 	 */
 	removeAllItems(removeSuit: boolean = false): void {
-		if (hasModule("reapi")) {
+		if (__hasReapi()) {
 			rg_remove_all_items(this.id, removeSuit);
 			return;
 		}
@@ -1551,7 +1575,7 @@ export class Player extends PlayerFields implements Client {
 	setAmmo(weapon: WeaponName, amount: number): void {
 		const id = WEAPON_IDS.indexOf(weapon);
 		if (id <= 0) return;
-		if (hasModule("reapi")) rg_set_user_bpammo(this.id, id, amount);
+		if (__hasReapi()) rg_set_user_bpammo(this.id, id, amount);
 		else cs_set_user_bpammo(this.id, id, amount);
 	}
 
@@ -1564,7 +1588,7 @@ export class Player extends PlayerFields implements Client {
 	getAmmo(weapon: WeaponName): number {
 		const id = WEAPON_IDS.indexOf(weapon);
 		if (id <= 0) return 0;
-		return hasModule("reapi") ? rg_get_user_bpammo(this.id, id) : cs_get_user_bpammo(this.id, id);
+		return __hasReapi() ? rg_get_user_bpammo(this.id, id) : cs_get_user_bpammo(this.id, id);
 	}
 
 	/**
@@ -1573,7 +1597,7 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `rg_round_respawn`
 	 */
 	respawn(): void {
-		if (hasModule("reapi")) rg_round_respawn(this.id);
+		if (__hasReapi()) rg_round_respawn(this.id);
 		else ExecuteHamB(Ham_CS_RoundRespawn, this.id);
 	}
 
@@ -1604,7 +1628,7 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `rg_switch_weapon`
 	 */
 	switchWeapon(weapon: WeaponName): boolean {
-		if (hasModule("reapi")) {
+		if (__hasReapi()) {
 			const entity = rg_find_weapon_bpack_by_name(this.id, weapon);
 			return entity > 0 && rg_switch_weapon(this.id, entity) != 0;
 		}
@@ -1622,7 +1646,7 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `rg_reset_maxspeed`
 	 */
 	resetMaxSpeed(): void {
-		if (hasModule("reapi")) rg_reset_maxspeed(this.id);
+		if (__hasReapi()) rg_reset_maxspeed(this.id);
 		else ExecuteHamB(Ham_CS_Player_ResetMaxSpeed, this.id);
 	}
 

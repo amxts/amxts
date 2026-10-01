@@ -1,9 +1,11 @@
 // @log setSize: mins [0, 0, 50] above maxs [1, 1, 40]
 // entity.origin и поиск по радиусу. Сеттер origin раньше писал поле напрямую,
 // движок не перепривязывал сущность, и find_ent_in_sphere искал её на старом
-// месте.
-import { var_classname, var_gravity, var_health, var_movetype, var_origin, var_rendermode } from "@amxts/core/constants";
-import { get_entvar, set_entvar } from "@amxts/core/natives";
+// месте. Свойства модуль читает и пишет в памяти сам; что записано, сверяется
+// с модулем engine, который есть на любом сервере, а натив reapi - там, где
+// reapi есть.
+import { EV_FL_gravity, EV_FL_health, EV_INT_movetype, EV_INT_rendermode, var_classname, var_gravity, var_origin } from "@amxts/core/constants";
+import { entity_get_float, entity_get_int, entity_set_float, entity_set_int, get_entvar, set_entvar } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
 server.addServerCommand("amxts_test_entity", run);
@@ -35,7 +37,7 @@ async function run() {
 	fieldNatives(check, box);
 	modelAndSize(check, box);
 	box.health = 42.5;
-	check.expect(get_entvar(box.id, var_health), "health сущности - дробное pev->health").toBe(42.5);
+	check.expect(entity_get_float(box.id, EV_FL_health), "health сущности - дробное pev->health").toBe(42.5);
 
 	check.expect(box.exists, "exists у созданной сущности").toBe(true);
 	const world = new Entity(0);
@@ -56,8 +58,8 @@ function enumFields(check: Checks, box: Entity) {
 	box.moveType = "fly";
 	box.solid = "trigger";
 	box.takeDamage = "aim";
-	check.expect(get_entvar(box.id, var_rendermode), "renderMode \"additive\" - kRenderTransAdd").toBe(5);
-	check.expect(get_entvar(box.id, var_movetype), "moveType \"fly\" - MOVETYPE_FLY").toBe(5);
+	check.expect(entity_get_int(box.id, EV_INT_rendermode), "renderMode \"additive\" - kRenderTransAdd").toBe(5);
+	check.expect(entity_get_int(box.id, EV_INT_movetype), "moveType \"fly\" - MOVETYPE_FLY").toBe(5);
 	check.expect(box.renderMode, "renderMode читается именем").toBe("additive");
 	check.expect(box.renderFx, "renderFx читается именем").toBe("glowShell");
 	check.expect(box.moveType, "moveType читается именем").toBe("fly");
@@ -69,14 +71,22 @@ function enumFields(check: Checks, box: Entity) {
 
 /** Число без имени (его записал бы Pawn-плагин) читается как "unknown", а запись "unknown" поле не трогает. */
 function unnamedValue(check: Checks, box: Entity) {
-	set_entvar(box.id, var_rendermode, 9);
+	entity_set_int(box.id, EV_INT_rendermode, 9);
 	check.expect(box.renderMode, "число без имени - \"unknown\"").toBe("unknown");
 	box.renderMode = "unknown";
-	check.expect(get_entvar(box.id, var_rendermode), "запись \"unknown\" поле не меняет").toBe(9);
+	check.expect(entity_get_int(box.id, EV_INT_rendermode), "запись \"unknown\" поле не меняет").toBe(9);
 }
 
-/** Поле через натив приходит тем, что оно есть: дробное - числом, вектор - Vector, текст - строкой. */
+/**
+ * Дробное поле, записанное движком, свойство читает числом. Натив reapi
+ * приходит тем, что поле есть: дробное - числом, вектор - Vector, текст -
+ * строкой; без reapi его нет.
+ */
 function fieldNatives(check: Checks, box: Entity) {
+	entity_set_float(box.id, EV_FL_gravity, 0.25);
+	check.expect(box.gravity, "свойство видит дробное, записанное движком").toBe(0.25);
+	if (!hasModule("reapi")) return;
+
 	set_entvar(box.id, var_gravity, 0.5);
 	check.expect(get_entvar(box.id, var_gravity), "get_entvar дробного поля - число, а не биты").toBe(0.5);
 	check.expect(box.gravity, "свойство видит то же число").toBe(0.5);

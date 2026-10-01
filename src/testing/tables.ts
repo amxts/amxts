@@ -48,6 +48,30 @@ export interface Tables {
 	stringFields: Set<number>;
 	/** Members read with an element index: m_rgpPlayerItems. */
 	arrayFields: Set<number>;
+	/** An entvar by its offset in entvars_t, as the module's ent_get takes it: its constant, and a vector's component. */
+	entvarAt: Map<number, { field: number; component: number }>;
+	/** A member by its class and name in the gamedata, as member_slot takes it ("CBasePlayer::m_iAccount"): its constant. */
+	memberNamed: Map<string, number>;
+}
+
+/**
+ * The entvars by their offset (a vector's components each) and the members by
+ * their gamedata name, as the module reads them: the lists as/entities.ts
+ * keeps beside its member table.
+ */
+function fieldPlaces(constants: Map<string, number>, entities: string) {
+	const entvarAt = new Map<number, { field: number; component: number }>();
+	for (const [, name, offset, vector] of entities.matchAll(/^\/\/ (var_\w+) (\d+)( vector)?$/gm)) {
+		const field = constants.get(name);
+		if (field === undefined) continue;
+		for (let component = 0; component < (vector ? 3 : 1); component++) entvarAt.set(Number(offset) + component * 4, { field, component });
+	}
+	const memberNamed = new Map<string, number>();
+	for (const [, className, name, reapi] of entities.matchAll(/^\t"(\w+)", "(\w+)", \/\/ (\w+)$/gm)) {
+		const field = constants.get(reapi);
+		if (field !== undefined) memberNamed.set(`${className}::${name}`, field);
+	}
+	return { entvarAt, memberNamed };
 }
 
 let cached: Tables | null = null;
@@ -126,6 +150,7 @@ export function tables(): Tables {
 		vectorFields: fieldsOf(kind => (kind & 3) === 2),
 		stringFields: fieldsOf(kind => (kind & 3) === 3),
 		arrayFields: fieldsOf(kind => (kind & 4) !== 0),
+		...fieldPlaces(constants, generated('entities.ts')),
 	};
 
 	return cached;

@@ -98,6 +98,33 @@ function cellOf(field: number, value: number | number[] | string): number {
 	return tables().floatFields.has(field) ? floatBits(value) : value | 0;
 }
 
+/**
+ * A field's cell as the module reads it in memory (runtime/src/fields.h): a
+ * whole number, a float's bits, an entity's index; `element` is a vector's
+ * component or an array member's element.
+ */
+export function fieldCell(target: FakeEntity | undefined, field: number, element = 0): number {
+	const { arrayFields } = tables();
+	const value = target?.fields.get(FakeEntity.key(field, arrayFields.has(field) ? element : undefined));
+	if (Array.isArray(value)) return floatBits(value[element] ?? 0);
+	return value === undefined || (element > 0 && !arrayFields.has(field)) ? 0 : cellOf(field, value);
+}
+
+/** Writes a field's cell as the module does: a float's bits, one component of a vector, one element of an array. */
+export function setFieldCell(target: FakeEntity | undefined, field: number, cell: number, element = 0): void {
+	if (!target) return;
+	const { arrayFields, floatFields, vectorFields } = tables();
+	const key = FakeEntity.key(field, arrayFields.has(field) ? element : undefined);
+	if (vectorFields.has(field)) {
+		const before = target.fields.get(key);
+		const vector = Array.isArray(before) ? [...before] : [0, 0, 0];
+		vector[element] = bitsFloat(cell);
+		target.fields.set(key, vector);
+		return;
+	}
+	target.fields.set(key, floatFields.has(field) ? bitsFloat(cell) : cell);
+}
+
 /** get_entvar and get_member: a vector into the tail's buffer, text into its buffer, a cell returned. */
 function readField(call: NativeCall, target: FakeEntity | undefined, field: number, tail: number[], element?: number): number {
 	if (!target) return 0;
@@ -961,5 +988,11 @@ const SAME_AS: Record<string, string> = {
 	write_char: 'write_byte',
 	write_short: 'write_byte',
 	write_long: 'write_byte',
+	// What other plugins' message listeners hear on a server; the fake hears no plugin's message either way.
+	emessage_begin: 'message_begin',
+	ewrite_byte: 'write_byte',
+	ewrite_short: 'write_byte',
+	ewrite_string: 'write_string',
+	emessage_end: 'message_end',
 };
 for (const [name, same] of Object.entries(SAME_AS)) NATIVES[name] = NATIVES[same];

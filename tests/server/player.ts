@@ -1,7 +1,22 @@
 // То, для чего нужен игрок: бот, которого добавил раннер, «пишет» в чат
-// команду, и её обработчик получает этого игрока.
-import { m_flVelocityModifier, m_iFOV, m_szTeamName, var_fov, var_weapons } from "@amxts/core/constants";
-import { amxclient_cmd, get_cvar_string, get_entvar, get_member, get_speak, get_user_info, set_speak, set_user_info } from "@amxts/core/natives";
+// команду, и её обработчик получает этого игрока. Поля игрока модуль читает
+// и пишет в памяти сам; записанное сверяется с модулями engine и fakemeta,
+// которые есть на любом сервере, а нативы reapi - там, где reapi есть.
+import { EV_FL_fov, EV_INT_weapons, m_flVelocityModifier, m_szTeamName } from "@amxts/core/constants";
+import {
+	amxclient_cmd,
+	entity_get_float,
+	entity_get_int,
+	get_cvar_string,
+	get_ent_data,
+	get_ent_data_float,
+	get_ent_data_string,
+	get_member,
+	get_speak,
+	get_user_info,
+	set_speak,
+	set_user_info,
+} from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
 let caller = "";
@@ -56,14 +71,16 @@ function ammo(check: Checks, bot: Player) {
 	bot.setAmmo("weapon_hegrenade", before);
 }
 
-/** Члены игрока через натив: текстовый пишется и читается строкой, дробный - числом. */
+/** Члены игрока: текстовый пишется и читается строкой, дробный - числом; натив reapi видит то же. */
 function memberFields(check: Checks, bot: Player) {
 	const team = bot.teamName;
 	bot.teamName = "amxts";
-	check.expect(get_member<string>(bot.id, m_szTeamName), "get_member<string> читает записанное").toBe("amxts");
+	check.expect(get_ent_data_string(bot.id, "CBasePlayer", "m_szTeamName"), "текстовый член записан, где его держит игра").toBe("amxts");
+	if (hasModule("reapi")) check.expect(get_member<string>(bot.id, m_szTeamName), "get_member<string> читает записанное").toBe("amxts");
 	bot.teamName = team;
 
-	check.expect(get_member(bot.id, m_flVelocityModifier), "get_member дробного поля - число").toBe(bot.velocityModifier);
+	check.expect(get_ent_data_float(bot.id, "CBasePlayer", "m_flVelocityModifier"), "дробный член - число").toBe(bot.velocityModifier);
+	if (hasModule("reapi")) check.expect(get_member(bot.id, m_flVelocityModifier), "get_member дробного поля - число").toBe(bot.velocityModifier);
 }
 
 /** Поля игрока с именами вместо чисел движка: броня, режим наблюдения, оружие. */
@@ -76,10 +93,10 @@ function enumFields(check: Checks, bot: Player) {
 	check.expect(bot.observerMode != "unknown", `observerMode - имя (${bot.observerMode})`).toBe(true);
 
 	// Список оружия, записанный обратно, оставляет маску как была - и бит костюма тоже.
-	const before = get_entvar(bot.id, var_weapons);
+	const before = entity_get_int(bot.id, EV_INT_weapons);
 	const weapons = bot.weapons;
 	bot.weapons = weapons;
-	check.expect(get_entvar(bot.id, var_weapons), `weapons (${weapons.join(",")}) записаны обратно без потерь`).toBe(before);
+	check.expect(entity_get_int(bot.id, EV_INT_weapons), `weapons (${weapons.join(",")}) записаны обратно без потерь`).toBe(before);
 }
 
 /** Язык: setinfo lang игрока, а без него - язык сервера. */
@@ -132,8 +149,8 @@ function observer(check: Checks, bot: Player) {
 function fieldOfView(check: Checks, bot: Player) {
 	const before = bot.fov;
 	bot.fov = 110;
-	check.expect(get_member(bot.id, m_iFOV), "fov записан в m_iFOV").toBe(110);
-	check.expect(get_entvar(bot.id, var_fov), "и в pev->fov").toBe(110.0);
+	check.expect(get_ent_data(bot.id, "CBasePlayer", "m_iFOV"), "fov записан в m_iFOV").toBe(110);
+	check.expect(entity_get_float(bot.id, EV_FL_fov), "и в pev->fov").toBe(110.0);
 	check.expect(bot.fov, "fov прочитан обратно").toBe(110);
 	const entity: Entity = bot;
 	check.expect(entity.health, "health игрока через Entity - его собственный").toBe(bot.health);

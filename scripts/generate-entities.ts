@@ -1,3 +1,4 @@
+import type { GamedataMember } from './gamedata';
 import type { HamFunction, HamKind, HamParam } from './ham-functions';
 // Generates as/entities.ts: Entity, PlayerFields, Weapon and GameFields (the
 // game rules, which the facade's Game extends), one typed property per reapi
@@ -19,6 +20,8 @@ import type { HamFunction, HamKind, HamParam } from './ham-functions';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dedent, docsLang, pick, renderDoc } from './apply-docs';
 import { ENTITY_FIELDS, ENTITY_METHODS, ENTITY_TYPES } from './docs/entities';
+import { entvarLayout } from './entvars';
+import { gamedataMember, REAPI_ONLY_MEMBERS } from './gamedata';
 import { HAM_FUNCTIONS } from './ham-functions';
 import { includePath } from './includes';
 
@@ -655,30 +658,71 @@ function actions(target: HamFunction['target'], owner: string, fields: Field[]) 
 	}).join('\n\n');
 }
 
-// The two team scores, each written with the other as it is: reapi's
-// rg_update_teamscores(cts, ts) sets both and sends them to the scoreboard.
+// The two team scores, each written with the other as it is: both are set
+// and sent to the scoreboard at once (setTeamScores).
 const TEAM_SCORES: Record<string, string> = {
 	m_iNumCTWins: 'value, this.numTerroristWins',
 	m_iNumTerroristWins: 'this.numCtWins, value',
 };
 
+// Every entvar's place in entvars_t, which the module reads it at.
+const ENTVARS = entvarLayout();
+
+/** An entvar's offset in entvars_t. */
+function offsetOf(reapi: string) {
+	const entvar = ENTVARS.get(reapi);
+	if (!entvar) throw new Error(`${reapi} is not in entvars_t`);
+	return entvar.offset;
+}
+
+// The members the module reads, by their place in this list: their class
+// and name in AMX Mod X's gamedata, which the module looks the offset up by.
+const memberTable: (GamedataMember & { reapi: string })[] = [];
+
+/** A member's place in the member table, added the first time it is used. */
+function memberAt(reapi: string, owner: string) {
+	const member = gamedataMember(reapi, owner);
+	if (!member) throw new Error(`${owner}::${reapi} is not in AMX Mod X's gamedata - it is reapi's alone`);
+	const at = memberTable.findIndex(each => each.className === member.className && each.name === member.name);
+	if (at >= 0) return at;
+	memberTable.push({ ...member, reapi });
+	return memberTable.length - 1;
+}
+
+/** How a field's cell is read and written: the expression, and the statement for a cell. */
+interface Access {
+	read: string;
+	write: (cell: string) => string;
+}
+
+function accessOf(f: Field, kind: 'entvar' | 'member' | 'game'): Access {
+	if (kind === 'entvar') {
+		const offset = offsetOf(f.reapi);
+		// An edict_t * entvar - owner, enemy, aiment - is the entity's index.
+		if (ENTVARS.get(f.reapi)!.kind === 'entity') return { read: `entvarEntity(this.id, ${offset})`, write: cell => `setEntvarEntity(this.id, ${offset}, ${cell})` };
+		return { read: `entvarCell(this.id, ${offset})`, write: cell => `setEntvarCell(this.id, ${offset}, ${cell})` };
+	}
+	if (kind === 'member') {
+		const at = memberAt(f.reapi, f.owner);
+		return { read: `memberCell(this.id, ${at})`, write: cell => `setMemberCell(this.id, ${at}, ${cell})` };
+	}
+	// A member of ReGameDLL's own is reapi's alone, and says so without it.
+	if (REAPI_ONLY_MEMBERS.has(f.reapi)) return { read: `reapiGameCell(${f.reapi}, "${f.name}")`, write: cell => `setReapiGameCell(${f.reapi}, "${f.name}", ${cell})` };
+	const at = memberAt(f.reapi, f.owner);
+	return { read: `gameCell(${at}, ${f.reapi})`, write: cell => `setGameCell(${at}, ${f.reapi}, ${cell})` };
+}
+
 function accessor(f: Field, kind: 'entvar' | 'member' | 'game') {
-	// The field's own cell: a property knows what its field holds, so it goes
-	// around get_entvar's and get_member's lookup of that (~/natives) and
-	// converts the cell itself.
-	const get = { entvar: 'entvarCell', member: 'memberCell', game: 'gameCell' }[kind];
-	const set = { entvar: 'setEntvarCell', member: 'setMemberCell', game: 'setGameCell' }[kind];
-	// The game rules are one object, and their natives take no index.
-	const at = kind === 'game' ? '' : 'this.id, ';
-	const native = kind === 'entvar' ? 'NATIVE_get_entvar' : 'NATIVE_get_member';
-	const setNative = kind === 'entvar' ? 'NATIVE_set_entvar' : 'NATIVE_set_member';
+	// The field's own cell: a property knows what its field holds and where,
+	// and converts the cell itself.
+	const { read, write } = accessOf(f, kind);
 	const lines: string[] = [`\t${renderDoc(docOf(f), '\t')}`];
 
 	// A pointer member is its object: `player.activeItem.kind`, not an index to
-	// look up. reapi answers with the entity's index, 0 or -1 for none. Read
+	// look up. The module answers with the entity's index, 0 for none. Read
 	// only: writing one takes an index and nothing here needs it yet.
 	if (f.points) {
-		lines.push(`\tget ${f.name}(): ${f.points} | null {`, `\t\tconst index = ${get}(${at}${f.reapi});`, `\t\treturn index > 0 ? new ${f.points}(index) : null;`, `\t}`);
+		lines.push(`\tget ${f.name}(): ${f.points} | null {`, `\t\tconst index = ${read};`, `\t\treturn index > 0 ? new ${f.points}(index) : null;`, `\t}`);
 		return lines.join('\n');
 	}
 
@@ -688,67 +732,63 @@ function accessor(f: Field, kind: 'entvar' | 'member' | 'game') {
 			// and 0.5 is no name at all.
 			if (f.enumType) {
 				const fn = lowerFirst(f.enumType);
-				lines.push(`\tget ${f.name}(): ${f.enumType} { return ${fn}Name(wholeCell(cellFloat(${get}(${at}${f.reapi})))); }`);
-				if (f.settable) lines.push(`\tset ${f.name}(value: ${f.enumType}) {`, `\t\tconst cell = ${fn}Cell(value);`, `\t\tif (cell != UNNAMED) ${set}(${at}${f.reapi}, <i32>floatCell(<f64>cell));`, `\t}`);
+				lines.push(`\tget ${f.name}(): ${f.enumType} { return ${fn}Name(wholeCell(cellFloat(${read}))); }`);
+				if (f.settable) lines.push(`\tset ${f.name}(value: ${f.enumType}) {`, `\t\tconst cell = ${fn}Cell(value);`, `\t\tif (cell != UNNAMED) ${write('<i32>floatCell(<f64>cell)')};`, `\t}`);
 				break;
 			}
-			lines.push(`\tget ${f.name}(): number { return cellFloat(${get}(${at}${f.reapi})); }`);
-			if (f.settable) lines.push(`\tset ${f.name}(value: number) { ${set}(${at}${f.reapi}, <i32>floatCell(value)); }`);
+			lines.push(`\tget ${f.name}(): number { return cellFloat(${read}); }`);
+			if (f.settable) lines.push(`\tset ${f.name}(value: number) { ${write('<i32>floatCell(value)')}; }`);
 			break;
 		case 'int':
 			if (FLAG_FIELDS[f.reapi]) {
 				const flag = FLAG_FIELDS[f.reapi];
-				const store = kind === 'entvar' ? 'EntvarFlags' : 'MemberFlags';
-				lines.push(`	get ${f.name}(): ${flag.type}[] { return flagList<${flag.type}>(new ${store}(this.id, ${f.reapi}), ${flag.family}); }`);
-				const mask = flag.keep ? `(${get}(${at}${f.reapi}) & ~${flag.family}.all) | ${flag.family}.maskOf(values)` : `${flag.family}.maskOf(values)`;
-				if (f.settable) lines.push(`	set ${f.name}(values: ${flag.type}[]) { ${set}(${at}${f.reapi}, ${mask}); }`);
+				const store = kind === 'entvar' ? `EntvarFlags(this.id, ${offsetOf(f.reapi)})` : `MemberFlags(this.id, ${memberAt(f.reapi, f.owner)})`;
+				lines.push(`	get ${f.name}(): ${flag.type}[] { return flagList<${flag.type}>(new ${store}, ${flag.family}); }`);
+				const mask = flag.keep ? `(${read} & ~${flag.family}.all) | ${flag.family}.maskOf(values)` : `${flag.family}.maskOf(values)`;
+				if (f.settable) lines.push(`	set ${f.name}(values: ${flag.type}[]) { ${write(mask)}; }`);
 				break;
 			}
 			if (f.enumType) {
 				const fn = lowerFirst(f.enumType);
-				lines.push(`\tget ${f.name}(): ${f.enumType} { return ${fn}Name(${get}(${at}${f.reapi})); }`);
+				lines.push(`\tget ${f.name}(): ${f.enumType} { return ${fn}Name(${read}); }`);
 				// A spectator mode is switched as the game switches it
-				// (Observer_SetMode, which reapi calls): the target, the last
-				// mode and the text on his screen follow. "none" is no mode the
-				// game switches to - it would take it for "inEye" - and is
-				// written as it is.
-				if (f.name === 'observerMode') lines.push(`\tset ${f.name}(value: ${f.enumType}) {`, `\t\tconst cell = ${fn}Cell(value);`, `\t\tif (cell == 0) ${set}(${at}${f.reapi}, cell);`, `\t\telse if (cell != UNNAMED) rg_set_observer_mode(this.id, cell);`, `\t}`);
-				else if (f.settable) lines.push(`\tset ${f.name}(value: ${f.enumType}) {`, `\t\tconst cell = ${fn}Cell(value);`, `\t\tif (cell != UNNAMED) ${set}(${at}${f.reapi}, cell);`, `\t}`);
+				// (Observer_SetMode): the target, the last mode and the text on
+				// his screen follow. "none" is no mode the game switches to - it
+				// would take it for "inEye" - and is written as it is.
+				if (f.name === 'observerMode') lines.push(`\tset ${f.name}(value: ${f.enumType}) {`, `\t\tconst cell = ${fn}Cell(value);`, `\t\tif (cell == 0) ${write('cell')};`, `\t\telse if (cell != UNNAMED) setObserverMode(this.id, cell);`, `\t}`);
+				else if (f.settable) lines.push(`\tset ${f.name}(value: ${f.enumType}) {`, `\t\tconst cell = ${fn}Cell(value);`, `\t\tif (cell != UNNAMED) ${write('cell')};`, `\t}`);
 				break;
 			}
-			lines.push(`\tget ${f.name}(): number { return ${get}(${at}${f.reapi}); }`);
+			lines.push(`\tget ${f.name}(): number { return ${read}; }`);
 			if (f.settable && PLAYER_OWN[f.reapi]) {
-				lines.push(`\tset ${f.name}(value: number) {`, `\t\t${set}(${at}${f.reapi}, <i32>value);`, `\t\tsetEntvarCell(this.id, ${PLAYER_OWN[f.reapi]}, <i32>floatCell(value));`, `\t}`);
+				lines.push(`\tset ${f.name}(value: number) {`, `\t\t${write('<i32>value')};`, `\t\tsetEntvarCell(this.id, ${offsetOf(PLAYER_OWN[f.reapi])}, <i32>floatCell(value));`, `\t}`);
 				break;
 			}
 			// A team's score is set as the game sets it, with UpdateTeamScores:
 			// the scoreboard shows it at once, not when the next round starts.
-			if (f.settable && TEAM_SCORES[f.reapi]) lines.push(`\tset ${f.name}(value: number) { rg_update_teamscores(${TEAM_SCORES[f.reapi]}, false); }`);
-			else if (f.settable) lines.push(`\tset ${f.name}(value: number) { ${set}(${at}${f.reapi}, <i32>value); }`);
+			if (f.settable && TEAM_SCORES[f.reapi]) lines.push(`\tset ${f.name}(value: number) { setTeamScores(${TEAM_SCORES[f.reapi]}); }`);
+			else if (f.settable) lines.push(`\tset ${f.name}(value: number) { ${write('<i32>value')}; }`);
 			break;
 		case 'bool':
-			lines.push(`\tget ${f.name}(): boolean { return ${get}(${at}${f.reapi}) != 0; }`);
-			if (f.settable) lines.push(`\tset ${f.name}(value: boolean) { ${set}(${at}${f.reapi}, value ? 1 : 0); }`);
+			lines.push(`\tget ${f.name}(): boolean { return ${read} != 0; }`);
+			if (f.settable) lines.push(`\tset ${f.name}(value: boolean) { ${write('value ? 1 : 0')}; }`);
 			break;
-		case 'vector':
+		case 'vector': {
 			// Read as a Vector, written as any three numbers: a literal
 			// `[0.0, 0.0, 0.0]` is a number[], and a Vector is one too.
-			lines.push(`\tget ${f.name}(): Vector {`, `\t\tconst cells = new CellBuffer(3);`, `\t\tnew Call(${native}).num(this.id).num(${f.reapi}).vecInto(cells).run();`, `\t\treturn new Vector(cells.float(0), cells.float(1), cells.float(2));`, `\t}`);
+			const place = kind === 'entvar' ? `this.id, ${offsetOf(f.reapi)}` : `this.id, ${memberAt(f.reapi, f.owner)}`;
+			const what = kind === 'entvar' ? 'Entvar' : 'Member';
+			lines.push(`\tget ${f.name}(): Vector { return ${lowerFirst(what)}Vector(${place}); }`);
 			// Moving an entity is the engine's SET_ORIGIN, not a field write:
 			// only it relinks the entity, and until then absmin/absmax - what
 			// collisions and find_ent_in_sphere look at - stay where it was.
-			if (f.settable && f.reapi === 'var_origin') {
-				lines.push(
-					`\tset ${f.name}(value: number[]) { entity_set_origin(this.id, value); }`,
-				);
-			} else if (f.settable) {
-				lines.push(`\tset ${f.name}(value: number[]) {`, `\t\tnew Call(${setNative}).num(this.id).num(${f.reapi}).vec(value[0], value[1], value[2]).run();`, `\t}`);
-			}
+			if (f.settable && f.reapi === 'var_origin') lines.push(`\tset ${f.name}(value: number[]) { entity_set_origin(this.id, value); }`);
+			else if (f.settable) lines.push(`\tset ${f.name}(value: number[]) { set${what}Vector(${place}, value); }`);
 			break;
+		}
 		case 'string':
 			// A string entvar is read through the engine module, EV_SZ_<name>
-			// being the same field; a member has no engine twin, and get_member
-			// reads it as text.
+			// being the same field: the text is in the engine's string table.
 			if (kind === 'entvar') {
 				lines.push(`\tget ${f.name}(): string { return entity_get_string(this.id, EV_SZ_${f.reapi.slice(4)}); }`);
 				// A model is the engine's SET_MODEL, not the text alone: it also
@@ -758,12 +798,13 @@ function accessor(f: Field, kind: 'entvar' | 'member' | 'game') {
 				break;
 			}
 			if (kind === 'game') {
-				lines.push(`\tget ${f.name}(): string { return get_member_game<string>(${f.reapi}); }`);
-				if (f.settable) lines.push(`\tset ${f.name}(value: string) { set_member_game<string>(${f.reapi}, value); }`);
+				if (!REAPI_ONLY_MEMBERS.has(f.reapi)) throw new Error(`${f.reapi}: a text member of the game rules in the gamedata - read it in memory`);
+				lines.push(`\tget ${f.name}(): string { return reapiGameText(${f.reapi}, "${f.name}"); }`);
+				if (f.settable) lines.push(`\tset ${f.name}(value: string) { setReapiGameText(${f.reapi}, "${f.name}", value); }`);
 				break;
 			}
-			lines.push(`\tget ${f.name}(): string { return get_member<string>(this.id, ${f.reapi}); }`);
-			if (f.settable) lines.push(`\tset ${f.name}(value: string) { set_member<string>(this.id, ${f.reapi}, value); }`);
+			lines.push(`\tget ${f.name}(): string { return memberText(this.id, ${memberAt(f.reapi, f.owner)}); }`);
+			if (f.settable) lines.push(`\tset ${f.name}(value: string) { setMemberText(this.id, ${memberAt(f.reapi, f.owner)}, value); }`);
 			break;
 	}
 
@@ -838,7 +879,25 @@ const weaponBits = weaponKinds.filter(k => k.id >= 1 && k.id <= 30);
 // The flag families FLAG_FIELDS names, imported from as/flags.ts.
 const flagImports = [...new Set(Object.values(FLAG_FIELDS).filter(f => f.family !== 'WEAPON_BITS').flatMap(f => [f.type, f.family]))];
 
-const reapiNames = [...new Set([...entvars, ...members, ...weaponMembers, ...gameRules].map(f => f.reapi).concat(['m_iId', 'm_rgpPlayerItems', 'm_pNext']))];
+// The members the hand-written code below reads, by their place in the member table.
+const AT = {
+	items: memberAt('m_rgpPlayerItems', 'CBasePlayer'),
+	next: memberAt('m_pNext', 'CBasePlayerItem'),
+	kind: memberAt('m_iId', 'CBasePlayerItem'),
+	ctWins: memberAt('m_iNumCTWins', 'CSGameRules'),
+	terroristWins: memberAt('m_iNumTerroristWins', 'CSGameRules'),
+	observerTarget: memberAt('m_hObserverTarget', 'CBasePlayer'),
+	observerLastMode: memberAt('m_iObserverLastMode', 'CBasePlayer'),
+};
+
+// The classes' properties, written before the file: the member table the
+// file opens with is complete only once every property has its place in it.
+const entityBody = entvars.map(f => accessor(f, 'entvar')).join('\n\n');
+const playerBody = members.map(f => accessor(f, 'member')).join('\n\n');
+const observerBody = accessor(observerMode, 'entvar');
+const gameBody = gameRules.map(f => accessor(f, 'game')).join('\n\n');
+const weaponBody = weaponMembers.map(f => accessor(f, 'member')).join('\n\n');
+
 const stringKeys = entvars.filter(f => f.shape === 'string').map(f => `EV_SZ_${f.reapi.slice(4)}`);
 
 const out = `// GENERATED by scripts/generate-entities.ts — do not edit
@@ -846,25 +905,25 @@ const out = `// GENERATED by scripts/generate-entities.ts — do not edit
 //
 // Every entvar and every member of a player, as a property with the type
 // reapi documents for it: \`entity.gravity = 0.5\`, \`entity.origin\`,
-// \`player.hideHud\`. Under the hood each one is the get_entvar / get_member
-// call its "Get params" line names.
-import { ActionOptions, Call, CellBuffer, Player, RoundWinner, SoundChannel, SoundOptions, UseType, WeaponName, cellFloat, floatCell } from "./facade";
+// \`player.hideHud\`. Under the hood the module reads and writes each one
+// where the game keeps it, on any server; reapi's include says its type.
+import { ActionOptions, Call, Player, RoundWinner, SoundChannel, SoundOptions, UseType, WeaponName, cellFloat, floatCell, __hasReapi, __sayOnce } from "./facade";
 import { Vector } from "./vector";
 import {
 	EntvarFlags, MemberFlags, FlagFamily, flagList,
 	${chunk(flagImports).join(',\n\t')}
 } from "./flags";
 import {
-	get_member, set_member, entity_get_string, entity_set_string,
+	entity_get_string, entity_set_string,
 	entity_get_int, entity_set_int, entity_get_edict, create_entity, is_valid_ent,
 	find_ent_by_class, find_ent_in_sphere, get_global_int, entity_set_origin, emit_sound,
-	entity_set_model, entity_set_size,
+	entity_set_model, entity_set_size, is_user_connected, is_user_alive, get_maxplayers, get_user_msgid,
+	emessage_begin, ewrite_string, ewrite_short, emessage_end, client_print,
 	get_member_game, set_member_game, rg_update_teamscores, rg_set_observer_mode,
-	NATIVE_get_entvar, NATIVE_set_entvar, NATIVE_get_member, NATIVE_set_member, NATIVE_get_member_game, NATIVE_set_member_game,
-	NATIVE_ExecuteHam, NATIVE_ExecuteHamB
+	NATIVE_get_member_game, NATIVE_set_member_game, NATIVE_ExecuteHam, NATIVE_ExecuteHamB
 } from "./natives";
 import {
-	${chunk([...new Set(reapiNames.concat(stringKeys, ['EV_SZ_classname', 'EV_SZ_model', 'EV_INT_flags', 'EV_ENT_owner', 'FL_KILLME', 'GL_maxEntities'], HAM_FUNCTIONS.filter(f => f.method).map(f => f.ham)))]).join(',\n\t')}
+	${chunk([...new Set(gameRules.map(f => f.reapi).concat(stringKeys, ['EV_SZ_classname', 'EV_SZ_model', 'EV_INT_flags', 'EV_ENT_owner', 'FL_KILLME', 'GL_maxEntities', 'MSG_ALL', 'print_center'], HAM_FUNCTIONS.filter(f => f.method).map(f => f.ham)))]).join(',\n\t')}
 } from "./constants";
 
 /** A name's number when it has none ("unknown"): the setter then leaves the field alone. */
@@ -878,35 +937,244 @@ function hamCall(fn: i32, id: number, options: ActionOptions): Call {
 	return new Call((options.hooks ?? true) ? NATIVE_ExecuteHamB : NATIVE_ExecuteHam).num(fn).num(id);
 }
 
-/** An entvar's cell as get_entvar answers it: a whole number, or a Float's bits. */
-function entvarCell(id: number, field: i32): i32 {
-	return <i32>new Call(NATIVE_get_entvar).num(id).num(field).run();
+// ---------------------------------------------------------------- fields
+//
+// The module reads and writes every field where the game keeps it
+// (runtime/src/fields.h), on any server: an entvar at its offset in
+// entvars_t, a member by its class and name in AMX Mod X's gamedata (the
+// table below), looked up the first time it is used.
+
+// @ts-ignore: decorator
+@external("env", "ent_get")         declare function _entGet(id: i32, offset: i32): i32;
+// @ts-ignore: decorator
+@external("env", "ent_set")         declare function _entSet(id: i32, offset: i32, cell: i32): void;
+// @ts-ignore: decorator
+@external("env", "ent_entity")      declare function _entEntity(id: i32, offset: i32): i32;
+// @ts-ignore: decorator
+@external("env", "ent_set_entity")  declare function _entSetEntity(id: i32, offset: i32, index: i32): void;
+// @ts-ignore: decorator
+@external("env", "member_slot")     declare function _memberSlot(className: string, name: string): i32;
+// @ts-ignore: decorator
+@external("env", "member_get")      declare function _memberGet(id: i32, slot: i32, element: i32): i32;
+// @ts-ignore: decorator
+@external("env", "member_set")      declare function _memberSet(id: i32, slot: i32, element: i32, cell: i32): void;
+// @ts-ignore: decorator
+@external("env", "member_text")     declare function _memberText(id: i32, slot: i32, out: usize, max: i32): i32;
+// @ts-ignore: decorator
+@external("env", "member_set_text") declare function _memberSetText(id: i32, slot: i32, text: string): void;
+// @ts-ignore: decorator
+@external("env", "game_rules")      declare function _gameRules(): i32;
+
+/** The id the module reads the game rules' members by. */
+const RULES: i32 = -1;
+
+/**
+ * Each member's class and name in the gamedata, by its place: two strings a
+ * member, reapi's name after it - which the test server reads, to know the
+ * field a slot is.
+ */
+const MEMBERS: StaticArray<string> = [
+${memberTable.map(m => `\t"${m.className}", "${m.name}", // ${m.reapi}`).join('\n')}
+];
+
+// Each entvar's offset, by reapi's name: a property carries its own; the
+// test server reads these to know the field an offset is.
+${[...ENTVARS].map(([name, entvar]) => `// ${name} ${entvar.offset}${entvar.kind === 'vector' ? ' vector' : ''}`).join('\n')}
+
+/** The module's slot of each member, plus one: 0 until the member is first used. */
+const memberSlots = new StaticArray<i32>(${memberTable.length});
+
+/** The module's slot of the member at \`at\` in MEMBERS. */
+function slotOf(at: i32): i32 {
+	let slot = unchecked(memberSlots[at]);
+	if (slot == 0) {
+		slot = _memberSlot(unchecked(MEMBERS[at * 2]), unchecked(MEMBERS[at * 2 + 1])) + 1;
+		unchecked(memberSlots[at] = slot);
+	}
+	return slot - 1;
+}
+
+/** An entvar's cell: a whole number, or a Float's bits. */
+function entvarCell(id: number, offset: i32): i32 {
+	return _entGet(<i32>id, offset);
 }
 
 /** Writes an entvar's cell: a whole number, or a Float's bits. */
-function setEntvarCell(id: number, field: i32, cell: i32): void {
-	new Call(NATIVE_set_entvar).num(id).num(field).ref(cell).run();
+function setEntvarCell(id: number, offset: i32, cell: i32): void {
+	_entSet(<i32>id, offset, cell);
 }
 
-/** A member's cell as get_member answers it: a whole number, or a Float's bits. */
-function memberCell(id: number, field: i32): i32 {
-	return <i32>new Call(NATIVE_get_member).num(id).num(field).run();
+/** An entvar that points at an entity, as the entity's index; 0 for none. */
+function entvarEntity(id: number, offset: i32): i32 {
+	return _entEntity(<i32>id, offset);
 }
 
-/** Writes a member's cell: a whole number, or a Float's bits. */
-function setMemberCell(id: number, field: i32, cell: i32): void {
-	new Call(NATIVE_set_member).num(id).num(field).ref(cell).run();
+/** Points an entvar at the entity with this index; 0 for none. */
+function setEntvarEntity(id: number, offset: i32, index: i32): void {
+	_entSetEntity(<i32>id, offset, index);
 }
 
-/** A game rules member's cell as get_member_game answers it: a whole number, or a Float's bits. */
-function gameCell(field: i32): i32 {
+function entvarVector(id: number, offset: i32): Vector {
+	return new Vector(cellFloat(_entGet(<i32>id, offset)), cellFloat(_entGet(<i32>id, offset + 4)), cellFloat(_entGet(<i32>id, offset + 8)));
+}
+
+function setEntvarVector(id: number, offset: i32, value: number[]): void {
+	for (let i = 0; i < 3; i++) _entSet(<i32>id, offset + i * 4, <i32>floatCell(value[i]));
+}
+
+/** A member's cell: a whole number, a Float's bits, an entity's index; an array member's element. */
+function memberCell(id: number, at: i32, element: i32 = 0): i32 {
+	return _memberGet(<i32>id, slotOf(at), element);
+}
+
+function setMemberCell(id: number, at: i32, cell: i32, element: i32 = 0): void {
+	_memberSet(<i32>id, slotOf(at), element, cell);
+}
+
+// A vector member's elements are its three components.
+function memberVector(id: number, at: i32): Vector {
+	const slot = slotOf(at);
+	return new Vector(cellFloat(_memberGet(<i32>id, slot, 0)), cellFloat(_memberGet(<i32>id, slot, 1)), cellFloat(_memberGet(<i32>id, slot, 2)));
+}
+
+function setMemberVector(id: number, at: i32, value: number[]): void {
+	const slot = slotOf(at);
+	for (let i = 0; i < 3; i++) _memberSet(<i32>id, slot, i, <i32>floatCell(value[i]));
+}
+
+/** The longest text a member holds, with room: m_autoBuyString is 256 bytes. */
+const MEMBER_TEXT: i32 = 512;
+const memberTextBuffer = new StaticArray<u8>(MEMBER_TEXT);
+
+function memberText(id: number, at: i32): string {
+	const length = _memberText(<i32>id, slotOf(at), changetype<usize>(memberTextBuffer), MEMBER_TEXT);
+	return String.UTF8.decodeUnsafe(changetype<usize>(memberTextBuffer), length);
+}
+
+function setMemberText(id: number, at: i32, value: string): void {
+	_memberSetText(<i32>id, slotOf(at), value);
+}
+
+/**
+ * How the game rules are read, chosen the first time: 1 in memory, 0
+ * through reapi; -1 not chosen yet. AMX Mod X's gamedata lays them out as
+ * the original game does, and ReGameDLL's add a member to their base class -
+ * every offset after it is off - so a server with reapi, which runs
+ * ReGameDLL, reads them through reapi.
+ */
+let rulesInMemory: i32 = -1;
+
+function rulesHere(): bool {
+	if (rulesInMemory < 0) {
+		rulesInMemory = __hasReapi() ? 0 : 1;
+		if (!__hasReapi() && _gameRules() == 0) __sayOnce("the game rules are not in AMX Mod X's gamedata for this server: game's fields read 0");
+	}
+	return rulesInMemory == 1;
+}
+
+/** A game rules member's cell: \`at\` in MEMBERS, or reapi's \`field\`. */
+function gameCell(at: i32, field: i32): i32 {
+	return rulesHere() ? _memberGet(RULES, slotOf(at), 0) : <i32>new Call(NATIVE_get_member_game).num(field).run();
+}
+
+function setGameCell(at: i32, field: i32, cell: i32): void {
+	if (rulesHere()) _memberSet(RULES, slotOf(at), 0, cell);
+	else new Call(NATIVE_set_member_game).num(field).ref(cell).run();
+}
+
+// A game rules member of ReGameDLL's own, which reapi alone reaches.
+function reapiGameCell(field: i32, name: string): i32 {
+	if (!__hasReapi()) {
+		__sayOnce(\`game.\${name} is ReGameDLL's, read through ReAPI, which this server does not have: it reads 0 and writes nothing\`);
+		return 0;
+	}
 	return <i32>new Call(NATIVE_get_member_game).num(field).run();
 }
 
-/** Writes a game rules member's cell: a whole number, or a Float's bits. */
-function setGameCell(field: i32, cell: i32): void {
-	new Call(NATIVE_set_member_game).num(field).ref(cell).run();
+function setReapiGameCell(field: i32, name: string, cell: i32): void {
+	if (__hasReapi()) new Call(NATIVE_set_member_game).num(field).ref(cell).run();
+	else reapiGameCell(field, name);
 }
+
+function reapiGameText(field: i32, name: string): string {
+	if (!__hasReapi()) {
+		__sayOnce(\`game.\${name} is ReGameDLL's, read through ReAPI, which this server does not have: it reads "" and writes nothing\`);
+		return "";
+	}
+	return get_member_game<string>(field);
+}
+
+function setReapiGameText(field: i32, name: string, value: string): void {
+	if (__hasReapi()) set_member_game<string>(field, value);
+	else reapiGameText(field, name);
+}
+
+/**
+ * Both teams' scores, sent to the scoreboard at once: reapi's
+ * rg_update_teamscores, or, without it, the members and the TeamScore
+ * message the game's UpdateTeamScores sends - sent so that other plugins'
+ * message listeners hear it, as they would the game's.
+ */
+function setTeamScores(ct: number, terrorists: number): void {
+	if (__hasReapi()) {
+		rg_update_teamscores(ct, terrorists, false);
+		return;
+	}
+	setGameCell(${AT.ctWins}, m_iNumCTWins, <i32>ct);
+	setGameCell(${AT.terroristWins}, m_iNumTerroristWins, <i32>terrorists);
+	sendTeamScore("CT", ct);
+	sendTeamScore("TERRORIST", terrorists);
+}
+
+function sendTeamScore(team: string, score: number): void {
+	emessage_begin(MSG_ALL, get_user_msgid("TeamScore"));
+	ewrite_string(team);
+	ewrite_short(score);
+	emessage_end();
+}
+
+/**
+ * Switches a spectator's mode as the game's Observer_SetMode does: reapi's
+ * rg_set_observer_mode, or, without it, the same steps here - the target
+ * kept while it is another living player, the next one found otherwise,
+ * "roaming" when there is none, the mode asked for kept as the last one,
+ * and the mode's name on his screen.
+ */
+function setObserverMode(id: number, mode: i32): void {
+	if (__hasReapi()) {
+		rg_set_observer_mode(id, mode);
+		return;
+	}
+	if (entvarCell(id, ${offsetOf('var_iuser1')}) == mode) return;
+
+	let target = memberCell(id, ${AT.observerTarget});
+	if (!watchable(id, target)) target = nextWatchable(id);
+	const roaming = ${constantValues.get('OBS_ROAMING')};
+	const shown = mode != roaming && target == 0 ? roaming : mode;
+
+	setMemberCell(id, ${AT.observerTarget}, shown == roaming ? 0 : target);
+	setEntvarCell(id, ${offsetOf('var_iuser1')}, shown);
+	setEntvarCell(id, ${offsetOf('var_iuser2')}, shown == roaming ? 0 : target);
+	setEntvarCell(id, ${offsetOf('var_iuser3')}, 0);
+	setMemberCell(id, ${AT.observerLastMode}, mode);
+	if (shown != mode) client_print(id, print_center, "#Spec_NoTarget");
+	client_print(id, print_center, \`#Spec_Mode\${shown}\`);
+}
+
+/** Whether \`target\` is a player \`id\` can watch: another one, in the game and alive. */
+function watchable(id: number, target: i32): bool {
+	return target > 0 && target != <i32>id && is_user_connected(target) != 0 && is_user_alive(target) != 0;
+}
+
+function nextWatchable(id: number): i32 {
+	const last = get_maxplayers();
+	for (let target = 1; target <= last; target++) {
+		if (watchable(id, target)) return target;
+	}
+	return 0;
+}
+
+export { entvarCell as __entvarCell, setEntvarCell as __setEntvarCell, memberCell as __memberCell, setMemberCell as __setMemberCell };
 
 /** A float field's value as a whole number, or UNNAMED when it has a fraction. */
 function wholeCell(value: f64): i32 {
@@ -1029,16 +1297,16 @@ export class Entity {
 		emit_sound(this.id, channel, sample, options.volume ?? 1.0, options.attenuation ?? 0.8, 0, options.pitch ?? 100.0);
 	}
 
-${entvars.map(f => accessor(f, 'entvar')).join('\n\n')}
+${entityBody}
 
 ${actions('entity', 'Entity', entvars)}
 }
 
 /** A player's members - CBaseEntity up to CBasePlayer - on top of its entvars. */
 export class PlayerFields extends Entity {
-${members.map(f => accessor(f, 'member')).join('\n\n')}
+${playerBody}
 
-${accessor(observerMode, 'entvar')}
+${observerBody}
 
 ${actions('player', 'Player', [...entvars, ...members])}
 
@@ -1050,10 +1318,10 @@ ${actions('player', 'Player', [...entvars, ...members])}
 	get items(): Weapon[] {
 		const list: Weapon[] = [];
 		for (let slot = 0; slot < 6; slot++) {
-			let item = get_member(this.id, m_rgpPlayerItems, slot);
+			let item = memberCell(this.id, ${AT.items}, slot);
 			while (item > 0) {
 				list.push(new Weapon(item));
-				item = memberCell(item, m_pNext);
+				item = memberCell(item, ${AT.next});
 			}
 		}
 		return list;
@@ -1065,7 +1333,7 @@ ${actions('player', 'Player', [...entvars, ...members])}
  * \`game.numCtWins\`. The facade's Game extends this.
  */
 export class GameFields {
-${gameRules.map(f => accessor(f, 'game')).join('\n\n')}
+${gameBody}
 }
 
 /** What a weapon is, by the name CS gives it without the WEAPON_ prefix. */
@@ -1083,17 +1351,17 @@ ${weaponKinds.map(k => `\t\tcase ${k.id}: return "${k.name}";`).join('\n')}
 /** A weapon: its entvars, and the members of CBasePlayerItem and CBasePlayerWeapon. */
 export class Weapon extends Entity {
 	/** m_iId - which weapon this is: \`weapon.kind == "knife"\`. */
-	get kind(): WeaponKind { return weaponKindOf(memberCell(this.id, m_iId)); }
+	get kind(): WeaponKind { return weaponKindOf(memberCell(this.id, ${AT.kind})); }
 
 	/** m_iId as the number WEAPON_* constants hold. */
-	get kindId(): number { return memberCell(this.id, m_iId); }
+	get kindId(): number { return memberCell(this.id, ${AT.kind}); }
 
 	// Entity's classname, typed as the name the player's weapon methods take.
 	${methodDoc('Weapon.classname')}
 	get classname(): WeaponName { return entity_get_string(this.id, EV_SZ_classname) as WeaponName; }
 	set classname(value: WeaponName) { entity_set_string(this.id, EV_SZ_classname, value); }
 
-${weaponMembers.map(f => accessor(f, 'member')).join('\n\n')}
+${weaponBody}
 
 ${actions('weapon', 'Weapon', [...entvars, ...weaponMembers])}
 }
