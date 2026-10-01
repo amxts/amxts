@@ -123,11 +123,70 @@ ExternalProject_Add(net_mbedtls
 	BUILD_BYPRODUCTS ${NET_MBEDTLS} ${NET_MBEDX509} ${NET_MBEDCRYPTO}
 )
 
+# Fixes to the libraries' sources, made before they build: each `fix(from
+# into)` replaces a text of the source, and a source that no longer has the
+# text stops the build - the fix is then to be looked at again, or dropped.
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/net-fix.cmake" [=[
+if(NOT EXISTS "${SOURCE}.orig")
+	configure_file("${SOURCE}" "${SOURCE}.orig" COPYONLY)
+endif()
+file(READ "${SOURCE}.orig" source)
+# The texts are arguments, not a list: C has semicolons.
+function(fix from into)
+	string(FIND "${source}" "${from}" found)
+	if(found EQUAL -1)
+		message(FATAL_ERROR "${SOURCE} has changed: a fix of runtime/network.cmake does not apply")
+	endif()
+	string(REPLACE "${from}" "${into}" fixed "${source}")
+	set(source "${fixed}" PARENT_SCOPE)
+endfunction()
+include("${FIXES}")
+file(WRITE "${SOURCE}" "${source}")
+]=])
+
+# libssh2 1.11.1's mbedTLS backend cannot take the public key out of a
+# private key file - what a login with a key file and no public key file,
+# curl's way, needs: _libssh2_mbedtls_pub_priv_key leaves `ret`
+# uninitialised, and gen_publickey_from_rsa writes `e` and `n` over each
+# other without the leading zero an SSH mpint has.
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/net-libssh2-fixes.cmake" [=[
+fix(
+	"    size_t keylen = 0, mthlen = 0;\n    int ret;\n"
+	"    size_t keylen = 0, mthlen = 0;\n    int ret = 0;\n"
+)
+fix(
+	"    uint32_t e_bytes, n_bytes;\n"
+	"    uint32_t e_bytes, n_bytes, e_pad, n_pad;\n"
+)
+fix(
+	"    /* Key form is \"ssh-rsa\" + e + n. */\n    len = 4 + 7 + 4 + e_bytes + 4 + n_bytes;\n"
+	"    /* Key form is \"ssh-rsa\" + e + n, mpints: a zero before a top bit. */\n    e_pad = mbedtls_mpi_bitlen(&rsa->MBEDTLS_PRIVATE(E)) % 8 == 0 ? 1 : 0;\n    n_pad = mbedtls_mpi_bitlen(&rsa->MBEDTLS_PRIVATE(N)) % 8 == 0 ? 1 : 0;\n    len = 4 + 7 + 4 + e_pad + e_bytes + 4 + n_pad + n_bytes;\n"
+)
+fix(
+	"    _libssh2_htonu32(p, e_bytes);\n    p += 4;\n    mbedtls_mpi_write_binary(&rsa->MBEDTLS_PRIVATE(E), p, e_bytes);\n\n    _libssh2_htonu32(p, n_bytes);\n    p += 4;\n    mbedtls_mpi_write_binary(&rsa->MBEDTLS_PRIVATE(N), p, n_bytes);\n"
+	"    _libssh2_htonu32(p, e_pad + e_bytes);\n    p += 4;\n    if(e_pad)\n        *p++ = 0;\n    mbedtls_mpi_write_binary(&rsa->MBEDTLS_PRIVATE(E), p, e_bytes);\n    p += e_bytes;\n\n    _libssh2_htonu32(p, n_pad + n_bytes);\n    p += 4;\n    if(n_pad)\n        *p++ = 0;\n    mbedtls_mpi_write_binary(&rsa->MBEDTLS_PRIVATE(N), p, n_bytes);\n    p += n_bytes;\n"
+)
+]=])
+file(SHA256 "${CMAKE_CURRENT_BINARY_DIR}/net-libssh2-fixes.cmake" NET_LIBSSH2_FIX_HASH)
+
+# curl 8.22 reads CURLOPT_KEYPASSWD for SSH when it sets the connection up,
+# before the option has reached the SSL config it reads it from, so an SSH
+# key's passphrase never gets to libssh2: it is read from the option itself.
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/net-curl-fixes.cmake" [=[
+fix(
+	"    sshc->passphrase = data->set.ssl.primary.key_passwd;\n"
+	"    sshc->passphrase = data->set.ssl.primary.key_passwd;\n    if(!sshc->passphrase)\n      sshc->passphrase = CURL_EASY_STR(data, STRING_KEY_PASSWD);\n"
+)
+]=])
+file(SHA256 "${CMAKE_CURRENT_BINARY_DIR}/net-curl-fixes.cmake" NET_CURL_FIX_HASH)
+
 ExternalProject_Add(net_libssh2
 	DEPENDS net_mbedtls
 	URL "https://github.com/libssh2/libssh2/releases/download/libssh2-${NET_LIBSSH2_VERSION}/libssh2-${NET_LIBSSH2_VERSION}.tar.xz"
 	URL_HASH SHA256=${NET_LIBSSH2_SHA256}
 	DOWNLOAD_EXTRACT_TIMESTAMP ON
+	PATCH_COMMAND ${CMAKE_COMMAND} -DSOURCE=<SOURCE_DIR>/src/mbedtls.c -DFIXES=${CMAKE_CURRENT_BINARY_DIR}/net-libssh2-fixes.cmake
+		-DHASH=${NET_LIBSSH2_FIX_HASH} -P ${CMAKE_CURRENT_BINARY_DIR}/net-fix.cmake
 	CMAKE_ARGS ${NET_ARGS}
 		-DBUILD_STATIC_LIBS=ON
 		-DBUILD_EXAMPLES=OFF
@@ -146,6 +205,8 @@ ExternalProject_Add(net_curl
 	URL "https://curl.se/download/curl-${NET_CURL_VERSION}.tar.xz"
 	URL_HASH SHA256=${NET_CURL_SHA256}
 	DOWNLOAD_EXTRACT_TIMESTAMP ON
+	PATCH_COMMAND ${CMAKE_COMMAND} -DSOURCE=<SOURCE_DIR>/lib/vssh/vssh.c -DFIXES=${CMAKE_CURRENT_BINARY_DIR}/net-curl-fixes.cmake
+		-DHASH=${NET_CURL_FIX_HASH} -P ${CMAKE_CURRENT_BINARY_DIR}/net-fix.cmake
 	CMAKE_ARGS ${NET_ARGS}
 		-DBUILD_STATIC_LIBS=ON
 		-DBUILD_CURL_EXE=OFF
