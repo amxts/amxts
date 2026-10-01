@@ -420,6 +420,45 @@ export const NATIVES: Record<string, Native> = {
 	get_gametime: c => floatBits(c.server.time / 1000),
 	LibraryExists: (c, [name]) => +c.server.modules.has(c.memory.text(name)),
 
+	menu_create: (c, [title, handler]) => c.server.createMenu(c.memory.text(title), c.server.slotByPublic(c.memory.text(handler))),
+	menu_additem: (c, [menu, name, _info, _access, callback]) => {
+		c.server.menu(menu).items.push({ name: c.memory.text(name), callback });
+		return 1;
+	},
+	menu_makecallback: (c, [fn]) => c.server.menuCallbacks.push(c.server.slotByPublic(c.memory.text(fn))) - 1,
+	menu_item_setname: (c, [menu, item, name]) => {
+		const entry = c.server.menu(menu).items[item];
+		if (!entry) return 0;
+		entry.name = c.memory.text(name);
+		return 1;
+	},
+	menu_items: (c, [menu]) => c.server.menu(menu).items.length,
+	menu_display: (c, [id, menu, page]) => {
+		const target = player(c, id);
+		if (!target) throw new Error(`menu_display: player ${id} is not in game`);
+		c.server.displayMenu(target, c.server.menu(menu), page);
+	},
+	menu_destroy: (c, [menu]) => {
+		c.server.destroyMenu(menu);
+		return 1;
+	},
+	// The tail comes by address: a number's cell, or a string's.
+	menu_setprop: (c, [menu, prop, value]) => {
+		const made = c.server.menu(menu);
+		const props: Record<string, () => void> = {
+			MPROP_PERPAGE: () => made.perPage = c.memory.cell(value),
+			MPROP_EXIT: () => made.exit = c.memory.cell(value) !== constant('MEXIT_NEVER'),
+			MPROP_BACKNAME: () => made.back = c.memory.text(value),
+			MPROP_NEXTNAME: () => made.next = c.memory.text(value),
+			MPROP_EXITNAME: () => made.exitName = c.memory.text(value),
+			MPROP_TITLE: () => made.title = c.memory.text(value),
+			MPROP_NUMBER_COLOR: () => made.numberColor = c.memory.text(value),
+		};
+		const set = Object.entries(props).find(([name]) => constant(name) === prop)?.[1];
+		if (!set) throw new Error(`menu_setprop: the fake server knows no menu property ${prop}`);
+		set();
+		return 1;
+	},
 	server_cmd: (c, [format, ...tail]) => {
 		c.server.commands.push(formatPawn(c, c.memory.text(format), tail));
 	},

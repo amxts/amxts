@@ -4637,3 +4637,226 @@ export function showMenu(id: number, keys: number, text: string, title: string):
 	// game's 175 bytes itself.
 	show_menu(id, keys, menuColors(text), -1, title);
 }
+
+// ---------------------------------------------------------------- menus
+
+// AMX Mod X's own menus (newmenus) as an object: `new Menu(title)`, items
+// with a title, a test for when each is shown and when it can be chosen, and
+// what choosing it does; `show(player, data)`. AMX Mod X draws the pages,
+// Back, More and Exit.
+//
+// What a menu shows depends on the player and the data it is shown with, so
+// each show() builds AMX Mod X's menu afresh - the title and every item's
+// title, `visible` and `enabled` asked then, for that player - and the menu
+// is destroyed when the player chooses or leaves it: the handler AMX Mod X
+// calls once per display destroys it before it runs the item. Every menu of
+// a plugin answers through one public, which finds the item by the menu's id;
+// a grey item is one an item callback that always says ITEM_DISABLED draws.
+// A menu left open by a plugin a reload took away answers the new one's
+// public, which knows nothing of it and destroys it.
+import { menu_additem, menu_create, menu_destroy, menu_display, menu_makecallback, NATIVE_menu_setprop } from "./natives";
+import {
+	ITEM_DISABLED, MEXIT_NEVER, MPROP_BACKNAME, MPROP_EXIT, MPROP_EXITNAME, MPROP_NEXTNAME, MPROP_NUMBER_COLOR, MPROP_PERPAGE
+} from "./constants";
+
+/** A colour of a menu's item numbers: a menu's colour tag, `"!y"`, `"!r"`, `"!d"` or `"!w"`. */
+export type MenuColor = "!y" | "!r" | "!d" | "!w";
+
+/** The options of a `Menu`: its pages and the texts of its own items. */
+export interface MenuOptions {
+	/**
+	 * Items on a page, `7` at most: Back, More and Exit go below them. `0`
+	 * puts every item on one page, without Back and More - `10` at most.
+	 *
+	 * Pawn: `MPROP_PERPAGE`
+	 */
+	perPage?: number;
+	/**
+	 * Whether the menu has an Exit item; `true` by default.
+	 *
+	 * Pawn: `MPROP_EXIT`
+	 */
+	exit?: boolean;
+	/**
+	 * The Back item's text; AMX Mod X's `"Back"`, in the player's language, by default.
+	 *
+	 * Pawn: `MPROP_BACKNAME`
+	 */
+	backText?: string;
+	/**
+	 * The More item's text; AMX Mod X's `"More"` by default.
+	 *
+	 * Pawn: `MPROP_NEXTNAME`
+	 */
+	nextText?: string;
+	/**
+	 * The Exit item's text; AMX Mod X's `"Exit"` by default.
+	 *
+	 * Pawn: `MPROP_EXITNAME`
+	 */
+	exitText?: string;
+	/**
+	 * The colour of the item numbers; `"!r"`, red, by default.
+	 *
+	 * Pawn: `MPROP_NUMBER_COLOR`
+	 */
+	numberColor?: MenuColor;
+}
+
+/** The context a menu's functions get: the player it is shown to, the menu and the data it was shown with. */
+export interface MenuContext<Data extends object = object> {
+	/** The player the menu is shown to. */
+	player: Player;
+	/** The menu itself: `menu.show(player, data)` keeps it open after a choice. */
+	menu: Menu<Data>;
+	/** The data `show` was given. */
+	data: Data;
+}
+
+/** An item of a `Menu`: its title, when it is shown and can be chosen, and what choosing it does. */
+export interface MenuItemOptions<Data extends object = object> {
+	/** The item's text - or a function that gives it for the player it is shown to. */
+	title: string | ((context: MenuContext<Data>) => string);
+	/** Whether the player can choose it; one he cannot is drawn grey and does nothing. `true` by default. */
+	enabled?: boolean | ((context: MenuContext<Data>) => boolean);
+	/** Whether it is shown at all; a hidden item takes no place. `true` by default. */
+	visible?: boolean | ((context: MenuContext<Data>) => boolean);
+	/** The item's action, run when the player chooses it. The menu closes, unless this shows it again. */
+	onSelect: (context: MenuContext<Data>) => void;
+}
+
+// The menus on players' screens, by AMX Mod X's id: what choosing item N of
+// each runs.
+const shownMenus = new Map<i32, (item: i32) => void>();
+let menuHandler = "";
+let greyItem: i32 = -1;
+
+/** A player chose an item of a menu this plugin showed - or left it, an item below `0`. */
+function menuChosen(player: number, menu: number, item: number, unused: number): void {
+	const id = <i32>menu;
+	const choose = shownMenus.has(id) ? shownMenus.get(id) : null;
+	shownMenus.delete(id);
+	menu_destroy(id);
+
+	if (choose != null && item >= 0) {
+		const ambient = __co_ambient_player;
+		__co_ambient_player = <i32>player;
+		choose(<i32>item);
+		__co_ambient_player = ambient;
+	}
+	handled();
+}
+
+/** An item AMX Mod X draws grey: the item callback of the items that cannot be chosen. */
+function itemDisabled(player: number, menu: number, item: number, unused: number): void {
+	ret(ITEM_DISABLED);
+}
+
+/** Sets a menu property that is text, when it is given, its colour tags made the game's codes. */
+function setMenuText(menu: i32, prop: i32, text: string | undefined): void {
+	if (text !== undefined) new Call(NATIVE_menu_setprop).num(menu).num(prop).str(menuColors(text)).run();
+}
+
+/** A text given as `string | ((context) => string)`: the compiler holds it as the function, a string as one that returns it. */
+function menuText<C>(text: string | ((context: C) => string), context: C): string {
+	// @ts-ignore: a function here - the editor sees the union
+	return menuColors(text(context));
+}
+
+/** A test given as `boolean | ((context) => boolean)`, held as the function as a text is; left out, it says yes. */
+function menuTest<C>(test: boolean | ((context: C) => boolean) | undefined, context: C): boolean {
+	// @ts-ignore: a function or null here - the editor sees the union
+	return test == null || test(context);
+}
+
+/**
+ * A menu of AMX Mod X's own: items a player picks with the number keys, on
+ * pages with Back and More, and Exit. `Data` is what it is shown with, which
+ * its functions get beside the player.
+ *
+ * ```ts
+ * interface ShopData {
+ *   category: string;
+ * }
+ *
+ * const shop = new Menu<ShopData>("!yShop");
+ * shop.addItem({
+ *   title: "Armor - $1000",
+ *   enabled: ({ player }) => player.armor < 100,
+ *   onSelect: ({ player }) => {
+ *     player.armor = 100;
+ *   },
+ * });
+ * shop.show(player, { category: "armor" });
+ * ```
+ *
+ * The title and each item's title, `visible` and `enabled` are asked at
+ * every `show`, for that player. Colour tags as in `showMenu`: `!y` yellow,
+ * `!r` red, `!d` grey, `!w` white, `!R` to the right edge.
+ *
+ * Pawn: `menu_create`, `menu_setprop`
+ */
+export class Menu<Data extends object = object> {
+	private readonly items: MenuItemOptions<Data>[] = [];
+
+	constructor(
+		private readonly title: string | ((context: MenuContext<Data>) => string),
+		private readonly options: MenuOptions = {}
+	) {
+		// Asked for now, not at the first show: after a reload, a menu the last
+		// start left open answers here, and is destroyed.
+		if (menuHandler.length == 0) menuHandler = callbackName(menuChosen, "menu");
+	}
+
+	/**
+	 * Adds an item: its title, when it is shown and can be chosen, and what
+	 * choosing it does.
+	 *
+	 * ```ts
+	 * shop.addItem({
+	 *   title: ({ player }) => `Heal (${player.health} HP)`,
+	 *   visible: ({ player }) => player.isAlive,
+	 *   enabled: ({ player }) => player.health < 100,
+	 *   onSelect: ({ player }) => {
+	 *     player.health = 100;
+	 *   },
+	 * });
+	 * ```
+	 *
+	 * Pawn: `menu_additem`
+	 */
+	addItem(item: MenuItemOptions<Data>): void {
+		this.items.push(item);
+	}
+
+	/**
+	 * Shows the menu to a player, with the data its functions get; it closes
+	 * when he chooses an item or leaves it.
+	 *
+	 * Pawn: `menu_display`
+	 */
+	show(player: Player, data: Data | null = null): void {
+		const context: MenuContext<Data> = { player, menu: this, data: changetype<Data>(data) };
+		const id = menu_create(menuText(this.title, context), menuHandler);
+
+		const options = this.options;
+		const perPage = options.perPage;
+		if (perPage !== undefined) new Call(NATIVE_menu_setprop).num(id).num(MPROP_PERPAGE).ref(perPage).run();
+		if (options.exit == false) new Call(NATIVE_menu_setprop).num(id).num(MPROP_EXIT).ref(MEXIT_NEVER).run();
+		setMenuText(id, MPROP_BACKNAME, options.backText);
+		setMenuText(id, MPROP_NEXTNAME, options.nextText);
+		setMenuText(id, MPROP_EXITNAME, options.exitText);
+		setMenuText(id, MPROP_NUMBER_COLOR, options.numberColor);
+
+		const shown = this.items.filter((item: MenuItemOptions<Data>) => menuTest(item.visible, context));
+		for (let i = 0; i < shown.length; i++) {
+			const item = shown[i];
+			const enabled = menuTest(item.enabled, context);
+			if (!enabled && greyItem < 0) greyItem = menu_makecallback(callbackName(itemDisabled, "menu-grey"));
+			menu_additem(id, menuText(item.title, context), "", 0, enabled ? -1 : greyItem);
+		}
+
+		shownMenus.set(id, (item: i32) => shown[item].onSelect(context));
+		menu_display(player.id, id);
+	}
+}

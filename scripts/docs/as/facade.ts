@@ -3299,4 +3299,228 @@ export default {
 			Pawn: \`show_menu\`, \`register_menucmd\`
 		`,
 	},
+	'MenuColor': {
+		en: `A colour of a menu's item numbers: a menu's colour tag, \`"!y"\`, \`"!r"\`, \`"!d"\` or \`"!w"\`.`,
+		ru: `Цвет номеров пунктов меню: цветовой тег меню, \`"!y"\`, \`"!r"\`, \`"!d"\` или \`"!w"\`.`,
+	},
+	'MenuOptions': {
+		en: `The options of a \`Menu\`: its pages and the texts of its own items.`,
+		ru: `Настройки \`Menu\`: его страницы и тексты его собственных пунктов.`,
+	},
+	'MenuOptions.perPage': {
+		en: `
+			Items on a page, \`7\` at most: Back, More and Exit go below them. \`0\`
+			puts every item on one page, without Back and More - \`10\` at most.
+
+			Pawn: \`MPROP_PERPAGE\`
+		`,
+		ru: `
+			Пунктов на странице, не больше \`7\`: под ними идут «Назад», «Дальше» и «Выход».
+			\`0\` ставит все пункты на одну страницу, без «Назад» и «Дальше», — не больше \`10\`.
+
+			Pawn: \`MPROP_PERPAGE\`
+		`,
+	},
+	'MenuOptions.exit': {
+		en: `
+			Whether the menu has an Exit item; \`true\` by default.
+
+			Pawn: \`MPROP_EXIT\`
+		`,
+		ru: `
+			Есть ли у меню пункт «Выход»; по умолчанию \`true\`.
+
+			Pawn: \`MPROP_EXIT\`
+		`,
+	},
+	'MenuOptions.backText': {
+		en: `
+			The Back item's text; AMX Mod X's \`"Back"\`, in the player's language, by default.
+
+			Pawn: \`MPROP_BACKNAME\`
+		`,
+		ru: `
+			Текст пункта «Назад»; по умолчанию \`"Back"\` AMX Mod X на языке игрока.
+
+			Pawn: \`MPROP_BACKNAME\`
+		`,
+	},
+	'MenuOptions.nextText': {
+		en: `
+			The More item's text; AMX Mod X's \`"More"\` by default.
+
+			Pawn: \`MPROP_NEXTNAME\`
+		`,
+		ru: `
+			Текст пункта «Дальше»; по умолчанию \`"More"\` AMX Mod X.
+
+			Pawn: \`MPROP_NEXTNAME\`
+		`,
+	},
+	'MenuOptions.exitText': {
+		en: `
+			The Exit item's text; AMX Mod X's \`"Exit"\` by default.
+
+			Pawn: \`MPROP_EXITNAME\`
+		`,
+		ru: `
+			Текст пункта «Выход»; по умолчанию \`"Exit"\` AMX Mod X.
+
+			Pawn: \`MPROP_EXITNAME\`
+		`,
+	},
+	'MenuOptions.numberColor': {
+		en: `
+			The colour of the item numbers; \`"!r"\`, red, by default.
+
+			Pawn: \`MPROP_NUMBER_COLOR\`
+		`,
+		ru: `
+			Цвет номеров пунктов; по умолчанию \`"!r"\`, красный.
+
+			Pawn: \`MPROP_NUMBER_COLOR\`
+		`,
+	},
+	'MenuContext': {
+		en: `The context a menu's functions get: the player it is shown to, the menu and the data it was shown with.`,
+		ru: `Контекст, который получают функции меню: игрок, которому оно показано, само меню и данные, с которыми его показали.`,
+	},
+	'MenuContext.player': {
+		en: `The player the menu is shown to.`,
+		ru: `Игрок, которому показано меню.`,
+	},
+	'MenuContext.menu': {
+		en: `The menu itself: \`menu.show(player, data)\` keeps it open after a choice.`,
+		ru: `Само меню: \`menu.show(player, data)\` оставляет его открытым после выбора.`,
+	},
+	'MenuContext.data': {
+		en: `The data \`show\` was given.`,
+		ru: `Данные, которые получил \`show\`.`,
+	},
+	'MenuItemOptions': {
+		en: `An item of a \`Menu\`: its title, when it is shown and can be chosen, and what choosing it does.`,
+		ru: `Пункт \`Menu\`: его заголовок, когда он показан и доступен и что делает его выбор.`,
+	},
+	'MenuItemOptions.title': {
+		en: `The item's text - or a function that gives it for the player it is shown to.`,
+		ru: `Текст пункта — или функция, которая даёт его для игрока, которому он показан.`,
+	},
+	'MenuItemOptions.enabled': {
+		en: `Whether the player can choose it; one he cannot is drawn grey and does nothing. \`true\` by default.`,
+		ru: `Может ли игрок его выбрать; недоступный рисуется серым и ничего не делает. По умолчанию \`true\`.`,
+	},
+	'MenuItemOptions.visible': {
+		en: `Whether it is shown at all; a hidden item takes no place. \`true\` by default.`,
+		ru: `Показан ли он вообще; скрытый пункт не занимает места. По умолчанию \`true\`.`,
+	},
+	'MenuItemOptions.onSelect': {
+		en: `The item's action, run when the player chooses it. The menu closes, unless this shows it again.`,
+		ru: `Действие пункта, которое выполняется, когда игрок его выбирает. Меню закрывается, если эта функция не покажет его снова.`,
+	},
+	'Menu': {
+		en: `
+			A menu of AMX Mod X's own: items a player picks with the number keys, on
+			pages with Back and More, and Exit. \`Data\` is what it is shown with, which
+			its functions get beside the player.
+
+			\`\`\`ts
+			interface ShopData {
+			  category: string;
+			}
+
+			const shop = new Menu<ShopData>("!yShop");
+			shop.addItem({
+			  title: "Armor - $1000",
+			  enabled: ({ player }) => player.armor < 100,
+			  onSelect: ({ player }) => {
+			    player.armor = 100;
+			  },
+			});
+			shop.show(player, { category: "armor" });
+			\`\`\`
+
+			The title and each item's title, \`visible\` and \`enabled\` are asked at
+			every \`show\`, for that player. Colour tags as in \`showMenu\`: \`!y\` yellow,
+			\`!r\` red, \`!d\` grey, \`!w\` white, \`!R\` to the right edge.
+
+			Pawn: \`menu_create\`, \`menu_setprop\`
+		`,
+		ru: `
+			Меню самого AMX Mod X: пункты, которые игрок выбирает цифровыми клавишами,
+			на страницах с «Назад» и «Дальше», и «Выход». \`Data\` — то, с чем его
+			показывают; это получают его функции рядом с игроком.
+
+			\`\`\`ts
+			interface ShopData {
+			  category: string;
+			}
+
+			const shop = new Menu<ShopData>("!yShop");
+			shop.addItem({
+			  title: "Armor - $1000",
+			  enabled: ({ player }) => player.armor < 100,
+			  onSelect: ({ player }) => {
+			    player.armor = 100;
+			  },
+			});
+			shop.show(player, { category: "armor" });
+			\`\`\`
+
+			Заголовок и у каждого пункта заголовок, \`visible\` и \`enabled\` вычисляются
+			при каждом \`show\`, для этого игрока. Цветовые теги — как в \`showMenu\`: \`!y\`
+			жёлтый, \`!r\` красный, \`!d\` серый, \`!w\` белый, \`!R\` — к правому краю.
+
+			Pawn: \`menu_create\`, \`menu_setprop\`
+		`,
+	},
+	'Menu.addItem': {
+		en: `
+			Adds an item: its title, when it is shown and can be chosen, and what
+			choosing it does.
+
+			\`\`\`ts
+			shop.addItem({
+			  title: ({ player }) => \`Heal (\${player.health} HP)\`,
+			  visible: ({ player }) => player.isAlive,
+			  enabled: ({ player }) => player.health < 100,
+			  onSelect: ({ player }) => {
+			    player.health = 100;
+			  },
+			});
+			\`\`\`
+
+			Pawn: \`menu_additem\`
+		`,
+		ru: `
+			Добавляет пункт: его заголовок, когда он показан и доступен и что делает
+			его выбор.
+
+			\`\`\`ts
+			shop.addItem({
+			  title: ({ player }) => \`Heal (\${player.health} HP)\`,
+			  visible: ({ player }) => player.isAlive,
+			  enabled: ({ player }) => player.health < 100,
+			  onSelect: ({ player }) => {
+			    player.health = 100;
+			  },
+			});
+			\`\`\`
+
+			Pawn: \`menu_additem\`
+		`,
+	},
+	'Menu.show': {
+		en: `
+			Shows the menu to a player, with the data its functions get; it closes
+			when he chooses an item or leaves it.
+
+			Pawn: \`menu_display\`
+		`,
+		ru: `
+			Показывает меню игроку, с данными, которые получают его функции; оно
+			закрывается, когда он выбирает пункт или выходит из меню.
+
+			Pawn: \`menu_display\`
+		`,
+	},
 };

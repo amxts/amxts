@@ -129,6 +129,36 @@ export interface SentForward {
 	args: (Value | number[])[];
 }
 
+/** A menu of AMX Mod X's own, made by menu_create, as the fake keeps it. */
+export interface FakeMenu {
+	id: number;
+	title: string;
+	/** The public menu_create was given: called with (player, menu, item). */
+	handler: Slot;
+	/** Each item's name and its callback's number from menu_makecallback, or -1. */
+	items: { name: string; callback: number }[];
+	/** MPROP_PERPAGE: `0` is one page, without Back and More. */
+	perPage: number;
+	/** MPROP_EXIT is not MEXIT_NEVER. */
+	exit: boolean;
+	back: string;
+	next: string;
+	exitName: string;
+	numberColor: string;
+}
+
+/** A menu of AMX Mod X's own on a player's screen, as menu_display drew it. */
+export interface MenuScreen {
+	menu: number;
+	page: number;
+	/** What he sees, with the game's colour codes: `\r1.\w Armor`. */
+	text: string;
+	/** The keys that answer: 1-9 and 0. */
+	keys: number[];
+	/** The keys of the items drawn grey, which do nothing. */
+	disabled: number[];
+}
+
 /** One line a player was shown. */
 export interface Message {
 	variant: 'chat' | 'center' | 'console' | 'notify' | 'hud';
@@ -176,6 +206,8 @@ export interface JoinOptions {
 
 const SHAPE_NARROW = 0;
 const SHAPE_WIDE = 1;
+/** A slot taken back after a reload: SLOT_REUSED in module.cpp. */
+const SLOT_REUSED = 0x10000;
 const PLUGIN_HANDLED = 1;
 const HC_SUPERCEDE = 1;
 const HC_BREAK = 2;
@@ -280,6 +312,8 @@ export class FakePlayer extends FakeEntity {
 	readonly commands: string[] = [];
 	/** His userinfo keys - `lang` says his language. */
 	readonly info = new Map<string, string>();
+	/** The menu of AMX Mod X's own on his screen (menu_display), or null; `menuselect <key>` answers it. */
+	menu: MenuScreen | null = null;
 
 	constructor(server: FakeServer, id: number, public name: string, options: JoinOptions) {
 		super(server, id, 'player');
@@ -408,9 +442,14 @@ export class FakePlayer extends FakeEntity {
 		return false;
 	}
 
-	/** A console command, split the way the engine splits it: `amx_slap "Some One" 5`. True if handled. */
+	/**
+	 * A console command, split the way the engine splits it: `amx_slap "Some One" 5`.
+	 * `menuselect <key>` goes to his menu first, as AMX Mod X takes it. True if handled.
+	 */
 	command(line: string): boolean {
-		return this.server.clientCommand(this, splitCommand(line));
+		const argv = splitCommand(line);
+		if (argv[0] === 'menuselect' && this.menu && this.server.selectMenu(this, Number(argv[1]))) return true;
+		return this.server.clientCommand(this, argv);
 	}
 
 	/** Leaves the server: the disconnect events, then the slot is free. */
@@ -458,6 +497,8 @@ export class PluginInstance {
 	memory!: Memory;
 	/** What plugin() said about it. */
 	info = { name: '', version: '', author: '', description: '' };
+	/** Taken off the server (FakeServer.unload): its slots answer nothing until the same file takes them back. */
+	unloaded = false;
 
 	/** The coroutine scheduler, for a plugin that awaits; null for one that does not. */
 	readonly coroutines: Coroutines | null;
@@ -612,6 +653,11 @@ export class FakeServer {
 	readonly touches: { touched: string; toucher: string; slot: Slot }[] = [];
 	/** query_client_cvar's questions, waiting for answerCvar(). */
 	readonly cvarQueries: { player: number; cvar: string; slot: Slot }[] = [];
+	/** The menus menu_create made and menu_destroy has not taken away, by id. */
+	readonly menus = new Map<number, FakeMenu>();
+	/** menu_makecallback's publics, by the number it gave. @internal */
+	readonly menuCallbacks: Slot[] = [];
+	private menuIds = 0;
 	/** What precache_model and precache_sound were asked for, in order: the index is the place + 1. */
 	readonly precached: string[] = [];
 	/**
@@ -1344,6 +1390,7 @@ export class FakeServer {
 
 	/** Fire in module.cpp: one handler, its outcome, and the state put back. @internal */
 	call(handler: Handler, args: number[], fallback: number): number {
+		if (handler.plugin.unloaded) return fallback;
 		const fn = handler.plugin.table.get(handler.fn);
 		const cells = handler.shape === SHAPE_WIDE ? [0, 1, 2, 3].map(i => args[i] ?? 0) : [args[0] ?? 0];
 		if (handler.tag) cells.unshift(handler.tag);
@@ -1429,6 +1476,118 @@ export class FakeServer {
 		} finally {
 			this.argv = previous;
 		}
+	}
+
+	/**
+	 * Takes a plugin off the server, as `amxts_reload` does before it loads
+	 * the plugins again: a call to one of its slots answers nothing, until a
+	 * plugin of the same file asks for the same key and takes the slot back.
+	 * `load` the file again for the reload's second half.
+	 */
+	unload(plugin: PluginInstance): void {
+		plugin.unloaded = true;
+		this.plugins.splice(this.plugins.indexOf(plugin), 1);
+	}
+
+	/** A menu by its id, or the error AMX Mod X gives for another number. @internal */
+	menu(id: number): FakeMenu {
+		const menu = this.menus.get(id);
+		if (!menu) throw new Error(`Invalid menu id ${id}`);
+		return menu;
+	}
+
+	/** menu_create: a menu of seven items a page, with Back, More and Exit. @internal */
+	createMenu(title: string, handler: Slot): number {
+		const id = this.menuIds++;
+		this.menus.set(id, { id, title, handler, items: [], perPage: 7, exit: true, back: 'Back', next: 'More', exitName: 'Exit', numberColor: '\\r' });
+		return id;
+	}
+
+	/** menu_destroy: whoever has it open sees it close, and its handler hears MENU_EXIT. @internal */
+	destroyMenu(id: number): void {
+		const menu = this.menu(id);
+		this.menus.delete(id);
+		for (const player of this.players.filter(one => one.menu?.menu === id)) {
+			player.menu = null;
+			this.menuAnswer(menu, player, constant('MENU_EXIT'));
+		}
+	}
+
+	/**
+	 * menu_display: a page drawn for a player. An item with a callback is
+	 * asked as AMX Mod X asks it, as it is drawn - the callback may name it
+	 * for him, and its answer greys it out. Another menu he had open is
+	 * closed first: its handler hears MENU_EXIT. @internal
+	 */
+	displayMenu(player: FakePlayer, menu: FakeMenu, page: number): void {
+		const before = player.menu;
+		player.menu = null;
+		const replaced = before && before.menu !== menu.id ? this.menus.get(before.menu) : undefined;
+		if (replaced) this.menuAnswer(replaced, player, constant('MENU_EXIT'));
+
+		const perPage = menu.perPage === 0 ? Math.min(menu.items.length, 10) : menu.perPage;
+		const pages = Math.max(1, Math.ceil(menu.items.length / Math.max(perPage, 1)));
+		const at = Math.min(Math.max(page, 0), pages - 1);
+		const lines = [`${menu.title}${pages > 1 ? ` ${at + 1}/${pages}` : ''}`, ''];
+		const keys: number[] = [];
+		const disabled: number[] = [];
+		const line = (key: number, text: string) => lines.push(`${menu.numberColor}${key}.\\w ${text}`);
+
+		for (let i = 0; i < perPage && at * perPage + i < menu.items.length; i++) {
+			const item = at * perPage + i;
+			const callback = this.menuCallbacks[menu.items[item].callback];
+			const args = [player.id, menu.id, item];
+			const answer = callback ? this.withCallArgs(args, () => this.call(callback, args, constant('ITEM_IGNORE'))) : constant('ITEM_IGNORE');
+			const key = (i + 1) % 10;
+			keys.push(key);
+			if (answer !== constant('ITEM_DISABLED')) {
+				line(key, menu.items[item].name);
+				continue;
+			}
+			disabled.push(key);
+			lines.push(`\\d${key}. ${menu.items[item].name}`);
+		}
+
+		const paged = menu.perPage > 0;
+		if (paged) lines.push('');
+		if (paged && at > 0) {
+			keys.push(8);
+			line(8, menu.back);
+		}
+		if (paged && at < pages - 1) {
+			keys.push(9);
+			line(9, menu.next);
+		}
+		if (paged && menu.exit) {
+			keys.push(0);
+			line(0, menu.exitName);
+		}
+
+		player.menu = { menu: menu.id, page: at, text: lines.join('\n'), keys, disabled };
+	}
+
+	/** A key on a menu of AMX Mod X's own: an item to the handler, Back and More a page, Exit MENU_EXIT. Whether the menu took it. @internal */
+	selectMenu(player: FakePlayer, key: number): boolean {
+		const screen = player.menu;
+		const menu = screen ? this.menus.get(screen.menu) : undefined;
+		if (!screen || !menu || !screen.keys.includes(key)) return false;
+
+		const paged = menu.perPage > 0;
+		const turn = paged && key === 8 ? -1 : paged && key === 9 ? 1 : 0;
+		if (turn !== 0 || screen.disabled.includes(key)) {
+			this.displayMenu(player, menu, screen.page + turn);
+			return true;
+		}
+
+		player.menu = null;
+		const perPage = paged ? menu.perPage : 10;
+		this.menuAnswer(menu, player, paged && key === 0 ? constant('MENU_EXIT') : screen.page * perPage + (key === 0 ? 10 : key) - 1);
+		return true;
+	}
+
+	private menuAnswer(menu: FakeMenu, player: FakePlayer, item: number): void {
+		const args = [player.id, menu.id, item];
+		this.withCallArgs(args, () => this.call(menu.handler, args, 0));
 	}
 
 	/** A slot by the public name a native was given: "__amxts_cb3". @internal */
@@ -1661,8 +1820,13 @@ export class FakeServer {
 			this.withCallArgs(args, () => this.deliver(forward));
 		},
 
+		// A slot a reload left takes the same file's plugin back, as SLOT_REUSED says in module.cpp.
 		slot(this: FakeServer, plugin: PluginInstance, fn: number, shape: number, key: number, fallback: number) {
-			return this.takeSlot(plugin, fn, shape, plugin.memory.string(key), fallback).index;
+			const name = plugin.memory.string(key);
+			const left = name ? this.slots.find(one => one.key === name && one.plugin.unloaded && one.plugin.source === plugin.source) : undefined;
+			if (!left) return this.takeSlot(plugin, fn, shape, name, fallback).index;
+			Object.assign(left, { plugin, fn, shape, fallback, tag: this.takeTag() });
+			return left.index | SLOT_REUSED;
 		},
 
 		clcmd(this: FakeServer, plugin: PluginInstance, pattern: number, fn: number, flags: number, info: number, shape: number) {
