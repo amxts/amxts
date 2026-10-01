@@ -1,4 +1,4 @@
-// The published packages end to end, before a release: all eight published
+// The published packages end to end, before a release: all nine published
 // to an empty local registry by publish.ts's local mode, a project made from
 // them with `npx create-amxts` - menu-core picked, so config-core comes as its
 // requirement, and no server - type-checked, built and tested, and its build
@@ -257,7 +257,7 @@ async function main() {
 	// The server's image first: a missing kit stops the run before the packing.
 	const image = serverImage();
 
-	// 1. The eight packages, into an empty registry of this run's.
+	// 1. The nine packages, into an empty registry of this run's.
 	step('the packages, into an empty local registry', CORE, process.execPath, [join(CORE, 'scripts/publish.ts'), 'local', '--reset', ...passOn], publishEnv);
 
 	// 2. A project, as a user makes one: no server, menu-core.

@@ -101,6 +101,7 @@ const PACKAGES: Package[] = [
 	{ name: '@amxts/config-core', dir: join(NEIGHBOURS, 'amxts-modules/config-core') },
 	{ name: '@amxts/menu-core', dir: join(NEIGHBOURS, 'amxts-modules/menu-core') },
 	{ name: '@amxts/resemiclip', dir: join(NEIGHBOURS, 'amxts-modules/resemiclip') },
+	{ name: '@amxts/ftp', dir: join(NEIGHBOURS, 'amxts-modules/ftp') },
 	{ name: '@amxts/cli', dir: join(NEIGHBOURS, 'amxts-cli/packages/cli') },
 	{ name: 'create-amxts', dir: join(NEIGHBOURS, 'amxts-cli/packages/create-amxts') },
 ];
@@ -405,7 +406,8 @@ function packAll(options: { strict: boolean; wamrcFolder?: string; skipGenerate:
 		return stage(pkg, wamrc);
 	});
 	console.log('compiling the modules for Windows and Linux');
-	prebuildModules(staged.filter(each => each.manifest.amxts?.module), wamrc[HOST_SYSTEM]);
+	// A library has no plugin of its own to prebuild: plugins compile it in.
+	prebuildModules(staged.filter(each => each.manifest.amxts?.module && !each.manifest.amxts.library), wamrc[HOST_SYSTEM]);
 	const packs = staged.map(pack);
 	packs.forEach(describe);
 	const total = packs.reduce((sum, each) => sum + each.size, 0);

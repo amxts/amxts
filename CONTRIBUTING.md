@@ -129,7 +129,7 @@ bun run test:server --quick   # the same suites compiled as `amxts dev` compiles
 bun run test:release          # the npm packages end to end: a local registry, npx create-amxts, a server in Docker
 ```
 
-`bun run test:release` publishes the eight packages to a local registry of
+`bun run test:release` publishes the nine packages to a local registry of
 its own, makes a project with `npx create-amxts`, builds and tests it and
 runs it on the server image in Docker; it needs both systems' release files
 in `dist-release/` (`bun run release:linux --no-upload --dry-run`, and

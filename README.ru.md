@@ -111,6 +111,7 @@ amxts:
 | [menu-core](https://github.com/amxts/menu-core) | меню из файлов INI, YAML или JSON или из кода: условия, списки, отсчёты — и нативы `mc_*` для Pawn-плагинов |
 | [config-core](https://github.com/amxts/config-core) | конфиги в INI, YAML или JSON, прочитанные в типизированные объекты и записанные обратно, — и нативы `cfg_*` для Pawn-плагинов |
 | [resemiclip](https://github.com/amxts/resemiclip) | кто сквозь кого проходит, правилом над двумя игроками, поверх модуля ReSemiclip |
+| [ftp](https://github.com/amxts/ftp) | FTP, FTPS и SFTP: загрузка, скачивание и список файлов на другом сервере, каждый вызов — промис |
 
 Веб-запросы идут с ядром: `useFetch<T>(url)` и `fetch`, как в браузере. Другие модули — в
 [каталоге](https://amxts.github.io/ru/modules), а `npx amxts init --module`

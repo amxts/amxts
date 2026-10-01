@@ -128,7 +128,7 @@ bun run test:server --quick   # the same suites compiled as `amxts dev` compiles
 bun run test:release          # пакеты npm от начала до конца: локальный реестр, npx create-amxts, сервер в Docker
 ```
 
-`bun run test:release` публикует восемь пакетов в свой локальный реестр,
+`bun run test:release` публикует девять пакетов в свой локальный реестр,
 создаёт проект через `npx create-amxts`, собирает и тестирует его и
 запускает на образе сервера в Docker; ему нужны файлы выпуска обеих систем
 в `dist-release/` (`bun run release:linux --no-upload --dry-run` и файлы

@@ -110,6 +110,7 @@ official modules, kept by the amxts authors:
 | [menu-core](https://github.com/amxts/menu-core) | menus from INI, YAML or JSON files or from code: conditions, lists, countdowns - and the `mc_*` natives for Pawn plugins |
 | [config-core](https://github.com/amxts/config-core) | configs in INI, YAML or JSON, read into typed objects and written back - and the `cfg_*` natives for Pawn plugins |
 | [resemiclip](https://github.com/amxts/resemiclip) | who walks through whom, as a rule over two players, over the ReSemiclip module |
+| [ftp](https://github.com/amxts/ftp) | FTP, FTPS and SFTP: upload, download and list files on another server, every call a promise |
 
 Web requests come with the core: `useFetch<T>(url)` and `fetch`, as in the browser. More modules
 are in the [catalog](https://amxts.github.io/modules), and

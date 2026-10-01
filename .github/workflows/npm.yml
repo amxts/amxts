@@ -60,6 +60,10 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/resemiclip
           path: amxts-modules/resemiclip
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/ftp
+          path: amxts-modules/ftp
 
       - name: npm 11.5.1 or newer, which publishes with an OIDC token
         run: npm install -g npm@^11.5.1

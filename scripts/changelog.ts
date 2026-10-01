@@ -41,7 +41,7 @@ interface Checkout {
 const CHECKOUTS: Checkout[] = [
 	{ dir: CORE, manifest: 'package.json' },
 	{ dir: join(NEIGHBOURS, 'amxts-cli'), manifest: 'packages/cli/package.json' },
-	...['config-core', 'menu-core', 'resemiclip'].map(name => ({ dir: join(NEIGHBOURS, 'amxts-modules', name), manifest: 'package.json' })),
+	...['config-core', 'menu-core', 'resemiclip', 'ftp'].map(name => ({ dir: join(NEIGHBOURS, 'amxts-modules', name), manifest: 'package.json' })),
 	{ dir: join(NEIGHBOURS, 'amxts-vscode'), manifest: 'package.json' },
 ];
 
