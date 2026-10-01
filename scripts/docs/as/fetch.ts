@@ -565,4 +565,241 @@ export default {
 			Тело-объект уходит как JSON: \`useFetch<Answer, Report>(url, { method: "POST", body: report })\`.
 		`,
 	},
+	'RequestErrorKind': {
+		en: `
+			Why a request ended without its answer, as \`request\` says it: \`""\` - it
+			got one (an HTTP status such as \`404\` is an answer); \`"login"\` - the user,
+			password or key was refused; \`"denied"\` - the account may not do it (FTP
+			cannot enter a folder, SFTP says permission denied); \`"notFound"\` - no
+			such remote file; \`"refused"\` - no connection: the host is unknown or
+			refuses it; \`"timeout"\` - \`timeout\` ran out; \`"tls"\` - the secure
+			connection failed: a certificate, or an SSH host key, not trusted;
+			\`"aborted"\` - the signal aborted it; \`"other"\` - anything else, said in
+			\`errorText\`.
+		`,
+		ru: `
+			Почему запрос закончился без ответа, как это говорит \`request\`: \`""\` —
+			ответ есть (HTTP-статус вроде \`404\` — тоже ответ); \`"login"\` —
+			пользователь, пароль или ключ не приняты; \`"denied"\` — учётной записи это
+			нельзя (FTP не может войти в папку, SFTP отвечает «нет прав»);
+			\`"notFound"\` — такого файла на сервере нет; \`"refused"\` — нет соединения:
+			хост неизвестен или отказывает; \`"timeout"\` — вышло время \`timeout\`;
+			\`"tls"\` — не удалось защищённое соединение: сертификату или ключу хоста
+			SSH нет доверия; \`"aborted"\` — запрос прервал сигнал; \`"other"\` — всё
+			остальное, словами в \`errorText\`.
+		`,
+	},
+	'RequestOptions': {
+		en: `
+			\`request\`'s options: what to send and how. Every field is optional; the
+			URL's scheme - \`http:\`, \`https:\`, \`ftp:\`, \`ftps:\` or \`sftp:\` - says which
+			of them apply.
+		`,
+		ru: `
+			Параметры \`request\`: что отправить и как. Все поля необязательны; схема
+			адреса — \`http:\`, \`https:\`, \`ftp:\`, \`ftps:\` или \`sftp:\` — решает, какие
+			из них действуют.
+		`,
+	},
+	'RequestOptions.method': {
+		en: `HTTP's method, e.g. \`"POST"\`; \`"GET"\` by default. \`"HEAD"\` transfers nothing - with \`quote\`, only the commands run.`,
+		ru: `Метод HTTP, например \`"POST"\`; по умолчанию \`"GET"\`. \`"HEAD"\` ничего не передаёт — с \`quote\` выполняются только команды.`,
+	},
+	'RequestOptions.headers': {
+		en: `HTTP's headers, as an object of names and values.`,
+		ru: `Заголовки HTTP — объект имён и значений.`,
+	},
+	'RequestOptions.body': {
+		en: `The text sent: HTTP's body, or - with \`upload\` - the file's content.`,
+		ru: `Отправляемый текст: тело HTTP или — с \`upload\` — содержимое файла.`,
+	},
+	'RequestOptions.user': {
+		en: `The user to log in as; the URL's own (\`ftp://user@host\`) when left out.`,
+		ru: `Пользователь для входа; если не задан — тот, что в адресе (\`ftp://user@host\`).`,
+	},
+	'RequestOptions.password': {
+		en: `The password to log in with.`,
+		ru: `Пароль для входа.`,
+	},
+	'RequestOptions.keyFile': {
+		en: `
+			SFTP: the private key to log in with, a file of the game folder
+			(\`addons/amxmodx/data/id_rsa\`) - an RSA or ECDSA key in PEM
+			(\`ssh-keygen -m PEM\`).
+		`,
+		ru: `
+			SFTP: закрытый ключ для входа, файл игровой папки
+			(\`addons/amxmodx/data/id_rsa\`) — ключ RSA или ECDSA в PEM
+			(\`ssh-keygen -m PEM\`).
+		`,
+	},
+	'RequestOptions.keyPassphrase': {
+		en: `SFTP: the passphrase \`keyFile\` is encrypted with.`,
+		ru: `SFTP: пароль, которым зашифрован \`keyFile\`.`,
+	},
+	'RequestOptions.hostKey': {
+		en: `
+			SFTP: the server's host key, its SHA-256 fingerprint in base64 as
+			\`ssh-keygen -lf\` prints it without \`SHA256:\` - a server with another key
+			is refused (\`"tls"\`). Left out, any host key is taken.
+		`,
+		ru: `
+			SFTP: ключ хоста сервера — его отпечаток SHA-256 в base64, как его печатает
+			\`ssh-keygen -lf\`, без \`SHA256:\`; сервер с другим ключом отвергается
+			(\`"tls"\`). Если не задан, принимается любой ключ хоста.
+		`,
+	},
+	'RequestOptions.ssl': {
+		en: `
+			FTP: TLS asked for with \`AUTH TLS\` on a plain \`ftp:\` connection - one of
+			\`"try"\` (when the server has it), \`"control"\` (the commands at least)
+			or \`"all"\` (the commands and the files, or fail). \`ftps:\` is TLS from
+			the first byte without it.
+		`,
+		ru: `
+			FTP: TLS, запрошенный через \`AUTH TLS\` на обычном соединении \`ftp:\`, —
+			\`"try"\` (если сервер умеет), \`"control"\` (хотя бы команды) или
+			\`"all"\` (команды и файлы, иначе ошибка). \`ftps:\` — TLS с первого байта
+			и без этого параметра.
+		`,
+	},
+	'RequestOptions.upload': {
+		en: `Sends \`body\` - or \`file\` - to the URL's path, in place of reading it: an FTP or SFTP upload, an HTTP PUT.`,
+		ru: `Отправляет \`body\` — или \`file\` — по пути адреса вместо чтения: загрузка на FTP или SFTP, HTTP PUT.`,
+	},
+	'RequestOptions.list': {
+		en: `FTP and SFTP: the names in the URL's folder, one a line, in place of a listing with sizes and dates.`,
+		ru: `FTP и SFTP: имена в папке адреса, по одному в строке, вместо списка с размерами и датами.`,
+	},
+	'RequestOptions.quote': {
+		en: `FTP or SFTP commands run before the transfer, in order: \`["DELE old.txt"]\`, \`["rename a.txt b.txt"]\`.`,
+		ru: `Команды FTP или SFTP, выполняемые по порядку до передачи: \`["DELE old.txt"]\`, \`["rename a.txt b.txt"]\`.`,
+	},
+	'RequestOptions.createDirs': {
+		en: `FTP and SFTP: an upload makes the folders of its path that are not there.`,
+		ru: `FTP и SFTP: загрузка создаёт недостающие папки своего пути.`,
+	},
+	'RequestOptions.timeout': {
+		en: `Milliseconds the whole request may take; past them it ends as \`"timeout"\`. No limit by default.`,
+		ru: `Время в миллисекундах, которое может идти весь запрос; дольше — он заканчивается как \`"timeout"\`. По умолчанию без ограничения.`,
+	},
+	'RequestOptions.signal': {
+		en: `A signal that aborts the request: it then ends at once as \`"aborted"\`.`,
+		ru: `Сигнал, прерывающий запрос: тогда он сразу заканчивается как \`"aborted"\`.`,
+	},
+	'RequestOptions.file': {
+		en: `
+			A file of the game folder (\`maps/de_dust2.bsp\`) the answer is written
+			into - or, with \`upload\`, the upload is read from - in place of \`body\`.
+			The bytes go between the network and the disk without passing through
+			the plugin. A download that fails leaves an older file of that name as
+			it was. A path outside the game folder (absolute, or with \`..\`) is
+			refused.
+		`,
+		ru: `
+			Файл игровой папки (\`maps/de_dust2.bsp\`), в который пишется ответ, —
+			или, с \`upload\`, из которого читается загрузка, — вместо \`body\`.
+			Байты идут между сетью и диском, не проходя через плагин. Неудачная
+			закачка оставляет прежний файл с этим именем как был. Путь вне игровой
+			папки (абсолютный или с \`..\`) отвергается.
+		`,
+	},
+	'RequestOptions.follow': {
+		en: `HTTP: whether a redirect is followed; \`true\` by default.`,
+		ru: `HTTP: идти ли по перенаправлению; по умолчанию \`true\`.`,
+	},
+	'RequestOptions.proxy': {
+		en: `A proxy the request goes through, e.g. \`"http://proxy.example.com:3128"\`.`,
+		ru: `Прокси, через который идёт запрос, например \`"http://proxy.example.com:3128"\`.`,
+	},
+	'RequestOptions.ca': {
+		en: `The certificate authorities a server's certificate must come from, as PEM text; the ones a browser trusts by default.`,
+		ru: `Удостоверяющие центры, от которых должен быть сертификат сервера, текстом PEM; по умолчанию — те, которым доверяет браузер.`,
+	},
+	'RequestResult': {
+		en: `The end of a request: its answer, or why there is none.`,
+		ru: `Итог запроса: его ответ или почему ответа нет.`,
+	},
+	'RequestResult.status': {
+		en: `HTTP's status, or FTP's last reply once the transfer is done (\`226\`); \`0\` for SFTP; \`-1\` when the request failed.`,
+		ru: `Статус HTTP или последний ответ FTP после передачи (\`226\`); \`0\` для SFTP; \`-1\`, если запрос не удался.`,
+	},
+	'RequestResult.errorKind': {
+		en: `Why there is no answer, or \`""\`.`,
+		ru: `Почему нет ответа, или \`""\`.`,
+	},
+	'RequestResult.errorText': {
+		en: `The failure, in words; \`""\` when there was none.`,
+		ru: `Неудача словами; \`""\`, если её не было.`,
+	},
+	'RequestResult.replyCode': {
+		en: `The protocol's last reply code, a failed request's too: HTTP's status, FTP's reply (\`530\`, \`550\`), SFTP's status (\`2\` no such file); \`0\` when there was none.`,
+		ru: `Последний код ответа протокола, и у неудавшегося запроса: статус HTTP, ответ FTP (\`530\`, \`550\`), статус SFTP (\`2\` — нет такого файла); \`0\`, если его не было.`,
+	},
+	'RequestResult.statusText': {
+		en: `The words after HTTP's status, e.g. \`"Not Found"\`.`,
+		ru: `Слова после статуса HTTP, например \`"Not Found"\`.`,
+	},
+	'RequestResult.headers': {
+		en: `HTTP's response headers.`,
+		ru: `Заголовки ответа HTTP.`,
+	},
+	'RequestResult.body': {
+		en: `The answer's bytes - a download, a listing; empty when it went into \`file\`.`,
+		ru: `Байты ответа — скачанное, список; пусто, если ответ ушёл в \`file\`.`,
+	},
+	'RequestResult.url': {
+		en: `The address the answer came from, after any redirects.`,
+		ru: `Адрес, откуда пришёл ответ, после всех перенаправлений.`,
+	},
+	'RequestResult.redirected': {
+		en: `\`true\` when an HTTP redirect was followed on the way.`,
+		ru: `\`true\`, если по пути было перенаправление HTTP.`,
+	},
+	'RequestResult.text': {
+		en: `The answer as text, decoded as UTF-8.`,
+		ru: `Ответ текстом, декодированный как UTF-8.`,
+	},
+	'request': {
+		en: `
+			Sends a request to \`url\` - HTTP, HTTPS, FTP, FTPS or SFTP - with the
+			server's network client, and gives what it ended with. It never rejects:
+			a failure is \`errorKind\` and \`errorText\`.
+
+			\`\`\`ts
+			import { request } from "@amxts/core/kit";
+
+			const result = await request("sftp://example.com/maps/de_dust2.bsp", {
+			  user: "admin",
+			  keyFile: "addons/amxmodx/data/id_rsa",
+			  upload: true,
+			  file: "maps/de_dust2.bsp",
+			});
+			if (result.errorKind != "") console.error(\`\${result.errorKind}: \${result.errorText}\`);
+			\`\`\`
+
+			The promise settles on a later server frame: the game does not wait. In an
+			async command handler or a player's event, the player leaving aborts it.
+		`,
+		ru: `
+			Отправляет запрос по \`url\` — HTTP, HTTPS, FTP, FTPS или SFTP — сетевым
+			клиентом сервера и даёт то, чем он закончился. Никогда не отклоняется:
+			неудача — это \`errorKind\` и \`errorText\`.
+
+			\`\`\`ts
+			import { request } from "@amxts/core/kit";
+
+			const result = await request("sftp://example.com/maps/de_dust2.bsp", {
+			  user: "admin",
+			  keyFile: "addons/amxmodx/data/id_rsa",
+			  upload: true,
+			  file: "maps/de_dust2.bsp",
+			});
+			if (result.errorKind != "") console.error(\`\${result.errorKind}: \${result.errorText}\`);
+			\`\`\`
+
+			Промис выполняется в одном из следующих кадров сервера: игра не ждёт. В
+			async-обработчике команды или события игрока уход игрока прерывает запрос.
+		`,
+	},
 };

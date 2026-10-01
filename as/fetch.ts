@@ -1,13 +1,15 @@
 // fetch, URL and useFetch: HTTP the browser's way, over the module's network
 // client - libcurl on a worker thread of the module, so a request never holds
 // the game up. The module hands each ended request back on a server frame
-// (runtime/src/network.h), where __fetchDone settles its promise.
+// (runtime/src/network.h), where __netDone settles its promise.
 //
 //   const { data, error } = await useFetch<Weather>("https://example.com/weather", { query: { city } });
 //   const response = await fetch("https://example.com/", { method: "POST", body: "hi" });
 //
 // The facade exports all of it, so a plugin uses these names without an
-// import, as globals.
+// import, as globals - all but `request`, the one path every request takes:
+// the network client as it is, for a module that speaks FTP, FTPS or SFTP
+// (the kit gives it; scripts/auto-imports.ts keeps it out of the globals).
 //
 // AssemblyScript has no unions of classes, so where the browser takes one of
 // several kinds the hood picks by the type at compile time (`fetch(input)`:
@@ -38,12 +40,15 @@ import "./promise";
 @external("env", "net_size") declare function _size(id: i32): i32;
 // @ts-ignore: decorator
 @external("env", "net_read") declare function _read(id: i32, out: usize, max: i32): i32;
+// @ts-ignore: decorator
+@external("env", "net_reply") declare function _reply(id: i32): i32;
 
 // What net_text reads. Must match NET_TEXT_* in runtime/src/network.h.
 const TEXT_ERROR: i32 = 0;
 const TEXT_STATUS: i32 = 1;
 const TEXT_URL: i32 = 2;
 const TEXT_HEADERS: i32 = 3;
+const TEXT_KIND: i32 = 4;
 
 // ---------------------------------------------------------------- URL
 
@@ -989,23 +994,139 @@ export class Response {
 	}
 }
 
-// ---------------------------------------------------------------- fetch
+// ---------------------------------------------------------------- request
 
-/** A request under way: its promise, and what cancels it when a signal aborts. */
-class __FetchTask extends __AbortWatch {
+/**
+ * Why a request ended without its answer, as `request` says it: `""` - it
+ * got one (an HTTP status such as `404` is an answer); `"login"` - the user,
+ * password or key was refused; `"denied"` - the account may not do it (FTP
+ * cannot enter a folder, SFTP says permission denied); `"notFound"` - no
+ * such remote file; `"refused"` - no connection: the host is unknown or
+ * refuses it; `"timeout"` - `timeout` ran out; `"tls"` - the secure
+ * connection failed: a certificate, or an SSH host key, not trusted;
+ * `"aborted"` - the signal aborted it; `"other"` - anything else, said in
+ * `errorText`.
+ */
+export type RequestErrorKind = "" | "login" | "denied" | "notFound" | "refused" | "timeout" | "tls" | "aborted" | "other";
+
+/**
+ * `request`'s options: what to send and how. Every field is optional; the
+ * URL's scheme - `http:`, `https:`, `ftp:`, `ftps:` or `sftp:` - says which
+ * of them apply.
+ */
+export interface RequestOptions {
+	/** HTTP's method, e.g. `"POST"`; `"GET"` by default. `"HEAD"` transfers nothing - with `quote`, only the commands run. */
+	method?: string;
+	/** HTTP's headers, as an object of names and values. */
+	headers?: Record<string, string>;
+	/** The text sent: HTTP's body, or - with `upload` - the file's content. */
+	body?: string;
+	/** The user to log in as; the URL's own (`ftp://user@host`) when left out. */
+	user?: string;
+	/** The password to log in with. */
+	password?: string;
+	/**
+	 * SFTP: the private key to log in with, a file of the game folder
+	 * (`addons/amxmodx/data/id_rsa`) - an RSA or ECDSA key in PEM
+	 * (`ssh-keygen -m PEM`).
+	 */
+	keyFile?: string;
+	/** SFTP: the passphrase `keyFile` is encrypted with. */
+	keyPassphrase?: string;
+	/**
+	 * SFTP: the server's host key, its SHA-256 fingerprint in base64 as
+	 * `ssh-keygen -lf` prints it without `SHA256:` - a server with another key
+	 * is refused (`"tls"`). Left out, any host key is taken.
+	 */
+	hostKey?: string;
+	/**
+	 * FTP: TLS asked for with `AUTH TLS` on a plain `ftp:` connection - one of
+	 * `"try"` (when the server has it), `"control"` (the commands at least)
+	 * or `"all"` (the commands and the files, or fail). `ftps:` is TLS from
+	 * the first byte without it.
+	 */
+	ssl?: "try" | "control" | "all";
+	/** Sends `body` - or `file` - to the URL's path, in place of reading it: an FTP or SFTP upload, an HTTP PUT. */
+	upload?: boolean;
+	/** FTP and SFTP: the names in the URL's folder, one a line, in place of a listing with sizes and dates. */
+	list?: boolean;
+	/** FTP or SFTP commands run before the transfer, in order: `["DELE old.txt"]`, `["rename a.txt b.txt"]`. */
+	quote?: string[];
+	/** FTP and SFTP: an upload makes the folders of its path that are not there. */
+	createDirs?: boolean;
+	/** Milliseconds the whole request may take; past them it ends as `"timeout"`. No limit by default. */
+	timeout?: number;
+	/** A signal that aborts the request: it then ends at once as `"aborted"`. */
+	signal?: AbortSignal | null;
+	/**
+	 * A file of the game folder (`maps/de_dust2.bsp`) the answer is written
+	 * into - or, with `upload`, the upload is read from - in place of `body`.
+	 * The bytes go between the network and the disk without passing through
+	 * the plugin. A download that fails leaves an older file of that name as
+	 * it was. A path outside the game folder (absolute, or with `..`) is
+	 * refused.
+	 */
+	file?: string;
+	/** HTTP: whether a redirect is followed; `true` by default. */
+	follow?: boolean;
+	/** A proxy the request goes through, e.g. `"http://proxy.example.com:3128"`. */
+	proxy?: string;
+	/** The certificate authorities a server's certificate must come from, as PEM text; the ones a browser trusts by default. */
+	ca?: string;
+}
+
+/** The end of a request: its answer, or why there is none. */
+export class RequestResult {
+	/** HTTP's status, or FTP's last reply once the transfer is done (`226`); `0` for SFTP; `-1` when the request failed. */
+	status: number = -1;
+	/** Why there is no answer, or `""`. */
+	errorKind: RequestErrorKind = "";
+	/** The failure, in words; `""` when there was none. */
+	errorText: string = "";
+	/** The protocol's last reply code, a failed request's too: HTTP's status, FTP's reply (`530`, `550`), SFTP's status (`2` no such file); `0` when there was none. */
+	replyCode: number = 0;
+	/** The words after HTTP's status, e.g. `"Not Found"`. */
+	statusText: string = "";
+	/** HTTP's response headers. */
+	headers: Headers = new Headers();
+	/** The answer's bytes - a download, a listing; empty when it went into `file`. */
+	body: ArrayBuffer = new ArrayBuffer(0);
+	/** The address the answer came from, after any redirects. */
+	url: string = "";
+	/** `true` when an HTTP redirect was followed on the way. */
+	redirected: bool = false;
+	/** @hidden the signal's reason, for an aborted request. */
+	__reason: Error | null = null;
+
+	/** The answer as text, decoded as UTF-8. */
+	text(): string {
+		return String.UTF8.decode(this.body);
+	}
+
+	/** @hidden a request that ended before it was sent, or was aborted. */
+	static __failed(kind: RequestErrorKind, text: string, reason: Error | null = null): RequestResult {
+		const result = new RequestResult();
+		result.errorKind = kind;
+		result.errorText = text;
+		result.__reason = reason;
+		return result;
+	}
+}
+
+/** A request under way: what cancels it when a signal aborts, and what it ends with. */
+class __NetTask extends __AbortWatch {
 	id: i32 = 0;
 	guard: __AbortGuard | null = null;
 
-	constructor(public promise: Promise<Response>, public redirect: string) {
-		super();
-	}
+	/** Called once, with what the request ended with. */
+	finish(result: RequestResult): void {}
 
 	run(reason: Error): void {
-		if (!__fetches.has(this.id)) return;
-		__fetches.delete(this.id);
+		if (!__requests.has(this.id)) return;
+		__requests.delete(this.id);
 		_cancel(this.id);
 		this.release();
-		__co_reject(this.promise, reason);
+		this.finish(RequestResult.__failed("aborted", reason.message, reason));
 	}
 
 	release(): void {
@@ -1014,8 +1135,175 @@ class __FetchTask extends __AbortWatch {
 	}
 }
 
+class __RequestTask extends __NetTask {
+	constructor(public promise: Promise<RequestResult>) {
+		super();
+	}
+
+	finish(result: RequestResult): void {
+		__co_resolve(this.promise, result);
+	}
+}
+
 // @ts-ignore: decorator
-@lazy const __fetches = new Map<i32, __FetchTask>();
+@lazy const __requests = new Map<i32, __NetTask>();
+
+/**
+ * Sets a request up and sends it; `task` is finished at once when it cannot
+ * be sent or its signal has aborted already, else on the frame it ends.
+ */
+function __netStart(task: __NetTask, url: string, options: RequestOptions): void {
+	const guard = new __AbortGuard(task, options.signal ?? null);
+	task.guard = guard;
+	const aborted = guard.aborted;
+	if (aborted) {
+		guard.release();
+		task.finish(RequestResult.__failed("aborted", aborted.message, aborted));
+		return;
+	}
+
+	const id = _open(url);
+	task.id = id;
+	const refused = __netOptions(id, options);
+	if (refused.length > 0 || _send(id, __netDone.index) == 0) {
+		_close(id);
+		guard.release();
+		task.finish(RequestResult.__failed("other", refused.length > 0 ? refused : "the server's network client did not start"));
+		return;
+	}
+	__requests.set(id, task);
+}
+
+/** Gives the network client a request's options: what it refused, or `""`. */
+function __netOptions(id: i32, options: RequestOptions): string {
+	_option(id, "method", options.method ?? "GET");
+	const headers = options.headers;
+	if (headers !== undefined) {
+		const names = Object.keys(headers as Record<string, string>);
+		for (let i: i32 = 0; i < names.length; i++) _option(id, "header", `${names[i]}: ${(headers as Record<string, string>)[names[i]]}`);
+	}
+	const body = options.body;
+	if (body !== undefined) {
+		const bytes = String.UTF8.encode(body as string);
+		_body(id, changetype<usize>(bytes), bytes.byteLength);
+	}
+	const texts = [
+		["user", options.user ?? ""],
+		["password", options.password ?? ""],
+		["keyPassphrase", options.keyPassphrase ?? ""],
+		["hostKey", options.hostKey ?? ""],
+		["ssl", options.ssl ?? ""],
+		["proxy", options.proxy ?? ""],
+		["ca", options.ca ?? ""],
+	];
+	for (let i: i32 = 0; i < texts.length; i++) {
+		if (texts[i][1].length > 0) _option(id, texts[i][0], texts[i][1]);
+	}
+	const timeout = options.timeout;
+	if (timeout !== undefined) _option(id, "timeout", (<i64>(timeout as number)).toString());
+	if (options.upload ?? false) _option(id, "upload", "1");
+	if (options.list ?? false) _option(id, "list", "1");
+	if (options.createDirs ?? false) _option(id, "createDirs", "1");
+	_option(id, "follow", (options.follow ?? true) ? "1" : "0");
+	const quote = options.quote;
+	if (quote !== undefined) {
+		for (let i: i32 = 0; i < (quote as string[]).length; i++) _option(id, "quote", (quote as string[])[i]);
+	}
+	// Paths of the game folder: the client refuses one that leaves it.
+	const keyFile = options.keyFile;
+	if (keyFile !== undefined && _option(id, "keyFile", keyFile as string) == 0) return `keyFile ${keyFile as string} is not a path inside the game folder`;
+	const file = options.file;
+	if (file !== undefined && _option(id, "file", file as string) == 0) return `file ${file as string} is not a path inside the game folder`;
+	return "";
+}
+
+/** A text of an ended request: its error, status words, address, headers or kind of error. */
+function netText(id: i32, what: i32): string {
+	const length = _text(id, what, 0, 0);
+	if (length <= 0) return "";
+	const bytes = new ArrayBuffer(length);
+	_text(id, what, changetype<usize>(bytes), length);
+	return String.UTF8.decode(bytes);
+}
+
+/** The module calls this on the frame a request has ended. */
+function __netDone(id: i32): void {
+	if (!__requests.has(id)) {
+		_close(id);
+		return;
+	}
+	const task = __requests.get(id);
+	__requests.delete(id);
+	task.release();
+
+	const result = new RequestResult();
+	result.status = _status(id);
+	result.replyCode = _reply(id);
+	result.errorKind = netText(id, TEXT_KIND) as RequestErrorKind;
+	result.errorText = netText(id, TEXT_ERROR);
+	result.statusText = netText(id, TEXT_STATUS);
+	result.headers = Headers.__parse(netText(id, TEXT_HEADERS));
+	result.url = netText(id, TEXT_URL);
+	result.redirected = _redirects(id) > 0;
+	const size = _size(id);
+	result.body = new ArrayBuffer(size);
+	if (size > 0) _read(id, changetype<usize>(result.body), size);
+	_close(id);
+	task.finish(result);
+}
+
+/**
+ * Sends a request to `url` - HTTP, HTTPS, FTP, FTPS or SFTP - with the
+ * server's network client, and gives what it ended with. It never rejects:
+ * a failure is `errorKind` and `errorText`.
+ *
+ * ```ts
+ * import { request } from "@amxts/core/kit";
+ *
+ * const result = await request("sftp://example.com/maps/de_dust2.bsp", {
+ *   user: "admin",
+ *   keyFile: "addons/amxmodx/data/id_rsa",
+ *   upload: true,
+ *   file: "maps/de_dust2.bsp",
+ * });
+ * if (result.errorKind != "") console.error(`${result.errorKind}: ${result.errorText}`);
+ * ```
+ *
+ * The promise settles on a later server frame: the game does not wait. In an
+ * async command handler or a player's event, the player leaving aborts it.
+ */
+export function request(url: string, options: RequestOptions = {}): Promise<RequestResult> {
+	const promise = __co_promise<RequestResult>();
+	__netStart(new __RequestTask(promise), url, options);
+	return promise;
+}
+
+// ---------------------------------------------------------------- fetch
+
+/** A fetch under way: its promise, settled from what the request ended with. */
+class __FetchTask extends __NetTask {
+	constructor(public promise: Promise<Response>, public redirect: string) {
+		super();
+	}
+
+	finish(result: RequestResult): void {
+		const reason = result.__reason;
+		if (reason) {
+			__co_reject(this.promise, reason);
+			return;
+		}
+		if (result.status < 0) {
+			__co_reject(this.promise, new TypeError(`fetch failed: ${result.errorText}`));
+			return;
+		}
+		const status = result.status;
+		if (this.redirect == "error" && status >= 300 && status <= 399 && result.headers.has("location")) {
+			__co_reject(this.promise, new TypeError("fetch failed: unexpected redirect"));
+			return;
+		}
+		__co_resolve(this.promise, Response.__received(status, result.statusText, result.headers, result.body, result.url, result.redirected));
+	}
+}
 
 /**
  * Sends a request and gives its response, as the browser's `fetch` does.
@@ -1057,83 +1345,18 @@ function send(request: Request): Promise<Response> {
 	const body = request.__bodyText();
 	if (body !== null && (method == "GET" || method == "HEAD")) return rejected(new TypeError("Request with GET/HEAD method cannot have body."));
 
-	const promise = __co_promise<Response>();
-	const task = new __FetchTask(promise, request.redirect);
-	const guard = new __AbortGuard(task, request.signal);
-	task.guard = guard;
-	const aborted = guard.aborted;
-	if (aborted) {
-		guard.release();
-		__co_reject(promise, aborted);
-		return promise;
-	}
-
-	const id = _open(url.href);
-	task.id = id;
-	_option(id, "method", method);
-	const headers = request.headers.entries();
-	for (let i: i32 = 0; i < headers.length; i++) _option(id, "header", `${headers[i][0]}: ${headers[i][1]}`);
+	const headers: Record<string, string> = {};
+	const entries = request.headers.entries();
+	for (let i: i32 = 0; i < entries.length; i++) headers[entries[i][0]] = entries[i][1];
+	const options: RequestOptions = { method, headers, follow: request.redirect == "follow", signal: request.signal, proxy: request.__proxyUrl(), ca: request.__authorities() };
 	if (body !== null) {
-		if (!request.headers.has("content-type")) _option(id, "header", "content-type: text/plain;charset=UTF-8");
-		const bytes = String.UTF8.encode(body as string);
-		_body(id, changetype<usize>(bytes), bytes.byteLength);
+		if (!request.headers.has("content-type")) headers["content-type"] = "text/plain;charset=UTF-8";
+		options.body = body as string;
 	}
-	_option(id, "follow", request.redirect == "follow" ? "1" : "0");
-	const proxy = request.__proxyUrl();
-	if (proxy.length > 0) _option(id, "proxy", proxy);
-	const ca = request.__authorities();
-	if (ca.length > 0) _option(id, "ca", ca);
 
-	if (_send(id, __fetchDone.index) == 0) {
-		_close(id);
-		guard.release();
-		__co_reject(promise, new TypeError("fetch failed: the server's network client did not start"));
-		return promise;
-	}
-	__fetches.set(id, task);
+	const promise = __co_promise<Response>();
+	__netStart(new __FetchTask(promise, request.redirect), url.href, options);
 	return promise;
-}
-
-/** A text of an ended request: its error, status words, address or headers. */
-function netText(id: i32, what: i32): string {
-	const length = _text(id, what, 0, 0);
-	if (length <= 0) return "";
-	const bytes = new ArrayBuffer(length);
-	_text(id, what, changetype<usize>(bytes), length);
-	return String.UTF8.decode(bytes);
-}
-
-/** The module calls this on the frame a request has ended. */
-function __fetchDone(id: i32): void {
-	if (!__fetches.has(id)) {
-		_close(id);
-		return;
-	}
-	const task = __fetches.get(id);
-	__fetches.delete(id);
-	task.release();
-
-	const status = _status(id);
-	if (status < 0) {
-		const message = netText(id, TEXT_ERROR);
-		_close(id);
-		__co_reject(task.promise, new TypeError(`fetch failed: ${message}`));
-		return;
-	}
-
-	const headers = Headers.__parse(netText(id, TEXT_HEADERS));
-	if (task.redirect == "error" && status >= 300 && status <= 399 && headers.has("location")) {
-		_close(id);
-		__co_reject(task.promise, new TypeError("fetch failed: unexpected redirect"));
-		return;
-	}
-
-	const size = _size(id);
-	const body = new ArrayBuffer(size);
-	if (size > 0) _read(id, changetype<usize>(body), size);
-	const response = Response.__received(status, netText(id, TEXT_STATUS), headers, body, netText(id, TEXT_URL), _redirects(id) > 0);
-	_close(id);
-	__co_resolve(task.promise, response);
 }
 
 // ---------------------------------------------------------------- useFetch
