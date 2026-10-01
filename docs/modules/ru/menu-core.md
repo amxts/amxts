@@ -427,8 +427,8 @@ INI — формат, который читают и Pawn-плагины, поэ
 Плагин menu-core отдаёт Pawn-плагинам 30 нативов из `menu_core.inc` —
 `mc_register_action`, `mc_show_menu`, `mc_add_menu_item` и остальные — с их
 сигнатурами, поэтому скомпилированные `.amxx` работают с ним без изменений.
-Он встаёт на место `menu_core.amxx`: тот закомментируйте в `plugins.ini`;
-`amxts_host.amxx` остаётся на своём месте, последним. Меню он читает через
+Он встаёт на место `menu_core.amxx`: тот закомментируйте в `plugins.ini`.
+Меню он читает через
 `@amxts/config-core`, поэтому в `plugins.ini` amxts config-core стоит
 раньше — его туда ставит сборка.
 

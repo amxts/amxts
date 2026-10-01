@@ -149,6 +149,6 @@ send a change.
 
 ## License
 
-[MIT](LICENSE). The server module and the host plugin built from this code use
-AMX Mod X's SDK, so they are distributed under GPL-3.0-or-later. Third-party
+[MIT](LICENSE). The server module built from this code, with the host plugin
+it carries, uses AMX Mod X's SDK, so it is distributed under GPL-3.0-or-later. Third-party
 licenses: [`runtime/licenses`](runtime/licenses/README.md).

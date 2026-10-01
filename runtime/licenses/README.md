@@ -11,7 +11,7 @@ folder into the kit as `addons/amxts/tools/licenses/`, with amxts' own
 | `Binaryen-LICENSE` | [Binaryen](https://github.com/WebAssembly/binaryen), the version AssemblyScript 0.28.20 depends on - Apache-2.0 | `amxts-compile` |
 | `Bun-LICENSE.md` | [Bun](https://github.com/oven-sh/bun) 1.4.2, the runtime `bun build --compile` puts in - MIT, with the libraries it links statically | `amxts-compile` |
 | `WAMR-LICENSE` | [WAMR](https://github.com/bytecodealliance/wasm-micro-runtime) 2.4.5, **patched** (`runtime/patches/wamr-2.4.5-amxts.patch`) - Apache-2.0 with LLVM exceptions | `wamrc`, the `amxts_amxx` module |
-| `AMXX-LICENSE.txt`, `GPL-3.0.txt` | [AMX Mod X](https://github.com/alliedmodders/amxmodx) - GPL-3.0-or-later with AMX Mod X's exceptions: its module SDK is linked into the module and its includes build the host plugin, so both are distributed under GPL-3.0-or-later (their sources in this repository are MIT) | the `amxts_amxx` module, `amxts_host.amxx` |
+| `AMXX-LICENSE.txt`, `GPL-3.0.txt` | [AMX Mod X](https://github.com/alliedmodders/amxmodx) - GPL-3.0-or-later with AMX Mod X's exceptions: its module SDK is linked into the module and its includes build the host plugin the module carries, so the module is distributed under GPL-3.0-or-later (its sources in this repository are MIT) | the `amxts_amxx` module |
 | `LLVM-LICENSE.TXT` | [LLVM](https://github.com/llvm/llvm-project) 18.1.8, linked into `wamrc` statically - Apache-2.0 with LLVM exceptions | `wamrc` |
 
 The npm packages carry them too. `@amxts/core` has this folder, AMX Mod X's

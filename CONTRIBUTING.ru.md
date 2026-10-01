@@ -93,19 +93,22 @@ bun run generate
 Сначала он запускает `bun run setup`, потом пишет API из include.
 `bun run clean` удаляет то, что сделала сборка.
 
-**6. Модуль и хост-плагин:**
+**6. Хост-плагин и модуль, который его несёт:**
 
 ```sh
+bun run host                              # runtime/host/amxts_host.amxx и runtime/src/host.h
 cd runtime
 cmake -A Win32 -B build -S .
 cmake --build build --config Release      # runtime/build/Release/amxts_amxx.dll
 cd ..
-bun run host                              # runtime/host/amxts_host.amxx
 bun run build:linux                       # runtime/build/linux: amxts_amxx_i386.so, wamrc
 ```
 
+Модуль несёт скомпилированный хост-плагин в себе и сам даёт AMX Mod X его
+загрузить, поэтому на сервер ставится один модуль.
+
 Модуль несёт часть API в себе, поэтому после правки `as/` или include
-пересобирайте по порядку: generate, модуль, хост.
+пересобирайте по порядку: generate, хост, модуль.
 
 ## Проверки
 
