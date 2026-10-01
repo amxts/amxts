@@ -248,7 +248,7 @@ async function compile(plugins: Target[], first: boolean): Promise<string[] | nu
 	if (first && fresh.some(each => each.pkg)) {
 		log.info('The first build compiles the modules to machine code: it takes about a minute.');
 	}
-	for (const each of planned.filter(each => each.natives)) log.success(`${c.bold(each.name)} ${c.dim(`· ${each.how}`)}`);
+	// What comes prebuilt or unchanged is taken quietly: only what is compiled shows.
 
 	for (const [i, each] of fresh.entries()) {
 		const natives: PluginNative[] = [];
@@ -498,7 +498,6 @@ async function header(): Promise<void> {
 	const module = (pkg: ModulePackage) => {
 		const notes = [
 			!fromRegistry(pkg.dir) && 'local',
-			...used.filter(each => each.definition.requires.includes(pkg.name)).map(each => `for ${each.short}`),
 			!used.includes(pkg) && 'no plugin uses it',
 		].filter(Boolean);
 		return `${pkg.short} ${pkg.version}${notes.length ? c.dim(` (${notes.join(', ')})`) : ''}`;
