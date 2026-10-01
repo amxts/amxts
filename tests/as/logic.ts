@@ -3,7 +3,7 @@
 // arguments and a number with fixed places, which decide something without
 // asking the server.
 
-export { colorTags, menuColors, paint, swapTeam } from "~/facade";
+export { colorTags, menuColors, paint, swapTeam } from "@amxts/core";
 
 /** A key no dictionary has comes back as itself, filled from the arguments: lang.translate without a server. */
 export function translateKey(key: string, first: string, second: string, third: string) {

@@ -617,6 +617,30 @@ export function optionsOf(project: Project, definition: ModuleDefinition): Optio
 export const NOT_PLUGINS = new Set(['facade.ts', 'kit.ts', 'promise.ts', 'vector.ts', 'effects.ts', 'fs.ts', 'os.ts', 'natives.ts', 'remote.ts', 'constants.ts', 'events.ts', 'entities.ts', 'flags.ts', 'hooks.ts']);
 
 /**
+ * The core's API a plugin imports, by the package's name, and its file in
+ * the core's as/ - its place in the tree. package.json's "exports" gives
+ * the same files to the editor.
+ */
+export const CORE_ENTRIES: Record<string, string> = {
+	'@amxts/core': 'facade.ts',
+	'@amxts/core/natives': 'natives.ts',
+	'@amxts/core/constants': 'constants.ts',
+	'@amxts/core/fs': 'fs.ts',
+	'@amxts/core/os': 'os.ts',
+	'@amxts/core/http': 'modules/http.ts',
+	'@amxts/core/kit': 'kit.ts',
+	'@amxts/core/check': 'lib/check.ts',
+};
+
+/** Every place of the core's as/ in the tree: what `~/` must not reach from a plugin. */
+const CORE_PLACES = new Set([...NOT_PLUGINS, ...Object.values(CORE_ENTRIES), 'amxts.d.ts']);
+
+/** How a plugin names the core's file at a place: its entry, or the facade, which exports the rest. */
+export function coreEntryOf(place: string): string {
+	return Object.entries(CORE_ENTRIES).find(([, file]) => file === place)?.[0] ?? '@amxts/core';
+}
+
+/**
  * The project's own plugins: the .ts files at the top of its plugins folder.
  * A module's own folder, without a plugins folder, has none - only the core's
  * repository builds the core's as/.
@@ -854,10 +878,49 @@ export class Sources {
 		return text;
 	}
 
+	private problem(text: string) {
+		if (!this.problems.includes(text)) this.problems.push(text);
+	}
+
+	/**
+	 * Whether a file on disk is the core's as/: the hood, which names its
+	 * places by `~/`. On a server the plugins folder holds them, by place.
+	 */
+	private isCore(real: string): boolean {
+		if (inside(CORE_PLUGINS, real)) return true;
+		const own = resolve(this.project.pluginsDir) !== resolve(CORE_PLUGINS) && inside(this.project.pluginsDir, real);
+		return !own && !this.packageOf(real) && CORE_PLACES.has(this.rel(this.place(real)));
+	}
+
+	/**
+	 * `~/` in a plugin or a module is the project's own files: the core's API
+	 * goes by `@amxts/core/<entry>` and a module package by its name. What
+	 * to write instead, or null for a file of the project's own.
+	 */
+	private notOwn(real: string, spec: string): string | null {
+		const file = this.resolveImport(this.place(real), spec);
+		const target = file ? this.real(file) : null;
+		if (!target) return file && this.generated(file) ? '' : null;
+		const pkg = this.packageOf(target);
+		if (pkg) return pkg.module === target ? pkg.name : `${pkg.name}/${posix(relative(pkg.dir, target)).replace(/\.ts$/, '')}`;
+		return this.isCore(target) ? coreEntryOf(this.rel(file!)) : null;
+	}
+
 	/** A specifier as the tree has it: a package by its place, a relative import inside a package likewise. */
 	private specifier(real: string, spec: string): string {
-		if (spec === '@amxts/core') return '~/facade';
-		if (spec.startsWith('@amxts/core/')) return `~/${spec.slice('@amxts/core/'.length)}`;
+		const display = () => posix(relative(this.project.dir, real));
+		if (spec === '@amxts/core' || spec.startsWith('@amxts/core/')) {
+			const place = CORE_ENTRIES[spec];
+			if (place) return `~/${place.replace(/\.ts$/, '')}`;
+			this.problem(`${display()}: imports ${spec}, which @amxts/core does not export - its API is ${Object.keys(CORE_ENTRIES).join(', ')}`);
+			return spec;
+		}
+
+		if (spec.startsWith('~/')) {
+			const instead = this.isCore(real) ? null : this.notOwn(real, spec);
+			if (instead !== null) this.problem(`${display()}: ${spec} is not a file of the project - \`~/\` is the plugins folder; import ${instead || 'the module by its package name'} (npx amxts upgrade rewrites these imports)`);
+			return spec;
+		}
 
 		if (spec.startsWith('.')) {
 			const pkg = this.packageOf(real);
@@ -873,7 +936,6 @@ export class Sources {
 			return `~/modules/${pkg.short}/${posix(relative(pkg.dir, target))}`;
 		}
 
-		if (spec.startsWith('~/')) return spec;
 		const name = spec.match(/^(@[^/]+\/[^/]+|[^@/][^/]*)/)?.[1];
 		const active = this.project.modules.find(pkg => pkg.name === name);
 		if (active) return spec === active.name ? `~/modules/${active.short}` : `~/modules/${active.short}/${spec.slice(name!.length + 1)}`;
@@ -885,7 +947,7 @@ export class Sources {
 	}
 
 	rewrite(real: string, text: string): string {
-		if (!text.includes('@') && !(this.packageOf(real) && /["']\.\.?\//.test(text))) return text;
+		if (!text.includes('@') && !text.includes('~/') && !(this.packageOf(real) && /["']\.\.?\//.test(text))) return text;
 		return text.replace(IMPORT, (whole, head: string, quote: string, spec: string) => {
 			const next = this.specifier(real, spec);
 			return next === spec ? whole : `${head}${quote}${next}${quote}`;

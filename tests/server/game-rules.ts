@@ -1,9 +1,9 @@
 // Правила игры - поля game, сгенерированные как у сущности: число, дробь,
 // булево, текст и победитель раунда именем. Счёт команды уходит в таблицу
 // сразу: TeamScore слышен как событие "message:TeamScore".
-import { m_iNumCTWins, m_iNumTerroristWins } from "~/constants";
-import { get_member_game } from "~/natives";
-import { Checks } from "~/lib/check";
+import { m_iNumCTWins, m_iNumTerroristWins } from "@amxts/core/constants";
+import { get_member_game } from "@amxts/core/natives";
+import { Checks } from "@amxts/core/check";
 
 server.addServerCommand("amxts_test_game_rules", run);
 

@@ -7,7 +7,7 @@
 // compiles runs on Bun, as a task the command starts.
 //
 //   const core = await import('@amxts/core/cli-api');
-//   core.cliApi              3 - the contract below; the command checks it
+//   core.cliApi              4 - the contract below; the command checks it
 //   core.task('build', ['--deploy'])   { runtime: 'bun', args: [...] }
 //   core.includeSources().reapi        the ReAPI release the API is built from
 //   core.bunBinary()                   the Bun the tasks run on, installed with the core
@@ -32,7 +32,7 @@ export const version = String(pkg.version);
  * returns changes in a way an older command would misread; the command says
  * which of the two to update when they differ.
  */
-export const cliApi = 3;
+export const cliApi = 4;
 
 /** Whether the core runs from a checkout (a .git folder beside it) rather than from npm. */
 export const fromSource = existsSync(join(coreDir, '.git'));
@@ -62,6 +62,7 @@ const SCRIPTS = {
 	prepare: 'prepare.ts',
 	build: 'build-wasm.ts',
 	check: 'check.ts',
+	upgrade: 'upgrade.ts',
 };
 
 /**
@@ -78,6 +79,7 @@ const SCRIPTS = {
  *   `--docker`: for the Docker server that mounts the project - no deploy,
  *   Linux only, its console shown);
  * - `check` checks a module package before it is published;
+ * - `upgrade` rewrites the project's code to this core's API, listing each change;
  * - `typecheck` runs TypeScript over the project, after `prepare`.
  *
  * A failure is printed by the task itself and ends it with a non-zero code.

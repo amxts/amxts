@@ -19,13 +19,13 @@ async function cliApi() {
 test('the cli-api: the core\'s version, the contract\'s, where the core is', async () => {
 	const api = await cliApi();
 	expect(api.version).toBe(require('@amxts/core/package.json').version);
-	expect(api.cliApi).toBe(3);
+	expect(api.cliApi).toBe(4);
 	expect(api.coreDir).toBe(CORE);
 });
 
 test('the tasks: the build scripts with Bun, the type check with Node', async () => {
 	const api = await cliApi();
-	for (const [name, script] of [['prepare', 'prepare.ts'], ['build', 'build-wasm.ts'], ['check', 'check.ts']]) {
+	for (const [name, script] of [['prepare', 'prepare.ts'], ['build', 'build-wasm.ts'], ['check', 'check.ts'], ['upgrade', 'upgrade.ts']]) {
 		const task = api.task(name, ['--deploy']);
 		expect(task.runtime).toBe('bun');
 		expect(task.args).toEqual([join(CORE, 'scripts', 'run.ts'), script, '--deploy']);

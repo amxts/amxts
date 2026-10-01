@@ -2,7 +2,7 @@
 // пару классов, о которой просил, toucher и touched - на своих местах.
 // Касание настоящее: летящая сущность проходит сквозь триггер, и движок сам
 // вызывает Touch(триггер, летящая) - fake_touch идёт мимо модуля engine.
-import { Checks } from "~/lib/check";
+import { Checks } from "@amxts/core/check";
 
 const heard: string[] = [];
 

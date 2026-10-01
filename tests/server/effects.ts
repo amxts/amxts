@@ -3,7 +3,7 @@
 // same one - as a plugin reloaded mid-map does - and effects sent to
 // everyone, near a point and to one player go out without an error. What a
 // client draws cannot be checked from here.
-import { Checks } from "~/lib/check";
+import { Checks } from "@amxts/core/check";
 
 const beam = server.precache("sprites/laserbeam.spr");
 const bomb = server.precache("models/w_c4.mdl");

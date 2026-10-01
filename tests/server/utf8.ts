@@ -3,8 +3,8 @@
 //
 // @log Привет, мир (console.log)
 // @log Привет, мир (server_print)
-import { contain, server_print, strlen } from "~/natives";
-import { Checks } from "~/lib/check";
+import { contain, server_print, strlen } from "@amxts/core/natives";
+import { Checks } from "@amxts/core/check";
 
 const text = new Cvar("amxts_test_text", "");
 

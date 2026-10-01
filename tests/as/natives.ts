@@ -4,8 +4,8 @@
 // сборка кладёт рядом `api_natives.inc` для Pawn. Нативы вызывает Pawn-плагин
 // runtime/test/natives_caller.sma и сам пишет в лог ok/FAIL. Здесь - fs:
 // `say /fs` в чате.
-import { Checks } from "~/lib/check";
-import * as fs from "~/fs";
+import { Checks } from "@amxts/core/check";
+import * as fs from "@amxts/core/fs";
 
 plugin({ name: "api-natives", version: "1.0.0", author: "amxts", description: "Свои нативы и fs" });
 

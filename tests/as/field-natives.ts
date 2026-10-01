@@ -1,8 +1,8 @@
 // A fixture for tests/field-natives.test.ts: reapi's field natives read and
 // write each field as what it holds, and a server event carries every one of
 // its arguments.
-import { get_entvar, get_member, set_entvar, set_member } from "~/natives";
-import { m_rgAmmo, m_szTeamName, var_classname, var_gravity, var_origin } from "~/constants";
+import { get_entvar, get_member, set_entvar, set_member } from "@amxts/core/natives";
+import { m_rgAmmo, m_szTeamName, var_classname, var_gravity, var_origin } from "@amxts/core/constants";
 
 server.addCommand("fields", readAndWrite);
 

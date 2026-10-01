@@ -13,6 +13,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { coreImports, importsDeclaration } from './auto-imports';
+import { CORE_ENTRIES } from './project';
 import { apiFiles } from './system';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -28,7 +29,8 @@ export interface ServerFile {
 /**
  * The editor's settings for the plugins folder. AssemblyScript's standard
  * library beside it (`.assemblyscript/`, which a server kit carries with the
- * compiler) gives the types; `~/` and `@amxts/core` are the folder itself.
+ * compiler) gives the types; `~/` is the folder itself, and `@amxts/core`
+ * and its entries are the core's files in it.
  * Written out rather than extending assemblyscript/std/assembly.json, as the
  * core's own does: that path only resolves where node_modules is.
  */
@@ -53,8 +55,7 @@ export function serverTsconfig(): string {
 			paths: {
 				'*': ['./.assemblyscript/assembly/*'],
 				'~/*': ['./*'],
-				'@amxts/core': ['./facade.ts'],
-				'@amxts/core/*': ['./*'],
+				...Object.fromEntries(Object.entries(CORE_ENTRIES).map(([name, file]) => [name, [`./${file}`]])),
 			},
 		},
 		include: ['./**/*.ts'],

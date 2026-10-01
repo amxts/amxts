@@ -2,7 +2,7 @@
 // обработчики roundEnd, и они видят победителя и причину словами.
 // Раунд правда кончается и начинается заново, поэтому набор идёт почти
 // последним (наборы идут по имени файла): проверки других попали бы в новый раунд.
-import { Checks } from "~/lib/check";
+import { Checks } from "@amxts/core/check";
 
 let winner: RoundWinner = "none";
 let reason: RoundEndReason = "unknown";

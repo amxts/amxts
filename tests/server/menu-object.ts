@@ -1,7 +1,7 @@
 // Меню как объект из TS-плагина, который menu-core не владеет: методы меню
 // выполняются в плагине menu-core, а функции пункта и меню (текст, заголовок,
 // visible) вызываются обратно сюда - на настоящем сервере, через WAMR.
-import { Checks } from "~/lib/check";
+import { Checks } from "@amxts/core/check";
 
 server.addServerCommand("amxts_test_menu_object", () => {
 	const check = new Checks("menu-object");

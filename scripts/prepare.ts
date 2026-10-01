@@ -5,19 +5,22 @@
 //                            the line it prints only under --debug)
 //
 // The project's own tsconfig.json extends it: { "extends": "./.amxts/tsconfig.json" }.
-// It says what the build says - `~/` is the project's plugins over the
-// core's as/, "@amxts/core" is the facade, a module package is its module
-// file - and it takes in amxts.config.ts and every module the config lists, so
-// that the options each module declares (ModuleOptions) type the config.
-// Beside it, imports.d.ts makes what plugins use without an import - the
-// facade's API, the modules' namespaces - globals for the editor
-// (scripts/auto-imports.ts).
+// It says what the build says - `~/` is the project's plugins folder,
+// "@amxts/core" and its entries are the core's API, a module package is its
+// module file - and it takes in amxts.config.ts and every module the config
+// lists, so that the options each module declares (ModuleOptions) type the
+// config. Beside it, imports.d.ts makes what plugins use without an import -
+// the facade's API, the modules' namespaces - globals for the editor
+// (scripts/auto-imports.ts), and api/ holds the API with its tooltips in the
+// language AMXTS_DOCS_LANG picks, when that is not English
+// (scripts/editor-api.ts): the installed packages are never written to.
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative } from 'node:path';
-import { applyProject, docsLang } from './apply-docs';
+import { applySources, docsLang, moduleSources, registerFilter } from './apply-docs';
 import { importsDeclaration } from './auto-imports';
-import { CONFIG_FILE, CORE_DIR, CORE_PLUGINS, loadProject } from './project';
+import { editorApi } from './editor-api';
+import { CONFIG_FILE, CORE_DIR, CORE_ENTRIES, CORE_PLUGINS, loadProject } from './project';
 import { c, debug, log } from './ui';
 
 function fail(message: string): void {
@@ -32,19 +35,18 @@ if (project.problems.length) {
 	process.exit(1);
 }
 
-// The hood's tooltips - the core's and the modules' - in the language .env
-// picks (AMXTS_DOCS_LANG), as the generated API has them. A core it cannot
-// write to keeps English: the editor still has words, only not these.
-let docs = '';
-try {
-	docs = await applyProject(project.dir, docsLang());
-} catch (error) {
-	fail(`docs: ${(error as Error).message}`);
-}
+const lang = docsLang();
 
 // A module's own folder, without a project config, has its own tsconfig.json
-// (extending the core's as/tsconfig.json): nothing to write there.
-if (!project.config && project.packages.some(pkg => pkg.dir === project.dir)) process.exit(0);
+// (extending the core's as/tsconfig.json): nothing to write there but its
+// own words, in place - its repository's filter stores them in English.
+const own = project.config ? null : project.packages.find(pkg => pkg.dir === project.dir);
+if (own) {
+	registerFilter(own.dir);
+	const changed = await applySources(moduleSources(own), lang);
+	if (!process.argv.includes('--quiet') || debug()) log.step(c.dim(`docs: ${lang}, ${changed.length ? `${changed.length} file(s) rewritten` : 'up to date'}`));
+	process.exit(0);
+}
 
 const out = join(project.dir, '.amxts');
 /** A path as the generated config writes it: from .amxts/, with forward slashes. */
@@ -74,19 +76,28 @@ function installed(name: string, dir: string) {
 	}
 }
 
-// `~/` is not a package. The core and the modules are, once installed; one
-// that is not (a module in modules/, a core run from elsewhere) is mapped to
-// its file, as the build finds it.
+// `~/` is the project's plugins folder, not a package. The core and the
+// modules are, once installed; one that is not (a module in modules/, a core
+// run from elsewhere) is mapped to its file, as the build finds it. In a
+// language other than English they are all mapped to the copy with its
+// words, which the build never reads.
 const paths: Record<string, string[]> = {
-	'~/*': [...new Set([`${from(project.pluginsDir)}/*`, `${from(CORE_PLUGINS)}/*`])],
+	'~/*': [`${from(project.pluginsDir)}/*`],
 };
 if (!installed('@amxts/core', CORE_DIR)) {
-	paths['@amxts/core'] = [from(join(CORE_PLUGINS, 'facade.ts'))];
-	paths['@amxts/core/*'] = [`${from(CORE_PLUGINS)}/*`];
+	for (const [name, file] of Object.entries(CORE_ENTRIES)) paths[name] = [from(join(CORE_PLUGINS, file))];
 }
 for (const pkg of project.modules) {
 	if (!installed(pkg.name, pkg.dir)) paths[pkg.name] = [from(pkg.module)];
 }
+let api: Awaited<ReturnType<typeof editorApi>> = null;
+try {
+	api = await editorApi(project, lang, join(out, 'api'));
+} catch (error) {
+	fail(`docs: ${(error as Error).message}`);
+}
+for (const [name, file] of Object.entries(api?.paths ?? {})) paths[name] = [from(file)];
+const docs = lang === 'en' ? '' : `docs: ${lang}${api?.written ? ', .amxts/api written' : ''}`;
 
 const tsconfig = {
 	extends: from(assembly),
@@ -109,7 +120,7 @@ const tsconfig = {
 	include: [
 		`${from(project.pluginsDir)}/**/*.ts`,
 		from(join(project.dir, CONFIG_FILE)),
-		`${from(CORE_PLUGINS)}/*.d.ts`,
+		`${from(api?.core ?? CORE_PLUGINS)}/*.d.ts`,
 		'./modules.d.ts',
 		'./imports.d.ts',
 	],

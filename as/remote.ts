@@ -14,7 +14,7 @@
 // one export the module calls, __amxts_rpc. It is hood: plugins never import it.
 // __co_bindEnv, which makes a stand-in, is as/promise.ts's; __env, where the
 // stand-in finds its place, the compiler library's.
-import "~/promise";
+import "./promise";
 
 // @ts-ignore: decorator
 @external("env", "amxts_serve") declare function _serve(name: string, hash: i32): void;
@@ -132,13 +132,13 @@ export class Service {
 		if (this.id < 0) {
 			const id = _owner(this.name, this.hash);
 			if (id < 0) return this.fail(id == -2
-				? `~/modules/${this.name}: ${this.name}.aot was built from another version of it - build both again`
-				: `~/modules/${this.name}: no plugin runs it - is ${this.name}.aot in plugins.ini?`);
+				? `${this.name}: ${this.name}.aot was built from another version of it - build both again`
+				: `${this.name}: no plugin runs it - is ${this.name}.aot in plugins.ini?`);
 			this.id = id;
 		}
 
 		const answer = send(this.id, -1, w);
-		if (answer == null) return this.fail(`~/modules/${this.name}: the call failed in ${this.name}`);
+		if (answer == null) return this.fail(`${this.name}: the call failed in ${this.name}`);
 		this.failed = false;
 		return answer!;
 	}

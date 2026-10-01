@@ -1,7 +1,7 @@
 // Поля Player на сервере, шаг 1: один TS-плагин ставит боту поле ghost.
 // Дальше его читают другой TS-плагин (data-2-read) и Pawn через натив
 // (data-3-pawn), а data-4-reset проверяет, что с уходом бота поле сброшено.
-import { Checks } from "~/lib/check";
+import { Checks } from "@amxts/core/check";
 import "../as/player-state";
 
 server.addServerCommand("amxts_test_data_write", () => {

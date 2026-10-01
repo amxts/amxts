@@ -4,7 +4,7 @@
 //
 // @log unreachable
 // @log in an async function, which was dropped; the plugin runs on
-import { Checks } from "~/lib/check";
+import { Checks } from "@amxts/core/check";
 
 let order = "";
 let abortedWith = "";

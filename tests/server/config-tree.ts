@@ -2,8 +2,8 @@
 // разборщиками модуля под WAMR, значения идут через прокси общего модуля, файл
 // пишется обратно в своём формате. Файлы - в папке конфигов тестового сервера.
 // @log amxts-tree-bad.yaml:2:4: anchors and aliases (& and *) are not supported - write the value out
-import * as fs from "~/fs";
-import { Checks } from "~/lib/check";
+import * as fs from "@amxts/core/fs";
+import { Checks } from "@amxts/core/check";
 
 server.addServerCommand("amxts_test_config_tree", run);
 

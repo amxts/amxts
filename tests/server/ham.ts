@@ -2,7 +2,7 @@
 // actions: a think heard on its class, a bot's jump - an action whose reapi
 // chain hears it - and his knife drawn again, heard on the knife's class and
 // blocked by the listener's answer.
-import { Checks } from "~/lib/check";
+import { Checks } from "@amxts/core/check";
 
 const thought: number[] = [];
 let jumps = 0;

@@ -269,7 +269,7 @@ async function compileProbe(files: Record<string, string>) {
 
 function plugin(body: string) {
 	return [
-		'import { server } from "~/facade";',
+		'import { server } from "@amxts/core";',
 		'import "./player-state";',
 		'',
 		'server.addEventListener("infochanged", (event) => {',
@@ -280,7 +280,7 @@ function plugin(body: string) {
 	].join('\n');
 }
 
-const fields = (member: string) => `import "~/facade";\n\ndeclare module "~/facade" {\n\tinterface Player {\n\t\t${member}\n\t}\n}\n`;
+const fields = (member: string) => `import "@amxts/core";\n\ndeclare module "@amxts/core" {\n\tinterface Player {\n\t\t${member}\n\t}\n}\n`;
 
 test('a misspelt field does not compile', async () => {
 	expect(await compileProbe({ 'plugin.ts': plugin('player.ghost = true;') })).toBeNull();
@@ -328,13 +328,13 @@ ${plugin('')}`,
 	expect(problem).toContain('Player.solid - Entity already has solid; name the field something else');
 });
 
-test('only interface Player goes into declare module "~/facade"', async () => {
+test('only interface Player goes into declare module "@amxts/core"', async () => {
 	const problem = await compileProbe({
 		'plugin.ts': `import "./fields";
 ${plugin('')}`,
-		'fields.ts': `import "~/facade";
+		'fields.ts': `import "@amxts/core";
 
-declare module "~/facade" {
+declare module "@amxts/core" {
 	interface Player {
 		kills: number;
 	}
@@ -342,7 +342,7 @@ declare module "~/facade" {
 }
 `,
 	});
-	expect(problem).toContain('declare module "~/facade" - only `interface Player { ... }` goes here, not "const limit: number;"');
+	expect(problem).toContain('declare module "@amxts/core" - only `interface Player { ... }` goes here, not "const limit: number;"');
 });
 
 test('an object field: a class with a getter and a setter a member, over dotted keys; Player[] a list that writes back', () => {

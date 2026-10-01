@@ -14,13 +14,13 @@
 //
 // A real Promise (as/promise.ts): awaited in an async function, or given
 // .then and .catch. `signal` cancels the request, as the Fetch standard's does.
-import { CellBuffer, WideHandler } from "~/facade";
+import { CellBuffer, WideHandler } from "../facade";
 import {
 	LibraryExists, ezhttp_cancel_request, ezhttp_create_options, ezhttp_delete, ezhttp_get,
 	ezhttp_get_downloaded_bytes, ezhttp_get_error_code, ezhttp_get_error_message, ezhttp_get_http_code,
 	ezhttp_option_set_body, ezhttp_option_set_header, ezhttp_patch, ezhttp_post, ezhttp_put
-} from "~/natives";
-import { LibType_Library } from "~/constants";
+} from "../natives";
+import { LibType_Library } from "../constants";
 
 /** A request's options besides its URL. Every field is optional. */
 export class RequestInit {

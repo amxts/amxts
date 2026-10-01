@@ -1,7 +1,7 @@
 // TS-плагин пользуется меню через нативы mc_* и publicFor, как Pawn-плагин -
 // плейсхолдер пишет ответ setArgText, действие читает имя argText.
-import { argText, publicFor, setArgText } from "~/facade";
-import { mc_add_menu_item, mc_create_menu, mc_register_action, mc_register_placeholder } from "~/natives";
+import { argText, publicFor, setArgText } from "@amxts/core";
+import { mc_add_menu_item, mc_create_menu, mc_register_action, mc_register_placeholder } from "@amxts/core/natives";
 
 let chosen = "";
 

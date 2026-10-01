@@ -6,9 +6,14 @@
 		"module": "esnext",
 		"moduleResolution": "bundler",
 		"paths": {
-			"~/*": ["./*"],
 			"@amxts/core": ["./facade.ts"],
-			"@amxts/core/*": ["./*"],
+			"@amxts/core/natives": ["./natives.ts"],
+			"@amxts/core/constants": ["./constants.ts"],
+			"@amxts/core/fs": ["./fs.ts"],
+			"@amxts/core/os": ["./os.ts"],
+			"@amxts/core/http": ["./modules/http.ts"],
+			"@amxts/core/kit": ["./kit.ts"],
+			"@amxts/core/check": ["./lib/check.ts"],
 			"@amxts/menu-core": ["../../amxts-modules/menu-core/src/index.ts"],
 			"@amxts/config-core": ["../../amxts-modules/config-core/src/index.ts"]
 		}

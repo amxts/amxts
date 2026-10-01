@@ -1,8 +1,8 @@
 // Квар, созданный на верхнем уровне файла. create_cvar во время
 // plugin_natives ронял сервер при загрузке плагина: то, что этот плагин
 // вообще загрузился и отвечает на команду, - уже половина проверки.
-import { Cvar, server } from "~/facade";
-import { Checks } from "~/lib/check";
+import { Cvar, server } from "@amxts/core";
+import { Checks } from "@amxts/core/check";
 
 const answer = new Cvar("amxts_test_answer", "42");
 const freeze = new Cvar("mp_freezetime");

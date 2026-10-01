@@ -1,9 +1,9 @@
 // Fields one plugin keeps on a player for every plugin to read and write:
 // a shared-fields file, as the plugin that owns them would ship one. A
 // plugin that reads them imports this file, and the build then knows them.
-import "~/facade";
+import "@amxts/core";
 
-declare module "~/facade" {
+declare module "@amxts/core" {
 	interface Player {
 		/** Watching, not playing. */
 		ghost: boolean;

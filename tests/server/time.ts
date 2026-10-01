@@ -6,8 +6,8 @@
 //
 // Местное время Date - часовой пояс сервера: его сверяет get_time, strftime
 // AMX Mod X.
-import { get_time } from "~/natives";
-import { Checks } from "~/lib/check";
+import { get_time } from "@amxts/core/natives";
+import { Checks } from "@amxts/core/check";
 
 server.addServerCommand("amxts_test_time", run);
 

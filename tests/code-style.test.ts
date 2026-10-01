@@ -1,4 +1,5 @@
 import type { DocSource, DocText, Lang } from '../scripts/apply-docs';
+import type { Renames } from '../scripts/upgrade';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
@@ -21,6 +22,7 @@ import { EVENTS, PLAYER_CHANGE } from '../scripts/docs/events';
 import { GAME } from '../scripts/docs/game';
 import { MESSAGES } from '../scripts/docs/messages';
 import { CORE_DIR, loadProject } from '../scripts/project';
+import { renamed, renamesFor, specifiers } from '../scripts/upgrade';
 
 const ROOT = 'as';
 // The modules the project uses (amxts.config.ts - the official ones, from
@@ -359,7 +361,7 @@ function scan(file: string): Finding[] {
 		}
 	}
 	for (const m of code.matchAll(/\b\w*(?:[pP]layer|bot|victim|attacker)\.data\b|\binterface\s+PlayerData\b/g)) {
-		at(m.index!, `16: ${m[0]} - the fields are Player's own: declare module "~/facade" { interface Player { ghost: boolean } }, then player.ghost`);
+		at(m.index!, `16: ${m[0]} - the fields are Player's own: declare module "@amxts/core" { interface Player { ghost: boolean } }, then player.ghost`);
 	}
 	for (const m of code.matchAll(/\bplayer\s*\[\s*["'`]/g)) {
 		at(m.index!, '16: player[...] - a field on Player is read by its name: player.ghost');
@@ -1044,7 +1046,7 @@ export function autoImportedImports(file: string, source: string, table: Map<str
 	const found: Finding[] = [];
 	for (const statement of parsed.statements) {
 		if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
-		const from = statement.moduleSpecifier.text === '~/facade' ? '@amxts/core' : statement.moduleSpecifier.text;
+		const from = statement.moduleSpecifier.text;
 		const bindings = statement.importClause?.namedBindings;
 		const names = !bindings
 			? []
@@ -1062,7 +1064,7 @@ export function autoImportedImports(file: string, source: string, table: Map<str
 test('36: an explicit import of what is auto-imported is found', () => {
 	const table = new Map([['Player', { from: '@amxts/core', namespace: false }], ['menus', { from: '@amxts/menu-core', namespace: true }]]);
 	const found = autoImportedImports('a.ts', [
-		'import { Player, publicFor } from "~/facade";',
+		'import { Player, publicFor } from "@amxts/core";',
 		'import * as menus from "@amxts/menu-core";',
 		'import * as shop from "@amxts/menu-core";',
 		'import { Player as Somebody } from "@amxts/core";',
@@ -1111,4 +1113,46 @@ test('every tracked JSON file is strict JSON, without comments', () => {
 
 	expect(files.length).toBeGreaterThan(0);
 	expect(broken).toEqual([]);
+});
+
+/**
+ * 38. The core's API by the package's name, a module by its package's: `~/`
+ * is the project's own files. A specifier the build would refuse, with what
+ * to write instead.
+ */
+export function coreByAlias(file: string, source: string, renames: Renames): Finding[] {
+	const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+	return specifiers(parsed).flatMap((literal) => {
+		const instead = renamed(literal.text, renames);
+		const line = parsed.getLineAndCharacterOfPosition(literal.getStart(parsed)).line + 1;
+		return instead ? [{ where: `${file}:${line}`, rule: `38: ${literal.text} - import ${instead}` }] : [];
+	});
+}
+
+test('38: ~/ to the core\'s API or a module package is found', () => {
+	const renames = renamesFor([{ name: '@amxts/menu-core', short: 'menu-core' }]);
+	const found = coreByAlias('a.ts', [
+		'import { user_slap } from "~/natives";',
+		'import { twice } from "~/lib/math";',
+		'import * as menus from "~/modules/menu-core";',
+		'declare module "~/facade" {}',
+		'const text = "~/fs";',
+	].join('\n'), renames);
+	expect(found.map(f => `${f.where} ${f.rule}`)).toEqual([
+		'a.ts:1 38: ~/natives - import @amxts/core/natives',
+		'a.ts:3 38: ~/modules/menu-core - import @amxts/menu-core',
+		'a.ts:4 38: ~/facade - import @amxts/core',
+	]);
+});
+
+test('38: plugin and module code imports the core\'s API by the package\'s name', () => {
+	const project = loadProject();
+	const renames = renamesFor(project.modules);
+	const plugins = [
+		...['tests/as', 'tests/server'].flatMap(dir => readdirSync(dir).filter(name => name.endsWith('.ts')).map(name => `${dir}/${name}`)),
+		'runtime/host/hello.ts',
+		...project.modules.flatMap(pkg => [join(pkg.dir, 'src'), join(pkg.dir, 'playground', 'plugins')]).filter(existsSync).flatMap(dir => pluginFiles(dir)),
+	];
+	const findings = plugins.flatMap(file => coreByAlias(file, readFileSync(file, 'utf8'), renames)).map(f => `${f.where}  ${f.rule}`);
+	expect(findings).toEqual([]);
 });

@@ -5,9 +5,9 @@
 // handed address 0 the native wrote into the host plugin's own data there.
 // That holds for a native with a `...` tail, which goes through the
 // dispatcher (amxts_call), and for one with a fixed arity.
-import { Call, CellBuffer } from "~/facade";
-import { ArrayCreate, ArrayDestroy, ArrayGetArray, ArrayPushArray, NATIVE_formatex } from "~/natives";
-import { Checks } from "~/lib/check";
+import { Call, CellBuffer } from "@amxts/core";
+import { ArrayCreate, ArrayDestroy, ArrayGetArray, ArrayPushArray, NATIVE_formatex } from "@amxts/core/natives";
+import { Checks } from "@amxts/core/check";
 
 server.addServerCommand("amxts_test_call", run);
 

@@ -15,7 +15,7 @@ import { describe, expect, setDefaultTimeout, test } from 'bun:test';
 setDefaultTimeout(120_000);
 
 const PLUGIN = '@amxts/menu-core';
-/** menu-core reads menu.ini through ~/modules/config-core, which the config-core plugin runs. */
+/** menu-core reads menu.ini through @amxts/config-core, which the config-core plugin runs. */
 const CONFIG_PLUGIN = '@amxts/config-core';
 const CONFIGS = 'addons/amxmodx/configs';
 

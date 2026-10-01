@@ -4,7 +4,7 @@
 // before its declaration aborts only the call that read it.
 // @log [amxts] abort: x is not initialized
 // @log optional.aot: Exception: aborted
-import { Checks } from "~/lib/check";
+import { Checks } from "@amxts/core/check";
 
 interface Options {
 	time?: number;

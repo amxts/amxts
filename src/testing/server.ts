@@ -147,7 +147,7 @@ export interface ServerOptions {
 	/** Files in the game folder before the plugin loads, by path: `{ "addons/amxmodx/configs/x.ini": "..." }`. */
 	files?: Record<string, string>;
 	/**
-	 * The system the server runs on, as `~/os` finds it: "win32" puts the amxts
+	 * The system the server runs on, as `@amxts/core/os` finds it: "win32" puts the amxts
 	 * module's amxts_amxx.dll in the modules folder. "linux" unless said.
 	 */
 	platform?: 'win32' | 'linux';
@@ -492,7 +492,7 @@ export class PluginInstance {
 
 		if (this.server.hasNative(name)) return (...args: number[]) => this.server.callNativeImpl(this, name, args);
 
-		// Another plugin's `export function`, called through ~/natives as AMX
+		// Another plugin's `export function`, called through @amxts/core/natives as AMX
 		// Mod X would route it; whether one exports it is known only at the call.
 		return (...cells: number[]) => {
 			if (this.server.exported.has(name)) return this.server.callFromPlugin(this, name, cells);
@@ -1281,7 +1281,7 @@ export class FakeServer {
 
 	/**
 	 * A plugin calling another plugin's `export function` native
-	 * through its ~/natives wrapper: the cells it pushed - text and buffers as
+	 * through its @amxts/core/natives wrapper: the cells it pushed - text and buffers as
 	 * addresses in its memory - turned into the frame the native reads, and
 	 * what the native wrote into a buffer copied back, as AMX Mod X does.
 	 * @internal

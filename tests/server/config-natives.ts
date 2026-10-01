@@ -1,7 +1,7 @@
 // config-core через его нативы cfg_*, как их зовёт любой плагин: на
 // fixtures/amxts-test.ini в папке конфигов тестового сервера. Запись идёт туда
 // же - в addons/amxmodx/configs сервера ничего не попадает.
-import * as fs from "~/fs";
+import * as fs from "@amxts/core/fs";
 import {
 	cfg_get_array_size,
 	cfg_get_bool,
@@ -14,8 +14,8 @@ import {
 	cfg_save_config,
 	cfg_set_base_dir,
 	cfg_set_int,
-} from "~/natives";
-import { Checks } from "~/lib/check";
+} from "@amxts/core/natives";
+import { Checks } from "@amxts/core/check";
 
 server.addServerCommand("amxts_test_config_core", run);
 

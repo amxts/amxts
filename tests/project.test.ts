@@ -11,7 +11,7 @@ import { installMenus } from '@amxts/menu-core/testing';
 // plugin that writes "@amxts/menu-core" gets the module.
 // @ts-ignore - bun:test types not available during type checking
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { loadProject, mergeOptions, moduleSource, pluginList, PROJECT_GAME_FOLDERS, readDefinition, setProjectDir } from '../scripts/project';
+import { loadProject, mergeOptions, moduleSource, pluginList, PROJECT_GAME_FOLDERS, readDefinition, setProjectDir, Sources } from '../scripts/project';
 
 setDefaultTimeout(240_000);
 
@@ -53,7 +53,7 @@ function module(name: string, index: string, natives?: string) {
 }
 
 const GREETER = [
-	'import { server } from "~/facade";',
+	'import { server } from "@amxts/core";',
 	'',
 	'export interface GreeterOptions {',
 	'\tgreeting: string;',
@@ -242,9 +242,77 @@ describe('setup and the owner', () => {
 	});
 });
 
+describe('the core\'s API by the package\'s name', () => {
+	test('@amxts/core/natives, /constants, /fs and /os are the core\'s; ~/ is the project\'s own files', async () => {
+		const dir = project({
+			'amxts.config.ts': 'export default defineConfig({ modules: [] });\n',
+			'plugins/a.ts': [
+				'import { get_maxplayers } from "@amxts/core/natives";',
+				'import { MAX_PLAYERS } from "@amxts/core/constants";',
+				'import { existsSync } from "@amxts/core/fs";',
+				'import { EOL } from "@amxts/core/os";',
+				'import { twice } from "~/lib/twice";',
+				'',
+				'export function a_slots() {',
+				'\treturn `${twice(get_maxplayers())}/${MAX_PLAYERS}${EOL.length > 0}${existsSync("nothing.txt")}`;',
+				'}',
+				'',
+			].join('\n'),
+			'plugins/lib/twice.ts': 'export function twice(n: number) {\n\treturn n * 2;\n}\n',
+		});
+		setProjectDir(dir);
+
+		const server = new FakeServer();
+		await server.load(join(dir, 'plugins/a.ts'));
+		server.start();
+		expect(server.native('a_slots')).toBe('64/32truefalse');
+	});
+
+	test('~/ to the core\'s API, to a module package or past what @amxts/core exports does not build, and says what to write', async () => {
+		const dir = project({
+			...module('greeter', GREETER.replace('"@amxts/core"', '"~/facade"')),
+			'amxts.config.ts': 'export default defineConfig({ modules: ["@test/greeter"] });\n',
+			'plugins/a.ts': [
+				'import { get_maxplayers } from "~/natives";',
+				'import { readFileSync } from "~/fs";',
+				'import { fetch } from "~/modules/http";',
+				'import * as greeter from "~/modules/greeter";',
+				'import { Coroutine } from "@amxts/core/promise";',
+				'',
+				'export function a_slots() {',
+				'\treturn get_maxplayers();',
+				'}',
+				'',
+			].join('\n'),
+		});
+		setProjectDir(dir);
+
+		const error = await new FakeServer().load(join(dir, 'plugins/a.ts')).then(() => '', (failure: Error) => failure.message);
+		for (const [spec, instead] of [['~/natives', '@amxts/core/natives'], ['~/fs', '@amxts/core/fs'], ['~/modules/http', '@amxts/core/http'], ['~/modules/greeter', '@test/greeter']]) {
+			expect(error).toContain(`plugins/a.ts: ${spec} is not a file of the project - \`~/\` is the plugins folder; import ${instead} (npx amxts upgrade rewrites these imports)`);
+		}
+		expect(error).toContain('modules/greeter/src/index.ts: ~/facade is not a file of the project - `~/` is the plugins folder; import @amxts/core ');
+		expect(error).toContain('plugins/a.ts: imports @amxts/core/promise, which @amxts/core does not export - its API is @amxts/core, @amxts/core/natives');
+	});
+
+	test('on a server, where the core\'s API lies beside the plugins, ~/ to it is refused too', () => {
+		const dir = project({
+			'natives.ts': 'export function user_slap(id: number, damage: number): void {}\n',
+			'modules/http.ts': 'import { user_slap } from "../natives";\n',
+			'lib/twice.ts': 'export function twice(n: number) {\n\treturn n * 2;\n}\n',
+			'a.ts': 'import { user_slap } from "~/natives";\nimport { fetch } from "@amxts/core/http";\nimport { twice } from "~/lib/twice";\n',
+		});
+		// A server's plugins folder is the project and the tree at once: no plugins/ in it.
+		const server = new Sources(dir, { ...loadProject(dir), pluginsDir: join(dir, 'plugins'), modules: [], autoImports: [] });
+		expect(server.read(join(dir, 'a.ts'))).toContain('from "~/modules/http"');
+		server.read(join(dir, 'modules/http.ts'));
+		expect(server.problems).toEqual(['a.ts: ~/natives is not a file of the project - `~/` is the plugins folder; import @amxts/core/natives (npx amxts upgrade rewrites these imports)']);
+	});
+});
+
 describe('a contract', () => {
 	test('"contract": true checks the natives against the package\'s include, which the natives need not name', async () => {
-		const natives = 'import { plugin } from "~/facade";\n\nplugin({ name: "Tagger", version: "1.0.0", author: "", description: "" });\n\nexport function tagger_tag(id: number) {\n\treturn id + 1;\n}\n';
+		const natives = 'import { plugin } from "@amxts/core";\n\nplugin({ name: "Tagger", version: "1.0.0", author: "", description: "" });\n\nexport function tagger_tag(id: number) {\n\treturn id + 1;\n}\n';
 		const dir = project({
 			'modules/tagger/package.json': JSON.stringify({ name: '@test/tagger', version: '1.0.0', amxts: { module: 'src/index.ts', natives: 'src/natives.ts', include: 'include/tagger.inc', contract: true } }),
 			'modules/tagger/src/index.ts': 'export function nothing() {\n\treturn 0;\n}\n',
@@ -263,8 +331,8 @@ describe('a contract', () => {
 const TIMER = {
 	'modules/timer/package.json': JSON.stringify({ name: '@test/timer', version: '1.0.0', amxts: { module: 'src/index.ts', testing: 'testing.ts' } }),
 	'modules/timer/src/index.ts': [
-		'import { Player } from "~/facade";',
-		'import { get_user_time } from "~/natives";',
+		'import { Player } from "@amxts/core";',
+		'import { get_user_time } from "@amxts/core/natives";',
 		'',
 		'export default defineModule({ meta: { name: "timer" } });',
 		'',
@@ -298,7 +366,7 @@ describe('test-utils: setup() and test kits', () => {
 			...module('shouter', SHOUTER),
 			'amxts.config.ts': 'export default defineConfig({ modules: ["@test/shouter", "@test/timer"], greeter: { greeting: "Hi" } });\n',
 			'plugins/a.ts': [
-				'import { Player } from "~/facade";',
+				'import { Player } from "@amxts/core";',
 				'import * as timer from "@test/timer";',
 				'import * as shouter from "@test/shouter";',
 				'',

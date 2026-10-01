@@ -1,9 +1,9 @@
 // TS-плагин рядом с menu-core: отвечает за плейсхолдер через нативы mc_*, -
 // именем publicFor и setArgText, - и проверяет lang.translate: бот с lang ru
 // получает русский перевод common.txt, а сервер (amx_language en) - свой.
-import { publicFor, setArgText } from "~/facade";
-import { mc_register_placeholder, set_user_info } from "~/natives";
-import { Checks } from "~/lib/check";
+import { publicFor, setArgText } from "@amxts/core";
+import { mc_register_placeholder, set_user_info } from "@amxts/core/natives";
+import { Checks } from "@amxts/core/check";
 
 server.addEventListener("cfg", () => {
 	lang.load("common");

@@ -2,8 +2,8 @@
 // функцию хосту по номеру (cmd, cmdWide, hook, publicFor, nativeFn),
 // функция-значение с меньшим числом параметров, всплытие объявлений функций,
 // `super` в стрелке, рекурсия по имени и замыкания на верхнем уровне файла.
-import { cmd, cmdWide, handled, hook, nativeFn, publicFor } from "~/facade";
-import { register_touch } from "~/natives";
+import { cmd, cmdWide, handled, hook, nativeFn, publicFor } from "@amxts/core";
+import { register_touch } from "@amxts/core/natives";
 
 const prefix = "raw";
 

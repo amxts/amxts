@@ -85,7 +85,7 @@ describe('one instance, two plugins', () => {
 		const alice = server.join('Alice');
 		expect(server.native('shared_show', alice.id)).toBe(false);
 		expect(server.native('shared_menu')).toBe('нет меню');
-		expect(server.log).toContain('~/modules/menu-core: no plugin runs it - is menu-core.aot in plugins.ini?');
+		expect(server.log).toContain('menu-core: no plugin runs it - is menu-core.aot in plugins.ini?');
 	});
 });
 

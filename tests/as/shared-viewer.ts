@@ -1,8 +1,6 @@
 // Второй плагин: показывает меню, которое завёл shared-shop, не даёт открыть
 // его Кэрол, читает поля меню и секцию конфига, созданную в памяти другим
-// плагином, - всё через тот же импорт, что и у владельца.
-import * as menus from "~/modules/menu-core";
-import * as configs from "~/modules/config-core";
+// плагином, - всё через те же имена модулей, что и у владельца.
 
 server.addEventListener("init", () => {
 	menus.addEventListener("show", (event) => {

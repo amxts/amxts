@@ -360,7 +360,7 @@ export interface DocSource {
 	root: string;
 }
 
-/** The core's hand-written API: what `~/facade` and the globals give a plugin. */
+/** The core's hand-written API: what `@amxts/core` and the globals give a plugin. */
 export const CORE_API = [
 	'as/facade.ts',
 	'as/promise.ts',

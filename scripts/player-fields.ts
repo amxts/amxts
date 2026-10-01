@@ -3,8 +3,8 @@
 // A plugin declares its fields as TypeScript does, by augmenting the facade's
 // Player:
 //
-//   import "~/facade";
-//   declare module "~/facade" {
+//   import "@amxts/core";
+//   declare module "@amxts/core" {
 //     interface Player {
 //       spawnProtected: boolean;
 //       glow: {
@@ -29,7 +29,8 @@
 // name held in a string, so the build does both:
 //
 // - reading a file (`read`), it records the members of every
-//   `interface Player` in a `declare module "~/facade"` block and blanks the
+//   `interface Player` in a `declare module "@amxts/core"` block (the
+//   facade, `~/facade` once the specifiers are the tree's) and blanks the
 //   block out - spaces, so every line and column after it stays where it was.
 //   An interface of the same file that a field is typed with becomes
 //   `import { Name } from "~/facade";` (and `export { Name };` if it was
@@ -134,7 +135,7 @@ export function playerFieldsBuild() {
 			const open = match.index! + match[0].length - 1;
 			const close = closingBrace(text, open);
 			if (close < 0) {
-				problems.push(`${file}:${lineOf(text, match.index!)}: declare module "~/facade" - no closing brace`);
+				problems.push(`${file}:${lineOf(text, match.index!)}: declare module "@amxts/core" - no closing brace`);
 				continue;
 			}
 			blocks.push({ start: match.index!, open, close });
@@ -181,7 +182,7 @@ export function playerFieldsBuild() {
 		const rest = body.search(/\S/);
 		if (rest >= 0) {
 			const what = body.slice(rest).trim().split('\n')[0].trim();
-			problems.push(`${file}:${lineOf(text, from + rest)}: declare module "~/facade" - only \`interface Player { ... }\` goes here, not "${what}"`);
+			problems.push(`${file}:${lineOf(text, from + rest)}: declare module "@amxts/core" - only \`interface Player { ... }\` goes here, not "${what}"`);
 		}
 	}
 
@@ -228,7 +229,7 @@ export function playerFieldsBuild() {
 			const player = classes.get('Player');
 			if (!player) {
 				const first = [...fields.values()][0];
-				throw new Error(`${first.where}: Player.${first.name} - the facade's Player is not part of this compile; import "~/facade"`);
+				throw new Error(`${first.where}: Player.${first.name} - the facade's Player is not part of this compile; import "@amxts/core"`);
 			}
 
 			// Player's members and those of every class it extends.

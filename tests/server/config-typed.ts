@@ -4,8 +4,8 @@
 // обратно. Файлы - в папке конфигов тестового сервера.
 // @log amxts-typed-a.yaml:5:3: "time" is text ("скоро"), not a number - the default stays
 // @log amxts-typed-a.yaml:2:3: unknown key "prefx" in "chat" - did you mean "prefix"?
-import * as fs from "~/fs";
-import { Checks } from "~/lib/check";
+import * as fs from "@amxts/core/fs";
+import { Checks } from "@amxts/core/check";
 
 server.addServerCommand("amxts_test_config_typed", run);
 

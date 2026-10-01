@@ -1,6 +1,6 @@
 // Тестовый плагин tests/project.test.ts: меню-модуль по имени пакета, как его
 // импортирует плагин проекта.
-import { Player } from "~/facade";
+import { Player } from "@amxts/core";
 import * as menus from "@amxts/menu-core";
 
 const menu = menus.create("BY_NAME", { title: "По имени пакета" });

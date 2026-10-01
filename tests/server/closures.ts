@@ -1,8 +1,8 @@
 // Замыкания на сервере: таймеры, событие кадра и async-стрелка, которые
 // пользуются переменными вокруг себя.
-import { publicFor } from "~/facade";
-import { register_srvcmd } from "~/natives";
-import { Checks } from "~/lib/check";
+import { publicFor } from "@amxts/core";
+import { register_srvcmd } from "@amxts/core/natives";
+import { Checks } from "@amxts/core/check";
 
 server.addServerCommand("amxts_test_closures", () => {
 	run();

@@ -84,6 +84,10 @@ test('a server start writes the whole API as it is, the editor\'s files and the 
 	const tsconfig = JSON.parse(files.get('plugins/tsconfig.json')?.text ?? '{}');
 	expect(tsconfig.compilerOptions?.moduleDetection).toBe('force');
 	expect(tsconfig.compilerOptions?.paths['~/*']).toEqual(['./*']);
+	// The core's API by the package's name, its files beside the plugins: only the entries it exports.
+	expect(tsconfig.compilerOptions?.paths['@amxts/core/natives']).toEqual(['./natives.ts']);
+	expect(tsconfig.compilerOptions?.paths['@amxts/core/http']).toEqual(['./modules/http.ts']);
+	expect(tsconfig.compilerOptions?.paths['@amxts/core/*']).toBeUndefined();
 
 	expect([...files].filter(([, file]) => file.keep).map(([path]) => path).sort()).toEqual(['plugins.ini', 'plugins/hello.ts']);
 });

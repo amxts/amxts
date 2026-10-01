@@ -1,6 +1,6 @@
 // Поля Player на сервере, шаг 2: другой TS-плагин видит то, что поставил
 // data-1-write, - значение живёт в модуле, а не в памяти плагина.
-import { Checks } from "~/lib/check";
+import { Checks } from "@amxts/core/check";
 import "../as/player-state";
 
 server.addServerCommand("amxts_test_data_read", () => {

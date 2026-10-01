@@ -2,11 +2,11 @@
 // и поля снова по умолчанию. Строку testTag написал Pawn (data-3-pawn).
 // С самого начала этот плагин слушает playerchange: он слышит, что записал
 // другой TS-плагин (data-1-write) и Pawn (data-3-pawn), и не слышит выход бота.
-import { get_user_userid } from "~/natives";
-import { Checks } from "~/lib/check";
+import { get_user_userid } from "@amxts/core/natives";
+import { Checks } from "@amxts/core/check";
 import "../as/player-state";
 
-declare module "~/facade" {
+declare module "@amxts/core" {
 	interface Player {
 		/** Строка, которую пишет Pawn-набор data-3-pawn. */
 		testTag: string;

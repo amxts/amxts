@@ -2,9 +2,9 @@
 // entity.origin и поиск по радиусу. Сеттер origin раньше писал поле напрямую,
 // движок не перепривязывал сущность, и find_ent_in_sphere искал её на старом
 // месте.
-import { var_classname, var_gravity, var_health, var_movetype, var_origin, var_rendermode } from "~/constants";
-import { get_entvar, set_entvar } from "~/natives";
-import { Checks } from "~/lib/check";
+import { var_classname, var_gravity, var_health, var_movetype, var_origin, var_rendermode } from "@amxts/core/constants";
+import { get_entvar, set_entvar } from "@amxts/core/natives";
+import { Checks } from "@amxts/core/check";
 
 server.addServerCommand("amxts_test_entity", run);
 

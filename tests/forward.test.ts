@@ -53,7 +53,7 @@ function buildError(code: string, include = ''): Promise<string> {
 
 test('a number goes as a Float where the declaration says Float, and as a cell otherwise', async () => {
 	const sent = await pluginProbe('forward', `
-import { Forward, plugin, server } from "~/facade";
+import { Forward, plugin, server } from "@amxts/core";
 plugin({ name: "probe", version: "1", author: "x", include: "PROBE_INC" });
 const speed = new Forward<number, number>("probe_on_speed");
 server.addCommand("fw_speed", (player, args) => { speed.emit(2.5, 3); });
@@ -67,7 +67,7 @@ server.addCommand("fw_speed", (player, args) => { speed.emit(2.5, 3); });
 
 test('a Team for a forward no include declares is a build error, not text in Pawn', async () => {
 	const error = await buildError(`
-import { Forward, Team } from "~/facade";
+import { Forward, Team } from "@amxts/core";
 export const changed = new Forward<Team>("probe_on_team_changed");
 `);
 	expect(error).toContain('no include declares probe_on_team_changed');
@@ -75,7 +75,7 @@ export const changed = new Forward<Team>("probe_on_team_changed");
 
 test('a string where the declaration has a cell is a build error', async () => {
 	const error = await buildError(`
-import { Forward, Player, plugin } from "~/facade";
+import { Forward, Player, plugin } from "@amxts/core";
 plugin({ name: "probe", version: "1", author: "x", include: "PROBE_INC" });
 export const joined = new Forward<Player, string>("probe_on_player_joined_team");
 `, FORWARDS);
@@ -84,7 +84,7 @@ export const joined = new Forward<Player, string>("probe_on_player_joined_team")
 
 test('a forward with another number of arguments than its declaration is a build error', async () => {
 	const error = await buildError(`
-import { Forward, plugin } from "~/facade";
+import { Forward, plugin } from "@amxts/core";
 plugin({ name: "probe", version: "1", author: "x", include: "PROBE_INC" });
 export const ended = new Forward<number, number>("probe_on_round_end");
 `, FORWARDS);
@@ -93,7 +93,7 @@ export const ended = new Forward<number, number>("probe_on_round_end");
 
 test('a RoundWinner goes to Pawn as its WinStatus number, and comes back a RoundWinner', async () => {
 	const sent = await pluginProbe('forward', `
-import { Forward, RoundWinner, plugin, print, server } from "~/facade";
+import { Forward, RoundWinner, plugin, print, server } from "@amxts/core";
 plugin({ name: "probe", version: "1", author: "x", include: "PROBE_INC" });
 const ended = new Forward<RoundWinner>("probe_on_round_end");
 let heard = "";
@@ -106,7 +106,7 @@ function end(player: Player, args: string[]) {
 	ended.emit("TERRORIST");
 	print(player, \`heard \${heard}\`, "console");
 }
-import { Player } from "~/facade";
+import { Player } from "@amxts/core";
 `, FORWARDS, async (file) => {
 		const server = await loadPlugin(file);
 		const alice = server.join('Alice');
@@ -119,7 +119,7 @@ import { Player } from "~/facade";
 
 /** A plugin that emits and hears a forward of every kind of argument, past the old three. */
 const EVERY_KIND = `
-import { Float, Forward, Player, Vector, server } from "~/facade";
+import { Float, Forward, Player, Vector, server } from "@amxts/core";
 const bought = new Forward<Player, string, number, Float, boolean, number[], Vector, string>("probe_on_every_kind");
 bought.subscribe(onBought);
 server.addCommand("fw_every", (player) => {
@@ -157,7 +157,7 @@ test('a forward takes 32 arguments, as many as AMX Mod X gives one', async () =>
 	const count = 32;
 	const names = Array.from({ length: count }, (_, i) => `a${i + 1}`);
 	const heard = await pluginProbe('forward', `
-import { Forward, server } from "~/facade";
+import { Forward, server } from "@amxts/core";
 const wide = new Forward<${names.map(() => 'number').join(', ')}>("probe_on_wide");
 wide.subscribe(onWide);
 server.addCommand("fw_wide", (player) => {
@@ -177,7 +177,7 @@ function onWide(${names.map(n => `${n}: number`).join(', ')}) {
 
 test('an array where the declaration has a cell is a build error', async () => {
 	const error = await buildError(`
-import { Forward, plugin } from "~/facade";
+import { Forward, plugin } from "@amxts/core";
 plugin({ name: "probe", version: "1", author: "x", include: "PROBE_INC" });
 export const ended = new Forward<number[]>("probe_on_round_end");
 `, FORWARDS);
@@ -186,7 +186,7 @@ export const ended = new Forward<number[]>("probe_on_round_end");
 
 test('an array the declaration leaves without a tag is a build error: it would cross as text', async () => {
 	const error = await buildError(`
-import { Forward, plugin } from "~/facade";
+import { Forward, plugin } from "@amxts/core";
 plugin({ name: "probe", version: "1", author: "x", include: "PROBE_INC" });
 export const data = new Forward<number[]>("probe_on_data");
 `, FORWARDS);

@@ -11,7 +11,7 @@ export interface Badge {
 	fans: Player[];
 }
 
-declare module "~/facade" {
+declare module "@amxts/core" {
 	interface Player {
 		badge: Badge;
 		friends: Player[];

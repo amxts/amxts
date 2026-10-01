@@ -15,7 +15,7 @@
 // The suites are <suites>/*.ts (amxts plugins) and <suites>/*.sma
 // (Pawn plugins). Each registers a server command `amxts_test_<name>`, which
 // this sends over rcon; its checks log `[<name>] ok ...` / `[<name>] FAIL ...`
-// and end with `[<name>] N ok, M failed` - as `Checks` from ~/lib/check does.
+// and end with `[<name>] N ok, M failed` - as `Checks` from @amxts/core/check does.
 // `<name>` is the command's tail with `_` written `-`: amxts_test_config_core
 // logs as [config-core]. A line `// @log <text>` in a suite is text the
 // server's console must show while that suite runs, as it is - how a check

@@ -1,7 +1,7 @@
 // Звуки и прекэш: server.precache в событии "precache" отдаёт индексы, а
 // звук от сущности, звук одному игроку и полоса прогресса уходят без ошибок -
 // что слышит клиент, отсюда не проверить.
-import { Checks } from "~/lib/check";
+import { Checks } from "@amxts/core/check";
 
 const indices: number[] = [];
 

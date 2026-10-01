@@ -20,7 +20,7 @@ mkdirSync(dir, { recursive: true });
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 writeFileSync(join(dir, 'plugin.ts'), [
-	'import { plugin } from "~/facade";',
+	'import { plugin } from "@amxts/core";',
 	'import { GREETING } from "./greeting";',
 	'',
 	'plugin({ name: "cache-probe", version: "1.0.0", author: "", description: "" });',

@@ -1,8 +1,8 @@
 // A fixture for tests/fake-server.test.ts: a console command, a server
 // command, a cvar with a change listener, an exported native, a search in a
 // sphere, and one native the fake server does not answer.
-import { nativeFn, ret } from "~/facade";
-import { get_user_time } from "~/natives";
+import { nativeFn, ret } from "@amxts/core";
+import { get_user_time } from "@amxts/core/natives";
 
 const step = new Cvar("counter_step", "1");
 let total = 0;

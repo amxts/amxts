@@ -3,7 +3,7 @@
 // fields typed, a field written is what the next listener reads, and the
 // listener hears only its own message's name. AMX Mod X's message hooks do
 // not see a message a plugin sends itself, so the game's is waited for.
-import { Checks } from "~/lib/check";
+import { Checks } from "@amxts/core/check";
 
 let seen: HideHud[] = [];
 let rewritten: HideHud[] = [];

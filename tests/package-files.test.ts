@@ -10,7 +10,7 @@ import { expect, test } from 'bun:test';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const pkg = JSON.parse(readFileSync(join(CORE, 'package.json'), 'utf8'));
-const ENTRIES = ['bin/amxts.mjs', 'src/cli-api.mjs', 'src/testing/index.ts', 'lint/oxlint-plugin.mjs', 'scripts/run.ts', 'scripts/prepare.ts', 'scripts/build-wasm.ts', 'scripts/check.ts'];
+const ENTRIES = ['bin/amxts.mjs', 'src/cli-api.mjs', 'src/testing/index.ts', 'lint/oxlint-plugin.mjs', 'scripts/run.ts', 'scripts/prepare.ts', 'scripts/build-wasm.ts', 'scripts/check.ts', 'scripts/upgrade.ts'];
 
 /** The files an entry imports, itself included, by relative imports. */
 function reached(entries: string[]) {
@@ -43,4 +43,21 @@ test('the package carries what an installed project runs', () => {
 test('the package carries no test, no C++ source, no docs', () => {
 	for (const file of ['tests/cli-api.test.ts', 'runtime/src/module.cpp', 'docs/en/1.getting-started/02.quick-start.md', 'scripts/release.ts', 'scripts/test-server.ts', 'docker/build/Dockerfile'])
 		expect(packed(file)).toBe(false);
+});
+
+test('the core\'s API a plugin imports by the package\'s name is what the build resolves', async () => {
+	const { CORE_ENTRIES } = await import('../scripts/project');
+	const exported = Object.fromEntries(Object.entries(pkg.exports as Record<string, string>)
+		.filter(([, file]) => file.startsWith('./as/') && file.endsWith('.ts'))
+		.map(([key, file]) => [`@amxts/core${key.slice(1)}`, file.slice('./as/'.length)]));
+	expect(exported).toEqual(CORE_ENTRIES);
+	for (const file of Object.values(CORE_ENTRIES)) expect(existsSync(join(CORE, 'as', file))).toBe(true);
+});
+
+test('the editor in the core\'s as/ - and a module\'s folder, whose tsconfig extends it - resolves the same', async () => {
+	const { CORE_ENTRIES } = await import('../scripts/project');
+	const { paths } = JSON.parse(readFileSync(join(CORE, 'as/tsconfig.json'), 'utf8')).compilerOptions;
+	const core = Object.fromEntries(Object.entries(paths as Record<string, string[]>).filter(([key]) => key.startsWith('@amxts/core')).map(([key, [file]]) => [key, file.slice(2)]));
+	expect(core).toEqual(CORE_ENTRIES);
+	expect(paths['~/*']).toBeUndefined();
 });

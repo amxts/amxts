@@ -1,8 +1,8 @@
 // То, для чего нужен игрок: бот, которого добавил раннер, «пишет» в чат
 // команду, и её обработчик получает этого игрока.
-import { m_flVelocityModifier, m_iFOV, m_szTeamName, var_fov, var_weapons } from "~/constants";
-import { amxclient_cmd, get_cvar_string, get_entvar, get_member, get_speak, get_user_info, set_speak, set_user_info } from "~/natives";
-import { Checks } from "~/lib/check";
+import { m_flVelocityModifier, m_iFOV, m_szTeamName, var_fov, var_weapons } from "@amxts/core/constants";
+import { amxclient_cmd, get_cvar_string, get_entvar, get_member, get_speak, get_user_info, set_speak, set_user_info } from "@amxts/core/natives";
+import { Checks } from "@amxts/core/check";
 
 let caller = "";
 let words = "";

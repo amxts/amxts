@@ -16,7 +16,7 @@
 // over rcon - is made without a player, and its total goes to the log alone:
 //
 //   const check = new Checks("cvar");
-import { Player, print } from "~/facade";
+import { Player, print } from "../facade";
 
 /**
  * Checks of one piece of the API on a live server. Each goes to the server

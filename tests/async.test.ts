@@ -265,7 +265,7 @@ async function compileSnippet(name: string, source: string) {
 describe('compiler', () => {
 	test('an async function returns Promise<T> of what it returns', async () => {
 		expect(await compileSnippet('typed', [
-			'import { sleep } from "~/facade";',
+			'import { sleep } from "@amxts/core";',
 			'async function f() { await sleep(1); return "text"; }',
 			'const p: Promise<string> = f();',
 			'export function g(): void { p.then((text) => console.log(text)); }',
@@ -280,7 +280,7 @@ describe('compiler', () => {
 
 	test('await outside an async function is an error', async () => {
 		const problem = await compileSnippet('await-outside', [
-			'import { sleep } from "~/facade";',
+			'import { sleep } from "@amxts/core";',
 			'function f() { await sleep(1); }',
 			'f();',
 		].join('\n'));

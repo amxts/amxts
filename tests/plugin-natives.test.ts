@@ -194,7 +194,7 @@ describe('a contract native', () => {
 
 	test('a Team where the include says TeamName: its number comes as the name, and a bad one never reaches it', async () => {
 		const heard = await pluginProbe('contract', `
-import { Team, plugin } from "~/facade";
+import { Team, plugin } from "@amxts/core";
 plugin({ name: "probe", version: "1", author: "x", include: "PROBE_INC" });
 let last = "";
 export function probe_team(team: Team, text?: string, color: Team = "UNASSIGNED") {
@@ -224,7 +224,7 @@ export function probe_last() {
 
 	test('a Team where the include has an untagged cell stops the build', async () => {
 		const error = await pluginProbe('contract', `
-import { Team, plugin } from "~/facade";
+import { Team, plugin } from "@amxts/core";
 plugin({ name: "probe", version: "1", author: "x", include: "PROBE_INC" });
 export function probe_team(team: Team, text?: string, color: Team = "UNASSIGNED") {}
 export function probe_count(count: Team) {}

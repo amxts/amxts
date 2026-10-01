@@ -23,7 +23,7 @@ const word = `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8
 const plugin = join(dir, 'plugin.ts');
 const greeting = join(dir, 'greeting.ts');
 writeFileSync(plugin, [
-	'import { plugin } from "~/facade";',
+	'import { plugin } from "@amxts/core";',
 	'import { GREETING } from "./greeting";',
 	'',
 	'plugin({ name: "cache-probe", version: "1.0.0", author: "", description: "" });',

@@ -1,7 +1,7 @@
 // Нативы, которые зовёт Pawn-плагин natives.sma: строки, Float, массивы и
 // буферы для результата. Своих проверок у этого плагина нет - их делает
 // Pawn-сторона, на том, что получила.
-import { nativeFn, ret } from "~/facade";
+import { nativeFn, ret } from "@amxts/core";
 
 /** Sum of two whole numbers. */
 export function xt_sum(a: number, b: number) {
