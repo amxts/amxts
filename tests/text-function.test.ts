@@ -98,3 +98,28 @@ export function run(): string {
 `);
 	expect(unchecked.error).toContain('not assignable');
 });
+
+test('a yes or no that is fixed, or that depends on who asks: boolean | (...) => boolean', async () => {
+	const { error, exports } = await probe({ 'probe.ts': `
+type Test = boolean | ((who: i32) => boolean);
+
+class Item {
+	enabled: Test = true;
+}
+
+function asks(test: Test, who: i32): string {
+	return test(who) ? "y" : "n";
+}
+
+export function run(): i32 {
+	const item = new Item();
+	const fixed: Item = { enabled: false };
+	let answers = asks(item.enabled, 1) + asks(fixed.enabled, 1) + asks((who) => who > 5, 7) + asks(false, 0);
+	item.enabled = (who) => who == 2;
+	answers += asks(item.enabled, 2) + asks(item.enabled, 3);
+	return answers == "ynynyn" ? 1 : 0;
+}
+` });
+	expect(error).toBe('');
+	expect(exports.run()).toBe(1);
+});
