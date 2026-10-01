@@ -3,6 +3,7 @@
 import type { Manifest } from '../scripts/release-check';
 // @ts-ignore - bun:test types not available during type checking
 import { expect, test } from 'bun:test';
+import { changelogSection, prependSection } from '../scripts/changelog';
 import { releaseProblems } from '../scripts/release-check';
 
 function manifest(system: 'windows' | 'linux', over: Partial<Manifest> = {}): Manifest {
@@ -40,4 +41,21 @@ test('a file not attached, or not the size it was built', () => {
 		'linux: built from a working tree with uncommitted changes',
 		'linux: amxts_amxx_i386.so is 1 bytes attached, 300 built',
 	]);
+});
+
+// A release's notes are its version's section of CHANGELOG.md (scripts/changelog.ts).
+const CHANGELOG = '# Changelog\n\n## v0.2.0\n\nWhat is new.\n\n### 🩹 Fixes\n\n- **build:** A fix\n\n## v0.1.0\n\nThe first release.\n';
+
+test('the notes of a version are its section, without its heading', () => {
+	expect(changelogSection(CHANGELOG, '0.2.0')).toBe('What is new.\n\n### 🩹 Fixes\n\n- **build:** A fix');
+	expect(changelogSection(CHANGELOG, '0.1.0')).toBe('The first release.');
+	expect(changelogSection('# Changelog\n\n## 0.1.0\n\nWithout a v.\n', '0.1.0')).toBe('Without a v.');
+	expect(changelogSection(CHANGELOG, '0.1.1')).toBeNull();
+	expect(changelogSection(CHANGELOG, '0.2')).toBeNull();
+});
+
+test('a new section goes above the newest one, or starts the changelog', () => {
+	expect(prependSection(CHANGELOG, '## v0.3.0\n\n- Next')).toBe(`# Changelog\n\n## v0.3.0\n\n- Next\n\n${CHANGELOG.slice('# Changelog\n\n'.length)}`);
+	expect(prependSection(null, '## v0.1.0\n\n- First')).toBe('# Changelog\n\n## v0.1.0\n\n- First\n');
+	expect(prependSection('# Changelog\n', '## v0.1.0')).toBe('# Changelog\n\n## v0.1.0\n');
 });

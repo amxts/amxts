@@ -1,0 +1,38 @@
+# A repository's GitHub Release of a tag, with the version's section of its
+# CHANGELOG.md as the notes (`bun run changelog release`): called on a tag by
+# the publish.yml of amxts-cli, the official modules and amxts-vscode. The
+# core's own release is made by CI, with its files (scripts/release.ts).
+name: Release notes
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The release's tag, v<version>
+        type: string
+        required: true
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          path: repo
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/amxts
+          path: amxts
+          sparse-checkout: scripts
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: The release, with its notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: bun amxts/scripts/changelog.ts release "$TAG" --dir repo
