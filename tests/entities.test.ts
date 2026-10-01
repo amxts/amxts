@@ -166,6 +166,7 @@ test('a field is read where the game keeps it, not through reapi\'s natives', ()
 	expect(source).toContain('\tget gravity(): number { return cellFloat(entvarCell(this.id, 284)); }');
 	// The game rules are read in memory too, through reapi only where the gamedata cannot find them.
 	expect(source).toMatch(/\tget numCtWins\(\): number \{ return gameCell\(\d+, m_iNumCTWins\); \}/);
-	// ReGameDLL's own member is reapi's alone, and says so on a server without it.
-	expect(source).toContain('\tget gameDesc(): string { return reapiGameText(m_GameDesc, "gameDesc"); }');
+	// ReGameDLL's own member is reapi's; without it, what the server has instead (as/hlds.ts), or nothing, said once.
+	expect(source).toContain('\tget gameDesc(): string { return reapiGameText(m_GameDesc, "gameDesc", gameDescHlds); }');
+	expect(source).toContain('\tget teamBalanced(): boolean { return reapiGameCell(m_bTeamBalanced, "teamBalanced") != 0; }');
 });

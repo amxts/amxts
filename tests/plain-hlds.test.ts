@@ -132,6 +132,14 @@ test('without reapi a defuse is the game\'s log line, with the player it names',
 	expect(server.log).toContain(`defused ${alice.id} true`);
 });
 
+test('without reapi the game rules\' fields of ReGameDLL\'s own are read from what the server has', async () => {
+	const server = await loadPlugin(PLUGIN, PLAIN);
+	server.setCvar('mp_timelimit', 0);
+	server.serverCommand('time_limit');
+	expect(server.log).toContain(`time limit 0 0 Counter-Strike ${server.maxPlayers}`);
+	expect(Number(server.cvar('mp_timelimit'))).toBe(10);
+});
+
 test('with reapi a player\'s event is reapi\'s chain', async () => {
 	const server = await loadPlugin(PLUGIN);
 	expect(server.hookchains.get('take_damage')?.pre.length).toBe(1);
