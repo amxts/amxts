@@ -1348,8 +1348,8 @@ export default {
 			or a text, as the message wrote it.
 
 			\`\`\`ts
-			server.addEventListener("message:TeamScore", (event) => {
-			  console.log(\`\${event.args.text(0)} \${event.args.number(1)}\`);
+			server.addEventListener("message:BotProgress", (event) => {
+			  console.log(\`\${event.args.length} \${event.args.number(0)}\`);
 			});
 			\`\`\`
 
@@ -1360,8 +1360,8 @@ export default {
 			записало сообщение.
 
 			\`\`\`ts
-			server.addEventListener("message:TeamScore", (event) => {
-			  console.log(\`\${event.args.text(0)} \${event.args.number(1)}\`);
+			server.addEventListener("message:BotProgress", (event) => {
+			  console.log(\`\${event.args.length} \${event.args.number(0)}\`);
 			});
 			\`\`\`
 
@@ -1403,9 +1403,10 @@ export default {
 			});
 			\`\`\`
 
-			A message the editor knows has typed fields (\`event.text\`); every one has
-			its arguments in \`event.args\`. Writing a field changes what the client
-			gets.
+			A message whose layout is known has a typed field for each argument
+			(\`event.text\`), and writing one changes what the client gets; a message
+			without a known layout is read by place, through \`event.args\`, which
+			every message has.
 
 			Pawn: \`register_message\`
 		`,
@@ -1419,9 +1420,10 @@ export default {
 			});
 			\`\`\`
 
-			У сообщения, которое знает редактор, есть типизированные поля
-			(\`event.text\`); аргументы любого — в \`event.args\`. Запись поля меняет то,
-			что получит клиент.
+			У сообщения с известной раскладкой на каждый аргумент есть типизированное
+			поле (\`event.text\`), и запись в него меняет то, что получит клиент;
+			сообщение без известной раскладки читается по месту, через \`event.args\`,
+			которые есть у любого сообщения.
 
 			Pawn: \`register_message\`
 		`,

@@ -2427,8 +2427,8 @@ const FFADE_STAYOUT = 0x0004;
  * or a text, as the message wrote it.
  *
  * ```ts
- * server.addEventListener("message:TeamScore", (event) => {
- *   console.log(`${event.args.text(0)} ${event.args.number(1)}`);
+ * server.addEventListener("message:BotProgress", (event) => {
+ *   console.log(`${event.args.length} ${event.args.number(0)}`);
  * });
  * ```
  *
@@ -2481,9 +2481,10 @@ export class MessageArgs {
  * });
  * ```
  *
- * A message the editor knows has typed fields (`event.text`); every one has
- * its arguments in `event.args`. Writing a field changes what the client
- * gets.
+ * A message whose layout is known has a typed field for each argument
+ * (`event.text`), and writing one changes what the client gets; a message
+ * without a known layout is read by place, through `event.args`, which
+ * every message has.
  *
  * Pawn: `register_message`
  */
@@ -2515,29 +2516,51 @@ export class ClientMessage {
 		handled();
 	}
 
-	/** @hidden An argument by its number, 1 for the first, as a number. */
+	// A field reads an argument by its number, 1 for the first. One the
+	// message did not write - StatusIcon's colour when it hides the icon, a
+	// game text without words to put in - reads as 0 or "", and writing it
+	// does nothing: AMX Mod X reports an argument past the last as an error.
+
+	/** @hidden Whether the message has the argument. */
+	protected __has(arg: i32): bool {
+		return arg <= get_msg_args();
+	}
+
+	/** @hidden An argument as a number. */
 	protected __number(arg: i32): f64 {
-		return this.args.number(arg - 1);
+		return this.__has(arg) ? this.args.number(arg - 1) : 0;
 	}
 
 	/** @hidden */
 	protected __setNumber(arg: i32, value: f64): void {
-		this.args.setNumber(arg - 1, value);
+		if (this.__has(arg)) this.args.setNumber(arg - 1, value);
 	}
 
 	/** @hidden */
 	protected __text(arg: i32): string {
-		return get_msg_arg_string(arg);
+		return this.__has(arg) ? get_msg_arg_string(arg) : "";
 	}
 
 	/** @hidden */
 	protected __setText(arg: i32, value: string): void {
-		set_msg_arg_string(arg, value);
+		if (this.__has(arg)) set_msg_arg_string(arg, value);
+	}
+
+	/** @hidden Every text from the argument on. */
+	protected __texts(arg: i32): string[] {
+		const texts: string[] = [];
+		for (let at = arg; this.__has(at); at++) texts.push(get_msg_arg_string(at));
+		return texts;
+	}
+
+	/** @hidden Writes the texts from the argument on, as many as the message has. */
+	protected __setTexts(arg: i32, value: string[]): void {
+		for (let i = 0; i < value.length && this.__has(arg + i); i++) set_msg_arg_string(arg + i, value[i]);
 	}
 
 	/** @hidden A player's number argument; `0` or past the players is none. */
 	protected __player(arg: i32): Player | null {
-		const id = get_msg_arg_int(arg);
+		const id = <i32>this.__number(arg);
 		return id >= 1 && id <= get_maxplayers() ? new Player(id) : null;
 	}
 }
@@ -2569,6 +2592,39 @@ function addMessageListener<E>(name: string, listener: (event: E) => void): void
 		messageChannels.push(channel);
 		if (serverUp) registerMessage(channel);
 		else waitingMessages.push(channel);
+
+	/** @hidden Three coordinates from the argument on. */
+	protected __vector(arg: i32): Vector {
+		return new Vector(this.__number(arg), this.__number(arg + 1), this.__number(arg + 2));
+	}
+
+	/** @hidden */
+	protected __setVector(arg: i32, value: number[]): void {
+		for (let i = 0; i < 3; i++) this.__setNumber(arg + i, value[i]);
+	}
+
+	/** @hidden `count` bytes from the argument on: a colour. */
+	protected __bytes(arg: i32, count: i32): number[] {
+		const bytes: number[] = [];
+		for (let i = 0; i < count; i++) bytes.push(this.__number(arg + i));
+		return bytes;
+	}
+
+	/** @hidden */
+	protected __setBytes(arg: i32, value: number[]): void {
+		for (let i = 0; i < value.length; i++) this.__setNumber(arg + i, value[i]);
+	}
+
+	/** @hidden Whether the argument has the bit. */
+	protected __bit(arg: i32, bit: i32): bool {
+		return (<i32>this.__number(arg) & bit) != 0;
+	}
+
+	/** @hidden Sets or clears one bit of the argument, keeping the others. */
+	protected __setBit(arg: i32, bit: i32, on: bool): void {
+		const mask = <i32>this.__number(arg);
+		this.__setNumber(arg, on ? mask | bit : mask & ~bit);
+	}
 	}
 
 	channel.listeners.push(changetype<(event: ClientMessage) => void>(listener));

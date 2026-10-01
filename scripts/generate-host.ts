@@ -15,6 +15,7 @@ import { docsLang, docText, pick, renderDoc } from './apply-docs';
 import { CLIENT_MESSAGES, MESSAGE_FIELDS } from './client-messages';
 import { EVENTS, PLAYER_CHANGE } from './docs/events';
 import { ANY_MESSAGE, MESSAGES } from './docs/messages';
+import { GAME_ENUMS, memberName } from './include-enums';
 import { includePath, listIncludes, parseOrder, readInclude, resolveTransitive } from './includes';
 
 const includesDir = './includes';
@@ -540,19 +541,33 @@ function removeBranch(e: ServerEvent): string {
 // are a class of their own over ClientMessage (as/facade.ts), whose hood reads
 // and writes an argument by its number.
 
-/** A getter and a setter per kind of field: `n` is the argument's number. */
-const MESSAGE_ACCESSORS: Record<MessageField['kind'], { type: string; get: (n: number) => string; set: (n: number) => string }> = {
-	number: { type: 'number', get: n => `this.__number(${n})`, set: n => `this.__setNumber(${n}, value)` },
-	boolean: { type: 'boolean', get: n => `this.__number(${n}) != 0`, set: n => `this.__setNumber(${n}, value ? 1 : 0)` },
-	string: { type: 'string', get: n => `this.__text(${n})`, set: n => `this.__setText(${n}, value)` },
-	player: { type: 'Player | null', get: n => `this.__player(${n})`, set: n => `this.__setNumber(${n}, value != null ? value.id : 0)` },
-	weapon: { type: 'WeaponKind', get: n => `weaponKindOf(this.__number(${n}))`, set: n => `this.__setNumber(${n}, weaponIdOf(value))` },
-	hideHud: { type: 'HideHud[]', get: n => `<HideHud[]>HIDE_HUD.namesOf(<i32>this.__number(${n}))`, set: n => `this.__setNumber(${n}, HIDE_HUD.maskOf(value))` },
-	damage: { type: 'Damage[]', get: n => `<Damage[]>DAMAGE.namesOf(<i32>this.__number(${n}))`, set: n => `this.__setNumber(${n}, DAMAGE.maskOf(value))` },
-	team: { type: 'Team', get: n => `MESSAGE_TEAMS[<i32>min(max(this.__number(${n}), 0), 3)]`, set: n => `this.__setNumber(${n}, max(MESSAGE_TEAMS.indexOf(value), 0))` },
-	statusIcon: { type: 'StatusIconState', get: n => `STATUS_ICON_STATES[<i32>min(max(this.__number(${n}), 0), 2)]`, set: n => `this.__setNumber(${n}, max(STATUS_ICON_STATES.indexOf(value), 0))` },
-	destination: { type: 'VariantName', get: n => `MESSAGE_DESTINATIONS[<i32>min(max(this.__number(${n}), 0), 4)]`, set: n => `this.__setNumber(${n}, max(MESSAGE_DESTINATIONS.indexOf(value), 1))` },
+/** A getter and a setter per kind of field, of the field - `arg` is its argument's number; `takes` what the setter takes, where more than the getter gives. */
+const MESSAGE_ACCESSORS: Record<MessageField['kind'], { type: string; takes?: string; get: (f: MessageField) => string; set: (f: MessageField) => string }> = {
+	number: { type: 'number', get: f => `this.__number(${f.arg})`, set: f => `this.__setNumber(${f.arg}, value)` },
+	boolean: { type: 'boolean', get: f => `this.__number(${f.arg}) != 0`, set: f => `this.__setNumber(${f.arg}, value ? 1 : 0)` },
+	string: { type: 'string', get: f => `this.__text(${f.arg})`, set: f => `this.__setText(${f.arg}, value)` },
+	texts: { type: 'string[]', get: f => `this.__texts(${f.arg})`, set: f => `this.__setTexts(${f.arg}, value)` },
+	player: { type: 'Player | null', get: f => `this.__player(${f.arg})`, set: f => `this.__setNumber(${f.arg}, value != null ? value.id : 0)` },
+	weapon: { type: 'WeaponKind', get: f => `weaponKindOf(this.__number(${f.arg}))`, set: f => `this.__setNumber(${f.arg}, weaponIdOf(value))` },
+	team: { type: 'Team', get: f => `MESSAGE_TEAMS[<i32>min(max(this.__number(${f.arg}), 0), 3)]`, set: f => `this.__setNumber(${f.arg}, max(MESSAGE_TEAMS.indexOf(value), 0))` },
+	teamName: { type: 'Team', get: f => `messageTeam(this.__text(${f.arg}))`, set: f => `this.__setText(${f.arg}, value)` },
+	vector: { type: 'Vector', takes: 'number[]', get: f => `this.__vector(${f.arg})`, set: f => `this.__setVector(${f.arg}, value)` },
+	color: { type: 'number[]', get: f => `this.__bytes(${f.arg}, ${f.of})`, set: f => `this.__setBytes(${f.arg}, value)` },
+	fixed: { type: 'number', get: f => `this.__number(${f.arg}) / ${f.of}.0`, set: f => `this.__setNumber(${f.arg}, Math.round(value * ${f.of}.0))` },
+	bit: { type: 'boolean', get: f => `this.__bit(${f.arg}, ${f.of})`, set: f => `this.__setBit(${f.arg}, ${f.of}, value)` },
+	fadeDirection: { type: 'FadeDirection', get: f => `this.__bit(${f.arg}, FFADE_OUT) ? "out" : "in"`, set: f => `this.__setBit(${f.arg}, FFADE_OUT, value == "out")` },
+	hideHud: { type: 'HideHud[]', get: f => `<HideHud[]>HIDE_HUD.namesOf(<i32>this.__number(${f.arg}))`, set: f => `this.__setNumber(${f.arg}, HIDE_HUD.maskOf(value))` },
+	damage: { type: 'Damage[]', get: f => `<Damage[]>DAMAGE.namesOf(<i32>this.__number(${f.arg}))`, set: f => `this.__setNumber(${f.arg}, DAMAGE.maskOf(value))` },
+	scoreStatus: { type: 'ScoreStatus[]', get: f => `<ScoreStatus[]>SCORE_STATUS.namesOf(<i32>this.__number(${f.arg}))`, set: f => `this.__setNumber(${f.arg}, SCORE_STATUS.maskOf(value))` },
+	statusIcon: { type: 'StatusIconState', get: f => `STATUS_ICON_STATES[<i32>min(max(this.__number(${f.arg}), 0), 2)]`, set: f => `this.__setNumber(${f.arg}, max(STATUS_ICON_STATES.indexOf(value), 0))` },
+	destination: { type: 'VariantName', get: f => `MESSAGE_DESTINATIONS[<i32>min(max(this.__number(${f.arg}), 0), 4)]`, set: f => `this.__setNumber(${f.arg}, max(MESSAGE_DESTINATIONS.indexOf(value), 1))` },
+	vguiMenu: { type: 'VguiMenu', get: f => `vguiMenuName(<i32>this.__number(${f.arg}))`, set: f => `this.__setNumber(${f.arg}, vguiMenuCell(value, <i32>this.__number(${f.arg})))` },
 };
+
+// VGUIMenu's menus by the names game.addEventListener("showVguiMenu") gives
+// them (VguiMenu, scripts/generate-hooks.ts): the include's members, named by
+// the same rule.
+const VGUI_MENUS = GAME_ENUMS.get('VGUIMenu')!.map(m => ({ name: memberName(m.name.replace(/^VGUI_Menu_/, ''), false), value: m.value }));
 
 const messageClassName = (name: string) => `${name}Message`;
 
@@ -567,8 +582,8 @@ function messageClass(name: string) {
 		const words = MESSAGES[name]?.fields?.[field.name];
 		return [
 			`\t${renderDoc(`${words ? `${docText(pick(words, DOCS_LANG))}\n\n` : ''}Pawn: \`get_msg_arg_*(${field.arg})\``, '\t')}`,
-			`\tget ${field.name}(): ${accessor.type} { return ${accessor.get(field.arg)}; }`,
-			`\tset ${field.name}(value: ${accessor.type}) { ${accessor.set(field.arg)}; }`,
+			`\tget ${field.name}(): ${accessor.type} { return ${accessor.get(field)}; }`,
+			`\tset ${field.name}(value: ${accessor.takes ?? accessor.type}) { ${accessor.set(field)}; }`,
 		].join('\n');
 	});
 	return [
@@ -602,10 +617,11 @@ writeFileSync('./as/events.ts', `// GENERATED by scripts/generate-host.ts — do
 // a patch (runtime/patches: \`K extends keyof M\` and \`M[K]\`), so an untyped
 // \`(event) => ...\` gets the event's type. Underneath, each event keeps its
 // listeners in an array and relays its forward from the first one on.
-import { Client, ClientMessage, Player, PlayerChangeEvent, StatusIconState, Team, VariantName, __forwardNumbers, __nativeCell, __nativeString, __nativeVector } from "./facade";
+import { Client, ClientMessage, FadeDirection, Player, PlayerChangeEvent, StatusIconState, Team, VariantName, __forwardNumbers, __nativeCell, __nativeString, __nativeVector } from "./facade";
 import { Vector } from "./vector";
 import { WeaponKind, weaponKindOf } from "./entities";
-import { DAMAGE, Damage, HIDE_HUD, HideHud } from "./flags";
+import { DAMAGE, Damage, HIDE_HUD, HideHud, SCORE_STATUS, ScoreStatus } from "./flags";
+import { VguiMenu } from "./hooks";
 
 // @ts-ignore: decorator
 @external("env", "on")
@@ -618,12 +634,35 @@ const MESSAGE_TEAMS: Team[] = ["UNASSIGNED", "TERRORIST", "CT", "SPECTATOR"];
 const STATUS_ICON_STATES: StatusIconState[] = ["hide", "show", "flash"];
 const MESSAGE_DESTINATIONS: VariantName[] = ["notify", "notify", "console", "chat", "center"];
 
+// ScreenFade's flag for a fade from a clear view to the colour.
+const FFADE_OUT = 1;
+
 /** A WeaponKind's id, as a message carries it; 0 for one it does not know. */
 function weaponIdOf(kind: WeaponKind): i32 {
 	for (let id = 1; id < 32; id++) {
 		if (weaponKindOf(id) == kind) return id;
 	}
 	return 0;
+}
+
+/** A team a message writes as text; one it does not name is "UNASSIGNED". */
+function messageTeam(text: string): Team {
+	const team = <Team>text;
+	return MESSAGE_TEAMS.includes(team) ? team : "UNASSIGNED";
+}
+
+/** A VGUIMenu number as its name; a number it does not name reads as "unknown". */
+function vguiMenuName(cell: i32): VguiMenu {
+	switch (cell) {
+${VGUI_MENUS.map(m => `\t\tcase ${m.value}: return "${m.name}";`).join('\n')}
+	}
+	return "unknown";
+}
+
+/** A VguiMenu name as its number; "unknown" keeps the argument as it came. */
+function vguiMenuCell(name: VguiMenu, current: i32): i32 {
+${VGUI_MENUS.map(m => `\tif (name == "${m.name}") return ${m.value};`).join('\n')}
+	return current;
 }
 
 ${typedMessages.map(messageClass).join('\n\n')}

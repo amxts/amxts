@@ -36,6 +36,12 @@ const FAMILIES: { prefix: string; name: string; about: string; names?: Record<st
 	{ prefix: 'DMG_', name: 'Damage', about: 'Kinds of damage - the damage type a hook receives.' },
 	{ prefix: 'ADMIN_', name: 'Access', about: 'What an admin may do - get_user_flags, users.ini letters.' },
 	{
+		prefix: 'SCORE_STATUS_',
+		name: 'ScoreStatus',
+		about: 'What the scoreboard shows beside a player - the ScoreAttrib message: dead, the bomb, the VIP, a defuse kit.',
+		names: { SCORE_STATUS_DEFKIT: 'DefuseKit' },
+	},
+	{
 		prefix: 'WPNSTATE_',
 		name: 'WeaponState',
 		about: 'Modes a weapon is in - m_iWeaponState: a silencer on, burst fire, the shield drawn.',
