@@ -133,9 +133,12 @@ test('a Ham Sandwich function reapi has no chain for is an event of its own, nam
 test('the same function under reapi and Ham Sandwich is one event: reapi for its own class, Ham Sandwich for another', () => {
 	expect(classBody('TakeDamageEvent')).toContain('private static readonly ham: i32 = Ham_TakeDamage;');
 	expect(classBody('TakeDamageEvent')).toContain('get entity(): Entity');
-	expect(hooks).toContain('if (classname.length > 0 && classname != "player") { takeDamageHams.listen(classname, post, takeDamageFire).push(entry); return; }');
-	// A weapon chain's own class is every weapon: a class narrows it to Ham Sandwich.
-	expect(hooks).toContain('if (classname.length > 0) { canDeployHams.listen(classname, post, canDeployFire).push(entry); return; }');
+	// Without reapi, Ham Sandwich hears the chain's own class too: "player".
+	expect(hooks).toContain('if ((classname.length > 0 && classname != "player") || !__hasReapi()) { takeDamageHams.listen(classname.length > 0 ? classname : "player", post, takeDamageFire).push(entry); return; }');
+	// A weapon chain's own class is every weapon: a class narrows it to Ham Sandwich, and without reapi it hooks every weapon's.
+	expect(hooks).toContain('if ((classname.length > 0) || !__hasReapi()) { canDeployHams.listen(classname.length > 0 ? classname : EVERY_WEAPON, post, canDeployFire).push(entry); return; }');
+	// A chain of ReGameDLL's own says so on a server without reapi, once, and is not added.
+	expect(hooks).toContain('if (!__hasReapi()) { __sayOnce("roundEnd needs ReAPI, which this server does not have: its listeners are never called"); return; }');
 	expect(hooks).toMatch(/\tspawn: SpawnEvent;/);
 	expect(hooks).not.toContain('basePlayerSpawn');
 	expect(hooks).toMatch(/\tgameThink: GameThinkEvent;/);

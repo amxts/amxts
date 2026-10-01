@@ -1138,6 +1138,11 @@ const WEAPON_IDS = [
 	"weapon_sg552", "weapon_ak47", "weapon_knife", "weapon_p90"
 ];
 
+/** @hidden Every weapon's class name: what Ham Sandwich hooks a weapon's event on for "every weapon". */
+export function __weaponClassnames(): string[] {
+	return WEAPON_IDS.filter((name) => name.length > 0);
+}
+
 /**
  * The filter of `Player.all`; every field is optional, e.g.
  * `Player.all({ alive: true, team: "CT" })`.
