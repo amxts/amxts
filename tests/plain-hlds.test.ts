@@ -5,14 +5,16 @@ import { constant, loadPlugin, setup } from '@amxts/core/test-utils';
 // A server without reapi - plain HLDS: the hood picks the backend once, and a
 // plugin reads the same. A player's game events go through Ham Sandwich, a
 // weapon's with no class through every weapon's; an event of ReGameDLL's own
-// is one line in the console and no listener; fields are read in memory; a
-// team's score and a round's end are done as the game does them. A project
-// for plain HLDS does not build a listener for an event reapi alone delivers.
-// tests/as/plain-hlds.ts.
+// through the stock hook that hears it (scripts/hlds-events.ts), with what
+// it cannot give said once, or, where nothing hears it, one line in the
+// console and no listener; fields are read in memory; a team's score and a
+// round's end are done as the game does them. A project for plain HLDS does
+// not build a listener for an event nothing there hears. tests/as/plain-hlds.ts.
 // @ts-ignore - bun:test types not available during type checking
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
+import { FIELDS_NOT_HEARD, HEARD, HEARD_FIELDS, NOT_HEARD } from '../scripts/hlds-events';
 import { setProjectDir } from '../scripts/project';
-import { reapiEvents } from '../scripts/reapi-events';
+import { reapiEvents, unheardEvents } from '../scripts/reapi-events';
 
 setDefaultTimeout(240_000);
 
@@ -35,10 +37,93 @@ test('without reapi a player\'s event is Ham Sandwich\'s on "player", a weapon\'
 	expect(server.log).toContain(`jump ${alice.id}`);
 });
 
-test('an event of ReGameDLL\'s own says so once, and is not listened for', async () => {
+test('an event nothing on plain HLDS hears says so once, and is not listened for', async () => {
 	const server = await loadPlugin(PLUGIN, PLAIN);
-	const said = server.logLines.filter(line => line.includes('roundEnd needs ReAPI'));
-	expect(said).toEqual(['warning: roundEnd needs ReAPI, which this server does not have: its listeners are never called']);
+	const said = server.logLines.filter(line => line.includes('needs ReAPI'));
+	expect(said).toEqual(['warning: flPlayerFallDamage needs ReAPI, which this server does not have: its listeners are never called']);
+});
+
+test('without reapi a player spawns through Ham Sandwich\'s Spawn, after the game: preventDefault() is said once', async () => {
+	const server = await loadPlugin(PLUGIN, PLAIN);
+	const alice = server.join('Alice');
+	server.fireHam('spawn', alice);
+	server.fireHam('spawn', alice);
+	expect(server.logLines.filter(line => line === `spawned ${alice.id}`)).toHaveLength(2);
+	const said = server.logLines.filter(line => line.includes('playerSpawn is heard'));
+	expect(said).toEqual(['warning: playerSpawn is heard on this server without ReAPI, where the game does not take a listener\'s preventDefault(), answer or change of a field']);
+
+	// One who only joined spawns dead: no round's spawn.
+	alice.alive = false;
+	server.fireHam('spawn', alice);
+	expect(server.logLines.filter(line => line === `spawned ${alice.id}`)).toHaveLength(2);
+});
+
+test('without reapi a new round is the HLTV message before the respawn, and the decals\' reset at its time after', async () => {
+	const server = await loadPlugin(PLUGIN, PLAIN);
+	const decals = server.precached.indexOf('events/decal_reset.sc') + 1;
+	expect(decals).toBeGreaterThan(0);
+	const playback = (id: number) => server.fire('pfn_playbackevent', 0, 0, id, 0, [0, 0, 0], [0, 0, 0], 0, 0, 0, 0, 0, 0);
+
+	server.sendMessage('HLTV', [0, 0]);
+	playback(decals + 1);
+	expect(server.logLines.filter(line => line.startsWith('new round'))).toEqual(['new round']);
+	playback(decals);
+	expect(server.logLines.filter(line => line.startsWith('new round'))).toEqual(['new round', 'new round, respawned']);
+
+	// HLTV of another kind is no new round.
+	server.sendMessage('HLTV', [1, 0]);
+	expect(server.logLines.filter(line => line === 'new round')).toHaveLength(1);
+});
+
+test('without reapi the map\'s first round is heard when the plugins start, once', async () => {
+	const server = await loadPlugin(PLUGIN, PLAIN);
+	expect(server.logLines.filter(line => line === 'new round')).toEqual([]);
+	server.rules.set(constant('m_bFreezePeriod'), 1);
+	server.fire('plugin_cfg');
+	server.sendMessage('HLTV', [0, 0]);
+	expect(server.logLines.filter(line => line === 'new round')).toEqual(['new round']);
+});
+
+test('without reapi a round\'s end is its log line, with the winner and the reason from the message before it', async () => {
+	const server = await loadPlugin(PLUGIN, PLAIN);
+	server.gameLog('World triggered "Round_Start"');
+	server.sendMessage('TextMsg', [4, '#Target_Bombed']);
+	server.sendMessage('SendAudio', [0, '%!MRAD_terwin', 100]);
+	server.gameLog('Team "TERRORIST" triggered "Target_Bombed" (CT "0") (T "1")');
+	server.gameLog('World triggered "Round_End"');
+	expect(server.logLines.filter(line => line.startsWith('round'))).toEqual(['round start', 'round TERRORIST targetBomb 5', 'round TERRORIST targetBomb 5']);
+});
+
+test('without reapi money is the Money message, by how much it moved', async () => {
+	const server = await loadPlugin(PLUGIN, PLAIN);
+	// He comes with none, and the game gives him the starting money.
+	const alice = server.join('Alice');
+	server.sendMessage('Money', [800, 1], { player: alice });
+	server.sendMessage('Money', [800, 1], { player: alice });
+	server.sendMessage('Money', [500, 1], { player: alice });
+	expect(server.logLines.filter(line => line.startsWith('money'))).toEqual([`money ${alice.id} 800`, `money ${alice.id} -300`]);
+});
+
+test('without reapi a team\'s pick is the player\'s command, which preventDefault() stops', async () => {
+	const server = await loadPlugin(PLUGIN, PLAIN);
+	const alice = server.join('Alice');
+	expect(alice.command('jointeam 6')).toBe(true);
+	expect(alice.command('jointeam 2')).toBe(false);
+	expect(server.log).not.toContain('chooseTeam is heard');
+});
+
+test('without reapi a purchase is asked through cstrike: answering true forbids it', async () => {
+	const server = await loadPlugin(PLUGIN, PLAIN);
+	const alice = server.join('Alice');
+	expect(server.fire('CS_OnBuyAttempt', alice.id, constant('CSI_AWP'))).toBe(1);
+	expect(server.fire('CS_OnBuyAttempt', alice.id, constant('CSI_AK47'))).toBe(0);
+});
+
+test('without reapi a defuse is the game\'s log line, with the player it names', async () => {
+	const server = await loadPlugin(PLUGIN, PLAIN);
+	const alice = server.join('Alice <the> Great');
+	server.gameLog(`"${alice.name}<${alice.userid}><STEAM_0:0:1><CT>" triggered "Defused_The_Bomb"`);
+	expect(server.log).toContain(`defused ${alice.id} true`);
 });
 
 test('with reapi a player\'s event is reapi\'s chain', async () => {
@@ -87,6 +172,22 @@ test('the events reapi alone delivers are ReGameDLL\'s and ReHLDS\'s own', () =>
 	for (const event of ['takeDamage', 'jump', 'spawn', 'think', 'canDeploy']) expect(events.has(event)).toBe(false);
 });
 
+test('each of them is heard on plain HLDS, fully or with its gaps, or is not, with the reason', () => {
+	const classified = [...Object.keys(HEARD), ...Object.keys(NOT_HEARD)].sort();
+	expect(classified).toEqual([...reapiEvents()].sort());
+	// A B event's gaps are said on its tooltip and its page, in both languages; an A event has none.
+	const said = Object.entries(HEARD).filter(([, heard]) => (heard.class === 'B') !== Boolean(heard.gaps?.en && heard.gaps.ru));
+	expect(said).toEqual([]);
+	expect([...unheardEvents()].sort()).toEqual(Object.keys(NOT_HEARD).sort());
+	for (const event of ['playerSpawn', 'roundEnd', 'restartRound', 'onRoundFreezeEnd', 'addAccount', 'plantBomb']) expect(HEARD[event]?.class).toBe('B');
+	for (const event of ['flPlayerFallDamage', 'move', 'canHavePlayerItem']) expect(NOT_HEARD[event]).toBeString();
+});
+
+test('so is each game rules field of ReGameDLL\'s own', () => {
+	const own = ['gameDesc', 'timeLimit', 'gameStartTime', 'teamBalanced', 'neededPlayers', 'skipShowMenu', 'escapeRatio', 'maxPlayers', 'updateInterval', 'msgPlayerVoiceMask', 'msgRequestState'];
+	expect([...Object.keys(HEARD_FIELDS), ...Object.keys(FIELDS_NOT_HEARD)].sort()).toEqual(own.sort());
+});
+
 const made: string[] = [];
 let projects = 0;
 
@@ -107,20 +208,22 @@ function project(files: Record<string, string>) {
 	return dir;
 }
 
-test('a project for plain HLDS does not build a listener for an event reapi alone delivers', async () => {
+test('a project for plain HLDS does not build a listener for an event nothing there hears', async () => {
 	const dir = project({
 		'amxts.config.ts': 'export default defineConfig({ target: "hlds" });\n',
 		'plugins/rounds.ts': [
 			'game.addEventListener("takeDamage", (event) => console.log(`${event.damage}`));',
-			'',
 			'game.addEventListener("roundEnd", (event) => console.log(event.winner));',
+			'game.addEventListener("flPlayerFallDamage", (event) => event.result / 2, true);',
 			'',
 		].join('\n'),
 	});
 
 	const failed = await setup({ rootDir: dir }).then(() => '', (error: Error) => error.message);
-	expect(failed).toMatch(/rounds\.ts:3: "roundEnd" needs ReAPI, and amxts\.config\.ts's target is "hlds"/);
+	expect(failed).toMatch(/rounds\.ts:3: "flPlayerFallDamage" needs ReAPI, and amxts\.config\.ts's target is "hlds" - nothing on plain HLDS hears it/);
+	// takeDamage is Ham Sandwich's there, roundEnd the game's log line: both build.
 	expect(failed).not.toContain('takeDamage');
+	expect(failed).not.toContain('roundEnd');
 });
 
 test('the same listener builds for ReHLDS', async () => {

@@ -28,7 +28,7 @@ const ROOT = 'as';
 // The modules the project uses (amxts.config.ts - the official ones, from
 // their repositories beside this one): their src/ is plugin code like as/.
 const MODULES = loadProject().modules.map(pkg => join(pkg.dir, 'src'));
-const EXEMPT = new Set(['facade.ts', 'kit.ts', 'fs.ts', 'os.ts', 'promise.ts', 'promise.types.d.ts', 'amxts.d.ts', 'natives.ts', 'remote.ts', 'constants.ts', 'events.ts', 'flags.ts', 'entities.ts', 'hooks.ts', 'vector.ts', 'effects.ts', 'fetch.ts']);
+const EXEMPT = new Set(['facade.ts', 'kit.ts', 'fs.ts', 'os.ts', 'promise.ts', 'promise.types.d.ts', 'amxts.d.ts', 'natives.ts', 'remote.ts', 'constants.ts', 'events.ts', 'flags.ts', 'entities.ts', 'hooks.ts', 'vector.ts', 'effects.ts', 'fetch.ts', 'hlds.ts']);
 
 /**
  * Natives the facade has its own way of doing, and that way. It grows with

@@ -29,6 +29,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { docsLang, docText, pick, renderDoc } from './apply-docs';
 import { GAME } from './docs/game';
 import { HAM_FUNCTIONS } from './ham-functions';
+import { HEARD } from './hlds-events';
 import { GAME_ENUMS, memberName } from './include-enums';
 import { includePath } from './includes';
 
@@ -700,9 +701,20 @@ const say = (en: string, ru: string) => (DOCS_LANG === 'ru' ? ru : en);
 /** What an editor shows for a chain: scripts/docs/game.ts first, reapi's Description after. */
 function gameSummary(camel: string, comment: string) {
 	const ours = GAME[camel];
-	if (ours) return pick(ours.summary, DOCS_LANG);
 	const description = line(comment, 'Description');
-	return description && description !== '-' ? description : '';
+	return ours ? pick(ours.summary, DOCS_LANG) : description && description !== '-' ? description : '';
+}
+
+/**
+ * What a reapi event's tooltip says of a server without reapi - plain HLDS:
+ * what it does not give there (scripts/hlds-events.ts), or that nothing hears
+ * it. An event heard fully says nothing.
+ */
+function withoutReapi(camel: string) {
+	const heard = HEARD[camel];
+	if (heard?.gaps) return say(`\n\nWithout ReAPI (plain HLDS): ${heard.gaps.en}.`, `\n\nБез ReAPI (чистый HLDS): ${heard.gaps.ru}.`);
+	if (heard) return '';
+	return say('\n\nWithout ReAPI (plain HLDS) nothing hears it.', '\n\nБез ReAPI (чистый HLDS) его ничто не слышит.');
 }
 
 /**
@@ -807,7 +819,8 @@ for (const [hook, id] of [...idOfName].sort((a, b) => a[0].localeCompare(b[0])))
 		ham,
 		params: paramsOf(hook, constant, paramsLine),
 		result: resultOf(hook, line(comment, 'Return type') || UNDOCUMENTED_RESULTS[constant] || ''),
-		summary: gameSummary(camel, comment),
+		// An event Ham Sandwich delivers too is heard the same without reapi.
+		summary: gameSummary(camel, comment) + (ham ? '' : withoutReapi(camel)),
 		pawn: `\`${constant}\`${paramsLine ? ` ${paramsLine}` : ''}${ham ? `, \`${ham.ham}\`` : ''}`,
 		extra: [],
 	};
@@ -910,15 +923,37 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 	].join('\n'));
 
 	const T = result ? TYPES[result.kind] : 'i32';
+	// Heard on plain HLDS through a stock hook (as/hlds.ts): the backend makes the event and hands it to each phase.
+	const heard = hook && !ham ? HEARD[camel] : undefined;
 	const pawnNames = spec.pawn.replace(/ \([^)]*\)/, '');
 	eventKeys.push(`\t${renderDoc(`${spec.summary ? `${docText(spec.summary)}\n\n` : ''}Pawn: ${pawnNames}`, '\t')}`, `\t${camel}: ${Name};`);
 	answerKeys.push(`\t${camel}: ${result ? T : 'void'};`);
 
-	const fire = result
+	// The event a hook delivers is made here; the one a stock hook's backend
+	// made goes through the same loop, Run, for each phase.
+	const open = heard
 		? [
 				`function ${camel}Fire(entries: HookEntry<${Name}, ${T}>[], post: bool, ham: bool): void {`,
 				`\tconst event = new ${Name}();`,
 				`\tevent.__ham = ham;`,
+				`\t${camel}Run(event, entries, post);`,
+				`}`,
+				`function ${camel}FireHlds(event: ${Name}, post: bool): void {`,
+				`\tevent.__hlds = true;`,
+				`\t${camel}Run(event, post ? ${camel}Post : ${camel}Pre, post);`,
+				`}`,
+				`let ${camel}HldsHooked = false;`,
+				...(heard.post ? [`let ${camel}PostHldsHooked = false;`] : []),
+				`function ${camel}Run(event: ${Name}, entries: HookEntry<${Name}, ${T}>[], post: bool): void {`,
+			]
+		: [
+				`function ${camel}Fire(entries: HookEntry<${Name}, ${T}>[], post: bool, ham: bool): void {`,
+				`\tconst event = new ${Name}();`,
+				`\tevent.__ham = ham;`,
+			];
+	const fire = result
+		? [
+				...open,
 				`\t// A copy: a listener that removes itself must not make the next one skip.`,
 				`\tconst list = entries.slice(0);`,
 				`\tfor (let i = 0; i < list.length; i++) {`,
@@ -932,9 +967,7 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 				`}`,
 			]
 		: [
-				`function ${camel}Fire(entries: HookEntry<${Name}, ${T}>[], post: bool, ham: bool): void {`,
-				`\tconst event = new ${Name}();`,
-				`\tevent.__ham = ham;`,
+				...open,
 				`\tconst list = entries.slice(0);`,
 				`\tfor (let i = 0; i < list.length; i++) list[i].silent!(event);`,
 				`}`,
@@ -987,7 +1020,18 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 		: [];
 	const guard = refusal(spec);
 	// A chain of ReGameDLL's or ReHLDS's own: without reapi nothing delivers it, and the console says so once.
-	const reapiOnly = hook && !ham ? `\t\tif (!__hasReapi()) { __sayOnce("${camel} needs ReAPI, which this server does not have: its listeners are never called"); return; }` : '';
+	const reapiOnly = hook && !ham && !heard ? `\t\tif (!__hasReapi()) { __sayOnce("${camel} needs ReAPI, which this server does not have: its listeners are never called"); return; }` : '';
+	// One a stock hook hears instead: its backend is registered on the first listener, its post one on the first post listener.
+	const hlds = heard
+		? [
+				`\t\tif (!__hasReapi()) {`,
+				`\t\t\tif (!${camel}HldsHooked) { ${camel}HldsHooked = true; ${camel}Hlds(${camel}FireHlds); }`,
+				...(heard.post ? [`\t\t\tif (post && !${camel}PostHldsHooked) { ${camel}PostHldsHooked = true; ${camel}PostHlds(${camel}FireHlds); }`] : []),
+				`\t\t\t(post ? ${camel}Post : ${camel}Pre).push(entry);`,
+				`\t\t\treturn;`,
+				`\t\t}`,
+			]
+		: [];
 
 	adds.push([
 		`\tif (idof<E>() == idof<${Name}>()) {`,
@@ -1004,6 +1048,7 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 		...answerBranch,
 		...(ham && hook ? [`\t\tif (${toHam(ham)}) { ${camel}Hams.listen(${hamOwnClass(ham)}, post, ${camel}Fire).push(entry); return; }`] : []),
 		...(ham && !hook ? [`\t\t${camel}Hams.listen(${hamClass(ham)}, post, ${camel}Fire).push(entry);`] : []),
+		...hlds,
 		...reapiHook,
 		...(hook ? [`\t\t(post ? ${camel}Post : ${camel}Pre).push(entry);`] : []),
 		`\t\treturn;`,
@@ -1046,6 +1091,9 @@ import {
 	${HAM_FUNCTIONS.map(f => f.ham).join(', ')}
 } from "./constants";
 import { DAMAGE, Damage, FlagFamily } from "./flags";
+import {
+	${Object.entries(HEARD).flatMap(([event, heard]) => [`${event}Hlds`, ...(heard.post ? [`${event}PostHlds`] : [])]).join(', ')}
+} from "./hlds";
 
 // A use's type, USE_OFF to USE_TOGGLE in their numbers' order.
 const USE_TYPES: UseType[] = ["off", "on", "set", "toggle"];
@@ -1062,6 +1110,19 @@ export class HookEvent {
 	/** @hidden Ham Sandwich delivered the event rather than reapi: the arguments and the answer go back its way. */
 	__ham: bool = false;
 
+	/**
+	 * @hidden A stock hook's backend made the event, on a server without reapi
+	 * (as/hlds.ts): a field is what the backend gave, 0 or empty where it gave
+	 * nothing, and what a listener asks of the game - blocking it, answering,
+	 * a field written - waits for the backend, which gives the game what it can.
+	 */
+	__hlds: bool = false;
+	/** @hidden What the listeners asked of the game, on a stock hook's event. */
+	__prevented: bool = false;
+	__answered: bool = false;
+	__answerCell: i32 = 0;
+	__changed: bool = false;
+
 	// What the handler wrote, by argument: reapi hands a hook the arguments
 	// it was called with, and SetHookChainArg changes what the chain goes on
 	// with but not what arg() reads. Without these, \`event.damage = 1.0\`
@@ -1072,27 +1133,44 @@ export class HookEvent {
 
 	/** An argument as the handler sees it now: its own write, or what came in. */
 	protected __cell(index: i32): i32 {
-		return this.written.has(index) ? this.written.get(index) : arg(index);
+		return this.written.has(index) ? this.written.get(index) : this.__hlds ? 0 : arg(index);
 	}
 
 	protected __text(index: i32): string {
-		return this.writtenText.has(index) ? this.writtenText.get(index) : argText(index);
+		return this.writtenText.has(index) ? this.writtenText.get(index) : this.__hlds ? "" : argText(index);
 	}
 
 	protected __vector(index: i32): Vector {
-		return this.writtenVector.has(index) ? this.writtenVector.get(index) : __nativeVector(index);
+		return this.writtenVector.has(index) ? this.writtenVector.get(index) : this.__hlds ? new Vector() : __nativeVector(index);
+	}
+
+	/** @hidden A field's value from a stock hook's backend, by the argument's place; -1 is the game's answer. */
+	__give(index: i32, cell: i32): void {
+		this.written.set(index, cell);
+	}
+
+	/** @hidden */
+	__giveText(index: i32, value: string): void {
+		this.writtenText.set(index, value);
+	}
+
+	/** @hidden */
+	__giveVector(index: i32, value: Vector): void {
+		this.writtenVector.set(index, value);
 	}
 
 	/** Writes a number argument back: \`atype\` says how it is read, a float as its bits. */
 	protected __set(index: i32, atype: i32, cell: i32): void {
-		if (!this.__ham) SetHookChainArg(index + 1, atype, cell);
+		if (this.__hlds) this.__changed = true;
+		else if (!this.__ham) SetHookChainArg(index + 1, atype, cell);
 		else if (atype == ATYPE_FLOAT) SetHamParamFloat(index + 1, cellFloat(cell));
 		else SetHamParamInteger(index + 1, cell);
 		this.written.set(index, cell);
 	}
 
 	protected __setText(index: i32, value: string): void {
-		if (this.__ham) SetHamParamString(index + 1, value);
+		if (this.__hlds) this.__changed = true;
+		else if (this.__ham) SetHamParamString(index + 1, value);
 		else new Call(NATIVE_SetHookChainArg).num(index + 1).num(ATYPE_STRING).str(value).run();
 		this.writtenText.set(index, value);
 	}
@@ -1110,6 +1188,7 @@ export class HookEvent {
 
 	/** The game's answer as a cell - ATYPE_EDICT is an entity. */
 	protected __resultCell(atype: i32): i32 {
+		if (this.__hlds) return this.written.has(-1) ? this.written.get(-1) : 0;
 		if (!this.__ham) return GetHookChainReturn(atype);
 		if (atype == ATYPE_FLOAT) GetHamReturnFloat(changetype<i32>(hamOut));
 		else if (atype == ATYPE_EDICT) GetHamReturnEntity(changetype<i32>(hamOut));
@@ -1129,6 +1208,11 @@ export class HookEvent {
 
 	/** @hidden A listener's answer: the game's function's result, and in a pre listener the function blocked. */
 	__answer(atype: i32, cell: i32, post: bool): void {
+		if (this.__hlds) {
+			this.__answered = true;
+			this.__answerCell = cell;
+			return;
+		}
 		if (!this.__ham) {
 			SetHookChainReturn(atype, cell);
 			if (!post) handled();
@@ -1158,7 +1242,8 @@ export class HookEvent {
 	 * so it is the neutral one.
 	 */
 	protected __block(atype: i32): void {
-		if (this.__ham) __outcome(HAM_SUPERCEDE);
+		if (this.__hlds) this.__prevented = true;
+		else if (this.__ham) __outcome(HAM_SUPERCEDE);
 		else {
 			SetHookChainReturn(atype, atype == ATYPE_FLOAT ? floatCell(0.0) : 0);
 			handled();
@@ -1170,7 +1255,8 @@ export class HookEvent {
 		'Блокирует функцию игры, о которой событие. Если она ждёт ответа, верните его из обработчика; это — блокировка без ответа.\n\nPawn: `HC_SUPERCEDE`, `HAM_SUPERCEDE`',
 	), '\t')}
 	preventDefault() {
-		if (this.__ham) __outcome(HAM_SUPERCEDE);
+		if (this.__hlds) this.__prevented = true;
+		else if (this.__ham) __outcome(HAM_SUPERCEDE);
 		else handled();
 	}
 
@@ -1180,7 +1266,8 @@ export class HookEvent {
 	), '\t')}
 	stopImmediatePropagation() {
 		// Ham Sandwich calls every plugin's hook whatever one answers.
-		__outcome(this.__ham ? HAM_SUPERCEDE : HC_BREAK);
+		if (this.__hlds) this.__prevented = true;
+		else __outcome(this.__ham ? HAM_SUPERCEDE : HC_BREAK);
 	}
 }
 

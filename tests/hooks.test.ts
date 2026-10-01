@@ -137,8 +137,11 @@ test('the same function under reapi and Ham Sandwich is one event: reapi for its
 	expect(hooks).toContain('if ((classname.length > 0 && classname != "player") || !__hasReapi()) { takeDamageHams.listen(classname.length > 0 ? classname : "player", post, takeDamageFire).push(entry); return; }');
 	// A weapon chain's own class is every weapon: a class narrows it to Ham Sandwich, and without reapi it hooks every weapon's.
 	expect(hooks).toContain('if ((classname.length > 0) || !__hasReapi()) { canDeployHams.listen(classname.length > 0 ? classname : EVERY_WEAPON, post, canDeployFire).push(entry); return; }');
-	// A chain of ReGameDLL's own says so on a server without reapi, once, and is not added.
-	expect(hooks).toContain('if (!__hasReapi()) { __sayOnce("roundEnd needs ReAPI, which this server does not have: its listeners are never called"); return; }');
+	// A chain of ReGameDLL's own that nothing on plain HLDS hears says so there, once, and is not added.
+	expect(hooks).toContain('if (!__hasReapi()) { __sayOnce("flPlayerFallDamage needs ReAPI, which this server does not have: its listeners are never called"); return; }');
+	// One a stock hook hears goes to its backend (as/hlds.ts), registered on the first listener.
+	expect(hooks).toContain('if (!roundEndHldsHooked) { roundEndHldsHooked = true; roundEndHlds(roundEndFireHlds); }');
+	expect(hooks).toContain('if (post && !restartRoundPostHldsHooked) { restartRoundPostHldsHooked = true; restartRoundPostHlds(restartRoundFireHlds); }');
 	expect(hooks).toMatch(/\tspawn: SpawnEvent;/);
 	expect(hooks).not.toContain('basePlayerSpawn');
 	expect(hooks).toMatch(/\tgameThink: GameThinkEvent;/);

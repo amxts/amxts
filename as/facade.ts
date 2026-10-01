@@ -2440,6 +2440,20 @@ function precacheWaiting(event: PluginPrecacheEvent): void {
 	precacheOpen = true;
 	for (let i = 0; i < waitingPrecaches.length; i++) precacheNow(waitingPrecaches[i]);
 	waitingPrecaches.length = 0;
+	runWaiting(waitingAtPrecache);
+}
+
+// The stock hooks a server without reapi hears ReGameDLL's events through
+// (as/hlds.ts), asked for before natives may be called - at a plugin's top
+// level, during plugin_natives: a precache's hook at plugin_precache, before
+// the game's own precaches, and every other at plugin_init, as a command is.
+const waitingAtPrecache: (() => void)[] = [];
+const waitingAtInit: (() => void)[] = [];
+
+function runWaiting(list: (() => void)[]): void {
+	const now = list.slice(0);
+	list.length = 0;
+	for (let i = 0; i < now.length; i++) now[i]();
 }
 
 // @ts-ignore: decorator
@@ -2452,6 +2466,18 @@ function precacheWaiting(event: PluginPrecacheEvent): void {
  */
 export function __onCell(event: string, fn: i32, arg: i32, value: i32): void {
 	_onCell(event, fn, 0, arg, value);
+}
+
+/** @hidden Runs `register` from plugin_init on: now, or when it comes. */
+export function __whenUp(register: () => void): void {
+	if (serverUp) register();
+	else waitingAtInit.push(register);
+}
+
+/** @hidden Runs `register` from plugin_precache on - or plugin_init, after a reload mid-map. */
+export function __whenPrecache(register: () => void): void {
+	if (precacheOpen || serverUp) register();
+	else waitingAtPrecache.push(register);
 }
 addServerListener<PluginPrecacheEvent>(precacheWaiting);
 
@@ -2871,6 +2897,8 @@ function attachWaitingCvars(event: PluginInitEvent): void {
 	waitingHams.length = 0;
 	for (let i = 0; i < waitingMessages.length; i++) registerMessage(waitingMessages[i]);
 	waitingMessages.length = 0;
+	runWaiting(waitingAtPrecache);
+	runWaiting(waitingAtInit);
 }
 addServerListener<PluginInitEvent>(attachWaitingCvars);
 

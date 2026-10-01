@@ -214,8 +214,9 @@ const SLOT_REUSED = 0x10000;
 const PLUGIN_HANDLED = 1;
 const HC_SUPERCEDE = 1;
 const HC_BREAK = 2;
-// A Ham Sandwich hook's answer that blocks the game's function.
+// A Ham Sandwich hook's answer that blocks the game's function, and fakemeta's.
 const HAM_SUPERCEDE = 4;
+const FMRES_SUPERCEDE = 4;
 // A message argument's types, as get_msg_argtype answers.
 const ARG_BYTE = 1;
 const ARG_COORD = 6;
@@ -497,6 +498,17 @@ function splitCommand(line: string): string[] {
 	return [...line.matchAll(/"([^"]*)"|(\S+)/g)].map(m => m[1] ?? m[2]);
 }
 
+/**
+ * A log line split as AMX Mod X splits it for read_logargv: a quoted part
+ * and a part in brackets each one argument, the text between them another.
+ */
+export function splitLog(line: string): string[] {
+	// The spaces between two parts are none.
+	return [...line.matchAll(/"([^"]*)"|\(([^)]*)\)|([^"(]+)/g)]
+		.filter(m => m[3] === undefined || m[3].trim() !== '')
+		.map(m => m[1] ?? m[2] ?? m[3].trim());
+}
+
 /** A loaded plugin: its instance and its memory. */
 export class PluginInstance {
 	instance: any;
@@ -659,6 +671,19 @@ export class FakeServer {
 	hookedMessage: { args: (number | string)[]; types: number[] } | null = null;
 	/** register_touch's callbacks. */
 	readonly touches: { touched: string; toucher: string; slot: Slot }[] = [];
+	/** register_logevent's callbacks: the number of arguments a line has, and the filters it passes. @internal */
+	readonly logEvents: { argc: number; filters: string[]; slot: Slot }[] = [];
+	/** The log line logevent callbacks are reading, as AMX Mod X splits it. @internal */
+	logArgs: string[] = [];
+	/** register_event's callbacks, by the message's name, with their conditions ("1=0"). @internal */
+	readonly messageEvents: { name: string; conditions: string[]; slot: Slot }[] = [];
+	/** register_forward's callbacks, by `<FM_* number>:pre|post`. */
+	readonly fakemetaForwards = new Map<string, Slot[]>();
+	/** What a fakemeta callback answered with forward_return, and what get_orig_retval reads. @internal */
+	forwardAnswer: number | string | null = null;
+	origRetval = 0;
+	/** The engine's EngFunc_SetClientListening calls plugins made: listener, sender, whether he hears. */
+	readonly listening: number[][] = [];
 	/** query_client_cvar's questions, waiting for answerCvar(). */
 	readonly cvarQueries: { player: number; cvar: string; slot: Slot }[] = [];
 	/** The menus menu_create made and menu_destroy has not taken away, by id. */
@@ -1099,6 +1124,14 @@ export class FakeServer {
 			for (const slot of [...(id !== undefined ? this.messageHooks.get(id) ?? [] : [])]) {
 				const handed = [id ?? 0, receiver ? 1 : 0, receiver, 0];
 				if (this.withCallArgs(handed, () => this.call(slot, handed, 0)) === PLUGIN_HANDLED) prevented = true;
+			}
+			// register_event's callbacks hear it once it is sent, when its conditions hold.
+			const holds = (condition: string) => {
+				const match = condition.match(/^(\d+)=(.*)$/);
+				return !match || String(message.args[Number(match[1]) - 1]) === match[2];
+			};
+			for (const { slot } of this.messageEvents.filter(one => one.name === name && one.conditions.every(holds))) {
+				if (!prevented) this.withCallArgs([receiver], () => this.call(slot, [receiver, 0, 0, 0], 0));
 			}
 			return { prevented, args: message.args };
 		} finally {
@@ -1624,6 +1657,61 @@ export class FakeServer {
 		this.withCallArgs(args, () => this.call(menu.handler, args, 0));
 	}
 
+	/**
+	 * A line of the game's log, as the engine hands it to AMX Mod X: split
+	 * into its arguments as AMX Mod X splits it, and every logevent callback
+	 * whose filters it passes is called.
+	 *
+	 * ```ts
+	 * server.gameLog('World triggered "Round_End"');
+	 * server.gameLog(`"${alice.name}<${alice.userid}><STEAM_0:0:1><TERRORIST>" triggered "Planted_The_Bomb"`);
+	 * ```
+	 */
+	gameLog(line: string): void {
+		const args = splitLog(line);
+		const passes = (filter: string) => {
+			const match = filter.match(/^(\d+)([=&!])(.*)$/);
+			if (!match) return true;
+			const value = args[Number(match[1])] ?? '';
+			return match[2] === '=' ? value === match[3] : match[2] === '&' ? value.includes(match[3]) : value !== match[3];
+		};
+		const previous = this.logArgs;
+		this.logArgs = args;
+		try {
+			for (const { argc, filters, slot } of [...this.logEvents]) {
+				if (args.length === argc && filters.every(passes)) this.withCallArgs([], () => this.call(slot, [0, 0, 0, 0], 0));
+			}
+		} finally {
+			this.logArgs = previous;
+		}
+	}
+
+	/**
+	 * A fakemeta function the game calls, through the register_forward
+	 * callbacks of it: the pre ones, then, unless one of them superseded it,
+	 * the post ones with `result` as get_orig_retval reads it. Returns whether
+	 * it was superseded and what a callback answered with forward_return.
+	 *
+	 * ```ts
+	 * server.fireForward('FM_EmitSound', [alice.id, 2, 'player/die1.wav', 1.0, 0.8, 0, 100]);
+	 * ```
+	 */
+	fireForward(name: string, args: ArgValue[], result = 0): { superseded: boolean; answer: number | string | null } {
+		const fn = constant(name);
+		const handed = args.slice(0, 4).map(a => typeof a === 'number' ? a : 0);
+		const cells = args.map(a => typeof a === 'number' && !Number.isInteger(a) ? floatBits(a) : a);
+		this.forwardAnswer = null;
+		let superseded = false;
+		for (const slot of [...(this.fakemetaForwards.get(`${fn}:pre`) ?? [])]) {
+			if (this.withCallArgs(cells, () => this.call(slot, handed, slot.fallback)) >= FMRES_SUPERCEDE) superseded = true;
+		}
+		if (!superseded) {
+			this.origRetval = result;
+			for (const slot of [...(this.fakemetaForwards.get(`${fn}:post`) ?? [])]) this.withCallArgs(cells, () => this.call(slot, handed, slot.fallback));
+		}
+		return { superseded, answer: this.forwardAnswer };
+	}
+
 	/** A slot by the public name a native was given: "__amxts_cb3". @internal */
 	slotByPublic(name: string): Slot {
 		const match = name.match(/^__amxts_cb(\d+)$/);
@@ -1756,7 +1844,7 @@ export class FakeServer {
 			this.rpcResult = new Uint8Array(0);
 		},
 
-		// The network client: module.cpp's w_net_*, over Bun's fetch (network.ts).
+		// The network client: module.cpp's w_net_*, over Bun's fetch and FTP and SFTP clients (network.ts).
 		net_open(this: FakeServer, plugin: PluginInstance, url: number) {
 			return this.network.open(plugin, plugin.memory.string(url));
 		},
@@ -1789,6 +1877,9 @@ export class FakeServer {
 		},
 		net_read(this: FakeServer, plugin: PluginInstance, id: number, out: number, max: number) {
 			return this.network.read(plugin, id, out, max);
+		},
+		net_reply(this: FakeServer, plugin: PluginInstance, id: number) {
+			return this.network.reply(plugin, id);
 		},
 
 		abort(this: FakeServer, plugin: PluginInstance, message: number, file: number, line: number, column: number) {

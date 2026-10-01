@@ -968,6 +968,57 @@ export const NATIVES: Record<string, Native> = {
 	set_dhudmessage: (c, [r, g, b, x, y, _effects, _fxtime, hold]) => {
 		c.server.hud = { color: [r, g, b], x: bitsFloat(x), y: bitsFloat(y), hold: bitsFloat(hold), channel: -1 };
 	},
+	// A server without reapi hears ReGameDLL's events through these (as/hlds.ts).
+	// register_logevent(function[], argsnum, ...filters): server.gameLog() calls it.
+	register_logevent: (c, [callback, argc, ...filters]) => {
+		c.server.logEvents.push({ argc, filters: filters.map(at => c.memory.text(at)), slot: c.server.slotByPublic(c.memory.text(callback)) });
+		return c.server.logEvents.length;
+	},
+	read_logargc: c => c.server.logArgs.length,
+	read_logargv: (c, [index, buffer, length]) => c.memory.setText(buffer, length, c.server.logArgs[index] ?? ''),
+	// A line logged through the engine, where the logevents hear it.
+	elog_message: (c, [format, ...tail]) => {
+		c.server.gameLog(formatPawn(c, c.memory.text(format), tail));
+		return 1;
+	},
+	// register_event(event[], function[], flags[], cond[], ...): server.sendMessage() calls it once the message is sent.
+	register_event: (c, [name, callback, _flags, ...conditions]) => {
+		c.server.messageEvents.push({ name: c.memory.text(name), conditions: conditions.map(at => c.memory.text(at)), slot: c.server.slotByPublic(c.memory.text(callback)) });
+		return c.server.messageEvents.length;
+	},
+	register_forward: (c, [fn, callback, post]) => {
+		const key = `${fn}:${post ? 'post' : 'pre'}`;
+		c.server.fakemetaForwards.set(key, [...(c.server.fakemetaForwards.get(key) ?? []), c.server.slotByPublic(c.memory.text(callback))]);
+		return c.server.fakemetaForwards.size;
+	},
+	forward_return: (c, [type, value]) => {
+		c.server.forwardAnswer = type === constant('FMV_STRING') ? c.memory.text(value) : c.memory.cell(value);
+		return 1;
+	},
+	get_orig_retval: c => c.server.origRetval,
+	register_clcmd: (c, [name, callback]) => {
+		const command = c.memory.text(name).toLowerCase();
+		c.server.clientCommands.set(command, [...(c.server.clientCommands.get(command) ?? []), c.server.slotByPublic(c.memory.text(callback))]);
+		return 1;
+	},
+	// The engine's functions the hood calls: an event's index, and who hears whom.
+	engfunc: (c, [type, ...tail]) => {
+		if (type === constant('EngFunc_PrecacheEvent')) return c.server.precached.indexOf(c.memory.text(tail[1])) + 1 || c.server.precached.push(c.memory.text(tail[1]));
+		if (type === constant('EngFunc_SetClientListening')) c.server.listening.push(tail.slice(0, 3).map(at => c.memory.cell(at)));
+		return 0;
+	},
+	dllfunc: (c, [type, ...tail]) => {
+		if (type === constant('DLLFunc_GetGameDescription')) c.memory.setText(tail[0], c.memory.cell(tail[1]), 'Counter-Strike');
+		return 0;
+	},
+	get_ent_data: (c, [id, _class, member, element]) => fieldCell(entity(c, id) ?? player(c, id), constant(c.memory.text(member)), element),
+	cs_get_user_money: (c, [id]) => fieldCell(player(c, id), constant('m_iAccount')),
+	find_ent_by_model: (c, [start, classname, model]) => {
+		const [wanted, path] = [c.memory.text(classname), c.memory.text(model)];
+		const found = [...c.server.entities.values()].find(one => one.id > start && one.classname === wanted && one.get('var_model') === path);
+		return found?.id ?? 0;
+	},
+	get_timeleft: () => 0,
 	CreateHudSyncObj: () => ++hudSyncObjects,
 	ShowSyncHudMsg: (c, [id, _sync, format, ...tail]) => sendText(c, id, 'hud', formatPawn(c, c.memory.text(format), tail)),
 	ClearSyncHud: () => 1,

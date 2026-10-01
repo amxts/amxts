@@ -1,15 +1,17 @@
 // The game events reapi alone delivers - ReGameDLL's and ReHLDS's own
-// functions, which no stock module hooks - and the build's refusal of a
-// listener for one in a project for plain HLDS.
+// functions - and the build's refusal of a listener for one nothing else
+// hears, in a project for plain HLDS.
 //
 // A server without reapi hears every other game event through Ham Sandwich
-// (as/hooks.ts picks it once, by hasModule); a listener for one of these is
-// only a line in its console. A project whose amxts.config.ts says
+// (as/hooks.ts picks it once, by hasModule), and many of these through
+// another stock hook (scripts/hlds-events.ts); a listener for one of the rest
+// is only a line in its console. A project whose amxts.config.ts says
 // `target: "hlds"` has said there is no reapi, so the build stops at such a
 // listener instead, with the file and the line.
 import { join } from 'node:path';
 // @ts-ignore - shipped as JavaScript, with types beside it we do not need here
 import * as asc from '../runtime/deps/assemblyscript/dist/assemblyscript.js';
+import { HEARD } from './hlds-events';
 import { CORE_PLUGINS } from './project';
 import { readFileSync } from './tracked-fs';
 
@@ -37,6 +39,11 @@ export function reapiEvents(hooksText = readFileSync(join(CORE_PLUGINS, 'hooks.t
 	return events;
 }
 
+/** The events reapi alone delivers that plain HLDS does not hear at all. */
+export function unheardEvents(hooksText?: string): Set<string> {
+	return new Set([...reapiEvents(hooksText)].filter(event => !Object.hasOwn(HEARD, event)));
+}
+
 /** The event a `game.addEventListener("name", ...)` call listens for; undefined for any other call. */
 function gameEventOf(call: any): string | undefined {
 	const callee = call.expression;
@@ -59,8 +66,8 @@ function walk(node: any, visit: (node: any) => void) {
 	}
 }
 
-/** The listeners for reapi's events in a compile's sources, each where it is written. */
-export function reapiListeners(sources: any[], events = reapiEvents()): string[] {
+/** The listeners in a compile's sources for an event plain HLDS does not hear, each where it is written. */
+export function reapiListeners(sources: any[], events = unheardEvents()): string[] {
 	const found: string[] = [];
 	for (const source of sources) {
 		if (source.normalizedPath.startsWith('~lib/') || !source.text.includes('addEventListener')) continue;
@@ -69,13 +76,13 @@ export function reapiListeners(sources: any[], events = reapiEvents()): string[]
 			const event = gameEventOf(node);
 			if (event === undefined || !events.has(event)) return;
 			const line = source.text.slice(0, node.range.start).split('\n').length;
-			found.push(`${source.normalizedPath}:${line}: "${event}" needs ReAPI, and amxts.config.ts's target is "hlds" - plain HLDS has no ReAPI to deliver it. Listen for another event, or set target: "rehlds"`);
+			found.push(`${source.normalizedPath}:${line}: "${event}" needs ReAPI, and amxts.config.ts's target is "hlds" - nothing on plain HLDS hears it. Listen for another event, or set target: "rehlds"`);
 		});
 	}
 	return found;
 }
 
-/** The transform that stops a plugin for plain HLDS at a listener reapi alone could call. */
+/** The transform that stops a plugin for plain HLDS at a listener nothing there could call. */
 function hldsTransform() {
 	return class {
 		afterParse(parser: any): void {
@@ -85,7 +92,7 @@ function hldsTransform() {
 	};
 }
 
-/** What a project's target adds to a compile: for plain HLDS, the refusal of reapi's events. */
+/** What a project's target adds to a compile: for plain HLDS, the refusal of the events it does not hear. */
 export function targetTransforms(target: string | undefined) {
 	return target === 'hlds' ? [hldsTransform()] : [];
 }
