@@ -63,7 +63,7 @@ jobs:
           restore-keys: tests-${{ matrix.part }}-
       - name: Tests, part ${{ matrix.part }} of 3
         working-directory: amxts
-        run: bun test --smol $(ls tests/*.test.ts | awk -v part=${{ matrix.part }} 'NR % 3 == part % 3')
+        run: bun run test:part ${{ matrix.part }} 3
 
   linux:
     runs-on: ubuntu-24.04

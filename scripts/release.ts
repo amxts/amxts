@@ -88,6 +88,10 @@ function releaseTag(): string {
 
 function commitState(): { commit: string; dirty: boolean } {
 	const commit = run('git', ['rev-parse', 'HEAD'], { quiet: true }).trim();
+	// CI checks the tag out as it is; what it changes there is `bun run
+	// generate` writing the tooltips into the facade's files, which a fresh
+	// clone has no clean filter for - not an edit of the code.
+	if (process.env.GITHUB_ACTIONS === 'true') return { commit, dirty: false };
 	const dirty = run('git', ['status', '--porcelain', '--untracked-files=no'], { quiet: true }).trim() !== '';
 	return { commit, dirty };
 }
