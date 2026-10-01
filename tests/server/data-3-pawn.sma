@@ -2,7 +2,6 @@
 // нативы модуля (amxts.inc).
 // Запускается командой amxts_test_data_pawn; строки лога - как у Checks.
 #include <amxmodx>
-#include <reapi>
 #include <amxts>
 
 new g_ok, g_failed;
