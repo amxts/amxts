@@ -4,12 +4,15 @@
 # test suite in three parts; and the Linux module and wamrc built in Docker,
 # then the server suites on a Linux test server in Docker (bun run
 # test:server --linux). On a tag v*, the Windows files are built too, on a
-# Windows runner (bun run release:windows); once everything passes, both
-# systems' files go to the tag's draft release (created with the version's
-# section of CHANGELOG.md as its notes), and the Publish workflow is started:
-# the draft taken off, the npm packages, the server image. Run by hand
-# (workflow_dispatch), it builds the Windows files as a dry run - a release's
-# rehearsal - and keeps them as an artifact.
+# Windows runner (bun run release:windows), then the eight npm packages are
+# tried end to end with both systems' files (bun run test:release: a local
+# registry, npx create-amxts, typecheck, build, test, the server image in
+# Docker); once everything passes, both systems' files go to the tag's draft
+# release (created with the version's section of CHANGELOG.md as its notes),
+# and the Publish workflow is started: the draft taken off, the npm packages,
+# the server image. Run by hand (workflow_dispatch), it builds the Windows
+# files as a dry run and tries the packages - a release's rehearsal - and
+# keeps the Windows files as an artifact.
 #
 # Every job checks the core out as `amxts` and runs .github/actions/setup,
 # which puts the command and the official modules beside it. What does not
@@ -202,9 +205,61 @@ jobs:
           name: amxts-windows
           path: amxts/dist-release/windows
 
+  # The packages as a user gets them, before any goes out: all eight published
+  # to an empty local registry - wamrc from both systems' files above - then a
+  # project made with npx create-amxts (menu-core, no server), type-checked,
+  # built and tested, and its build run on the server image of the Linux kit
+  # (bun run test:release). Only on a tag and by hand, after the Windows files
+  # it needs: about 15 minutes, the setup and the packing most of it.
+  packages:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: amxts
+      - uses: ./amxts/.github/actions/setup
+      # The third official module, which the packages carry too.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/resemiclip
+          path: amxts-modules/resemiclip
+      - uses: actions/download-artifact@v4
+        with:
+          name: amxts-linux
+          path: amxts
+      - uses: actions/download-artifact@v4
+        with:
+          name: amxts-windows
+          path: amxts/dist-release/windows
+      - name: The Linux files, packed as the release packs them
+        working-directory: amxts
+        run: bun run release:linux --skip-build --no-upload --dry-run
+      # docker/server with the Linux kit, as Publish builds the image: here
+      # with the cache of its layers, then taken by name.
+      - name: The Linux server kit
+        run: |
+          mkdir "$RUNNER_TEMP/kit"
+          tar -xzf amxts/dist-release/linux/amxts-server-linux-x64.tar.gz -C "$RUNNER_TEMP/kit"
+      - uses: docker/setup-buildx-action@v3
+      - name: The server image
+        uses: docker/build-push-action@v6
+        with:
+          context: amxts/docker/server
+          build-contexts: kit=${{ runner.temp }}/kit
+          tags: amxts-release-test
+          load: true
+          cache-from: type=gha,scope=amxts-server
+          cache-to: type=gha,mode=max,scope=amxts-server
+      - name: The packages, end to end
+        working-directory: amxts
+        run: bun run test:release --image amxts-release-test
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check, tests, linux, windows]
+    needs: [check, tests, linux, windows, packages]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
