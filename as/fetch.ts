@@ -1027,8 +1027,8 @@ export interface RequestOptions {
 	password?: string;
 	/**
 	 * SFTP: the private key to log in with, a file of the game folder
-	 * (`addons/amxmodx/data/id_rsa`) - an RSA or ECDSA key in PEM
-	 * (`ssh-keygen -m PEM`).
+	 * (`addons/amxmodx/data/id_rsa`) - an RSA key in PEM
+	 * (`ssh-keygen -t rsa -m PEM`).
 	 */
 	keyFile?: string;
 	/** SFTP: the passphrase `keyFile` is encrypted with. */

@@ -624,13 +624,13 @@ export default {
 	'RequestOptions.keyFile': {
 		en: `
 			SFTP: the private key to log in with, a file of the game folder
-			(\`addons/amxmodx/data/id_rsa\`) - an RSA or ECDSA key in PEM
-			(\`ssh-keygen -m PEM\`).
+			(\`addons/amxmodx/data/id_rsa\`) - an RSA key in PEM
+			(\`ssh-keygen -t rsa -m PEM\`).
 		`,
 		ru: `
 			SFTP: закрытый ключ для входа, файл игровой папки
-			(\`addons/amxmodx/data/id_rsa\`) — ключ RSA или ECDSA в PEM
-			(\`ssh-keygen -m PEM\`).
+			(\`addons/amxmodx/data/id_rsa\`) — ключ RSA в PEM
+			(\`ssh-keygen -t rsa -m PEM\`).
 		`,
 	},
 	'RequestOptions.keyPassphrase': {
