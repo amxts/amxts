@@ -11381,7 +11381,7 @@ index 9576a47..84b9cb7 100644
 +        let callee = (<CallExpression>value).expression;
 +        if (callee.kind == NodeKind.Identifier && (<IdentifierExpression>callee).text == prototype.name) continue;
 +      }
-+      // `if (player == null) return Player.all(); return [player];` - an
++      // `if (player == null) return server.players; return [player];` - an
 +      // array literal after another return takes that return's type, as its
 +      // elements would in TypeScript once narrowed; the body's own compile
 +      // still checks each element against it.
