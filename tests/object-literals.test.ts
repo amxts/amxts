@@ -127,6 +127,22 @@ export function text(): string {
 			expect(text()).toBe('36 spot {"x":1,"y":2,"z":3}');
 		});
 
+		test('a class that implements an interface of fields may give them later, with !', async () => {
+			const { error, text } = await compile({ 'probe.ts': `
+interface Login { url: string; user: string }
+class Args implements Login { url!: string; user!: string; extra = 1; }
+function describe(login: Login): string { return login.user + "@" + login.url; }
+export function text(): string {
+	const args = new Args();
+	args.url = "host";
+	args.user = "ann";
+	return describe(args) + args.extra.toString();
+}
+` }, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('ann@host1');
+		});
+
 		test('a class that implements an interface of fields leaves its optional fields undefined', async () => {
 			const { error, text } = await compile({ 'probe.ts': `
 interface Options { level: number; tag?: number; loud?: boolean }

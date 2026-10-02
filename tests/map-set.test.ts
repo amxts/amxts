@@ -1,7 +1,8 @@
 /**
- * Map and Set as JavaScript has them: `for...of` over a Map's entries and a
- * Set's values, `entries()` and `forEach`, and `map.get` of a missing key
- * giving undefined. At the default optimization and at -O3.
+ * Map and Set as JavaScript has them: made of a list of entries or values,
+ * `for...of` over a Map's entries and a Set's values, `entries()` and
+ * `forEach`, and `map.get` of a missing key giving undefined. At the default
+ * optimization and at -O3.
  */
 // @ts-ignore - bun:test types not available during type checking
 import { describe, expect, test } from 'bun:test';
@@ -34,6 +35,23 @@ export function text(): string {
 `, optimize);
 			expect(error).toBe('');
 			expect(text()).toBe('b2a1baxyb20a10XY');
+		});
+
+		test('a Map is made of its entries and a Set of its values, their types read off them', async () => {
+			const { error, text } = await compile(`
+export function text(): string {
+	const prices = new Map([["ak47", 2500], ["awp", 4750.5]]);
+	const kills = new Map<string, number>([["ann", 3]]);
+	const maps = new Set(["de_dust2", "de_inferno", "de_dust2"]);
+	const empty = new Map<string, number>();
+	let out = "";
+	for (const [name, price] of prices) out += name + price.toString() + " ";
+	for (const name of maps) out += name + " ";
+	return out + kills.get("ann").toString() + maps.size.toString() + empty.size.toString();
+}
+`, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('ak472500 awp4750.5 de_dust2 de_inferno 320');
 		});
 
 		test('map.get of a missing key is undefined: ?? takes the default, has is not needed', async () => {
