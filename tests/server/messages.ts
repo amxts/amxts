@@ -7,6 +7,8 @@
 import { cs_get_user_money } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
+/** The bot whose hidden HUD the suite changes: other players' HideWeapon is not his. */
+let watched = 0;
 let seen: HideHud[] = [];
 let rewritten: HideHud[] = [];
 let others = 0;
@@ -22,7 +24,7 @@ let restarts = 0;
 let deadOnBoard = "";
 
 server.addEventListener("message:HideWeapon", (event) => {
-	seen = event.flags;
+	if (event.player?.id == watched) seen = event.flags;
 	event.flags = event.flags.concat(["Crosshair"]);
 });
 server.addEventListener("message:HideWeapon", (event) => {
@@ -62,6 +64,7 @@ async function run() {
 		return;
 	}
 
+	watched = bot.id;
 	bot.hideHud = ["Money", "Timer"];
 	await sleep(500);
 	check.expect(seen.includes("Money") && seen.includes("Timer"), `the game's HideWeapon is heard, its flags names (${seen.join(", ")})`).toBe(true);
