@@ -689,6 +689,8 @@ export class FakeServer {
 	origRetval = 0;
 	/** The engine's EngFunc_SetClientListening calls plugins made: listener, sender, whether he hears. */
 	readonly listening: number[][] = [];
+	/** The engine's and the game's functions plugins called through engfunc and dllfunc, each as a line: `TraceLine 1,2,3 4,5,6 1 7 0`. */
+	readonly engineCalls: string[] = [];
 	/** query_client_cvar's questions, waiting for answerCvar(). */
 	readonly cvarQueries: { player: number; cvar: string; slot: Slot }[] = [];
 	/** The menus menu_create made and menu_destroy has not taken away, by id. */

@@ -492,7 +492,12 @@ export const NATIVES: Record<string, Native> = {
 		return 1;
 	},
 	server_cmd: (c, [format, ...tail]) => {
-		c.server.commands.push(formatPawn(c, c.memory.text(format), tail));
+		const line = formatPawn(c, c.memory.text(format), tail);
+		c.server.commands.push(line);
+		// The engine's kick: the player by userid leaves, with the reason.
+		const kick = line.match(/^kick #(\d+)(?: "(.*)")?/);
+		const kicked = kick && c.server.players.find(one => one.userid === Number(kick[1]));
+		if (kicked) kicked.disconnect({ reason: kick[2] ?? 'Kicked' });
 	},
 	server_print: (c, [format, ...tail]) => {
 		c.server.logLines.push(formatPawn(c, c.memory.text(format), tail));
@@ -1023,13 +1028,44 @@ export const NATIVES: Record<string, Native> = {
 		return 1;
 	},
 	// The engine's functions the hood calls: an event's index, and who hears whom.
+	// The engine's and the game's functions, each argument of the tail by
+	// address, as fakemeta reads them; what a plugin calls is in engineCalls.
 	engfunc: (c, [type, ...tail]) => {
-		if (type === constant('EngFunc_PrecacheEvent')) return c.server.precached.indexOf(c.memory.text(tail[1])) + 1 || c.server.precached.push(c.memory.text(tail[1]));
-		if (type === constant('EngFunc_SetClientListening')) c.server.listening.push(tail.slice(0, 3).map(at => c.memory.cell(at)));
+		const [cell, float, vector, text] = [(i: number) => c.memory.cell(tail[i]), (i: number) => c.memory.float(tail[i]), (i: number) => c.memory.vector(tail[i]).join(','), (i: number) => c.memory.text(tail[i])];
+		const call = (line: string) => c.server.engineCalls.push(line);
+		if (type === constant('EngFunc_PrecacheEvent')) return c.server.precached.indexOf(text(1)) + 1 || c.server.precached.push(text(1));
+		if (type === constant('EngFunc_SetClientListening')) c.server.listening.push([cell(0), cell(1), cell(2)]);
+		if (type === constant('EngFunc_PrecacheModel')) return c.server.precached.indexOf(text(0)) + 1 || c.server.precached.push(text(0));
+		if (type === constant('EngFunc_TraceLine')) call(`TraceLine ${vector(0)} ${vector(1)} ${cell(2)} ${cell(3)} ${tail.length > 4 ? cell(4) : '-'}`);
+		if (type === constant('EngFunc_VecToAngles')) c.memory.setVector(tail[1], [0, 90, 0]);
+		if (type === constant('EngFunc_Time')) return floatBits(c.server.time / 1000);
+		if (type === constant('EngFunc_CreateFakeClient')) {
+			if (c.server.players.length >= c.server.maxPlayers) return 0;
+			return c.server.join(text(0), { bot: true, team: 'UNASSIGNED', alive: false }).id;
+		}
+		if (type === constant('EngFunc_RunPlayerMove')) {
+			const bot = player(c, cell(0));
+			const [, yaw] = c.memory.vector(tail[1]);
+			const [forward, msec] = [float(2), cell(7)];
+			call(`RunPlayerMove ${cell(0)} ${vector(1)} ${forward} ${float(3)} ${float(4)} ${cell(5)} ${cell(6)} ${msec}`);
+			if (bot) bot.origin = [bot.origin[0] + Math.cos(yaw * Math.PI / 180) * forward * msec / 1000, bot.origin[1] + Math.sin(yaw * Math.PI / 180) * forward * msec / 1000, bot.origin[2]];
+		}
 		return 0;
 	},
 	dllfunc: (c, [type, ...tail]) => {
 		if (type === constant('DLLFunc_GetGameDescription')) c.memory.setText(tail[0], c.memory.cell(tail[1]), 'Counter-Strike');
+		if (type === constant('DLLFunc_ClientConnect')) {
+			c.server.engineCalls.push(`ClientConnect ${c.memory.cell(tail[0])} ${c.memory.text(tail[1])} ${c.memory.text(tail[2])}`);
+			// The game turns away a name it does not like, and says why.
+			if (!c.memory.text(tail[1]).startsWith('Rejected')) return 1;
+			c.memory.setText(tail[3], c.memory.cell(tail[4]), 'No room for you');
+			return 0;
+		}
+		if (type === constant('DLLFunc_ClientPutInServer')) c.server.engineCalls.push(`ClientPutInServer ${c.memory.cell(tail[0])}`);
+		return 0;
+	},
+	global_get: (c, [field, ...tail]) => {
+		if (field === constant('glb_frametime') && tail[0]) c.memory.setFloat(tail[0], 0.01);
 		return 0;
 	},
 	get_ent_data: (c, [id, _class, member, element]) => fieldCell(entity(c, id) ?? player(c, id), constant(c.memory.text(member)), element),

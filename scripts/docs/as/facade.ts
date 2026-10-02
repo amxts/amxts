@@ -556,6 +556,40 @@ export default {
 		en: `Keeps the player's frags: no penalty for the suicide.`,
 		ru: `Фраги игрока не меняются: штрафа за самоубийство нет.`,
 	},
+	'MoveOptions': {
+		en: `
+			One move of a bot, \`bot.move({ ... })\`: the speeds are units a second, as
+			a player's keys give them - \`250\` runs with a knife, \`-250\` backs away.
+		`,
+		ru: `
+			Один шаг бота, \`bot.move({ ... })\`: скорости — в единицах в секунду, как их
+			дают клавиши игрока: \`250\` — бег с ножом, \`-250\` — назад.
+		`,
+	},
+	'MoveOptions.forward': {
+		en: `Forward, or back when negative.`,
+		ru: `Вперёд, или назад, если число отрицательное.`,
+	},
+	'MoveOptions.side': {
+		en: `To the right, or to the left when negative.`,
+		ru: `Вправо, или влево, если число отрицательное.`,
+	},
+	'MoveOptions.up': {
+		en: `Up, or down when negative: swimming and climbing a ladder.`,
+		ru: `Вверх, или вниз, если число отрицательное: в воде и на лестнице.`,
+	},
+	'MoveOptions.buttons': {
+		en: `The buttons held during the move: \`["Jump", "Duck"]\`.`,
+		ru: `Кнопки, зажатые на время шага: \`["Jump", "Duck"]\`.`,
+	},
+	'MoveOptions.angles': {
+		en: `The direction the bot looks in, \`[pitch, yaw, roll]\` or a Vector; where it looks now when left out.`,
+		ru: `Направление взгляда бота, \`[pitch, yaw, roll]\` или Vector; если не задано — куда он смотрит сейчас.`,
+	},
+	'MoveOptions.msec': {
+		en: `The move's length in milliseconds, \`1\` to \`255\`; the server frame's time when left out.`,
+		ru: `Длительность шага в миллисекундах, от \`1\` до \`255\`; если не задано — время кадра сервера.`,
+	},
 	'Client': {
 		en: `
 			A connecting player, in \`"connect"\`, \`"authorized"\` and \`"putinserver"\`: name,
@@ -1925,6 +1959,36 @@ export default {
 			\`\`\`
 
 			Pawn: \`get_players\`
+		`,
+	},
+	'Server.addBot': {
+		en: `
+			Adds a bot under \`name\`: a player the server runs, with no game behind
+			it and no mind of its own - it stands where it spawns until a plugin
+			moves it with \`bot.move()\`. \`null\` when no slot is free. \`"putinserver"\`
+			fires for it as for anyone, \`bot.isBot\` is \`true\` and \`bot.kick()\`
+			removes it.
+
+			\`\`\`ts
+			const bot = server.addBot("Dummy");
+			bot?.joinTeam("CT");
+			\`\`\`
+
+			Pawn: \`engfunc(EngFunc_CreateFakeClient)\`, \`dllfunc(DLLFunc_ClientConnect)\`, \`dllfunc(DLLFunc_ClientPutInServer)\`
+		`,
+		ru: `
+			Добавляет бота с именем \`name\`: игрока, которого ведёт сервер, — без игры за
+			ним и без своего разума: он стоит, где появился, пока плагин не двинет его
+			через \`bot.move()\`. \`null\`, если свободного слота нет. \`"putinserver"\`
+			срабатывает для него, как для любого, \`bot.isBot\` равно \`true\`, а
+			\`bot.kick()\` убирает его.
+
+			\`\`\`ts
+			const bot = server.addBot("Dummy");
+			bot?.joinTeam("CT");
+			\`\`\`
+
+			Pawn: \`engfunc(EngFunc_CreateFakeClient)\`, \`dllfunc(DLLFunc_ClientConnect)\`, \`dllfunc(DLLFunc_ClientPutInServer)\`
 		`,
 	},
 	'Server.configsDir': {
@@ -3533,6 +3597,24 @@ export default {
 			\`player.kick("Спам")\`; без неё — собственной причиной игры.
 
 			Pawn: \`server_cmd("kick #%d")\`
+		`,
+	},
+	'Player.move': {
+		en: `
+			Moves a bot \`server.addBot\` made, as a player's keys and mouse would for
+			one frame: \`bot.move({ forward: 250, buttons: ["Jump"] })\`. A bot does
+			nothing by itself, so it is moved every frame - in the \`"frame"\` event -
+			or it stands still. A player who is not a bot is refused with an error.
+
+			Pawn: \`engfunc(EngFunc_RunPlayerMove, ...)\`
+		`,
+		ru: `
+			Двигает бота, созданного \`server.addBot\`, как клавиши и мышь игрока за один
+			кадр: \`bot.move({ forward: 250, buttons: ["Jump"] })\`. Сам бот ничего не
+			делает, поэтому его двигают каждый кадр — в событии \`"frame"\`, — иначе он
+			стоит на месте. Игрока, который не бот, метод отклоняет с ошибкой.
+
+			Pawn: \`engfunc(EngFunc_RunPlayerMove, ...)\`
 		`,
 	},
 	'CommandInfo': {

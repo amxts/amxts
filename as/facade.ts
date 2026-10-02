@@ -1248,6 +1248,38 @@ export interface KillOptions {
 	keepFrags?: boolean;
 }
 
+// ---------------------------------------------------------------- bots
+
+import { dllfunc, engfunc, global_get } from "./natives";
+import { DLLFunc_ClientConnect, DLLFunc_ClientPutInServer, EngFunc_CreateFakeClient, EngFunc_RunPlayerMove, glb_frametime } from "./constants";
+import { BUTTON, Button } from "./flags";
+
+/** How long the server's current frame lasts, in seconds. */
+function frameTime(): f64 {
+	const time = new Ref<f64>(0.0);
+	global_get(glb_frametime, time);
+	return time.value;
+}
+
+/**
+ * One move of a bot, `bot.move({ ... })`: the speeds are units a second, as
+ * a player's keys give them - `250` runs with a knife, `-250` backs away.
+ */
+export interface MoveOptions {
+	/** Forward, or back when negative. */
+	forward?: number;
+	/** To the right, or to the left when negative. */
+	side?: number;
+	/** Up, or down when negative: swimming and climbing a ladder. */
+	up?: number;
+	/** The buttons held during the move: `["Jump", "Duck"]`. */
+	buttons?: Button[];
+	/** The direction the bot looks in, `[pitch, yaw, roll]` or a Vector; where it looks now when left out. */
+	angles?: number[];
+	/** The move's length in milliseconds, `1` to `255`; the server frame's time when left out. */
+	msec?: number;
+}
+
 // Plugins add fields of their own to this class, shared by every plugin and by
 // Pawn, with `interface Player { spawnProtected: boolean }` in a
 // `declare module "~/facade"` block (docs/en/3.game/02.players.md) - not written
@@ -1675,6 +1707,23 @@ export class Player extends PlayerFields implements Client {
 	kick(reason: string = ""): void {
 		const said = reason.replaceAll("\"", "'");
 		server.command(said.length > 0 ? `kick #${get_user_userid(this.id)} "${said}"` : `kick #${get_user_userid(this.id)}`);
+	}
+
+	/**
+	 * Moves a bot `server.addBot` made, as a player's keys and mouse would for
+	 * one frame: `bot.move({ forward: 250, buttons: ["Jump"] })`. A bot does
+	 * nothing by itself, so it is moved every frame - in the `"frame"` event -
+	 * or it stands still. A player who is not a bot is refused with an error.
+	 *
+	 * Pawn: `engfunc(EngFunc_RunPlayerMove, ...)`
+	 */
+	move(options: MoveOptions = {}): void {
+		if (!this.isBot) throw new Error(`move: ${this.name} is not a bot - only a bot is moved by a plugin`);
+
+		const angles: number[] = options.angles ?? this.viewAngle;
+		const buttons = BUTTON.maskOf<Button>(options.buttons ?? []);
+		const msec = options.msec ?? frameTime() * 1000;
+		engfunc(EngFunc_RunPlayerMove, this.id, angles, options.forward ?? 0, options.side ?? 0, options.up ?? 0, buttons, 0, <i32>Math.round(Math.min(Math.max(msec, 1), 255)));
 	}
 
 	/**
@@ -3114,6 +3163,33 @@ export class Server {
 		const list: Player[] = [];
 		for (let i = 0; i < ids.length; i++) list.push(new Player(ids[i]));
 		return list;
+	}
+
+	/**
+	 * Adds a bot under `name`: a player the server runs, with no game behind
+	 * it and no mind of its own - it stands where it spawns until a plugin
+	 * moves it with `bot.move()`. `null` when no slot is free. `"putinserver"`
+	 * fires for it as for anyone, `bot.isBot` is `true` and `bot.kick()`
+	 * removes it.
+	 *
+	 * ```ts
+	 * const bot = server.addBot("Dummy");
+	 * bot?.joinTeam("CT");
+	 * ```
+	 *
+	 * Pawn: `engfunc(EngFunc_CreateFakeClient)`, `dllfunc(DLLFunc_ClientConnect)`, `dllfunc(DLLFunc_ClientPutInServer)`
+	 */
+	addBot(name: string): Player | null {
+		// The engine takes a slot and marks the client FL_FAKECLIENT; AMX Mod X
+		// connects it then and there. The game is told after, as the engine
+		// tells it of anyone: it connects and puts the player in the server.
+		const id = <i32>engfunc(EngFunc_CreateFakeClient, name);
+		if (id <= 0) return null;
+
+		const rejected = new Ref<string>("");
+		dllfunc(DLLFunc_ClientConnect, id, name, "127.0.0.1", rejected);
+		dllfunc(DLLFunc_ClientPutInServer, id);
+		return new Player(id);
 	}
 
 	/**
