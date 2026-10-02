@@ -2877,6 +2877,23 @@ static void EnsureDirectory(const char *relative)
  * natives the module has no thunk for. plugins.ini and the example are the
  * author's, so those are written once and then left alone.
  */
+/** A file's bytes, empty when it cannot be read. */
+static std::string ReadWhole(const char *path)
+{
+	std::string text;
+	FILE *f = fopen(path, "rb");
+	if (!f)
+		return text;
+
+	char buffer[16384];
+	size_t got;
+	while ((got = fread(buffer, 1, sizeof(buffer), f)) > 0)
+		text.append(buffer, got);
+
+	fclose(f);
+	return text;
+}
+
 static void InstallFiles()
 {
 	// A server given a list of its own is a test server borrowing this
@@ -2896,6 +2913,14 @@ static void InstallFiles()
 		if (file.keep && FileStamp(path.c_str()) != 0)
 			continue;
 
+		std::string text;
+		for (int c = 0; c < file.count; c++)
+			text += file.chunks[c];
+
+		// Already this module's: a map change writes nothing.
+		if (ReadWhole(path.c_str()) == text)
+			continue;
+
 		// Its folders, outermost first: plugins/, plugins/modules/.
 		for (size_t slash = relative.find('/', strlen("addons/amxts/")); slash != std::string::npos; slash = relative.find('/', slash + 1))
 			EnsureDirectory(relative.substr(0, slash).c_str());
@@ -2906,9 +2931,7 @@ static void InstallFiles()
 			continue;
 		}
 
-		for (int c = 0; c < file.count; c++)
-			fputs(file.chunks[c], f);
-
+		fwrite(text.data(), 1, text.size(), f);
 		fclose(f);
 	}
 }
