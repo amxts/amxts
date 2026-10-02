@@ -12,8 +12,8 @@ plugin({
 
 server.addCommand("/hp", ({ player }) => sayHp(player), { description: "Show health" });
 
-// A menu: its items can be functions of the player it is shown to.
-const hello = new Menu("Hello");
+// A menu: its title and items can be functions of the player it is shown to.
+const hello = new Menu(({ player }) => `Hello, ${player.name}`);
 hello.addItem({ title: "Wave", onSelect: ({ player }) => print(0, `${player.name} waves`) });
 hello.addItem({
 	title: ({ player }) => `Heal (${player.health} HP)`,

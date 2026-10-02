@@ -60,12 +60,22 @@ for (const answer of ["yes", "no"]) {
 	});
 }
 
+// A menu shown without data: its title is a function, with no type argument.
+const greet = new Menu(({ player }) => `Hello, ${player.name}`);
+greet.addItem({
+	title: "Wave",
+	onSelect: ({ player }) => {
+		chosen = `${player.name}: wave`;
+	},
+});
+
 export function quick_shop(id: number, category: string) {
 	shop.show(new Player(id), { category });
 }
 
 export function quick_show(id: number, name: string) {
 	if (name == "maps") maps.show(new Player(id));
+	else if (name == "greet") greet.show(new Player(id));
 	else vote.show(new Player(id));
 }
 

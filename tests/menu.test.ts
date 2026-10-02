@@ -80,6 +80,16 @@ describe('a Menu', () => {
 		expect(server.native('quick_chosen')).toBe('Alice: no');
 	});
 
+	test('a menu without data takes a function for its title, with no type argument', async () => {
+		const server = await loadPlugin(PLUGIN);
+		const alice = server.join('Alice');
+		server.native('quick_show', alice.id, 'greet');
+
+		expect(alice.menu?.text).toStartWith('Hello, Alice\n\n\\r1.\\w Wave');
+		alice.command('menuselect 1');
+		expect(server.native('quick_chosen')).toBe('Alice: wave');
+	});
+
 	test('a menu shown over another closes it, and its AMX Mod X menu goes', async () => {
 		const server = await loadPlugin(PLUGIN);
 		const alice = server.join('Alice');
