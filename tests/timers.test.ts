@@ -54,3 +54,17 @@ test('a cleared timer never runs', async () => {
 
 	expect(server.commands).not.toContain('echo this never runs');
 });
+
+test('a reload removes the timers of the plugin it replaces', async () => {
+	const server = await loadPlugin('tests/as/showcase.ts');
+	const alice = server.join('Alice');
+	const old = server.plugins[0];
+
+	server.unload(old);
+	await server.load('tests/as/showcase.ts');
+	alice.clearMessages();
+
+	expect(server.tasks.some(task => task.slot.plugin === old)).toBe(false);
+	server.advance(45_000);
+	expect(alice.chat).toBe('Say /tour to see what this plugin can do');
+});

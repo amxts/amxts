@@ -263,6 +263,12 @@ struct Slot {
 	// What the registration returned, for a hookchain handle that has to
 	// survive the reload that reuses it.
 	cell     handle;
+	// The natives that switch the registration off and on by its handle -
+	// DisableHookChain and EnableHookChain, DisableHamForward and
+	// EnableHamForward - or NULL for one that cannot be. A reload switches it
+	// off; the plugin registering it again switches it back on (TakeSlot).
+	const char *disable;
+	const char *enable;
 	// The closure's number for the plugin's dispatcher, 0 for a plain function (Handler.tag).
 	int32_t  tag;
 };
@@ -580,6 +586,29 @@ static cell CallNative(const char *name, cell *params)
 	if (!native.fn)
 		return 0;
 	return Invoke(native, params);
+}
+
+/** A native that takes one handle: DisableHookChain(handle) and its like. */
+static cell CallWithHandle(const char *name, cell handle)
+{
+	Args params(1);
+	params[1] = handle;
+	return CallNative(name, params);
+}
+
+/**
+ * remove_task(id, 1). A task armed here is the host plugin's rather than the
+ * plugin's that asked, so remove_task with its default "this plugin only"
+ * finds nothing - measured: a repeating task went on firing through it. The
+ * flag means "wherever it is"; the ids are the module's own (co_id), so no
+ * other plugin's task has one.
+ */
+static cell RemoveTask(cell id)
+{
+	Args params(2);
+	params[1] = id;
+	params[2] = 1;
+	return CallNative("remove_task", params);
 }
 
 /**
@@ -1369,6 +1398,8 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 				g_slots[i].oneShot = false;
 				g_slots[i].taskId = -1;
 				g_slots[i].generation++;
+				if (g_slots[i].enable && g_slots[i].handle)
+					CallWithHandle(g_slots[i].enable, g_slots[i].handle);
 				if (reused)
 					*reused = true;
 				return i;
@@ -1397,6 +1428,8 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 	g_slots[slot].generation++;
 	g_slots[slot].key = key ? key : "";
 	g_slots[slot].handle = 0;
+	g_slots[slot].disable = NULL;
+	g_slots[slot].enable = NULL;
 	if (slot >= g_slotCount)
 		g_slotCount = slot + 1;
 
@@ -1523,25 +1556,13 @@ static int32_t w_argText(wasm_exec_env_t env, int32_t index, int32_t out, int32_
 }
 
 /**
- * stopTask(id) - remove_task, and the slot with it.
- *
- * A task armed here belongs to the host plugin rather than to whoever asked
- * for it, so remove_task(id) with its default "this plugin only" finds
- * nothing - measured: a repeating task went on firing through it. This passes
- * the flag that means "wherever it is", which is the only thing that works
- * from this side, and gives back the slot the task was holding.
+ * stopTask(id) - remove_task, and the slot with it (RemoveTask).
  */
 static int32_t w_stopTask(wasm_exec_env_t env, int32_t id)
 {
 	(void)env;
 
-	cell mark = g_host->hea;
-	Args params(2);
-	params[1] = (cell)id;
-	params[2] = 1;                 // outside: the task is the host plugin's
-
-	cell removed = CallNative("remove_task", params);
-	g_host->hea = mark;
+	cell removed = RemoveTask((cell)id);
 
 	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++)
 		if (g_slots[i].used && g_slots[i].taskId == (cell)id)
@@ -2074,6 +2095,8 @@ static int32_t w_hook(wasm_exec_env_t env, int32_t id, int32_t fn, int32_t post)
 	g_host->hea = mark;
 
 	g_slots[slot].handle = handle;
+	g_slots[slot].disable = "DisableHookChain";
+	g_slots[slot].enable = "EnableHookChain";
 	return (int32_t)handle;
 }
 
@@ -2107,6 +2130,8 @@ static int32_t w_ham(wasm_exec_env_t env, int32_t id, int32_t entityClass, int32
 	g_host->hea = mark;
 
 	g_slots[slot].handle = handle;
+	g_slots[slot].disable = "DisableHamForward";
+	g_slots[slot].enable = "EnableHamForward";
 	return (int32_t)handle;
 }
 
@@ -3055,17 +3080,18 @@ static void RemoveHost()
 // ---------------------------------------------------------------- boot
 
 /**
- * Drops every loaded plugin, leaving the host and its registrations alone.
+ * Drops every loaded plugin and what it registered with AMX Mod X.
  *
- * What cannot be dropped is the AMX Mod X side: register_clcmd, set_task and
- * RegisterHookChain have no undo, so the publics they were given stay bound to
- * their slots. Those slots become orphans, and firing one does nothing.
- *
- * A reload takes its own orphans back: a slot is keyed by what it was
- * registered for, and the same registration coming back reuses it (TakeSlot).
- * An orphan whose registration never comes back - a command the new code no
- * longer adds - stays spent, one of the MAX_CALLBACK_SLOTS, until the map
- * changes.
+ * A task is removed and its slot given back. A hookchain or a Ham hook is
+ * switched off, and its slot kept under its key for the reloaded plugin to
+ * take back and switch on (TakeSlot); one it does not take back is given back
+ * once the reload is done (FreeSwitchedOff). The rest - register_clcmd,
+ * register_srvcmd, register_message, register_menucmd - have no undo, so
+ * their publics stay bound to their slots: those become orphans, which answer
+ * PLUGIN_CONTINUE and call nothing, until the same registration comes back
+ * and reuses its slot. An orphan whose registration never comes back - a
+ * command the new code no longer adds - stays spent, one of the
+ * MAX_CALLBACK_SLOTS, until the map changes.
  */
 static void UnloadPlugins()
 {
@@ -3092,9 +3118,19 @@ static void UnloadPlugins()
 	g_fieldListeners.clear();
 	g_timers.clear();
 
-	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++)
-		if (g_slots[i].used && g_slots[i].plugin >= 0)
-			g_slots[i].plugin = SLOT_ORPHANED;
+	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++) {
+		Slot &slot = g_slots[i];
+		if (!slot.used || slot.plugin < 0)
+			continue;
+		if (slot.taskId >= 0) {
+			RemoveTask(slot.taskId);
+			slot.used = false;
+			continue;
+		}
+		if (slot.disable && slot.handle)
+			CallWithHandle(slot.disable, slot.handle);
+		slot.plugin = SLOT_ORPHANED;
+	}
 
 	// The natives stay registered with AMX Mod X - there is no way to take one
 	// back - so the entries are kept and w_export gives each one to whichever
@@ -3693,12 +3729,21 @@ static void FireInit()
 }
 
 
+/** The hooks a reload switched off and the reloaded plugins did not take back: they stay off. */
+static void FreeSwitchedOff()
+{
+	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++)
+		if (g_slots[i].used && g_slots[i].plugin == SLOT_ORPHANED && g_slots[i].disable)
+			g_slots[i].used = false;
+}
+
 static void ReloadPlugins()
 {
 	MF_PrintSrvConsole("[amxts] reloading\n");
 	UnloadPlugins();
 	LoadScripts();
 	FireInit();
+	FreeSwitchedOff();
 }
 
 /**
@@ -3766,7 +3811,13 @@ static void WatchPlugins()
 
 static void ListPlugins()
 {
-	MF_PrintSrvConsole("[amxts] %d plugin(s)\n", (int)g_plugins.size());
+	int used = 0;
+	for (int i = 0; i < g_slotCount; i++)
+		if (g_slots[i].used)
+			used++;
+
+	MF_PrintSrvConsole("[amxts] %d plugin(s), %d of %d callback slots in use\n",
+	                   (int)g_plugins.size(), used, MAX_CALLBACK_SLOTS);
 
 	for (size_t i = 0; i < g_plugins.size(); i++) {
 		Plugin &p = g_plugins[i];

@@ -1549,13 +1549,17 @@ export class FakeServer {
 
 	/**
 	 * Takes a plugin off the server, as `amxts_reload` does before it loads
-	 * the plugins again: a call to one of its slots answers nothing, until a
-	 * plugin of the same file asks for the same key and takes the slot back.
-	 * `load` the file again for the reload's second half.
+	 * the plugins again: its timers are removed, and a call to one of its
+	 * other slots answers nothing, until a plugin of the same file asks for
+	 * the same key and takes the slot back. `load` the file again for the
+	 * reload's second half.
 	 */
 	unload(plugin: PluginInstance): void {
 		plugin.unloaded = true;
 		this.plugins.splice(this.plugins.indexOf(plugin), 1);
+		for (let i = this.tasks.length - 1; i >= 0; i--) {
+			if (this.tasks[i].slot.plugin === plugin) this.tasks.splice(i, 1);
+		}
 	}
 
 	/** A menu by its id, or the error AMX Mod X gives for another number. @internal */
