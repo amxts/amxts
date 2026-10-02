@@ -436,8 +436,13 @@ static bool NetStart(NetRequest *r)
 		curl_easy_setopt(e, CURLOPT_SSH_PRIVATE_KEYFILE, r->keyFile.c_str());
 	if (!r->keyPassphrase.empty())
 		curl_easy_setopt(e, CURLOPT_KEYPASSWD, r->keyPassphrase.c_str());
-	if (!r->hostKey.empty())
+	// curl checks the host key only as it connects, and reuses an SSH
+	// connection without comparing the key asked for: a request that names
+	// one gets a connection of its own, checked against it.
+	if (!r->hostKey.empty()) {
 		curl_easy_setopt(e, CURLOPT_SSH_HOST_PUBLIC_KEY_SHA256, r->hostKey.c_str());
+		curl_easy_setopt(e, CURLOPT_FRESH_CONNECT, 1L);
+	}
 	if (r->ssl != CURLUSESSL_NONE)
 		curl_easy_setopt(e, CURLOPT_USE_SSL, r->ssl);
 	if (r->timeoutMs > 0)
