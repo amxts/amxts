@@ -1,8 +1,8 @@
-// menu-core глазами Pawn-плагина: меню с плейсхолдером Pawn-плагина и
-// плейсхолдером TS-плагина (menu-ts.ts), строка источника списка и ключ
-// перевода (common.txt AMX Mod X), показанные боту с lang ru на сервере с
-// amx_language en. Что меню показывает, читается mc_get_menu_text.
-// Запускается командой amxts_test_menu_core; строки лога - как у Checks.
+// menu-core through a Pawn plugin's eyes: a menu with a Pawn plugin's placeholder
+// and a TS plugin's placeholder (menu-ts.ts), a list source's row and a
+// translation key (AMX Mod X's common.txt), shown to a bot with lang ru on a server
+// with amx_language en. What the menu shows is read by mc_get_menu_text.
+// Run by the amxts_test_menu_core command; log lines are as Checks writes them.
 #include <amxmodx>
 #include <menu_core>
 
@@ -23,7 +23,7 @@ public run()
 
 	new players[32], count;
 	get_players(players, count, "d");
-	expect_int("на сервере есть бот", count > 0, 1);
+	expect_int("the server has a bot", count > 0, 1);
 	if (count == 0) return finish();
 	new bot = players[0];
 
@@ -41,23 +41,23 @@ public run()
 	mc_add_menu_item("LIST_XT", "%name%");
 
 	new text[1024];
-	expect_int("меню открылось", mc_show_menu(bot, "XT_MENU"), 1);
+	expect_int("the menu opened", mc_show_menu(bot, "XT_MENU"), 1);
 	mc_get_menu_text(bot, text, charsmax(text));
-	expect_contains("плейсхолдер Pawn-плагина", text, "Pawn: от Pawn");
-	expect_contains("плейсхолдер TS-плагина", text, "TS: от TS");
+	expect_contains("a Pawn plugin's placeholder", text, "Pawn: from Pawn");
+	expect_contains("a TS plugin's placeholder", text, "TS: from TS");
 
 	new mine[64], theirs[64];
 	LookupLangKey(mine, charsmax(mine), "MORE", bot);
 	new serverLang = LANG_SERVER;
 	LookupLangKey(theirs, charsmax(theirs), "MORE", serverLang);
-	expect_int("язык бота не совпадает с языком сервера", equal(mine, theirs), 0);
-	expect_int("заголовок - ключ на языке бота", contain(text, mine) == 0, 1);
+	expect_int("the bot's language differs from the server's", equal(mine, theirs), 0);
+	expect_int("the title is a key in the bot's language", contain(text, mine) == 0, 1);
 	LookupLangKey(mine, charsmax(mine), "EXIT", bot);
-	expect_contains("пункт - ключ на языке бота", text, mine);
+	expect_contains("an item is a key in the bot's language", text, mine);
 
-	expect_int("список открылся", mc_show_menu(bot, "LIST_XT"), 1);
+	expect_int("the list opened", mc_show_menu(bot, "LIST_XT"), 1);
 	mc_get_menu_text(bot, text, charsmax(text));
-	expect_contains("строка источника списка", text, "Строка источника");
+	expect_contains("a list source's row", text, "Source row");
 
 	mc_hide_menu(bot);
 	return finish();
@@ -65,14 +65,14 @@ public run()
 
 public Placeholder_Pawn(id, target, value[], len)
 {
-	formatex(value, len, "от Pawn");
+	formatex(value, len, "from Pawn");
 }
 
 public Source_Rows(id, Array:items)
 {
 	new row[289];
 	row[0] = id;
-	copy(row[65], 63, "Строка источника");
+	copy(row[65], 63, "Source row");
 	ArrayPushArray(items, row);
 	return 1;
 }

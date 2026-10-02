@@ -1,8 +1,8 @@
-// Типизированный конфиг config-core на настоящем сервере: configs.load читает
-// YAML, JSON и INI в объект под WAMR - сгенерированный сборкой код идёт через
-// прокси общего модуля, - говорит в консоль об ошибке в файле и пишет объект
-// обратно. Файлы - в папке конфигов тестового сервера.
-// @log amxts-typed-a.yaml:5:3: "time" is text ("скоро"), not a number - the default stays
+// config-core's typed config on a real server: configs.load reads YAML, JSON
+// and INI into an object under WAMR - the code the build generates goes
+// through the shared module's proxy - tells the console about an error in the
+// file and writes the object back. Files are in the test server's configs folder.
+// @log amxts-typed-a.yaml:5:3: "time" is text ("soon"), not a number - the default stays
 // @log amxts-typed-a.yaml:2:3: unknown key "prefx" in "chat" - did you mean "prefix"?
 import * as fs from "@amxts/core/fs";
 import { Checks } from "@amxts/core/check";
@@ -17,9 +17,10 @@ interface Settings {
 	motd?: string;
 }
 
-const YAML_TEXT = "chat:\n  prefx: x\n  rules: [Будь вежлив]\nround:\n  time: скоро\n  mode: dm\n";
-const JSON_TEXT = "{\n  // настройки\n  \"chat\": { \"prefix\": \"[J]\" },\n  \"round\": { \"time\": 4 },\n}\n";
-const INI_TEXT = "; настройки\n[chat]\nPREFIX = [I]\nrules = \"Будь вежлив\" \"Без читов\"\n[round]\ntime = 3.5\n";
+// Cyrillic on purpose: the rules are UTF-8 in every format.
+const YAML_TEXT = "chat:\n  prefx: x\n  rules: [Будь вежлив]\nround:\n  time: soon\n  mode: dm\n";
+const JSON_TEXT = "{\n  // settings\n  \"chat\": { \"prefix\": \"[J]\" },\n  \"round\": { \"time\": 4 },\n}\n";
+const INI_TEXT = "; settings\n[chat]\nPREFIX = [I]\nrules = \"Будь вежлив\" \"Без читов\"\n[round]\ntime = 3.5\n";
 
 function read(name: string) {
 	return configs.load<Settings>(name, {
@@ -36,26 +37,28 @@ function run() {
 	fs.writeFileSync(`${server.configsDir}/amxts-typed-c.ini`, INI_TEXT);
 
 	const yaml = read("amxts-typed-a");
-	check.expect(yaml.chat.prefix, "YAML: чего нет в файле, то по умолчанию").toBe("[HNS]");
-	check.expect(yaml.chat.rules.join("|"), "YAML: список, кириллица").toBe("Будь вежлив");
-	check.expect(yaml.round.time, "YAML: не число - по умолчанию").toBe(2.5);
-	check.expect(yaml.round.mode, "YAML: имя из юниона").toBe("dm");
-	check.expect(yaml.motd === undefined, "YAML: необязательное поле не задано").toBe(true);
+	check.expect(yaml.chat.prefix, "YAML: what the file lacks is the default").toBe("[HNS]");
+	// Cyrillic on purpose: the rules are UTF-8 in every format.
+	check.expect(yaml.chat.rules.join("|"), "YAML: a list, Cyrillic").toBe("Будь вежлив");
+	check.expect(yaml.round.time, "YAML: not a number - the default").toBe(2.5);
+	check.expect(yaml.round.mode, "YAML: a name from the union").toBe("dm");
+	check.expect(yaml.motd === undefined, "YAML: an optional field is not set").toBe(true);
 
 	const json = read("amxts-typed-b");
-	check.expect(`${json.chat.prefix} ${json.round.time}`, "JSON с комментарием").toBe("[J] 4");
+	check.expect(`${json.chat.prefix} ${json.round.time}`, "JSON with a comment").toBe("[J] 4");
 
 	const ini = read("amxts-typed-c");
-	check.expect(`${ini.chat.prefix} ${ini.chat.rules.join("|")} ${ini.round.time}`, "INI: [chat] prefix - это chat.prefix, ключ в любом регистре").toBe("[I] Будь вежлив|Без читов 3.5");
+	// Cyrillic on purpose: the rules are UTF-8 in every format.
+	check.expect(`${ini.chat.prefix} ${ini.chat.rules.join("|")} ${ini.round.time}`, "INI: [chat] prefix is chat.prefix, a key in any case").toBe("[I] Будь вежлив|Без читов 3.5");
 
 	ini.round.time = 5;
-	check.expect(configs.save(ini), "INI сохранён").toBe(true);
+	check.expect(configs.save(ini), "INI saved").toBe(true);
 	const text = (fs.readFileSync(`${server.configsDir}/amxts-typed-c.ini`) ?? "").replaceAll("\r\n", "\n");
-	check.expect(text.startsWith("; настройки\n[chat]\nPREFIX = [I]"), "комментарий и регистр ключа остались").toBe(true);
-	check.expect(read("amxts-typed-c").round.time, "записанное число читается обратно").toBe(5);
+	check.expect(text.startsWith("; settings\n[chat]\nPREFIX = [I]"), "the comment and the key's case stayed").toBe(true);
+	check.expect(read("amxts-typed-c").round.time, "a written number reads back").toBe(5);
 
 	yaml.round.time = 3;
-	check.expect(configs.save(yaml), "YAML сохранён").toBe(true);
-	check.expect(read("amxts-typed-a").round.time, "YAML: записанное читается обратно").toBe(3);
+	check.expect(configs.save(yaml), "YAML saved").toBe(true);
+	check.expect(read("amxts-typed-a").round.time, "YAML: what was written reads back").toBe(3);
 	check.done();
 }

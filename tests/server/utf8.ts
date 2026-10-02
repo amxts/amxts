@@ -1,5 +1,5 @@
-// Кириллица доходит до консоли сервера как UTF-8, а не вопросами. Что
-// напечатано, плагин сам не видит - строки ниже раннер ищет в логе как есть.
+// Cyrillic reaches the server console as UTF-8, not as question marks. What
+// is printed the plugin cannot see itself - the runner looks for the lines below in the log as they are.
 //
 // @log Привет, мир (console.log)
 // @log Привет, мир (server_print)
@@ -16,13 +16,13 @@ function run() {
 	console.log("Привет, мир (console.log)");
 	server_print("Привет, мир (server_print)");
 
-	check.expect("Привет".length, "длина строки в символах").toBe(6);
+	check.expect("Привет".length, "a string's length in characters").toBe(6);
 
 	text.value = "Ёлка и щука";
-	check.expect(text.value, "строка прошла через квар и вернулась").toBe("Ёлка и щука");
+	check.expect(text.value, "the string went through a cvar and came back").toBe("Ёлка и щука");
 
-	// Натив получает текст целиком, а не первые 511 байт.
-	check.expect(strlen("я".repeat(1500)), "3000 байт кириллицы доходят до натива").toBe(3000);
-	check.expect(contain(`${"x".repeat(5000)}иголка`, "иголка"), "иголка после 5000 байт найдена").toBe(5000);
+	// A native gets the text whole, not the first 511 bytes.
+	check.expect(strlen("я".repeat(1500)), "3000 bytes of Cyrillic reach the native").toBe(3000);
+	check.expect(contain(`${"x".repeat(5000)}иголка`, "иголка"), "a needle after 5000 bytes is found").toBe(5000);
 	check.done();
 }

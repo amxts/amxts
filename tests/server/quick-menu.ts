@@ -1,8 +1,8 @@
-// Menu на настоящем сервере: menu_create с обработчиком плагина, заголовок и
-// пункты, собранные для игрока при каждом показе, серый пункт через колбэк
-// пункта, показ поверх прошлого меню и закрытие. Нажать клавишу меню бот не
-// может - menuselect AMX Mod X принимает только из команды самого клиента, -
-// так что выбор пункта проверяют тесты на поддельном сервере.
+// Menu on a real server: menu_create with the plugin's handler, a title and
+// items built for the player on every show, a grey item through the item's
+// callback, a show over the previous menu and closing. A bot cannot press a
+// menu key - AMX Mod X takes menuselect only from the client's own command -
+// so choosing an item is checked by the tests on the fake server.
 import { menu_cancel } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
@@ -30,7 +30,7 @@ shop.addItem({
 server.addServerCommand("amxts_test_quick_menu", () => {
 	const check = new Checks("quick-menu");
 	const bot = server.players.find(player => player.isBot && player.isConnected && player.isAlive);
-	check.expect(bot != null, "на сервере есть живой бот").toBe(true);
+	check.expect(bot != null, "the server has a live bot").toBe(true);
 	if (bot == null) {
 		check.done();
 		return;
@@ -38,9 +38,9 @@ server.addServerCommand("amxts_test_quick_menu", () => {
 
 	bot.health = 100;
 	shop.show(bot, { category: "armor" });
-	// Поверх: AMX Mod X закрывает прошлое меню, и его обработчик его уничтожает.
+	// Over it: AMX Mod X closes the previous menu, and its handler destroys it.
 	shop.show(bot, { category: "heal" });
-	check.expect(menu_cancel(bot.id), "у бота открыто меню, и оно закрывается").toBe(1);
-	check.expect(chosen, "закрытие ничего не выбрало").toBe("");
+	check.expect(menu_cancel(bot.id), "the bot has a menu open, and it closes").toBe(1);
+	check.expect(chosen, "closing chose nothing").toBe("");
 	check.done();
 });

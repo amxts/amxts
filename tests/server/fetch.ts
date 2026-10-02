@@ -51,6 +51,7 @@ async function run(http: string, https: string) {
 	check.expect(`${response.status} ${response.ok} ${status.name} ${status.players.length}`, "a JSON GET").toBe("200 true amxts 3");
 
 	const text = await fetch(new URL("/text", http));
+	// Cyrillic on purpose: the body is UTF-8.
 	check.expect(await text.text(), "UTF-8 text, a URL as the input").toBe("Привет, мир");
 
 	const posted = await fetch(`${http}/echo?from=plugin`, {

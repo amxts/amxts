@@ -1,9 +1,9 @@
-// game.endRound кончает раунд, как его кончает игра: победитель, момент
-// следующего раунда, раунд помечен кончающимся, счёт не тронут. С dispatch
-// он зовёт обработчики roundEnd, и они видят победителя и причину словами:
-// с reapi - его событие, без него - строки лога, как пишет их игра.
-// Раунд правда кончается и начинается заново, поэтому набор идёт почти
-// последним (наборы идут по имени файла): проверки других попали бы в новый раунд.
+// game.endRound ends the round as the game ends it: the winner, the moment of
+// the next round, the round marked as ending, the score untouched. With dispatch
+// it calls the roundEnd listeners, and they see the winner and the reason in words:
+// with reapi its event, without it the log lines as the game writes them.
+// The round really ends and starts again, so the suite runs almost
+// last (suites run by file name): other suites' checks would land in the new round.
 import { Checks } from "@amxts/core/check";
 
 let winner: RoundWinner = "none";
@@ -27,12 +27,12 @@ function run() {
 
 	game.endRound({ winner: "CT", delay: 3, message: "", sound: "", dispatch: true });
 
-	check.expect(game.roundWinner, "roundWinner - победитель").toBe("CT");
-	check.expect(game.roundEnding, "раунд кончается").toBe(true);
-	check.expect(game.newRoundTime - game.time, "следующий раунд через delay").toBeCloseTo(3);
-	check.expect(game.ctWins, "счёт не тронут").toBe(ctWins);
+	check.expect(game.roundWinner, "roundWinner is the winner").toBe("CT");
+	check.expect(game.roundEnding, "the round is ending").toBe(true);
+	check.expect(game.newRoundTime - game.time, "the next round in delay").toBeCloseTo(3);
+	check.expect(game.ctWins, "the score is untouched").toBe(ctWins);
 
-	check.expect(heard, "обработчик roundEnd услышал конец раунда").toBe(true);
+	check.expect(heard, "the roundEnd listener heard the round end").toBe(true);
 	check.expect(winner, "event.winner").toBe("CT");
 	check.expect(reason, "event.reason").toBe("ctsWin");
 	check.expect(delay, "event.delay").toBeCloseTo(3);

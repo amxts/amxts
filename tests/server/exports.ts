@@ -1,6 +1,6 @@
-// Нативы, которые зовёт Pawn-плагин natives.sma: строки, Float, массивы и
-// буферы для результата. Своих проверок у этого плагина нет - их делает
-// Pawn-сторона, на том, что получила.
+// Natives the Pawn plugin natives.sma calls: strings, Float, arrays and
+// buffers for the result. This plugin has no checks of its own - the Pawn side
+// makes them, on what it got.
 import { nativeFn, ret } from "@amxts/core";
 
 /** Sum of two whole numbers. */
@@ -10,6 +10,7 @@ export function xt_sum(a: number, b: number) {
 
 /** A greeting for a name, into out[]. */
 export function xt_greet(name: string) {
+	// Cyrillic on purpose: natives.sma checks that UTF-8 reaches Pawn whole.
 	return `Привет, ${name}!`;
 }
 
@@ -52,15 +53,15 @@ export function xt_length(text: string) {
 	return text.length;
 }
 
-// Двести нативов сверх этих: вместе плагины экспортируют больше, чем у модуля
-// когда-то было для них мест (128).
+// Two hundred natives beyond these: together the plugins export more than the
+// module once had room for (128).
 for (let index = 0; index < 200; index++) exportMany(index);
 
 function exportMany(index: number) {
 	nativeFn(`xt_many_${index}`, () => ret(index));
 }
 
-// Форвард с аргументом каждого вида - больше трёх, что когда-то было пределом.
+// A forward with an argument of every kind - more than three, which was once the limit.
 const many = new Forward<number, string, number, Float, boolean, number[], Vector, string>("xt_on_many");
 let heard = "";
 
@@ -70,6 +71,7 @@ many.subscribe((id, word, count, speed, flag, list, at, long) => {
 
 /** Emits xt_on_many with an argument of every kind; what its TypeScript subscriber heard, into out[]. */
 export function xt_emit_many() {
+	// Cyrillic on purpose: natives.sma checks that UTF-8 reaches Pawn whole.
 	many.emit(7, "раз два", 42, 2.5, true, [1, 2, 3], new Vector(1.5, 2.5, 3.5), "x".repeat(2000));
 	return heard;
 }

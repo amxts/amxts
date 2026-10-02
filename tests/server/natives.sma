@@ -1,16 +1,16 @@
-// Pawn-сторона нативов из exports.ts: вызывает их так, как вызвал бы любой
-// плагин AMX Mod X, и сверяет, что получила. Запускается командой
-// amxts_test_natives; строки лога - в том же виде, что у Checks.
+// The Pawn side of the natives from exports.ts: calls them as any AMX Mod X
+// plugin would and checks what it got. Run by the amxts_test_natives
+// command; log lines are in the same form as Checks writes them.
 #include <amxmodx>
 #include <exports>
 
-// Два из двухсот нативов, которые exports.ts регистрирует через nativeFn.
+// Two of the two hundred natives exports.ts registers through nativeFn.
 native xt_many_0();
 native xt_many_199();
 
 new g_ok, g_failed;
 
-// Что пришло в форвард xt_on_many из exports.ts.
+// What came into the forward xt_on_many from exports.ts.
 new g_fwId, g_fwWord[32], g_fwCount, Float:g_fwSpeed, bool:g_fwFlag, g_fwList[3], Float:g_fwAt[3], g_fwLong;
 
 public plugin_init()
@@ -25,8 +25,8 @@ public run()
 	g_failed = 0;
 	server_print("[natives] --- run");
 
-	expect_int("целые: xt_sum(2, 40)", xt_sum(2, 40), 42);
-	expect_int("значение по умолчанию: xt_default()", xt_default(), 5);
+	expect_int("integers: xt_sum(2, 40)", xt_sum(2, 40), 42);
+	expect_int("the default value: xt_default()", xt_default(), 5);
 	expect_int("xt_default(9)", xt_default(9), 9);
 	expect_bool("bool: xt_is_even(10)", xt_is_even(10), true);
 	expect_bool("bool: xt_is_even(7)", xt_is_even(7), false);
@@ -34,31 +34,34 @@ public run()
 
 	new text[64];
 	xt_greet("amxts", text, charsmax(text));
-	expect_text("строка в out[]", text, "Привет, amxts!");
+	// Cyrillic on purpose: UTF-8 reaches Pawn whole, a letter is not cut in half.
+	expect_text("a string in out[]", text, "Привет, amxts!");
 
 	new small[8];
 	xt_greet("amxts", small, charsmax(small));
-	expect_text("короткий буфер не режет букву пополам", small, "При");
+	// Cyrillic on purpose: UTF-8 reaches Pawn whole, a letter is not cut in half.
+	expect_text("a short buffer does not cut a letter in half", small, "При");
 
-	expect_int("кириллица приходит целиком: xt_length", xt_length("Ёлка"), 4);
+	// Cyrillic on purpose: UTF-8 reaches Pawn whole, a letter is not cut in half.
+	expect_int("Cyrillic arrives whole: xt_length", xt_length("Ёлка"), 4);
 
 	new values[] = { 1, 2, 3, 4 };
-	expect_int("массив: xt_total", xt_total(values, sizeof(values)), 10);
+	expect_int("an array: xt_total", xt_total(values, sizeof(values)), 10);
 
 	new Float:floats[] = { 1.0, 2.5, -4.0 };
 	new Float:scaled[3];
 	new written = xt_scaled(floats, sizeof(floats), 2.0, scaled, sizeof(scaled));
-	expect_int("массив в out[]: сколько записано", written, 3);
+	expect_int("an array in out[]: how many are written", written, 3);
 	expect_float("scaled[1]", scaled[1], 5.0);
 	expect_float("scaled[2]", scaled[2], -8.0);
 
 	new found[32];
-	expect_bool("string | null: ключ есть", xt_find("map", found, charsmax(found)), true);
-	expect_text("string | null: значение", found, "c21_kitty");
-	expect_bool("string | null: ключа нет", xt_find("nothing", found, charsmax(found)), false);
+	expect_bool("string | null: the key is there", xt_find("map", found, charsmax(found)), true);
+	expect_text("string | null: the value", found, "c21_kitty");
+	expect_bool("string | null: no key", xt_find("nothing", found, charsmax(found)), false);
 
-	expect_int("натив из двухсот: xt_many_0", xt_many_0(), 0);
-	expect_int("натив сверх 128: xt_many_199", xt_many_199(), 199);
+	expect_int("a native of two hundred: xt_many_0", xt_many_0(), 0);
+	expect_int("a native beyond 128: xt_many_199", xt_many_199(), 199);
 
 	forwardOfEveryKind();
 
@@ -66,22 +69,23 @@ public run()
 	return PLUGIN_HANDLED;
 }
 
-// Форвард из TypeScript с восемью аргументами всех видов - в Pawn и в
-// TypeScript-подписчика; строка длиннее 511 байт приходит целиком.
+// A forward from TypeScript with eight arguments of every kind - to Pawn and to a
+// TypeScript subscriber; a string longer than 511 bytes arrives whole.
 forwardOfEveryKind()
 {
 	new heard[128];
 	xt_emit_many(heard, charsmax(heard));
 
-	expect_int("форвард: число", g_fwId, 7);
-	expect_text("форвард: строка", g_fwWord, "раз два");
-	expect_int("форвард: третий аргумент", g_fwCount, 42);
-	expect_float("форвард: Float", g_fwSpeed, 2.5);
-	expect_bool("форвард: boolean", g_fwFlag, true);
-	expect_int("форвард: массив [2]", g_fwList[2], 3);
-	expect_float("форвард: Vector [1]", g_fwAt[1], 2.5);
-	expect_int("форвард: длинная строка", g_fwLong, 2000);
-	expect_text("форвард: что услышал подписчик", heard, "7 раз два 42 2.5 true 1,2,3 1.5,2.5,3.5 2000");
+	expect_int("forward: a number", g_fwId, 7);
+	// Cyrillic on purpose: the forward's strings are UTF-8.
+	expect_text("forward: a string", g_fwWord, "раз два");
+	expect_int("forward: the third argument", g_fwCount, 42);
+	expect_float("forward: Float", g_fwSpeed, 2.5);
+	expect_bool("forward: boolean", g_fwFlag, true);
+	expect_int("forward: array [2]", g_fwList[2], 3);
+	expect_float("forward: Vector [1]", g_fwAt[1], 2.5);
+	expect_int("forward: a long string", g_fwLong, 2000);
+	expect_text("forward: what the subscriber heard", heard, "7 раз два 42 2.5 true 1,2,3 1.5,2.5,3.5 2000");
 }
 
 public xt_on_many(id, const word[], count, Float:speed, bool:flag, const list[], const Float:at[], const long[])

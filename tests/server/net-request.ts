@@ -35,6 +35,7 @@ async function run(ftp: string, sftp: string, hostKey: string) {
 	const password = "secret";
 	const dir = server.configsDir;
 
+	// Cyrillic on purpose: the body crosses as UTF-8.
 	const put = await request(`${ftp}/srv/hello.txt`, { user, password, upload: true, createDirs: true, body: "Привет, FTP" });
 	check.expect(outcome(put), "FTP: text up, its folder made").toBe("226 [] 226");
 	const got = await request(`${ftp}/srv/hello.txt`, { user, password });
@@ -42,6 +43,7 @@ async function run(ftp: string, sftp: string, hostKey: string) {
 	const names = await request(`${ftp}/srv/`, { user, password, list: true });
 	check.expect(names.text().trim(), "FTP: a folder's names").toBe("hello.txt");
 
+	// Cyrillic on purpose: two-byte letters make the body bigger than its length.
 	const big = "строка карты ".repeat(20000);
 	fs.writeFileSync(`${dir}/net-up.txt`, big);
 	const pushed = await request(`${ftp}/srv/big.txt`, { user, password, upload: true, file: `${dir}/net-up.txt` });
@@ -55,6 +57,7 @@ async function run(ftp: string, sftp: string, hostKey: string) {
 	const outside = await request(`${ftp}/srv/hello.txt`, { user, password, file: "../server.cfg" });
 	check.expect(`${outcome(outside)} ${outside.errorText}`, "a file outside the game folder").toBe("-1 [other] 0 file ../server.cfg is not a path inside the game folder");
 
+	// Cyrillic on purpose: the body crosses as UTF-8.
 	const sent = await request(`${sftp}/srv/hello.txt`, { user, password, upload: true, createDirs: true, body: "Привет, SFTP" });
 	check.expect(outcome(sent), "SFTP: text up, its folder made").toBe("0 [] 0");
 	const keyFile = `${dir}/net-request-key.pem`;

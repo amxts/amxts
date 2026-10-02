@@ -1,6 +1,6 @@
-// async/await на сервере: порядок sleep, отмена через AbortController,
-// ошибка в async-функции, которую ловит try вокруг await, и ловушка в одной
-// корутине, после которой плагин работает дальше.
+// async/await on the server: the order of sleeps, cancelling through
+// AbortController, an error in an async function caught by a try around
+// await, and a trap in one coroutine after which the plugin keeps working.
 //
 // @log unreachable
 // @log in an async function, which was dropped; the plugin runs on
@@ -17,8 +17,8 @@ server.addServerCommand("amxts_test_async", () => {
 async function run() {
 	const check = new Checks("async");
 
-	await Promise.all([mark("медленный ", 300), mark("быстрый ", 100)]);
-	check.expect(order, "короткий sleep просыпается первым").toBe("быстрый медленный ");
+	await Promise.all([mark("slow ", 300), mark("fast ", 100)]);
+	check.expect(order, "a short sleep wakes first").toBe("fast slow ");
 
 	const controller = new AbortController();
 	sleep(5000, { signal: controller.signal }).catch((error) => {
@@ -26,7 +26,7 @@ async function run() {
 	});
 	controller.abort();
 	await sleep(200);
-	check.expect(abortedWith, "отменённый sleep отклонён").toBe("AbortError");
+	check.expect(abortedWith, "a cancelled sleep is rejected").toBe("AbortError");
 
 	let caught = "";
 	try {
@@ -34,12 +34,12 @@ async function run() {
 	} catch (error) {
 		caught = error.name;
 	}
-	check.expect(caught, "ошибка в async-функции отклоняет её промис").toBe("RangeError");
+	check.expect(caught, "an error in an async function rejects its promise").toBe("RangeError");
 
 	crash();
 	survive();
 	await sleep(500);
-	check.expect(afterTrap, "после ловушки другая корутина доработала").toBe(true);
+	check.expect(afterTrap, "after a trap another coroutine finished").toBe(true);
 	check.done();
 }
 
@@ -48,14 +48,14 @@ async function mark(name: string, ms: number) {
 	order += name;
 }
 
-/** Бросает после await: выход за границы массива. */
+/** Throws after await: an index out of the array's bounds. */
 async function outOfRange() {
 	await sleep(50);
 	const empty: number[] = [];
 	console.log(`${empty[3]}`);
 }
 
-/** Падает после await: ловушка, а не ошибка. */
+/** Fails after await: a trap, not an error. */
 async function crash() {
 	await sleep(100);
 	unreachable();

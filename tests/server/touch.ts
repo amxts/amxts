@@ -1,7 +1,7 @@
-// Касание, отфильтрованное по классам до WebAssembly: обработчик слышит только
-// пару классов, о которой просил, toucher и touched - на своих местах.
-// Касание настоящее: летящая сущность проходит сквозь триггер, и движок сам
-// вызывает Touch(триггер, летящая) - fake_touch идёт мимо модуля engine.
+// A touch filtered by classes before WebAssembly: the listener hears only
+// the pair of classes it asked for, toucher and touched in their places.
+// The touch is real: a flying entity passes through a trigger, and the engine itself
+// calls Touch(trigger, flyer) - fake_touch goes past the engine module.
 import { Checks } from "@amxts/core/check";
 
 const heard: string[] = [];
@@ -25,7 +25,7 @@ async function run() {
 	const spot = Entity.find({ classname: "info_player_start" }) ?? Entity.find({ classname: "info_player_deathmatch" });
 	const trigger = Entity.create("info_target");
 	const mover = Entity.create("info_target");
-	check.expect(spot != null && trigger != null && mover != null, "точка появления и две сущности").toBe(true);
+	check.expect(spot != null && trigger != null && mover != null, "a spawn point and two entities").toBe(true);
 	if (spot == null || trigger == null || mover == null) {
 		check.done();
 		return;
@@ -47,8 +47,8 @@ async function run() {
 
 	await sleep(300);
 
-	check.expect(heard.includes("amxts_toucher -> amxts_touched"), `касание пары классов дошло, стороны на местах (${heard.join("; ")})`).toBe(true);
-	check.expect(heard.includes("reverse"), "триггер не входит в летящую: обратной пары нет").toBe(false);
+	check.expect(heard.includes("amxts_toucher -> amxts_touched"), `the touch of the class pair arrived, the sides in place (${heard.join("; ")})`).toBe(true);
+	check.expect(heard.includes("reverse"), "the trigger does not enter the flyer: no reverse pair").toBe(false);
 
 	trigger.remove();
 	mover.remove();

@@ -1,6 +1,6 @@
-// Звуки и прекэш: server.precache в событии "precache" отдаёт индексы, а
-// звук от сущности, звук одному игроку и полоса прогресса уходят без ошибок -
-// что слышит клиент, отсюда не проверить.
+// Sounds and precache: server.precache in the "precache" event gives indices, and
+// a sound from an entity, a sound to one player and a progress bar go out without
+// errors - what the client hears cannot be checked from here.
 import { Checks } from "@amxts/core/check";
 
 const indices: number[] = [];
@@ -14,18 +14,18 @@ server.addServerCommand("amxts_test_sound", run);
 function run() {
 	const check = new Checks("sound");
 
-	check.expect(indices.length, "прекэш прошёл в событии precache").toBe(3);
-	check.expect(indices.every(index => index > 0), `у каждого файла есть индекс (${indices.join(", ")})`).toBe(true);
+	check.expect(indices.length, "precache passed in the precache event").toBe(3);
+	check.expect(indices.every(index => index > 0), `every file has an index (${indices.join(", ")})`).toBe(true);
 
 	const bot = server.players.find(player => player.isBot && player.isConnected);
-	check.expect(bot != null, "на сервере есть бот").toBe(true);
+	check.expect(bot != null, "the server has a bot").toBe(true);
 
 	if (bot != null) {
 		bot.emitSound("items/gunpickup2.wav", { channel: "item", volume: 0.5, pitch: 120 });
 		bot.playSound("items/gunpickup2.wav");
 		bot.screen.progressBar(3);
 		bot.screen.progressBar(0);
-		check.expect(bot.isConnected, "звуки и полоса ушли, бот на месте").toBe(true);
+		check.expect(bot.isConnected, "the sounds and the bar went out, the bot is in place").toBe(true);
 	}
 
 	check.done();

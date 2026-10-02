@@ -1,6 +1,6 @@
-// TS-плагин рядом с menu-core: отвечает за плейсхолдер через нативы mc_*, -
-// именем publicFor и setArgText, - и проверяет lang.translate: бот с lang ru
-// получает русский перевод common.txt, а сервер (amx_language en) - свой.
+// A TS plugin beside menu-core: answers for a placeholder through the mc_* natives -
+// by a publicFor name and setArgText - and checks lang.translate: a bot with lang ru
+// gets common.txt's Russian translation, and the server (amx_language en) its own.
 import { publicFor, setArgText } from "@amxts/core";
 import { mc_register_placeholder, set_user_info } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
@@ -11,13 +11,13 @@ server.addEventListener("cfg", () => {
 });
 
 function tsValue(id: number, target: number, value: number, len: number) {
-	setArgText(2, "от TS", len);
+	setArgText(2, "from TS", len);
 }
 
 server.addServerCommand("amxts_test_menu_lang", () => {
 	const check = new Checks("menu-lang");
 	const bot = server.players.find(player => player.isBot && player.isConnected);
-	check.expect(bot != null, "на сервере есть бот").toBe(true);
+	check.expect(bot != null, "the server has a bot").toBe(true);
 	if (bot == null) {
 		check.done();
 		return;
@@ -27,7 +27,8 @@ server.addServerCommand("amxts_test_menu_lang", () => {
 	new Cvar("amx_client_languages").value = "1";
 	set_user_info(bot.id, "lang", "ru");
 
-	check.expect(lang.translate(bot, "MORE"), "перевод на языке бота").toBe("Дальше");
-	check.expect(lang.translate(null, "MORE"), "перевод на языке сервера").toBe("More");
+	// Cyrillic on purpose: common.txt's Russian translation.
+	check.expect(lang.translate(bot, "MORE"), "a translation in the bot's language").toBe("Дальше");
+	check.expect(lang.translate(null, "MORE"), "a translation in the server's language").toBe("More");
 	check.done();
 });

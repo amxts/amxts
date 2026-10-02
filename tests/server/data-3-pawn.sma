@@ -1,6 +1,6 @@
-// Поля Player на сервере, шаг 3: Pawn-плагин читает и пишет те же поля через
-// нативы модуля (amxts.inc).
-// Запускается командой amxts_test_data_pawn; строки лога - как у Checks.
+// Player fields on the server, step 3: a Pawn plugin reads and writes the same
+// fields through the module's natives (amxts.inc).
+// Run by the amxts_test_data_pawn command; log lines are as Checks writes them.
 #include <amxmodx>
 #include <amxts>
 
@@ -20,42 +20,43 @@ public run()
 
 	new players[32], count;
 	get_players(players, count, "d");
-	expect_int("на сервере есть бот", count > 0, 1);
+	expect_int("the server has a bot", count > 0, 1);
 	if (count == 0) return finish();
 	new bot = players[0];
 
-	// Поставлено TS-плагином data-1-write.
-	expect_int("ghost из TS", amxts_get_player_data(bot, "ghost"), 1);
-	expect_int("поле, которого никто не писал", amxts_get_player_data(bot, "no_such_field"), 0);
+	// Set by the TS plugin data-1-write.
+	expect_int("ghost from TS", amxts_get_player_data(bot, "ghost"), 1);
+	expect_int("a field nobody wrote", amxts_get_player_data(bot, "no_such_field"), 0);
 
-	// Член поля-объекта - ключ с точкой; поставлен TS-плагином data-1-write.
+	// A member of an object field is a key with a dot; set by the TS plugin data-1-write.
 	new enabled[16];
 	amxts_get_player_data_string(bot, "glow.enabled", enabled, charsmax(enabled));
-	expect_str("glow.enabled из TS", enabled, "true");
+	expect_str("glow.enabled from TS", enabled, "true");
 	new seenBy[16], own[8];
 	amxts_get_player_data_string(bot, "glow.seenBy", seenBy, charsmax(seenBy));
 	num_to_str(bot, own, charsmax(own));
-	expect_str("seenBy - номера игроков", seenBy, own);
+	expect_str("seenBy is the players' ids", seenBy, own);
 
-	// Pawn пишет член поля-объекта - и читает то, что написал.
+	// Pawn writes a member of an object field - and reads what it wrote.
 	amxts_set_player_data_string(bot, "glow.enabled", "false");
 	amxts_get_player_data_string(bot, "glow.enabled", enabled, charsmax(enabled));
-	expect_str("glow.enabled = false из Pawn", enabled, "false");
+	expect_str("glow.enabled = false from Pawn", enabled, "false");
 	amxts_set_player_data_string(bot, "glow.enabled", "default");
 	amxts_get_player_data_string(bot, "glow.enabled", enabled, charsmax(enabled));
-	expect_str("glow.enabled = default из Pawn", enabled, "default");
+	expect_str("glow.enabled = default from Pawn", enabled, "default");
 
-	// Дробное и строка; строку читает data-4-reset.
+	// A float and a string; data-4-reset reads the string.
 	amxts_set_player_data_float(bot, "testSpeed", 1.5);
-	expect_int("дробное туда и обратно", floatround(amxts_get_player_data_float(bot, "testSpeed") * 10.0), 15);
-	expect_int("дробное целым", amxts_get_player_data(bot, "testSpeed"), 1);
+	expect_int("a float there and back", floatround(amxts_get_player_data_float(bot, "testSpeed") * 10.0), 15);
+	expect_int("a float as an integer", amxts_get_player_data(bot, "testSpeed"), 1);
 
+	// Cyrillic on purpose: a string field is UTF-8, cut at a letter's boundary.
 	amxts_set_player_data_string(bot, "testTag", "Привет");
 	new text[64];
 	amxts_get_player_data_string(bot, "testTag", text, charsmax(text));
-	expect_str("строка туда и обратно", text, "Привет");
+	expect_str("a string there and back", text, "Привет");
 	amxts_get_player_data_string(bot, "testTag", text, 3);
-	expect_str("обрезана по границе буквы", text, "П");
+	expect_str("cut at a letter's boundary", text, "П");
 
 	return finish();
 }
