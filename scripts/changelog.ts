@@ -104,6 +104,34 @@ function contributors(repo: string, dir: string, from: string, names: string[]):
 	});
 }
 
+type RawCommits = Awaited<ReturnType<typeof import('changelogen')['getGitDiff']>>;
+
+/**
+ * changelogen reads `subject|hash|name|email` and splits it on `|`, so a
+ * subject with a `|` in it (`boolean | function`) loses its tail and its
+ * hash. Such a commit is read again from git by the start of its subject.
+ */
+function repairSubjects(raw: RawCommits, dir: string, from: string): RawCommits {
+	const log = (git(dir, ['log', '--format=%h%x1f%s%x1f%an%x1f%ae', from ? `${from}..HEAD` : 'HEAD']) ?? '').split('\n');
+	const entries = log.filter(Boolean).map(line => line.split('\x1F') as [string, string, string, string]);
+	return raw.map((commit) => {
+		if (/^[0-9a-f]{7,40}$/.test(commit.shortHash)) return commit;
+		const entry = entries.find(([, subject]) => subject.startsWith(`${commit.message}|`));
+		if (!entry) return commit;
+		const [shortHash, message, name, email] = entry;
+		return { ...commit, message, shortHash, author: { name, email } };
+	});
+}
+
+/**
+ * A name from code in a commit's subject, in backticks: `server.players`,
+ * `useFetch`, `as/hlds.ts`, `--local`, `mp_limitteams`. Written so,
+ * changelogen's capital letter at the start of a line leaves it as it is.
+ */
+function codeNames(text: string): string {
+	return text.replace(/(?<![`\w./@-])(?:@?[\w$-]*[./][\w$./-]+|[a-z]+[A-Z][\w$]*|[a-z]+_[a-z_]+|[A-Z]+_[A-Z_]+|--[\w-]+|amxts|knip)(?![\w`])/g, name => `\`${name}\``);
+}
+
 /** A checkout's section for its version: changelogen's, with the contributors. */
 async function section(checkout: Checkout, version: string): Promise<string> {
 	const { generateMarkDown, getGitDiff, parseCommits, resolveRepoConfig } = await import('changelogen');
@@ -123,10 +151,10 @@ async function section(checkout: Checkout, version: string): Promise<string> {
 		noAuthors: true,
 		excludeAuthors: [],
 	};
-	const raw = await getGitDiff(from || undefined, 'HEAD', checkout.dir);
+	const raw = repairSubjects(await getGitDiff(from || undefined, 'HEAD', checkout.dir), checkout.dir, from);
 	// Without their authors: changelogen would look each e-mail up on a
 	// service of its own, even with noAuthors.
-	const commits = parseCommits(raw, config).map(commit => ({ ...commit, author: undefined as never }));
+	const commits = parseCommits(raw, config).map(commit => ({ ...commit, description: codeNames(commit.description), author: undefined as never }));
 	const markdown = (await generateMarkDown(commits, config)).replace(/\n{3,}/g, '\n\n');
 	const people = contributors(config.repo.repo ?? '', checkout.dir, from, raw.map(commit => commit.author.name));
 	return people.length ? `${markdown}\n\n### ❤️ Contributors\n\n${people.join('\n')}` : markdown;
