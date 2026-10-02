@@ -143,26 +143,29 @@ const CONFIGS_READ = ['hamdata.ini'];
 // loopback; on Linux it is the bridge, so every interface listens).
 let web: { http: string; https: string; stop: () => void } | null = null;
 
+/** Where the runner's servers listen and what a suite calls them, for startTestHttp, startTestFtp and startTestSftp. */
+const HOST_ADDRESSES: [string, string] = !linux ? ['127.0.0.1', '127.0.0.1'] : [process.platform === 'win32' ? '127.0.0.1' : '0.0.0.0', 'host.docker.internal'];
+
 async function startWeb(suites: Suite[]): Promise<void> {
 	await startFtp(suites);
 	const file = join(CORE_DIR, 'tests/http-server.ts');
 	if (!suites.some(suite => suite.name === 'fetch') || !existsSync(file)) return;
 	const { startTestHttp } = await import(file);
-	web = !linux ? startTestHttp() : startTestHttp(process.platform === 'win32' ? '127.0.0.1' : '0.0.0.0', 'host.docker.internal');
+	web = startTestHttp(...HOST_ADDRESSES);
 }
 
 // The kit's request suite (tests/server/net-request.ts) talks to an FTP and
 // an SFTP server of the runner's own, tests/ftp-servers.ts, on this machine's
-// loopback; its SSH key goes into the test's configs folder. A server in
-// Docker is not given them: FTP's passive connections would need the host's
-// address announced, and the suite checks nothing without them.
+// loopback, or for a container on host.docker.internal as the web server;
+// its SSH key goes into the test's configs folder. curl opens FTP's passive
+// connections to the control connection's host, so no address is announced.
 let ftpServers: { ftp: { url: string; stop: () => Promise<void> }; sftp: { url: string; hostKey: string; privateKey: string; stop: () => Promise<void> } } | null = null;
 
 async function startFtp(suites: Suite[]): Promise<void> {
 	const file = join(CORE_DIR, 'tests/ftp-servers.ts');
-	if (linux || !suites.some(suite => suite.name === 'net-request') || !existsSync(file)) return;
+	if (!suites.some(suite => suite.name === 'net-request') || !existsSync(file)) return;
 	const { startTestFtp, startTestSftp } = await import(file);
-	const [ftp, sftp] = await Promise.all([startTestFtp(), startTestSftp()]);
+	const [ftp, sftp] = await Promise.all([startTestFtp(false, ...HOST_ADDRESSES), startTestSftp(...HOST_ADDRESSES)]);
 	ftpServers = { ftp, sftp };
 }
 

@@ -53,13 +53,18 @@ async function freePort(): Promise<number> {
 
 const quiet: any = { child: () => quiet, trace() {}, debug() {}, info() {}, warn() {}, error() {}, fatal() {} };
 
-/** An FTP server over a temporary folder, USER / PASSWORD - FTPS with `tls`. */
-export async function startTestFtp(tls = false): Promise<TestServer> {
+/**
+ * An FTP server over a temporary folder, USER / PASSWORD - FTPS with `tls`.
+ * It listens on `hostname`, and its URL names it `host`: what a client in a
+ * container calls this machine. Its passive connections take the control
+ * connection's host, as curl does by default, so no address is announced.
+ */
+export async function startTestFtp(tls = false, hostname = '127.0.0.1', host = '127.0.0.1'): Promise<TestServer> {
 	const root = mkdtempSync(join(tmpdir(), 'amxts-ftp-'));
 	const port = await freePort();
-	const url = `${tls ? 'ftps' : 'ftp'}://127.0.0.1:${port}`;
+	const scheme = tls ? 'ftps' : 'ftp';
 	const server = new FtpSrv({
-		url,
+		url: `${scheme}://${hostname}:${port}`,
 		pasv_url: '127.0.0.1',
 		pasv_min: port + 1,
 		pasv_max: port + 200,
@@ -72,7 +77,7 @@ export async function startTestFtp(tls = false): Promise<TestServer> {
 	});
 	await server.listen();
 	return {
-		url,
+		url: `${scheme}://${host}:${port}`,
 		root,
 		stop: async () => {
 			await server.close();
@@ -86,19 +91,19 @@ export async function startTestFtp(tls = false): Promise<TestServer> {
 const { Server, utils } = ssh2 as any;
 const { OPEN_MODE, STATUS_CODE } = utils.sftp;
 
-/** An SFTP server over a temporary folder: USER with PASSWORD or the key it hands out. */
-export async function startTestSftp(): Promise<TestSftp> {
+/** An SFTP server over a temporary folder: USER with PASSWORD or the key it hands out; `hostname` and `host` as for FTP. */
+export async function startTestSftp(hostname = '127.0.0.1', host = '127.0.0.1'): Promise<TestSftp> {
 	const root = mkdtempSync(join(tmpdir(), 'amxts-sftp-'));
-	const host = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
+	const hostPair = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
 	const user = generateKeyPairSync('rsa', {
 		modulusLength: 2048,
 		privateKeyEncoding: { type: 'pkcs1', format: 'pem', cipher: 'aes-128-cbc', passphrase: KEY_PASSPHRASE },
 		publicKeyEncoding: { type: 'spki', format: 'pem' },
 	});
 	const allowed = utils.parseKey(user.privateKey, KEY_PASSPHRASE);
-	const hostKey = createHash('sha256').update(utils.parseKey(host.privateKey).getPublicSSH()).digest('base64').replace(/=+$/, '');
+	const hostKey = createHash('sha256').update(utils.parseKey(hostPair.privateKey).getPublicSSH()).digest('base64').replace(/=+$/, '');
 
-	const server = new Server({ hostKeys: [host.privateKey] }, (client: any) => {
+	const server = new Server({ hostKeys: [hostPair.privateKey] }, (client: any) => {
 		client.on('authentication', (context: any) => {
 			if (context.username === USER && context.method === 'password' && context.password === PASSWORD) return context.accept();
 			if (context.username === USER && context.method === 'publickey' && Buffer.compare(context.key.data, allowed.getPublicSSH()) === 0) {
@@ -109,10 +114,10 @@ export async function startTestSftp(): Promise<TestSftp> {
 		client.on('ready', () => client.on('session', (accept: () => any) => accept().on('sftp', (open: () => any) => serve(open(), root))));
 		client.on('error', () => {});
 	});
-	await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+	await new Promise<void>(resolve => server.listen(0, hostname, resolve));
 	const { port } = server.address() as AddressInfo;
 	return {
-		url: `sftp://127.0.0.1:${port}`,
+		url: `sftp://${host}:${port}`,
 		root,
 		hostKey,
 		privateKey: user.privateKey,

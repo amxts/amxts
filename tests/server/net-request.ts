@@ -5,7 +5,7 @@
 // reply codes, an SSH key with its passphrase and the host key checked. The
 // runner gives the addresses and the host key, and puts the key into the
 // configs folder: amxts_test_net_request <ftp> <sftp> <hostKey>. Without
-// them (a server in Docker) there is nothing to reach and nothing is checked.
+// them (a project with no such servers) nothing is checked.
 import * as fs from "@amxts/core/fs";
 import { Checks } from "@amxts/core/check";
 import { request, RequestResult } from "@amxts/core/kit";
