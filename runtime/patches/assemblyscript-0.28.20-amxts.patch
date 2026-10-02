@@ -5848,10 +5848,18 @@ index 016ba4e..3fda5d4 100644
    "Cannot create an instance of an abstract class.": 2511,
    "Non-abstract class '{0}' does not implement inherited abstract member '{1}' from '{2}'.": 2515,
 diff --git a/src/flow.ts b/src/flow.ts
-index ddc7941..b0f883a 100644
+index ddc7941..664c873 100644
 --- a/src/flow.ts
 +++ b/src/flow.ts
-@@ -71,12 +71,15 @@ import {
+@@ -46,6 +46,7 @@ import {
+   getLocalGetIndex,
+   isLocalTee,
+   getLocalSetValue,
++  getGlobalSetValue,
+   getGlobalGetName,
+   getBinaryOp,
+   getBinaryLeft,
+@@ -71,12 +72,15 @@ import {
    getUnaryValue,
    getCallOperandAt,
    getCallOperandCount,
@@ -5868,7 +5876,7 @@ index ddc7941..b0f883a 100644
  } from "./common";
  
  import {
-@@ -88,7 +91,8 @@ import {
+@@ -88,7 +92,8 @@ import {
  } from "./diagnostics";
  
  import {
@@ -5878,7 +5886,7 @@ index ddc7941..b0f883a 100644
  } from "./ast";
  
  import {
-@@ -259,6 +263,14 @@ export class Flow {
+@@ -259,6 +264,14 @@ export class Flow {
    localFlags: LocalFlags[] = [];
    /** Field flags on `this`. Constructors only. */
    thisFieldFlags: Map<Property,FieldFlags> | null = null;
@@ -5893,7 +5901,7 @@ index ddc7941..b0f883a 100644
    /** The label we break to when encountering a return statement, when inlining. */
    inlineReturnLabel: string | null = null;
    /** Alternative flows if a compound expression is true-ish. */
-@@ -354,6 +366,8 @@ export class Flow {
+@@ -354,6 +367,8 @@ export class Flow {
        branch.continueLabel = this.continueLabel;
      }
      branch.localFlags = this.localFlags.slice();
@@ -5902,7 +5910,7 @@ index ddc7941..b0f883a 100644
      if (this.sourceFunction.is(CommonFlags.Constructor)) {
        let thisFieldFlags = assert(this.thisFieldFlags);
        branch.thisFieldFlags = cloneMap(thisFieldFlags);
-@@ -540,9 +554,33 @@ export class Flow {
+@@ -540,9 +555,33 @@ export class Flow {
    lookup(name: string): Element | null {
      let element = this.lookupLocal(name);
      if (element) return element;
@@ -5936,7 +5944,7 @@ index ddc7941..b0f883a 100644
    /** Tests if the local at the specified index has the specified flag or flags. */
    isLocalFlag(index: i32, flag: LocalFlags, defaultIfInlined: bool = true): bool {
      if (index < 0) return defaultIfInlined;
-@@ -667,6 +705,7 @@ export class Flow {
+@@ -667,6 +706,7 @@ export class Flow {
      this.flags = this.flags | otherFlags; // what happens before is still true
      this.localFlags = other.localFlags;
      this.thisFieldFlags = other.thisFieldFlags;
@@ -5944,7 +5952,7 @@ index ddc7941..b0f883a 100644
    }
  
  
-@@ -768,6 +807,9 @@ export class Flow {
+@@ -768,6 +808,9 @@ export class Flow {
  
      // field flags do not matter here since there's only INITIALIZED, which can
      // only be set if it has been observed prior to entering the branch.
@@ -5954,7 +5962,7 @@ index ddc7941..b0f883a 100644
    }
  
    /** Inherits two alternate branches to become this flow, i.e. then with else. */
-@@ -893,6 +935,15 @@ export class Flow {
+@@ -893,6 +936,15 @@ export class Flow {
        }
      }
  
@@ -5970,7 +5978,7 @@ index ddc7941..b0f883a 100644
      // field flags (currently only INITIALIZED, so can simplify)
      let leftFieldFlags = left.thisFieldFlags;
      if (leftFieldFlags) {
-@@ -944,6 +995,18 @@ export class Flow {
+@@ -944,6 +996,18 @@ export class Flow {
          }
        }
      }
@@ -5989,7 +5997,7 @@ index ddc7941..b0f883a 100644
      if (needsRecompile) {
        // Reset function locals to state before the compilation attempt
        assert(localsByIndex.length >= numLocalsBefore);
-@@ -971,10 +1034,84 @@ export class Flow {
+@@ -971,10 +1035,84 @@ export class Flow {
          let local = this.targetFunction.localsByIndex[getLocalGetIndex(expr)];
          return !local.type.isNullableReference || this.isLocalFlag(local.index, LocalFlags.NonNull, false);
        }
@@ -6074,7 +6082,20 @@ index ddc7941..b0f883a 100644
    /** Updates local states to reflect that this branch is only taken when `expr` is true-ish. */
    private inheritNonnullIfTrue(
      /** Expression being true. */
-@@ -1019,6 +1156,11 @@ export class Flow {
+@@ -984,6 +1122,12 @@ export class Flow {
+   ): void {
+     // A: `expr` is true-ish -> Q: how did that happen?
+ 
++    // amxts: a call checked for an error is the call - see checkedCallValue
++    if (getExpressionId(expr) == ExpressionId.Block) {
++      let value = checkedCallValue(expr);
++      if (value) expr = value;
++    }
++
+     // The iff argument is useful in situations like
+     //
+     //  if (!ref) {
+@@ -1019,6 +1163,11 @@ export class Flow {
          }
          break;
        }
@@ -6086,7 +6107,7 @@ index ddc7941..b0f883a 100644
        case ExpressionId.Unary: {
          switch (getUnaryOp(expr)) {
            case UnaryOp.EqzI32:
-@@ -1056,7 +1198,13 @@ export class Flow {
+@@ -1056,7 +1205,13 @@ export class Flow {
          }
          break;
        }
@@ -6100,7 +6121,19 @@ index ddc7941..b0f883a 100644
          // handle string eq/ne/not overloads
          let name = getCallTarget(expr);
          if (name == BuiltinNames.String_eq) {
-@@ -1211,7 +1359,11 @@ export class Flow {
+@@ -1097,6 +1252,11 @@ export class Flow {
+     iff: Flow | null = null
+   ): void {
+     // A: `expr` is false-ish -> Q: how did that happen?
++    // amxts: a call checked for an error is the call - see checkedCallValue
++    if (getExpressionId(expr) == ExpressionId.Block) {
++      let value = checkedCallValue(expr);
++      if (value) expr = value;
++    }
+     switch (getExpressionId(expr)) {
+       case ExpressionId.Unary: {
+         switch (getUnaryOp(expr)) {
+@@ -1211,7 +1371,11 @@ export class Flow {
        // overflows if the conversion does (globals are wrapped on set)
        case ExpressionId.GlobalGet: {
          // TODO: this is inefficient because it has to read a string
@@ -6113,7 +6146,7 @@ index ddc7941..b0f883a 100644
          assert(global.kind == ElementKind.Global || global.kind == ElementKind.EnumValue);
          return canConversionOverflow((<TypedElement>global).type, type);
        }
-@@ -1477,3 +1629,42 @@ function canConversionOverflow(fromType: Type, toType: Type): bool {
+@@ -1477,3 +1641,62 @@ function canConversionOverflow(fromType: Type, toType: Type): bool {
      fromType.isSignedIntegerValue != toType.isSignedIntegerValue   // signedness mismatch
    );
  }
@@ -6137,8 +6170,28 @@ index ddc7941..b0f883a 100644
 +      let inner = fieldPathKey(getCallOperandAt(expr, 0));
 +      return inner != null ? inner + ">" + name : null;
 +    }
++    case ExpressionId.Block: {
++      let value = checkedCallValue(expr);
++      return value ? fieldPathKey(value) : null;
++    }
 +  }
 +  return null;
++}
++
++/**
++ * amxts: in a program with a try, a call is checked for an error it threw -
++ * (set temp (call)) (if __thrown unwind) (get temp), Compiler.makeUnwindCheck
++ * - and what it reads is still the call's. The call, or 0 for any other block.
++ */
++export function checkedCallValue(expr: ExpressionRef): ExpressionRef {
++  if (getBlockName(expr) != null || getBlockChildCount(expr) != 3) return 0;
++  if (getExpressionId(getBlockChildAt(expr, 1)) != ExpressionId.If) return 0;
++  let set = getBlockChildAt(expr, 0);
++  switch (getExpressionId(set)) {
++    case ExpressionId.LocalSet: return getLocalSetValue(set);
++    case ExpressionId.GlobalSet: return getGlobalSetValue(set);
++  }
++  return 0;
 +}
 +
 +function copyPaths(paths: Set<string>): Set<string> {
@@ -6156,6 +6209,22 @@ index ddc7941..b0f883a 100644
 +  }
 +  return both;
 +}
+diff --git a/src/module.ts b/src/module.ts
+index def4e78..f9cabf9 100644
+--- a/src/module.ts
++++ b/src/module.ts
+@@ -3276,6 +3276,11 @@ export function getLocalSetValue(expr: ExpressionRef): ExpressionRef {
+   return binaryen._BinaryenLocalSetGetValue(expr);
+ }
+ 
++// amxts: the value a global.set stores - see Flow's fieldPathKey
++export function getGlobalSetValue(expr: ExpressionRef): ExpressionRef {
++  return binaryen._BinaryenGlobalSetGetValue(expr);
++}
++
+ export function isLocalTee(expr: ExpressionRef): bool {
+   return binaryen._BinaryenLocalSetIsTee(expr);
+ }
 diff --git a/src/parser.ts b/src/parser.ts
 index 157351c..11c0184 100644
 --- a/src/parser.ts

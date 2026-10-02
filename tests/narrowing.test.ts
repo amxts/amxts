@@ -1,6 +1,7 @@
 /**
  * Narrowing as TypeScript does it: a variable at the top of a file checked
- * for null, a variable tested with instanceof. At the default optimization
+ * for null, a field checked for null in a program with a try, a variable
+ * tested with instanceof. At the default optimization
  * and at -O3.
  */
 // @ts-ignore - bun:test types not available during type checking
@@ -26,6 +27,35 @@ export function run(): f64 {
 ` }, optimize ? ['-O3'] : []);
 			expect(error).toBe('');
 			expect(exports.run()).toBe(108);
+		});
+
+		test('a field is narrowed by a null check in a program that has a try', async () => {
+			const { error, exports } = await probe({ 'probe.ts': `
+class Command { constructor(public access: string | null) {} }
+const access: string[] = ["a"];
+function allowed(command: Command): bool {
+	return command.access == null || access.includes(command.access);
+}
+function length(command: Command): i32 {
+	if (command.access != null) return command.access.length;
+	return -1;
+}
+function safe(): i32 {
+	try {
+		return 1;
+	}
+	catch (error) {
+		return 0;
+	}
+}
+export function run(): i32 {
+	const open = new Command(null);
+	const admin = new Command("a");
+	return (allowed(open) ? 1 : 0) + (allowed(admin) ? 10 : 0) + length(admin) * 100 + length(open) * 1000 + safe();
+}
+` }, optimize ? ['-O3'] : []);
+			expect(error).toBe('');
+			expect(exports.run()).toBe(1 + 10 + 100 - 1000 + 1);
 		});
 
 		test('instanceof narrows a variable where the test holds', async () => {
