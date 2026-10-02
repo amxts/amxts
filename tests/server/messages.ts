@@ -44,7 +44,7 @@ server.addEventListener("message:ScoreAttrib", (event) => {
 	if (event.flags.includes("Dead")) deadOnBoard = event.target?.name ?? "";
 });
 
-game.addEventListener("restartRound", () => {
+game.addEventListener("newRound", () => {
 	restarts++;
 });
 

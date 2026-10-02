@@ -153,7 +153,7 @@ export const GAME: Record<string, GameDoc> = {
 			delay: { en: `The seconds until the next round.`, ru: `Секунды до следующего раунда.` },
 		},
 	},
-	restartRound: {
+	newRound: {
 		summary: { en: `A new round is starting.`, ru: `Начинается новый раунд.` },
 	},
 	checkWinConditions: {
@@ -162,7 +162,7 @@ export const GAME: Record<string, GameDoc> = {
 			ru: `Игра проверяет, не победила ли какая-то сторона. \`preventDefault()\` не даст ей закончить раунд.`,
 		},
 	},
-	onRoundFreezeEnd: {
+	roundStart: {
 		summary: { en: `The freeze time at the start of the round is over.`, ru: `Закончилось время заморозки в начале раунда.` },
 	},
 	radio: {
@@ -243,7 +243,7 @@ export const GAME: Record<string, GameDoc> = {
 		},
 		fields: { player, weapon: { en: `The weapon bought, as \`weapon.kind\` names it, e.g. \`"ak47"\` or \`"awp"\`.`, ru: `Покупаемое оружие, как его называет \`weapon.kind\`, например \`"ak47"\` или \`"awp"\`.` } },
 	},
-	addAccount: {
+	addMoney: {
 		summary: {
 			en: `A player's money changes. Assign \`event.amount\` to change how much.`,
 			ru: `У игрока меняются деньги. Присвойте \`event.amount\`, чтобы изменить сумму.`,

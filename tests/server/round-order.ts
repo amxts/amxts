@@ -24,18 +24,18 @@ let defuseStarted = 0;
 /** Whether the round under check is on: its start kills the terrorists. */
 let playing = false;
 
-game.addEventListener("restartRound", () => {
+game.addEventListener("newRound", () => {
 	heard.push("new round");
 	if (!freezeEnded) atMapStart++;
 });
-game.addEventListener("restartRound", () => {
+game.addEventListener("newRound", () => {
 	heard.push("new round, after");
 	aliveAfter = server.players.filter(player => player.isAlive).length;
 }, true);
 game.addEventListener("playerSpawn", () => {
 	heard.push("spawn");
 });
-game.addEventListener("onRoundFreezeEnd", () => {
+game.addEventListener("roundStart", () => {
 	heard.push("round start");
 	freezeEnded = true;
 	if (playing) killSide("TERRORIST");
@@ -45,7 +45,7 @@ game.addEventListener("roundEnd", (event) => {
 	winner = event.winner;
 	reason = event.reason;
 });
-game.addEventListener("addAccount", (event) => {
+game.addEventListener("addMoney", (event) => {
 	if (event.amount > 0) paid++;
 });
 game.addEventListener("defuseBombStart", (event) => {

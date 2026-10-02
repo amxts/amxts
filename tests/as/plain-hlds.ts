@@ -7,7 +7,7 @@
 // First: its logevent comes before roundEnd's, as a listener of the freeze
 // time's end that ends the round logs "Round_End" inside it.
 let endAtStart = false;
-game.addEventListener("onRoundFreezeEnd", () => {
+game.addEventListener("roundStart", () => {
 	console.log("round start");
 	if (endAtStart) game.endRound({ winner: "CT", delay: 4, dispatch: true });
 });
@@ -22,11 +22,11 @@ function onRoundEnd(event: RoundEndEvent) {
 	console.log(`round ${event.winner} ${event.reason} ${event.delay}`);
 }
 
-game.addEventListener("restartRound", () => console.log("new round"));
-game.addEventListener("restartRound", () => console.log("new round, respawned"), true);
+game.addEventListener("newRound", () => console.log("new round"));
+game.addEventListener("newRound", () => console.log("new round, respawned"), true);
 game.addEventListener("cleanUpMap", () => console.log("map cleaned up"));
 game.addEventListener("playerSpawn", event => console.log(`spawned ${event.player.id}`));
-game.addEventListener("addAccount", event => console.log(`money ${event.player.id} ${event.amount}`));
+game.addEventListener("addMoney", event => console.log(`money ${event.player.id} ${event.amount}`));
 game.addEventListener("defuseBombEnd", event => console.log(`defused ${event.player.id} ${event.defused}`));
 
 // Stopped where the stock hook can stop it: a player's command, a purchase.
@@ -39,10 +39,10 @@ game.addEventListener("hasRestrictItem", event => event.item == "awp");
 game.addEventListener("playerSpawn", event => event.preventDefault());
 
 server.addCommand("/fields", ({ player }) => {
-	player.account = 1234;
+	player.money = 1234;
 	player.gravity = 0.5;
 	player.teamName = "amxts";
-	console.log(`fields ${player.account} ${player.gravity} ${player.teamName} ${player.origin.z}`);
+	console.log(`fields ${player.money} ${player.gravity} ${player.teamName} ${player.origin.z}`);
 });
 
 server.addServerCommand("scores", () => {

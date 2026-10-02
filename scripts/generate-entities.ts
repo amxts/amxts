@@ -178,6 +178,8 @@ const MEMBER_NAMES: Record<string, string> = {
 	m_flCheckWinConditions: 'checkWinConditionsTime',
 	// reapi keeps ReGameDLL's spelling; the property is spelled right.
 	m_szAnimExtention: 'animExtension',
+	// The game's word for the player's money: `player.money`, as a player says it.
+	m_iAccount: 'money',
 };
 
 function nameOf(reapi: string) {

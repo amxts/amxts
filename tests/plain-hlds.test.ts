@@ -189,7 +189,7 @@ test('without reapi a round ends as the game ends it: the winner, the round endi
 
 test('the events reapi alone delivers are ReGameDLL\'s and ReHLDS\'s own', () => {
 	const events = reapiEvents();
-	for (const event of ['roundEnd', 'playerSpawn', 'addAccount']) expect(events.has(event)).toBe(true);
+	for (const event of ['roundEnd', 'playerSpawn', 'addMoney']) expect(events.has(event)).toBe(true);
 	// Ham Sandwich has these too: a player's through it on plain HLDS.
 	for (const event of ['takeDamage', 'jump', 'spawn', 'think', 'canDeploy']) expect(events.has(event)).toBe(false);
 });
@@ -201,7 +201,7 @@ test('each of them is heard on plain HLDS, fully or with its gaps, or is not, wi
 	const said = Object.entries(HEARD).filter(([, heard]) => (heard.class === 'B') !== Boolean(heard.gaps?.en && heard.gaps.ru));
 	expect(said).toEqual([]);
 	expect([...unheardEvents()].sort()).toEqual(Object.keys(NOT_HEARD).sort());
-	for (const event of ['playerSpawn', 'roundEnd', 'restartRound', 'onRoundFreezeEnd', 'addAccount', 'plantBomb']) expect(HEARD[event]?.class).toBe('B');
+	for (const event of ['playerSpawn', 'roundEnd', 'newRound', 'roundStart', 'addMoney', 'plantBomb']) expect(HEARD[event]?.class).toBe('B');
 	for (const event of ['flPlayerFallDamage', 'move', 'canHavePlayerItem']) expect(NOT_HEARD[event]).toBeString();
 });
 

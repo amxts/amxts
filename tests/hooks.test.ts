@@ -89,7 +89,7 @@ test('a Pawn enum argument is a union of names, from the include', () => {
 	expect(classBody('CanSwitchTeamEvent')).toContain('get team(): Team');
 	expect(classBody('ChooseTeamEvent')).toContain('get choice(): TeamChoice');
 	expect(classBody('BuyWeaponByWeaponIdEvent')).toContain('get weapon(): WeaponKind');
-	expect(classBody('AddAccountEvent')).toContain('get reason(): RewardReason');
+	expect(classBody('AddMoneyEvent')).toContain('get reason(): RewardReason');
 	expect(classBody('HasRestrictItemEvent')).toContain('get restriction(): ItemRestriction');
 	expect(classBody('HasRestrictItemEvent')).toContain('get item(): ItemKind');
 	expect(classBody('PainEvent')).toContain('get lastHitGroup(): HitGroup');
@@ -141,7 +141,7 @@ test('the same function under reapi and Ham Sandwich is one event: reapi for its
 	expect(hooks).toContain('if (!__hasReapi()) { __sayOnce("flPlayerFallDamage needs ReAPI, which this server does not have: its listeners are never called"); return; }');
 	// One a stock hook hears goes to its backend (as/hlds.ts), registered on the first listener.
 	expect(hooks).toContain('if (!roundEndHldsHooked) { roundEndHldsHooked = true; roundEndHlds(roundEndFireHlds); }');
-	expect(hooks).toContain('if (post && !restartRoundPostHldsHooked) { restartRoundPostHldsHooked = true; restartRoundPostHlds(restartRoundFireHlds); }');
+	expect(hooks).toContain('if (post && !newRoundPostHldsHooked) { newRoundPostHldsHooked = true; newRoundPostHlds(newRoundFireHlds); }');
 	expect(hooks).toMatch(/\tspawn: SpawnEvent;/);
 	expect(hooks).not.toContain('basePlayerSpawn');
 	expect(hooks).toMatch(/\tgameThink: GameThinkEvent;/);

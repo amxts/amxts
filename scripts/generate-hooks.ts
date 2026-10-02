@@ -753,6 +753,12 @@ const EVENT_NAMES: Record<string, string> = {
 	base_player_duck: 'duck',
 	// The game rules' think: `think` is an entity's (Ham_Think).
 	think: 'gameThink',
+	// ReGameDLL's function names, said as a player says them: AddAccount moves
+	// the money, RestartRound starts the next round, OnRoundFreezeEnd is the
+	// round's start, once the freeze time is over.
+	add_account: 'addMoney',
+	restart_round: 'newRound',
+	on_round_freeze_end: 'roundStart',
 };
 
 const hamOf = new Map(HAM_FUNCTIONS.filter(f => f.reapi).map(f => [f.reapi!, f]));

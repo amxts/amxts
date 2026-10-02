@@ -59,7 +59,7 @@ const precached: Text = {
 
 export const HEARD: Record<string, HeardEvent> = {
 	// The round.
-	restartRound: {
+	newRound: {
 		class: 'B',
 		backend: 'HLTV message (1=0 2=0) before, decal_reset.sc playback at its time after; the map\'s first round is the game\'s restart as it commences',
 		post: true,
@@ -68,7 +68,7 @@ export const HEARD: Record<string, HeardEvent> = {
 			ru: 'слышно при перезапуске раунда — обработчики «до» игры, когда она объявляет раунд, обработчики «после» — когда её игроки возродились, — но `preventDefault()` ничего не делает',
 		},
 	},
-	onRoundFreezeEnd: { class: 'B', backend: 'logevent World triggered "Round_Start"', gaps: after },
+	roundStart: { class: 'B', backend: 'logevent World triggered "Round_Start"', gaps: after },
 	roundEnd: {
 		class: 'B',
 		backend: 'logevent World triggered "Round_End"; winner and reason from the TextMsg, the trigger log line or SendAudio before it',
@@ -130,7 +130,7 @@ export const HEARD: Record<string, HeardEvent> = {
 	},
 
 	// Money and buying.
-	addAccount: {
+	addMoney: {
 		class: 'B',
 		backend: 'Money message: the change from the last amount the player was sent',
 		gaps: afterAnd(

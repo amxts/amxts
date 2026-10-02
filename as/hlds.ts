@@ -18,13 +18,13 @@ import {
 } from "./facade";
 import { Entity } from "./entities";
 import {
-	HookEvent, AddAccountEvent, BounceGibTouchEvent, BuyGunAmmoEvent, BuyItemEvent, BuyWeaponByWeaponIdEvent,
+	HookEvent, AddMoneyEvent, BounceGibTouchEvent, BuyGunAmmoEvent, BuyItemEvent, BuyWeaponByWeaponIdEvent,
 	CanPlayerHearPlayerEvent, ChangeLevelEvent, CleanUpMapEvent, ChooseAppearanceEvent, ChooseTeamEvent, ClientConnectedEvent,
 	ClientUserInfoChangedEvent, ConnectClientEvent, DeathNoticeEvent, DeathSoundEvent, DefuseBombEndEvent,
 	DefuseBombStartEvent, DropClientEvent, DropPlayerItemEvent, ExplodeBombEvent, GameThinkEvent, GibSpawnEvent,
-	GiveC4Event, GoToIntermissionEvent, HasRestrictItemEvent, MakeBomberEvent, MakeVipEvent, OnRoundFreezeEndEvent,
+	GiveC4Event, GoToIntermissionEvent, HasRestrictItemEvent, MakeBomberEvent, MakeVipEvent, RoundStartEvent,
 	PainEvent, PlantBombEvent, PlayerBlindEvent, PlayerGotWeaponEvent, PlayerKilledEvent, PlayerSpawnEvent,
-	PrecacheGenericIEvent, PrecacheModelIEvent, PrecacheSoundIEvent, RestartRoundEvent, RoundEndEvent,
+	PrecacheGenericIEvent, PrecacheModelIEvent, PrecacheSoundIEvent, NewRoundEvent, RoundEndEvent,
 	SendDeathMessageEvent, SetClientUserInfoNameEvent, SetModelEvent, ShowVguiMenuEvent, StartSoundEvent,
 	ThrowFlashbangEvent, ThrowGrenadeEvent, ThrowHeGrenadeEvent, ThrowSmokeGrenadeEvent
 } from "./hooks";
@@ -200,20 +200,20 @@ let newRoundAt: f64 = -1;
  * before the players respawn. A map's first round is a restart too - the
  * game commences once both sides have players.
  */
-export function restartRoundHlds(fire: Fire<RestartRoundEvent>): void {
+export function newRoundHlds(fire: Fire<NewRoundEvent>): void {
 	__whenUp((): void => {
-		const pub = publicFor((a: number, b: number, c: number, d: number): void => newRound(fire), "hlds:event:HLTV");
+		const pub = publicFor((a: number, b: number, c: number, d: number): void => announceRound(fire), "hlds:event:HLTV");
 		if (pub.length > 0) new Call(NATIVE_register_event).str("HLTV").str(pub).str("a").str("1=0").str("2=0").run();
 	});
 }
 
-function newRound(fire: Fire<RestartRoundEvent>): void {
+function announceRound(fire: Fire<NewRoundEvent>): void {
 	const now = get_gametime();
 	if (now == newRoundAt) return;
 	newRoundAt = now;
-	const event = new RestartRoundEvent();
+	const event = new NewRoundEvent();
 	fire(event, false);
-	settle(event, "restartRound");
+	settle(event, "newRound");
 }
 
 // The map's decals reset: the game's CleanUpMap plays events/decal_reset.sc
@@ -237,12 +237,12 @@ function decalsReset(a: i32): void {
 }
 
 /** The round once its players have respawned: the decals' reset at its HLTV message's time. */
-export function restartRoundPostHlds(fire: Fire<RestartRoundEvent>): void {
+export function newRoundPostHlds(fire: Fire<NewRoundEvent>): void {
 	onDecalsReset((): void => {
 		if (get_gametime() != newRoundAt) return;
-		const event = new RestartRoundEvent();
+		const event = new NewRoundEvent();
 		fire(event, true);
-		settle(event, "restartRound");
+		settle(event, "newRound");
 	});
 }
 
@@ -252,8 +252,8 @@ export function cleanUpMapHlds(fire: Fire<CleanUpMapEvent>): void {
 }
 
 /** The freeze time is over: the game logs "Round_Start". */
-export function onRoundFreezeEndHlds(fire: Fire<OnRoundFreezeEndEvent>): void {
-	onLog("onRoundFreezeEnd", 2, "1=Round_Start", (): void => hear(fire, new OnRoundFreezeEndEvent(), "onRoundFreezeEnd"));
+export function roundStartHlds(fire: Fire<RoundStartEvent>): void {
+	onLog("roundStart", 2, "1=Round_Start", (): void => hear(fire, new RoundStartEvent(), "roundStart"));
 }
 
 // The round's end, told before its log line, by the time each came: the
@@ -545,7 +545,7 @@ export function explodeBombHlds(fire: Fire<ExplodeBombEvent>): void {
 const moneySent: i32[] = new Array<i32>(33).fill(-1);
 
 /** A player's money changed: the Money message the game sends him, by how much it moved. */
-export function addAccountHlds(fire: Fire<AddAccountEvent>): void {
+export function addMoneyHlds(fire: Fire<AddMoneyEvent>): void {
 	// A bot is put in the server before the game has made him: his money is
 	// not there yet, and the first message he is sent is what counts from.
 	server.addEventListener("putinserver", (event): void => {
@@ -564,11 +564,11 @@ export function addAccountHlds(fire: Fire<AddAccountEvent>): void {
 		const before = moneySent[id];
 		moneySent[id] = amount;
 		if (before < 0 || amount == before) return;
-		const event = new AddAccountEvent();
+		const event = new AddMoneyEvent();
 		event.__give(0, id);
 		event.__give(1, amount - before);
 		event.__give(3, message.flash ? 1 : 0);
-		hear(fire, event, "addAccount");
+		hear(fire, event, "addMoney");
 	});
 }
 
