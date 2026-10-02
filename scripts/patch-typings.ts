@@ -86,7 +86,9 @@ const date = text.slice(dateStart, dateEnd);
 const localGetters = ['getTimezoneOffset', 'getFullYear', 'getMonth', 'getDate', 'getDay', 'getHours', 'getMinutes', 'getSeconds', 'getMilliseconds']
 	.map(name => `  ${name}(): i32;\n`)
 	.join('');
+// Date.UTC takes the year alone, as in JavaScript: the rest default.
 let numberDate = date
+	.replace(/(\n {4}(?:month|day|hour|minute|second|millisecond)): i32/g, '$1?: i32')
 	.replace('  ): i64;', '  ): f64;')
 	.replace('static now(): i64;', 'static now(): f64;')
 	.replace(/constructor\(value: [fi]64\);/, 'constructor(value?: f64);')
@@ -303,7 +305,7 @@ if (!text.includes(numberCallable)) {
 
 // A Map's entries and forEach, a Set's forEach, and for...of over both, which
 // our AssemblyScript has (runtime/patches): the loop walks a Map's entries
-// and a Set's values.
+// and a Set's values. A Map is made of its entries and a Set of its values.
 for (const [owner, added] of [
 	['declare class Map<K,V> {\n', [
 		'  /** The entries, `[key, value]`, in the order the keys were added. */',
@@ -319,14 +321,16 @@ for (const [owner, added] of [
 		'  [Symbol.iterator](): IterableIterator<K>;',
 		'',
 	].join('\n')],
+	['declare class Map<K,V> {\n', '  /** A Map of the `[key, value]` entries, set in their order. */\n  constructor(entries?: [K, V][] | null);\n'],
+	['declare class Set<K> {\n', '  /** A Set of the values, added in their order. */\n  constructor(values?: K[] | null);\n'],
 ]) {
-	if (text.includes(owner + added)) continue;
+	if (text.includes(added)) continue;
 	if (!text.includes(owner)) {
 		process.stderr.write(`typings: "${owner.trim()}" was not found in ${typings} - AssemblyScript changed it\n`);
 		process.exit(1);
 	}
 	text = text.replace(owner, owner + added);
-	console.log(`typings: ${owner.replace(/^declare class | \{\n$/g, '')} walks with for...of for the editor`);
+	console.log(`typings: ${owner.replace(/^declare class | \{\n$/g, '')} as our AssemblyScript has it, for the editor`);
 }
 
 // Math.max and Math.min of any number of values, a spread list too, which our
