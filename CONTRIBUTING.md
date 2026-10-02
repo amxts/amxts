@@ -139,6 +139,9 @@ in `dist-release/` (`bun run release:linux --no-upload --dry-run`, and
 The suites run with `--smol`; a full run takes about 1.2 GB of memory, and
 under 2 GB when it compiles everything, from an empty compile cache (CI);
 one file is `bun test --smol tests/<name>.test.ts`.
+`bun run test:server` compiles its plugins several at once, as a project's
+build does: `AMXTS_BUILD_JOBS`, or `AMXTS_BUILD_MEMORY` in megabytes (3072,
+two at once), says how many.
 `AMXTS_SERVER` (in `.env` beside `package.json`) is a server's
 `addons/amxts` folder. `tests/code-style.test.ts` checks how plugin code
 reads: every finding names the file, the line and the rule.

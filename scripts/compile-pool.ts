@@ -91,8 +91,8 @@ export interface CompileAll {
 	includes: string[];
 	/** The compile in this process: the build's plugin cache. */
 	here: (plugin: Plugin, natives: PluginNative[]) => Promise<string | null>;
-	started: (index: number) => void;
-	finished: (index: number, compiled: Compiled) => void;
+	started?: (index: number) => void;
+	finished?: (index: number, compiled: Compiled) => void;
 }
 
 /**
@@ -116,10 +116,10 @@ export async function compileAll(plugins: Plugin[], options: CompileAll): Promis
 	try {
 		return await inSlots(plugins, slots, async (plugin, slot, index) => {
 			if (failed) return null;
-			options.started(index);
+			options.started?.(index);
 			const compiled = await compile(plugin, slot);
 			failed ||= compiled.problem !== null;
-			options.finished(index, compiled);
+			options.finished?.(index, compiled);
 			return compiled;
 		});
 	} finally {

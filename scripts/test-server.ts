@@ -29,6 +29,10 @@
 // hold no suite (exports.ts, which a Pawn suite includes). A suite that reads
 // what an earlier one left (data-read after data-write) needs it named too.
 //
+// The plugins compile several at once, as a build compiles them
+// (scripts/compile-pool.ts): AMXTS_BUILD_JOBS or AMXTS_BUILD_MEMORY says how
+// many.
+//
 // It never touches the server that owns the install, which may be running
 // with people on it:
 //
@@ -72,6 +76,7 @@ import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, re
 import { basename, dirname, join, resolve } from 'node:path';
 import { ABI_SECTION, abiIdentity } from './build-identity';
 import { compilePlugin } from './compile';
+import { compileAll } from './compile-pool';
 import { includeDirs } from './includes';
 import { CORE_DIR, CORE_PLUGINS, loadProject, PROJECT_GAME_FOLDERS, projectPlugins, sourcesFor } from './project';
 import { amxxpcPath, MODULE_FILE, modulePath, serverFolder, wamrcPath } from './system';
@@ -486,21 +491,25 @@ function discoverSuites(): { suites: Suite[]; plugins: string[]; pawn: string[];
 
 async function build(plugins: string[], pawn: string[]): Promise<string[] | null> {
 	mkdirSync(buildDir, { recursive: true });
-	const built: string[] = [];
+	const sources = [...EXTRA_PLUGINS, ...plugins];
+	// A module package's natives build as the module's owner: menu-core.aot.
+	const names = sources.map(source => basename(modulesSources.entry(source)).replace(/\.ts$/, ''));
+	const twice = names.findIndex((name, index) => names.indexOf(name) !== index);
+	if (twice >= 0) {
+		fail(`${sources[twice]}: a plugin named ${names[twice]} is already built - rename the suite`);
+		return null;
+	}
 
-	for (const source of [...EXTRA_PLUGINS, ...plugins]) {
-		// A module package's natives build as the module's owner: menu-core.aot.
-		const name = basename(sourcesFor(CORE_PLUGINS).entry(source)).replace(/\.ts$/, '');
-		if (built.includes(`${name}.aot`)) {
-			fail(`${source}: a plugin named ${name} is already built - rename the suite`);
-			return null;
-		}
-		const problem = await compilePlugin({ source, output: join(buildDir, `${name}.aot`), root: CORE_PLUGINS, wamrc, signatures, system: linux ? 'linux' : 'windows', quick });
-		if (problem) {
-			fail(`${source} does not compile:\n${problem.trim()}`);
-			return null;
-		}
-		built.push(`${name}.aot`);
+	const system = linux ? 'linux' : 'windows';
+	const compiled = await compileAll(sources.map((source, index) => ({ source, output: join(buildDir, `${names[index]}.aot`), root: CORE_PLUGINS, wamrc, signatures, system, quick })), {
+		dir: null,
+		includes: [],
+		here: compilePlugin,
+	});
+	const failed = compiled.findIndex(each => each?.problem);
+	if (failed >= 0) {
+		fail(`${sources[failed]} does not compile:\n${compiled[failed]!.problem!.trim()}`);
+		return null;
 	}
 
 	// A Pawn suite includes what the TypeScript ones export, from beside them,
@@ -517,7 +526,7 @@ async function build(plugins: string[], pawn: string[]): Promise<string[] | null
 			return null;
 		}
 	}
-	return built;
+	return names.map(name => `${name}.aot`);
 }
 
 // ---------------------------------------------------------------- staging
