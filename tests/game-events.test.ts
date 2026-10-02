@@ -127,3 +127,14 @@ describe('enum and flag arguments are names', () => {
 		expect(sent.args[6]).toBe(0x4 | 0x800);
 	});
 });
+
+test('traceAttack: a vector argument is written back whole', async () => {
+	const server = await loadPlugin('tests/as/hook-vectors.ts');
+	const victim = server.join('Alice');
+	const attacker = server.join('Bob');
+	const shot = server.fireHook('traceAttack', [victim.id, attacker.id, 30.0, [1, 0.5, -0.25], 0, DMG_BULLET]);
+
+	expect(server.log).toContain('dir 1 0.5 -0.25');
+	expect(server.log).toContain('now -1 -0.5 -0.25');
+	expect(shot.args[3]).toEqual([-1, -0.5, -0.25]);
+});

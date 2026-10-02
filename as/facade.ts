@@ -351,6 +351,18 @@ export function __nativeVector(index: i32): Vector {
 	return new Vector(pawnFloat(cells[0]), pawnFloat(cells[1]), pawnFloat(cells[2]));
 }
 
+/**
+ * @hidden Writes a `Float:v[3]` argument where it lies: a hookchain's vector,
+ * which reapi copies back into the game's once the listener returns.
+ */
+export function __setNativeVector(index: i32, value: Vector): void {
+	const cells = new StaticArray<i32>(3);
+	unchecked(cells[0] = reinterpret<i32>(<f32>value.x));
+	unchecked(cells[1] = reinterpret<i32>(<f32>value.y));
+	unchecked(cells[2] = reinterpret<i32>(<f32>value.z));
+	_setArgArray(index, changetype<usize>(cells), 3);
+}
+
 // @ts-ignore: decorator
 @external("env", "arg_length") declare function _argLength(index: i32): i32;
 

@@ -97,7 +97,7 @@ interface Cvar {
 export interface Chain {
 	shape: HookShape;
 	answer: Value;
-	args: Value[];
+	args: HookArg[];
 	/** SetHookChainReturn ran: reapi lets a chain that answers be stopped only then. */
 	answered?: boolean;
 }
@@ -109,8 +109,11 @@ export interface HookResult {
 	/** The chain's answer after every listener: a number, a boolean or text, by the chain. */
 	result: Value;
 	/** The arguments as the listeners left them (`event.damage = 10`). */
-	args: Value[];
+	args: HookArg[];
 }
+
+/** A hookchain's argument: a number, a boolean, text, or a vector as `[x, y, z]`. */
+export type HookArg = Value | number[];
 
 /** A user message a plugin sent: ScreenFade, StatusIcon, ... */
 export interface UserMessage {
@@ -1044,19 +1047,21 @@ export class FakeServer {
 	 *
 	 * `event` is the name game.addEventListener takes, or reapi's short one
 	 * ("take_damage"). `args` are the chain's arguments in order; a float is
-	 * written as a number and goes as one. `result` is what the game's own
+	 * written as a number and goes as one, a vector as `[x, y, z]`. `result` is what the game's own
 	 * function answers when it runs - what a post listener reads as
 	 * event.result.
 	 */
-	fireHook(event: string, args: Value[] = [], options: { result?: Value } = {}): HookResult {
+	fireHook(event: string, args: HookArg[] = [], options: { result?: Value } = {}): HookResult {
 		const shape = tables().hooks.get(event);
 		if (!shape) throw new Error(`no hookchain named "${event}" in as/hooks.ts`);
 
-		const cells = args.map((a, i) => typeof a === 'string'
-			? a
-			: typeof a === 'boolean'
-				? (a ? 1 : 0)
-				: shape.floats.has(i) ? floatBits(a) : a | 0);
+		const cells: ArgValue[] = args.map((a, i) => Array.isArray(a)
+			? a.map(floatBits)
+			: typeof a === 'string'
+				? a
+				: typeof a === 'boolean'
+					? (a ? 1 : 0)
+					: shape.floats.has(i) ? floatBits(a) : a | 0);
 		const handed = cells.slice(0, 4).map(c => typeof c === 'number' ? c : 0);
 
 		const nothing: Value = shape.answer === constant('ATYPE_BOOL') ? false : shape.answer === constant('ATYPE_STRING') ? '' : 0;
@@ -1087,6 +1092,12 @@ export class FakeServer {
 			if (!prevented) chain.answer = options.result ?? nothing;
 
 			if (!broken) {
+				// A vector is an array reapi copies back into the game's: what
+				// a pre listener wrote in it is what the game and the post
+				// listeners get.
+				cells.forEach((cell, i) => {
+					if (Array.isArray(cell)) chain.args[i] = cell.map(bitsFloat);
+				});
 				for (const slot of [...listeners.post]) {
 					this.withCallArgs(cells, () => this.call(slot, handed, slot.fallback));
 				}
@@ -1156,7 +1167,7 @@ export class FakeServer {
 	 * function's arguments after the entity, a float as a number and a vector
 	 * as an array of three.
 	 */
-	fireHam(event: string, entity: FakeEntity | number, args: Value[] = [], options: { result?: Value } = {}): HookResult {
+	fireHam(event: string, entity: FakeEntity | number, args: HookArg[] = [], options: { result?: Value } = {}): HookResult {
 		const shape = tables().hooks.get(event);
 		if (shape?.ham === undefined) throw new Error(`no Ham Sandwich function under the event "${event}" in as/hooks.ts`);
 		return this.runHam(shape, typeof entity === 'number' ? entity : entity.id, args, options.result);
@@ -1166,7 +1177,7 @@ export class FakeServer {
 	 * fireHam's work, and ExecuteHamB's: `args` without the entity.
 	 * @internal
 	 */
-	runHam(shape: HookShape, id: number, args: (Value | number[])[], result?: Value): HookResult {
+	runHam(shape: HookShape, id: number, args: HookArg[], result?: Value): HookResult {
 		const classname = this.entities.get(id)?.classname ?? (id >= 1 && id <= this.maxPlayers ? 'player' : '');
 		const all = [id, ...args];
 		const cells: ArgValue[] = all.map((a, i) => Array.isArray(a)
@@ -1178,7 +1189,7 @@ export class FakeServer {
 					: shape.floats.has(i) ? floatBits(a) : a | 0);
 		const handed = cells.slice(0, 4).map(c => typeof c === 'number' ? c : 0);
 		const nothing: Value = shape.answer === constant('ATYPE_STRING') ? '' : 0;
-		const chain: Chain = { shape, answer: nothing, args: all.map(a => Array.isArray(a) ? 0 : a) };
+		const chain: Chain = { shape, answer: nothing, args: all };
 		const listeners = (post: boolean) => this.hams.get(`${shape.ham}:${classname}:${post ? 'post' : 'pre'}`) ?? [];
 
 		const previous = this.chain;

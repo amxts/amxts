@@ -21,9 +21,9 @@ export interface GameDoc {
 
 const player: Text = { en: `The player the event is about.`, ru: `Игрок, о котором событие.` };
 // Vector arguments are read only: reapi takes a vector back only as itself.
-const grenadeStart: Text = { en: `The point the grenade is thrown from, a Vector. Read only.`, ru: `Точка, откуда летит граната, Vector. Только чтение.` };
+const grenadeStart: Text = { en: `The point the grenade is thrown from, a Vector.`, ru: `Точка, откуда летит граната, Vector.` };
 const thrower: Text = { en: `The player who threw the grenade.`, ru: `Игрок, который бросил гранату.` };
-const grenadeVelocity: Text = { en: `The grenade's velocity, a Vector. Read only.`, ru: `Скорость гранаты, Vector. Только чтение.` };
+const grenadeVelocity: Text = { en: `The grenade's velocity, a Vector.`, ru: `Скорость гранаты, Vector.` };
 
 // The entity a Ham Sandwich event of one class is about.
 const theWeapon: Text = { en: `The weapon the event is about - one of the class \`classname\` names.`, ru: `Оружие, о котором событие, — одного класса, названного в \`classname\`.` };
@@ -84,7 +84,7 @@ export const GAME: Record<string, GameDoc> = {
 			ru: `Выстрел или нож попал в игрока, ещё до урона. \`preventDefault()\` — и попадания не было.`,
 		},
 		fields: {
-			dir: { en: `The shot's direction, a Vector. Read only.`, ru: `Направление выстрела, Vector. Только чтение.` },
+			dir: { en: `The shot's direction, a Vector.`, ru: `Направление выстрела, Vector.` },
 		},
 	},
 	throwSmokeGrenade: {
@@ -191,7 +191,7 @@ export const GAME: Record<string, GameDoc> = {
 		},
 		fields: {
 			player: { en: `The player who is blinded.`, ru: `Игрок, которого ослепляет.` },
-			color: { en: `The flash's colour, [r, g, b] as a Vector. Read only.`, ru: `Цвет вспышки, [r, g, b] как Vector. Только чтение.` },
+			color: { en: `The flash's colour, [r, g, b] as a Vector.`, ru: `Цвет вспышки, [r, g, b] как Vector.` },
 		},
 	},
 	startDeathCam: {

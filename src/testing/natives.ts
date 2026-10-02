@@ -10,7 +10,7 @@
 // answers stops the test with its name; add it below, keeping to what the real
 // one does closely enough for a test to be believed.
 import type { Memory } from './memory';
-import type { FakePlayer, FakeServer, PluginInstance, SentForward, TeamName, Value } from './server';
+import type { FakePlayer, FakeServer, HookArg, PluginInstance, SentForward, TeamName, Value } from './server';
 import { bitsFloat, floatBits } from './memory';
 import { FakeEntity, flagBits, normalizePath, TEAMS } from './server';
 import { constant, tables } from './tables';
@@ -256,8 +256,13 @@ function executeHam(call: NativeCall, fn: number, id: number, tail: number[], ho
 	return Number(call.server.runHam(shape, id, args).result) | 0;
 }
 
+/** A vector given by address: its three numbers. */
+function vectorAt(call: NativeCall, at: number): number[] {
+	return [0, 1, 2].map(k => call.memory.float(at + k * 4));
+}
+
 /** SetHamParam*: `which` counts from 1, the entity itself. */
-function setHamParam(call: NativeCall, which: number, value: Value): number {
+function setHamParam(call: NativeCall, which: number, value: HookArg): number {
 	chain(call).args[which - 1] = value;
 	return 1;
 }
@@ -969,7 +974,7 @@ export const NATIVES: Record<string, Native> = {
 	SetHamParamEntity: (c, [which, value]) => setHamParam(c, which, value),
 	SetHamParamFloat: (c, [which, value]) => setHamParam(c, which, bitsFloat(value)),
 	SetHamParamString: (c, [which, text]) => setHamParam(c, which, c.memory.text(text)),
-	SetHamParamVector: (c, [which]) => setHamParam(c, which, 0),
+	SetHamParamVector: (c, [which, at]) => setHamParam(c, which, vectorAt(c, at)),
 	SetHamReturnInteger: (c, [value]) => setHamReturn(c, value),
 	SetHamReturnEntity: (c, [value]) => setHamReturn(c, value),
 	SetHamReturnFloat: (c, [value]) => setHamReturn(c, bitsFloat(value)),
