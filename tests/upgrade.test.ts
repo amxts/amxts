@@ -115,12 +115,13 @@ test('a command handler takes one object: the player by name, a function by its 
 		'server.addCommand("/new", ({ player }) => print(player, "new"));',
 		'server.addServerCommand("myplugin_reset", () => reset());',
 		'server.addServerCommand("myplugin_set", (args) => set(args[0]));',
+		'server.addCommand("/top", (player, args) => print(player, "top"));',
 		'function showRules(player: Player) {}',
 		'',
 	].join('\n');
 	const { text, changes, left } = upgradeHandlers('plugins/a.ts', source);
 
-	expect(text.split('\n').slice(0, 8)).toEqual([
+	expect(text.split('\n').slice(0, 9)).toEqual([
 		'server.addCommand("/hp", ({ player }) => print(player, "hp"));',
 		'server.addCommand("/hi", ({ player }) => print(player, "hi"));',
 		'server.addCommand("/me", async ({ player: who }) => print(who, "me"));',
@@ -129,8 +130,9 @@ test('a command handler takes one object: the player by name, a function by its 
 		'server.addCommand("/new", ({ player }) => print(player, "new"));',
 		'server.addServerCommand("myplugin_reset", () => reset());',
 		'server.addServerCommand("myplugin_set", (args) => set(args[0]));',
+		'server.addCommand("/top", ({ player }) => print(player, "top"));',
 	]);
-	expect(changes.map(change => `${change.line} ${change.from} -> ${change.to}`)).toEqual(['1 player -> { player }', '2 player -> ({ player })', '3 who: Player -> { player: who }', '4 showRules -> ({ player }) => showRules(player)']);
+	expect(changes.map(change => `${change.line} ${change.from} -> ${change.to}`)).toEqual(['1 player -> { player }', '2 player -> ({ player })', '3 who: Player -> { player: who }', '4 showRules -> ({ player }) => showRules(player)', '9 player, args -> { player }']);
 	expect(left.map(each => each.line)).toEqual([5, 8]);
 	expect(upgradeHandlers('plugins/a.ts', text).changes).toEqual([]);
 });
@@ -163,6 +165,7 @@ test('Player.all is server.players and a filter; a player\'s account is his mone
 		'game.addEventListener("restartRound", () => {});',
 		'game.removeEventListener(\'onRoundFreezeEnd\', reset);',
 		'server.addCommand("/money", ({ player }) => print(player, `${player.account}`));',
+		'server.addCommand("/pay", (player, args) => print(player, `${player.account} ${args[0]}`));',
 		'for (const each of Player.all()) each.account = 0;',
 		'Player.all().filter(one => one.account > 0).forEach(one => { one.account -= 1; });',
 		'function pay(who: Player | null, bank: Bank) { if (who) who.account += bank.account; }',
@@ -183,6 +186,7 @@ test('Player.all is server.players and a filter; a player\'s account is his mone
 		'game.addEventListener("newRound", () => {});',
 		'game.removeEventListener(\'roundStart\', reset);',
 		'server.addCommand("/money", ({ player }) => print(player, `${player.money}`));',
+		'server.addCommand("/pay", (player, args) => print(player, `${player.money} ${args[0]}`));',
 		'for (const each of server.players) each.money = 0;',
 		'server.players.filter(one => one.money > 0).forEach(one => { one.money -= 1; });',
 		'function pay(who: Player | null, bank: Bank) { if (who) who.money += bank.account; }',
@@ -190,8 +194,8 @@ test('Player.all is server.players and a filter; a player\'s account is his mone
 		'const text = "Player.all() and addAccount";',
 		'',
 	]);
-	expect(changes).toHaveLength(18);
-	expect(left.map(each => each.line)).toEqual([5, 6, 13]);
+	expect(changes).toHaveLength(19);
+	expect(left.map(each => each.line)).toEqual([5, 6, 14]);
 	expect(left[2].why).toContain('`money` on a Player');
 	expect(upgradeNames('plugins/a.ts', text).changes).toEqual([]);
 });

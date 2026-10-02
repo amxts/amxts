@@ -12,8 +12,9 @@ import type { Kind } from './upgrade-names';
 // `import()` and `declare module` - so a string or a comment that looks like
 // one is left alone, and only the text between the quotes changes. A
 // command's handler takes one object: `(player) =>` becomes `({ player })
-// =>`; one that reads the words after the name is listed, to be written by
-// hand with the words in the usage. An import of `@amxts/core/http` goes:
+// =>`, and so does `(player, args) =>` that never reads `args`; one that
+// reads the words after the name is listed, to be written by hand with the
+// words in the usage. An import of `@amxts/core/http` goes:
 // fetch is a global, and what reads its response the old way is listed.
 // `Player.all(options)` is `server.players` and a `filter`; a field, a method
 // or a game event named in the engine's words has the player's
@@ -142,6 +143,15 @@ export function dropHttpImports(file: string, text: string): { text: string; cha
 
 const BY_HAND = 'it reads the words after the name: write them in the usage, "/give <amount>", and take them by name, ({ player, amount })';
 
+/** Whether a function reads a parameter after its first: `(player, args) =>` that never reads `args` takes the player alone. */
+function readsWords(fn: ts.ArrowFunction | ts.FunctionExpression): boolean {
+	const names = new Set(fn.parameters.slice(1).map(param => ts.isIdentifier(param.name) ? param.name.text : ''));
+	if (names.has('')) return true;
+	const reads = (node: ts.Node): boolean =>
+		(ts.isIdentifier(node) && names.has(node.text) && !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node)) || ts.forEachChild(node, reads) === true;
+	return reads(fn.body);
+}
+
 /** The parameter list's text for a handler that took the player as `name`: `{ player }`, or `{ player: name }`. */
 function playerBinding(name: string): string {
 	return name === 'player' ? '{ player }' : `{ player: ${name} }`;
@@ -151,8 +161,9 @@ function playerBinding(name: string): string {
  * A file's command handlers brought to one argument: `(player) =>` becomes
  * `({ player }) =>`, a function passed by its name and taking the player is
  * called from `({ player }) => name(player)`. A handler that reads the words
- * after the name - a second parameter, or a server command's one - is left,
- * with what to write; one that takes nothing, or already one object, is right.
+ * after the name - a second parameter it uses, or a server command's one - is
+ * left, with what to write; one that takes nothing, or already one object, is
+ * right.
  */
 export function upgradeHandlers(file: string, text: string): { text: string; changes: Change[]; left: Left[] } {
 	if (!text.includes('addCommand') && !text.includes('addServerCommand')) return { text, changes: [], left: [] };
@@ -174,14 +185,15 @@ export function upgradeHandlers(file: string, text: string): { text: string; cha
 		if (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler)) {
 			const params = handler.parameters;
 			if (params.length === 0 || !ts.isIdentifier(params[0].name)) return;
-			if (!player || params.length > 1) {
+			if (!player || readsWords(handler)) {
 				left.push({ file, line: lineOf(handler), why: BY_HAND });
 				return;
 			}
 			const param = params[0];
+			const end = params[params.length - 1].getEnd();
 			const parenthesized = text[param.getStart(source) - 1] === '(' || text.slice(handler.getStart(source), param.getStart(source)).includes('(');
 			const binding = playerBinding((param.name as ts.Identifier).text);
-			edits.push({ start: param.getStart(source), end: param.getEnd(), with: parenthesized ? binding : `(${binding})`, from: param.getText(source) });
+			edits.push({ start: param.getStart(source), end, with: parenthesized ? binding : `(${binding})`, from: text.slice(param.getStart(source), end) });
 			return;
 		}
 
@@ -277,7 +289,8 @@ const OLD_NAMES = new RegExp(`\\b(?:Player\\.all|${[
  * ones. Without a type checker a value is a player, a weapon, an entity or the
  * game where the code says so: `event.player`, `new Weapon(id)`, an
  * annotation, `player.activeItem`, an element of `server.players` or of a
- * player's `items`, `{ player }` taken from an event or a command, `game`.
+ * player's `items`, `{ player }` taken from an event or a command, a
+ * command handler's first parameter, `game`.
  * The rest is listed: an old name on a value the code does not say, options
  * not written out as `true` or a team's name, and a field or an event left out
  * of the API, which the natives reach.
@@ -340,10 +353,12 @@ export function upgradeNames(file: string, text: string): { text: string; change
 			const loop = declared.parent.parent;
 			return ts.isForOfStatement(loop) ? elementsOf(loop.expression) : undefined;
 		}
-		// The first parameter of a callback over a list: `.filter(each => ...)`.
+		// The first parameter of a callback over a list, `.filter(each => ...)`,
+		// or of a command's handler that reads the words, `(player, args) =>`.
 		const fn = declared.parent;
 		const call = fn.parent;
 		if (fn.parameters[0] !== declared || !ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression)) return undefined;
+		if (call.expression.name.text === 'addCommand' && call.arguments[1] === fn && call.expression.expression.getText(source) === 'server') return 'Player';
 		return ELEMENT_CALLBACKS.has(call.expression.name.text) ? elementsOf(call.expression.expression) : undefined;
 	};
 
