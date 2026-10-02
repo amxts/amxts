@@ -75,6 +75,34 @@ import { Vector } from "./vector";
 @external("env", "argc")         declare function _argc(): i32;
 // @ts-ignore: decorator
 @external("env", "plugin")       declare function _plugin(name: string, version: string, author: string, description: string): void;
+// @ts-ignore: decorator
+@external("env", "stack_frames") declare function _stackFrames(out: usize, max: i32): i32;
+// @ts-ignore: decorator
+@external("env", "stack_text")   declare function _stackText(frames: usize, count: i32, out: usize, max: i32): i32;
+
+/** The most calls an error's `stack` names. */
+const STACK_FRAMES = 32;
+
+/**
+ * An error's `stack`, from the module: the frames of the calls that made the
+ * error - each function's index and where in it the call is - kept when it
+ * is made, and put into words through the plugin's map only when `stack` is
+ * read.
+ */
+class ModuleStack extends ErrorStack {
+	frames(): StaticArray<u32> {
+		const frames = new StaticArray<u32>(STACK_FRAMES * 2);
+		const count = _stackFrames(changetype<usize>(frames), STACK_FRAMES);
+		return StaticArray.slice<u32>(frames, 0, count * 2);
+	}
+
+	text(frames: StaticArray<u32>): string {
+		const length = _stackText(changetype<usize>(frames), frames.length / 2, changetype<usize>(stackText), stackText.length);
+		return String.UTF8.decodeUnsafe(changetype<usize>(stackText), length);
+	}
+}
+const stackText = new StaticArray<u8>(8192);
+__errorStack = new ModuleStack();
 
 // call_indirect checks the type on the module's side, so a handler's shape is
 // fixed at registration and there are exactly two: this one and WideHandler.

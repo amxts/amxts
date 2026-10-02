@@ -1,4 +1,6 @@
 import type { PluginNative } from './plugin-natives';
+import type { Sources } from './project';
+import type { PluginMap } from './source-map';
 import type { System } from './system';
 import { spawnSync } from 'node:child_process';
 
@@ -22,6 +24,7 @@ import { includeName, nativeContract, nativesTransform, pawnInclude } from './pl
 import { ascPath, sourcesFor } from './project';
 import { targetTransforms } from './reapi-events';
 import { sharedModulesBuild } from './shared-modules';
+import { displayName, MAP_SECTION, mapText, pluginMap, withSection } from './source-map';
 import { HOST_SYSTEM, TARGET_ABI } from './system';
 
 export interface Plugin {
@@ -97,6 +100,18 @@ export class HoistImports {
 /** The import a coroutine parks in - the one Asyncify unwinds from. */
 export const SUSPEND_IMPORT = 'env.co_suspend';
 
+/** The import of a plugin that makes a promise: it is compiled again with ASYNC_EXPORTS. */
+const WAKE_IMPORT = 'env.co_wake';
+
+/**
+ * What wamrc keeps for a failed call's stack (scripts/source-map.ts): each
+ * function's frame with its index and the offset of the call it is in, or of
+ * the trap - a store at each call, a push and a pop at each function, about
+ * what a stack check costs. No values: with them WAMR's frames are no longer
+ * the small ones. The map goes into the .aot with them.
+ */
+const STACK_FLAGS = ['--enable-dump-call-stack', '--call-stack-features=bounds-checks,ip,func-idx,trap-ip', `--emit-custom-sections=${MAP_SECTION}`];
+
 /**
  * Where compilePlugin writes the Pawn include for a plugin's natives: beside
  * the .aot, named after the plugin - or, for a plugin that implements an
@@ -135,6 +150,7 @@ export function compileToMachineCode(plugin: Plugin, wasm: string, natives: Plug
 		'--target=i386',
 		`--target-abi=${TARGET_ABI[plugin.system ?? HOST_SYSTEM]}`,
 		`--native-signatures=${plugin.signatures}`,
+		...STACK_FLAGS,
 		...level,
 		'-o',
 		part,
@@ -151,7 +167,8 @@ export function compileToMachineCode(plugin: Plugin, wasm: string, natives: Plug
 
 	if (compile.status !== 0) {
 		rmSync(part, { force: true });
-		return out;
+		// A crash says nothing: still a failure, not an empty problem
+		return out.trim() || `wamrc stopped (${compile.status ?? compile.signal}) without a word`;
 	}
 
 	// A signature that disagrees with its import is not an error to wamrc: it
@@ -183,9 +200,10 @@ export function writeInclude(output: string, natives: PluginNative[]): void {
 
 /**
  * The first half of compilePlugin: the plugin's .ts to `wasm`, ready for
- * wamrc. Tests run the result as it is; with `names` it keeps its function
- * names, so a test can see what Asyncify instrumented. With `natives`, the
- * plugin's `export function`s become natives, listed there.
+ * wamrc, with its map (scripts/source-map.ts). Tests run the result as it is;
+ * with `names` it keeps its function names, so a test can see what Asyncify
+ * instrumented. With `natives`, the plugin's `export function`s become
+ * natives, listed there.
  */
 export async function compileToWasm(
 	plugin: Pick<Plugin, 'source' | 'root' | 'quick'>,
@@ -194,53 +212,93 @@ export async function compileToWasm(
 	natives?: PluginNative[],
 ): Promise<string | null> {
 	// A quick build leaves the optimising to one Binaryen pass afterwards.
-	const flags = [...(plugin.quick ? [] : ['--optimize']), ...(names ? ['--debug'] : [])];
-	const level = plugin.quick ? OPTIMIZE.quick : OPTIMIZE.full;
-	let problem = await compileWasm(plugin, wasm, BASE_EXPORTS, flags, natives);
-	if (problem) return problem;
+	const flags = [...(plugin.quick ? [] : ['--optimize']), ...(names ? ['--debug'] : []), '--sourceMap'];
+	const level = plugin.quick ? OPTIMIZE.quick : null;
+	let made = await compileWasm(plugin, BASE_EXPORTS, flags, level, natives);
 
 	// A plugin that makes a promise - an async function, fetch, sleep - has
 	// the host drive its jobs, so it is compiled again with the scheduler's
-	// exports. Only then, and only when a coroutine can park, does Asyncify
-	// run: a plugin without either is the same wasm it always was.
-	if (importsOf(readFileSync(wasm)).has('env.co_wake')) {
+	// exports.
+	if (typeof made !== 'string' && importsOf(made.binary).has(WAKE_IMPORT)) {
 		if (natives) natives.length = 0;
-		problem = await compileWasm(plugin, wasm, ASYNC_EXPORTS, flags, natives);
-		if (problem) return problem;
+		made = await compileWasm(plugin, ASYNC_EXPORTS, flags, level, natives);
 	}
-	const binary = readFileSync(wasm);
-	if (importsOf(binary).has(SUSPEND_IMPORT)) writeFileSync(wasm, asyncify(binary, names, level));
-	else if (plugin.quick) writeFileSync(wasm, optimized(binary, level));
+	if (typeof made === 'string') return made;
+	mkdirSync(dirname(resolve(wasm)), { recursive: true });
+	writeFileSync(wasm, withSection(made.binary, MAP_SECTION, mapText(made.map)));
 	return null;
 }
 
-/** Binaryen's optimisation at `level`: what a quick build runs in place of asc's. */
-function optimized(wasm: Uint8Array, level: number): Uint8Array {
-	const module = binaryen.readBinary(wasm);
-	try {
-		module.setFeatures(binaryen.Features.All);
-		binaryen.setOptimizeLevel(level);
-		binaryen.setShrinkLevel(0);
-		module.optimize();
-		return module.emitBinary();
-	} finally {
-		module.dispose();
-	}
+/**
+ * The last transform of a compile: Binaryen's work after asc's own, on the
+ * module asc is about to write - a quick build's optimisation at `level`,
+ * and Asyncify for a plugin whose coroutines can park. It runs there rather
+ * than on the written binary so that the source map asc writes beside it is
+ * of the code that runs: Binaryen reads a binary without its map. asc has no
+ * hook after its optimiser, so this wraps the module's emitBinary, which asc
+ * calls once to write the module. `done` gets the functions' names, by wasm
+ * index, as they are written.
+ *
+ * A plugin that makes a promise but was compiled without the scheduler's
+ * exports is compiled again (compileToWasm), so nothing is done for it.
+ */
+export function finishing(hoodExports: string, level: number | null, done: (first: number, names: string[]) => void = () => {}) {
+	return {
+		afterCompile(module: any) {
+			const emit = module.emitBinary.bind(module);
+			module.emitBinary = (url?: string) => {
+				const imports = new Set(functionsOf(module).map(each => each.imported));
+				if (hoodExports === ASYNC_EXPORTS || !imports.has(WAKE_IMPORT)) {
+					if (imports.has(SUSPEND_IMPORT)) asyncify(module, level ?? OPTIMIZE.full);
+					else if (level !== null) optimize(module, level);
+				}
+				const functions = functionsOf(module);
+				const first = functions.filter(each => each.imported).length;
+				done(first, functions.slice(first).map(each => each.name));
+				return emit(url);
+			};
+		},
+	};
 }
 
 /**
- * asc, from the plugin's .ts to `wasm`, with `hoodExports` as the second entry.
- * With `natives`, the plugin's `export function`s become its natives and are
- * listed there; without, they stay plain wasm exports - what a test host that
- * calls a fixture's functions by name wants.
+ * The module's functions in the order of their wasm indexes - Binaryen
+ * writes the imported ones first, then the rest, each in its own order -
+ * with each one's name, and `module.name` when it is imported.
+ */
+function functionsOf(module: any): { name: string; imported: string | null }[] {
+	const functions = Array.from({ length: module.getNumFunctions() }, (_, i) => binaryen.getFunctionInfo(module.getFunctionByIndex(i)));
+	const ordered = [...functions.filter(info => info.module), ...functions.filter(info => !info.module)];
+	return ordered.map(info => ({ name: info.name, imported: info.module ? `${info.module}.${info.base}` : null }));
+}
+
+/** Binaryen's optimisation at `level`: what a quick build runs in place of asc's. */
+function optimize(module: any, level: number) {
+	binaryen.setOptimizeLevel(level);
+	binaryen.setShrinkLevel(0);
+	module.optimize();
+}
+
+/** What asc made of a plugin: the binary, and its map. */
+interface Compiled {
+	binary: Uint8Array;
+	map: PluginMap;
+}
+
+/**
+ * asc, from the plugin's .ts to a binary and its map, with `hoodExports` as
+ * the second entry and `level` a quick build's (finishing). With `natives`,
+ * the plugin's `export function`s become its natives and are listed there;
+ * without, they stay plain wasm exports - what a test host that calls a
+ * fixture's functions by name wants. What went wrong, as text.
  */
 async function compileWasm(
 	plugin: Pick<Plugin, 'source' | 'root'>,
-	wasm: string,
 	hoodExports: string,
 	flags: string[],
+	level: number | null,
 	natives?: PluginNative[],
-): Promise<string | null> {
+): Promise<Compiled | string> {
 	// --exportTable is not optional: a handler reaches the module as its index
 	// in the function table, and without this asc emits no table at all, so
 	// every index points at nothing.
@@ -261,6 +319,9 @@ async function compileWasm(
 		return String((problem as Error).message ?? problem);
 	}
 
+	let binary: Uint8Array | null = null;
+	let sourceMap = '';
+	let functions = { first: 0, names: [] as string[] };
 	const { error, stderr } = await ascMain(
 		[
 			entry,
@@ -269,7 +330,7 @@ async function compileWasm(
 			// entry file's exports reach the wasm).
 			HOOD_EXPORTS,
 			'--outFile',
-			wasm,
+			'plugin.wasm',
 			'--exportTable',
 			...flags,
 		],
@@ -283,12 +344,10 @@ async function compileWasm(
 				return text === null ? null : shared.read(path, playerFields.read(relative('.', (sources.real(path) ?? path)), text));
 			},
 
-			writeFile(filename: string, contents: string | Uint8Array): void {
-				// The name asc passes back is the one it was given in --outFile,
-				// so it is already where the caller wants it.
-				const path = resolve(filename);
-				mkdirSync(dirname(path), { recursive: true });
-				writeFileSync(path, contents);
+			// The binary and its source map, for compileToWasm to write as one.
+			writeFile(_: string, contents: string | Uint8Array): void {
+				if (typeof contents === 'string') sourceMap = contents;
+				else binary = contents;
 			},
 
 			listFiles(): string[] {
@@ -302,6 +361,7 @@ async function compileWasm(
 				shared.transform,
 				// A project for plain HLDS listens for no event reapi alone delivers.
 				...targetTransforms(sources.project.config?.target),
+				finishing(hoodExports, level, (first, names) => (functions = { first, names })),
 			],
 		},
 	);
@@ -312,7 +372,26 @@ async function compileWasm(
 
 	// A transform's refusal - a native whose signature cannot cross - is an
 	// error with nothing written to stderr.
-	return error ? (stderr.toString() || String(error.message ?? error)) : null;
+	if (error || !binary) return stderr.toString() || String(error?.message ?? error);
+	// A quick build is a dev build (`amxts dev`): its map names the project's
+	// folder, where the module finds the sources to show a failed line. A
+	// build to ship names none - the machine's folders are not the server's.
+	const root = level === null ? '' : sources.project.dir;
+	return { binary, map: pluginMap(sourceMap, file => fileName(sources, plugin.root, file), functions.first, functions.names.map(displayName), root) };
+}
+
+/**
+ * A file of asc's source map as the plugin's map names it: as the project
+ * names it - `plugins/shop.ts`, `node_modules/@amxts/core/as/facade.ts` - or
+ * null for AssemblyScript's standard library, whose lines would double the
+ * map and mean nothing to an author; its functions keep their names.
+ */
+function fileName(sources: Sources, root: string, file: string): string | null {
+	// asc reads `~/` - the plugins folder - as a library of its own
+	const hood = /^~lib\/~\/(.*)$/.exec(file);
+	if (!hood && file.startsWith('~lib/')) return null;
+	const path = hood ? resolve(root, hood[1]) : ascPath(root, file, '');
+	return relative(sources.project.dir, sources.real(path) ?? path).replace(/\\/g, '/');
 }
 
 /**
@@ -325,28 +404,20 @@ async function compileWasm(
  * prologue asks co_spawn to call it - so no `await` is ever reached through
  * a function table, and a listener that is async returns to its caller at its
  * first `await` like any other call. Nothing can be missing from the list,
- * which is the failure that hangs rather than traps.
+ * which is the failure that hangs rather than traps. Then the optimiser at
+ * `level` - asc's own, or a quick build's lower one - so the rest of the
+ * module comes out as it went in.
  */
-export function asyncify(wasm: Uint8Array, names = false, level = OPTIMIZE.full): Uint8Array {
-	const module = binaryen.readBinary(wasm);
+function asyncify(module: any, level: number) {
 	try {
-		module.setFeatures(binaryen.Features.All);
 		binaryen.setPassArgument('asyncify-imports', SUSPEND_IMPORT);
 		binaryen.setPassArgument('asyncify-ignore-indirect', '1');
-		// asc's own --optimize levels (a quick build's lower one), so the rest
-		// of the module comes out as it went in.
-		binaryen.setOptimizeLevel(level);
-		binaryen.setShrinkLevel(0);
-		binaryen.setDebugInfo(names);
 		module.runPasses(['asyncify']);
-		module.optimize();
+		optimize(module, level);
 		if (!module.validate()) throw new Error('Asyncify produced an invalid module');
-		return module.emitBinary();
 	} finally {
 		binaryen.setPassArgument('asyncify-imports', null);
 		binaryen.setPassArgument('asyncify-ignore-indirect', null);
-		binaryen.setDebugInfo(false);
-		module.dispose();
 	}
 }
 

@@ -70,6 +70,7 @@
 		"scripts/reapi-events.ts",
 		"scripts/run.ts",
 		"scripts/shared-modules.ts",
+		"scripts/source-map.ts",
 		"scripts/system.ts",
 		"scripts/tracked-fs.ts",
 		"scripts/typed-commands.ts",

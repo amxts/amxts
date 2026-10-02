@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { ascMain } from '../../scripts/asc';
-import { ASYNC_EXPORTS, asyncify, BASE_EXPORTS, compileToWasm, HoistImports, HOOD_EXPORTS, importsOf } from '../../scripts/compile';
+import { ASYNC_EXPORTS, BASE_EXPORTS, compileToWasm, finishing, HoistImports, HOOD_EXPORTS, importsOf } from '../../scripts/compile';
 import { playerFieldsBuild } from '../../scripts/player-fields';
 import { nativesBeside, nativesTransform, setNativesBeside } from '../../scripts/plugin-natives';
 import { ascPath, CONFIG_FILE, currentProjectDir, sourcesFor } from '../../scripts/project';
@@ -105,15 +105,16 @@ async function build(path: string): Promise<Compiled> {
 
 /**
  * A plugin that makes a promise is compiled again with the scheduler's
- * exports and run through Asyncify, as scripts/compile.ts builds it for a
- * server - so an async function parks and resumes here as it does there.
+ * exports, and run through Asyncify when it can park, as scripts/compile.ts
+ * builds it for a server - so an async function parks and resumes here as it
+ * does there.
  */
 async function buildFresh(path: string): Promise<Omit<Compiled, 'module'>> {
 	const first = await buildWith(path, BASE_EXPORTS);
 	if (!importsOf(first.binary).has('env.co_wake')) return first;
 
 	const second = await buildWith(path, ASYNC_EXPORTS);
-	return { natives: second.natives, binary: asyncify(second.binary), async: true };
+	return { ...second, async: true };
 }
 
 async function buildWith(path: string, hoodExports: string): Promise<Omit<Compiled, 'module'>> {
@@ -145,7 +146,7 @@ async function buildWith(path: string, hoodExports: string): Promise<Omit<Compil
 				if (typeof contents !== 'string') binary = contents;
 			},
 			listFiles: () => [],
-			transforms: [HoistImports, nativesTransform(entry, natives, PLUGINS_ROOT), playerFields.transform, shared.transform, ...targetTransforms(sources.project.config?.target)],
+			transforms: [HoistImports, nativesTransform(entry, natives, PLUGINS_ROOT), playerFields.transform, shared.transform, ...targetTransforms(sources.project.config?.target), finishing(hoodExports, null)],
 		},
 	);
 

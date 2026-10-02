@@ -1,6 +1,6 @@
 /**
  * The temporal dead zone: a let or const read before its declaration has run
- * aborts with "x is not initialized" - JavaScript's ReferenceError - rather
+ * aborts with "ReferenceError: x is not initialized", as JavaScript throws, rather
  * than reading 0. Only a variable a read can reach early pays for the check.
  */
 // @ts-ignore - bun:test types not available during type checking
@@ -56,7 +56,7 @@ export function late(): f64 {
 	return read();
 }
 `, optimize);
-			expect(module.call('early')).toBe('x is not initialized (probe.ts:5)');
+			expect(module.call('early')).toBe('ReferenceError: x is not initialized (probe.ts:5)');
 			expect(module.call('late')).toBe('5');
 		});
 
@@ -74,7 +74,7 @@ export function after(): f64 {
 	return read();
 }
 `, optimize);
-			expect(module.call('before')).toBe('x is not initialized (probe.ts:3)');
+			expect(module.call('before')).toBe('ReferenceError: x is not initialized (probe.ts:3)');
 			expect(module.call('after')).toBe('5');
 		});
 
@@ -86,7 +86,7 @@ export function run(): i32 {
 	return value;
 }
 `, optimize);
-			expect(module.call('run')).toBe('value is not initialized (probe.ts:4)');
+			expect(module.call('run')).toBe('ReferenceError: value is not initialized (probe.ts:4)');
 		});
 
 		test('a function above a top-level variable reads it once the declaration has run', async () => {
@@ -111,7 +111,7 @@ const early: f64 = readLate();
 const late: f64 = Math.floor(Math.random()) + 2;
 export function run(): f64 { return early; }
 `, false, ['--exportStart', 'start']);
-	expect(module.call('start')).toBe('late is not initialized (probe.ts:2)');
+	expect(module.call('start')).toBe('ReferenceError: late is not initialized (probe.ts:2)');
 });
 
 test('a variable no read can reach early has no check', async () => {

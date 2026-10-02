@@ -1902,6 +1902,15 @@ export class FakeServer {
 			throw new Error(`abort: ${text} (${file ? plugin.memory.string(file) : '?'}:${line}:${column})`);
 		},
 
+		// An error's stack: the server reads frames WAMR keeps, which a
+		// plugin run here has none of - `stack` is the error's first line.
+		stack_frames() {
+			return 0;
+		},
+		stack_text() {
+			return 0;
+		},
+
 		seed() {
 			return Date.now();
 		},

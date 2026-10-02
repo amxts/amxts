@@ -416,4 +416,27 @@ if (!text.includes(tuples)) {
 	console.log('typings: the library\'s tuple classes for the editor');
 }
 
+// An error's stack in our AssemblyScript's library (runtime/patches): the
+// hood gives it the module's frames (as/facade.ts). A plugin never names it.
+const errorStack = [
+	'/** @hidden amxts: what an error\'s `stack` is made of - the host\'s frames, then their words. */',
+	'declare abstract class ErrorStack { abstract frames(): StaticArray<u32>; abstract text(frames: StaticArray<u32>): string }',
+	'/** @hidden amxts: the hood\'s ErrorStack. */',
+	'declare let __errorStack: ErrorStack | null;',
+	'',
+].join('\n');
+if (!text.includes(errorStack)) {
+	text = `${text.replace(/\n*$/, '\n')}\n${errorStack}`;
+	console.log('typings: the library\'s error stack for the editor');
+}
+
+// The console writes an Error as its stack, as JavaScript's does (runtime/patches).
+for (const method of ['log', 'debug', 'info', 'warn', 'error']) {
+	const plain = `  export function ${method}(message?: string): void;`;
+	if (text.includes(plain)) {
+		text = text.replace(plain, `  export function ${method}(message?: string | Error): void;`);
+		console.log(`typings: console.${method} takes an Error for the editor`);
+	}
+}
+
 writeFileSync(typings, text);
