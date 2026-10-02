@@ -21,9 +21,11 @@
 //   `wamrc-linux-x64`, checked against that system's manifest
 //   (`amxts-<system>.json`), and WAMR's and LLVM's licenses. The binaries come
 //   from --wamrc <folder> (holding them, or `windows/` and `linux/` that do,
-//   as dist-release/ does), else from the GitHub Release of v<version> through
-//   gh - for a dry run or the local registry, from dist-release/ while there
-//   is no such release.
+//   as dist-release/ does; a relative folder is the core's), else, for npm,
+//   from the GitHub Release of v<version> through gh. A dry run and the local
+//   registry take the wamrc built from this checkout, as test:release does:
+//   dist-release/ when `bun run release` made it, else this system's local
+//   build and runtime/build/linux's. It says which it took.
 // - the core: the generated API, generated again in English
 //   (--skip-generate takes what is there), and the patched AssemblyScript as
 //   the build loads it - runtime/deps/assemblyscript with its dist, binaryen
@@ -67,7 +69,7 @@ import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { PREBUILT_DIR } from './prebuilt';
-import { HOST_SYSTEM } from './system';
+import { HOST_SYSTEM, SYSTEMS, wamrcPath } from './system';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const NEIGHBOURS = resolve(CORE, '..');
@@ -207,7 +209,7 @@ function publishedManifest(manifest: any) {
 /** The release's wamrc binaries: where they are, checked against their manifests. */
 function wamrcBinaries(folder: string, strict: boolean): Record<System, string> {
 	const found = {} as Record<System, string>;
-	for (const system of ['windows', 'linux'] as System[]) {
+	for (const system of SYSTEMS) {
 		const dir = [folder, join(folder, system)].find(each => existsSync(join(each, WAMRC_ASSET[system])));
 		if (!dir) throw new PublishError(`${WAMRC_ASSET[system]} is not in ${folder} or ${join(folder, system)}`);
 		const file = join(dir, WAMRC_ASSET[system]);
@@ -231,22 +233,35 @@ function wamrcBinaries(folder: string, strict: boolean): Record<System, string> 
 	return found;
 }
 
-/**
- * The folder with the release's wamrc binaries: downloaded from the GitHub
- * Release of the version; without one (not yet tagged), dist-release/ for a
- * try, an error for npm.
- */
-function releaseWamrcFolder(strict: boolean): string {
+/** The folder with the release's wamrc binaries, downloaded from the GitHub Release of the version. */
+function releaseWamrcFolder(): string {
 	const dir = join(OUT, 'release', `v${VERSION}`);
 	mkdirSync(dir, { recursive: true });
 	const download = run('gh', ['release', 'download', `v${VERSION}`, '--repo', REPO, '--pattern', 'wamrc-*', '--pattern', 'amxts-*.json', '--dir', dir, '--clobber'], { quiet: true, allowFail: true });
-	if (download.ok) {
-		console.log(`wamrc from the GitHub Release v${VERSION} of ${REPO}`);
-		return dir;
-	}
-	if (strict) throw new PublishError(`the GitHub Release v${VERSION} of ${REPO} gave no wamrc (gh release download failed): release the server files first, or pass --wamrc <folder>`);
-	warn(`no GitHub Release v${VERSION} to take wamrc from: dist-release/ instead`);
-	return join(CORE, 'dist-release');
+	if (!download.ok) throw new PublishError(`the GitHub Release v${VERSION} of ${REPO} gave no wamrc (gh release download failed): release the server files first, or pass --wamrc <folder>`);
+	return dir;
+}
+
+/**
+ * wamrc built from this checkout, for a try: dist-release/ when `bun run
+ * release` made it, else this system's local build (`wamrcPath()`) and the
+ * Linux one `bun run build:linux` makes. A wamrc of an earlier release does
+ * not take this one's flags.
+ */
+function checkoutWamrc(): Record<System, string> {
+	const release = join(CORE, 'dist-release');
+	if (existsSync(release)) return wamrcBinaries(release, false);
+	const built: Record<System, string> = { windows: join(CORE, 'runtime/deps/wamr/wamr-compiler/build/Release/wamrc.exe'), linux: join(CORE, 'runtime/build/linux/wamrc') };
+	built[HOST_SYSTEM] = wamrcPath();
+	const missing = Object.values(built).filter(file => !existsSync(file));
+	if (missing.length) throw new PublishError(`no dist-release/ and no ${missing.join(', ')}: bun run release makes them all, or pass --wamrc <folder>`);
+	return built;
+}
+
+/** The wamrc binaries the packages carry: --wamrc's, else the release's for npm and this checkout's for a try. */
+function wamrcFor(strict: boolean, folder?: string): Record<System, string> {
+	if (folder) return wamrcBinaries(resolve(CORE, folder), strict);
+	return strict ? wamrcBinaries(releaseWamrcFolder(), true) : checkoutWamrc();
 }
 
 /** Copies a package's files, as `npm pack` takes them from its folder, into its stage. */
@@ -394,7 +409,8 @@ function packAll(options: { strict: boolean; wamrcFolder?: string; skipGenerate:
 	const cli = PACKAGES.find(pkg => pkg.name === '@amxts/cli')!;
 	const range = readFileSync(join(cli.dir, 'src/core.mjs'), 'utf8').match(/CORE_RANGE = '([^']+)'/)?.[1];
 	if (range !== `^${VERSION}`) throw new PublishError(`the command's CORE_RANGE is ${range}, not ^${VERSION}`);
-	const wamrc = wamrcBinaries(options.wamrcFolder ?? releaseWamrcFolder(options.strict), options.strict);
+	const wamrc = wamrcFor(options.strict, options.wamrcFolder);
+	for (const system of SYSTEMS) console.log(`wamrc for ${system}: ${wamrc[system]}`);
 	prepareCore(options.skipGenerate);
 	if (options.strict && dirty(CORE)) throw new PublishError('bun run generate changed the core\'s committed files: commit them in English first');
 
