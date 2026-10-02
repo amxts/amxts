@@ -4,7 +4,6 @@
 // its own interval fires once a period and its server command answers once.
 // A reload starts every plugin of the test server over, so this file is named
 // to run last.
-import { Cvar, server } from "@amxts/core";
 import { server_exec, task_exists } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 

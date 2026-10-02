@@ -2,7 +2,7 @@
 // listener of traceAttack turns the shot's direction straight up, and the
 // post listener - handed what the game was given - reads it so. The attack
 // is the game's own function, run on a bot with no damage.
-import { Call, server } from "@amxts/core";
+import { Call } from "@amxts/core";
 import { DMG_BULLET, Ham_TraceAttack } from "@amxts/core/constants";
 import { create_tr2, free_tr2, NATIVE_ExecuteHamB } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
