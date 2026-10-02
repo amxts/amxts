@@ -541,7 +541,7 @@ function typedWrapper(n: NativeFunction, kinds: Kind[]): string {
 		result = '__r != 0';
 	}
 
-	const doc = `/** ${n.name}(${n.params.map(p => `${p.isConst ? 'const ' : ''}${p.type || ''}${p.name}${p.isArray ? '[]' : ''}`).join(', ')}) */`;
+	const doc = `/** ${n.name}(${n.params.map(p => `${p.isConst ? 'const ' : ''}${p.type ? `${p.type}:` : ''}${p.name}${p.isArray ? '[]' : ''}`).join(', ')}) */`;
 
 	return [
 		`// @ts-ignore: decorator`,
@@ -678,6 +678,7 @@ function variadicWrapper(n: NativeFunction, id: string): string | null {
 
 	const signature: string[] = [];
 	const pushes: string[] = [];
+	const names: string[] = [];
 
 	for (let i = 0; i < fixed.length; i++) {
 		const p = fixed[i];
@@ -689,6 +690,7 @@ function variadicWrapper(n: NativeFunction, id: string): string | null {
 		}
 
 		const name = safe(p.name, i);
+		names[i] = name;
 		const def = defaults[i] !== null ? ` = ${defaults[i]}` : '';
 
 		if (formats && i === fixed.length - 1) {
@@ -716,22 +718,131 @@ function variadicWrapper(n: NativeFunction, id: string): string | null {
 		}
 	}
 
-	let loop = '';
-	if (!formats) {
-		const floats = tagOf(rest) === 'Float';
-		signature.push(`...args: number[]`);
-		loop = `\tfor (let __i = 0; __i < args.length; __i++) __c.ref(${floats ? '__cellOf(args[__i])' : 'args[__i]'});\n`;
+	const returnTag = tagOf({ name: '', type: n.returnType } as Parameter);
+	const doc = `/** ${n.name}(${n.params.map(p => p.isRest ? '...' : `${p.isConst ? 'const ' : ''}${p.isRef ? '&' : ''}${p.type ? `${p.type}:` : ''}${p.name}${p.isArray ? '[]' : ''}`).join(', ')}) */`;
+	const call = `new Call(${id})${pushes.join('')}`;
+	const asBool = (result: string) => returnTag === 'bool' ? `${result} != 0` : result;
+
+	if (formats) {
+		const result = returnTag === 'Float' ? `__floatOf(${call}.run())` : asBool(`${call}.run()`);
+		return `${doc}\nexport function ${asName(n.name)}(${signature.join(', ')}) {\n\treturn ${result};\n}`;
 	}
 
-	const returnTag = tagOf({ name: '', type: n.returnType } as Parameter);
-	let result = '__c.run()';
-	if (returnTag === 'Float') result = `__floatOf(${result})`;
-	else if (returnTag === 'bool') result = `${result} != 0`;
+	// The tail: each argument a type of its own, so text, a vector and a
+	// number go side by side (the facade's __callTail sends each by its type).
+	// A number is a whole one unless the float table says Float.
+	const types = TAIL.map((_, i) => `T${i + 1}`);
+	const args = TAIL.map((_, i) => safe(`a${i + 1}`, fixed.length + i));
+	signature.push(...args.map((arg, i) => `${arg}: ${types[i]} = __noArgument<${types[i]}>()`));
+	const table = floatTables.has(n.name) || floatRanges.has(n.name);
+	const selector = names[floatSelector.get(n.name) ?? fixed.length - 1] ?? '';
+	const resultFloat = returnTag === 'Float' ? ` | ${TAIL_FLOAT_RESULT}` : '';
+	const floats = table && selector
+		? `__${floatOwner(n.name)}_floats(<i32>${selector})${resultFloat}`
+		: `${tagOf(rest) === 'Float' ? (1 << TAIL.length) - 1 : 0}${resultFloat}`;
+	const generics = `<${types.map(type => `${type} = NoArgument`).join(', ')}>`;
+	const result = asBool(`__callTail<${types.join(', ')}>(${call}, ${floats}, ${args.join(', ')})`);
 
-	const doc = `/** ${n.name}(${n.params.map(p => p.isRest ? '...' : `${p.isConst ? 'const ' : ''}${p.isRef ? '&' : ''}${p.type || ''}${p.name}${p.isArray ? '[]' : ''}`).join(', ')}) */`;
+	return `${doc}\nexport function ${asName(n.name)}${generics}(${signature.join(', ')}) {\n\treturn ${result};\n}`;
+}
 
-	return `${doc}\nexport function ${asName(n.name)}(${signature.join(', ')}) {\n`
-		+ `\tconst __c = new Call(${id})${pushes.join('')};\n${loop}\treturn ${result};\n}`;
+// ---------------------------------------------------------------- a tail's Floats
+//
+// A plugin's number does not say whether it is whole or fractional, and an
+// `any:...` tail does not either: engfunc(EngFunc_RunPlayerMove, ...) reads
+// its third argument as a Float, EngFunc_ModelFrames its first as a whole
+// number. fakemeta_const.inc writes the engine's C signature beside every
+// EngFunc_ and DLLFunc_ constant,
+//
+//     EngFunc_WalkMove,    // int  )    (edict_t *ent, float yaw, float dist, int iMode);
+//
+// and fakemeta reads each `float` parameter there as a Float, in that order
+// after the constant. So each of these natives gets a table: the constant to
+// the bits of its Float arguments. A function whose C result is a float hands
+// it back as one - by the result when it takes nothing (EngFunc_Time), by one
+// more argument otherwise (EngFunc_VecToYaw).
+//
+// Ham Sandwich's comments give ExecuteHam's arguments for each function, and
+// TraceResult's members their types, the same way.
+//
+// pev, set_pev and global_get take a field and keep its kinds in ranges of
+// the field's enum, between markers: a field inside pev_float_start and
+// pev_float_end is a Float, read or written through the first argument after it.
+
+/** How many arguments a `...` tail takes in a wrapper: EngFunc_PlaybackEvent's twelve. */
+const TAIL = Array.from({ length: 12 });
+
+/** The facade's TAIL_FLOAT_RESULT: the result is a Float. */
+const TAIL_FLOAT_RESULT = 1 << 16;
+
+/** The natives with a float table, to the table: a constant to its Float bits. */
+const floatTables = new Map<string, Map<string, number>>();
+
+/** The fixed argument a native's float table goes by, when it is not the last: its index. */
+const floatSelector = new Map<string, number>();
+
+{
+	const text = readInclude('fakemeta_const');
+	for (const [native, prefix] of [['engfunc', 'EngFunc_'], ['dllfunc', 'DLLFunc_|MetaFunc_']]) {
+		const table = new Map<string, number>();
+		for (const [, name, returns, list] of text.matchAll(new RegExp(`^\\s*((?:${prefix})\\w+),?\\s*//\\s*([^)]*)\\)\\s*\\(([^)]*)\\)`, 'gm'))) {
+			const params = list.trim() === 'void' ? [] : list.split(',').map(p => p.trim()).filter(Boolean);
+			let bits = params.reduce((sum, p, i) => /^(?:const\s+)?(?:\/\*\w+\*\/)?float\s+\w+$/.test(p) ? sum | (1 << i) : sum, 0);
+			if (returns.trim() === 'float') bits |= params.length ? 1 << params.length : TAIL_FLOAT_RESULT;
+			if (bits) table.set(name, bits);
+		}
+		floatTables.set(native, table);
+	}
+
+	// The members of a trace, a client's data, an entity's state and a
+	// command say their type: `TR_flFraction, // float`.
+	const members = { TR: ['get_tr', 'set_tr', 'get_tr2', 'set_tr2'], CD: ['get_cd', 'set_cd'], ES: ['get_es', 'set_es'], UC: ['get_uc', 'set_uc'] };
+	for (const [prefix, natives] of Object.entries(members)) {
+		const table = new Map([...text.matchAll(new RegExp(`^\\s*(${prefix}_\\w+),?\\s*//\\s*float\\s*$`, 'gm'))].map(([, name]) => [name, 1]));
+		for (const native of natives) floatTables.set(native, table);
+	}
+	floatTables.set('forward_return', new Map([['FMV_FLOAT', 1]]));
+
+	// Ham Sandwich writes each function's call above it:
+	//     Execute params:	ExecuteHam(Ham_TakeDamage, this, idinflictor, idattacker, Float:damage, damagebits);
+	const hams = new Map<string, number>();
+	for (const [, name, list] of readInclude('ham_const').matchAll(/Execute params:\s*ExecuteHam\((Ham_\w+),\s*this(?:,([^)]*))?\)/g)) {
+		const params = (list ?? '').split(',').map(p => p.trim()).filter(Boolean);
+		const bits = params.reduce((sum, p, i) => /^Float:\w+$/.test(p) ? sum | (1 << i) : sum, 0);
+		if (bits && !hams.has(name)) hams.set(name, bits);
+	}
+	for (const native of ['ExecuteHam', 'ExecuteHamB']) {
+		floatTables.set(native, hams);
+		floatSelector.set(native, 0);
+	}
+}
+
+/** The natives whose field's kind is a range of its enum: the markers around its Floats. */
+const PEV_FLOATS = ['pev_float_start', 'pev_float_end'];
+const floatRanges = new Map([
+	['pev', PEV_FLOATS],
+	['set_pev', PEV_FLOATS],
+	['global_get', ['glb_start_float', 'glb_end_float']],
+]);
+
+/** The native whose float function a native calls: the first of those that share its table. */
+function floatOwner(native: string): string {
+	const shape = floatTables.get(native) ?? floatRanges.get(native);
+	return [...floatTables, ...floatRanges].find(([, other]) => other === shape)?.[0] ?? native;
+}
+
+/** The float table of a native as a function of one of its fixed arguments: a switch over its constants, or a range. */
+function floatFunction(native: string): string {
+	const range = floatRanges.get(native);
+	const cases = [...floatTables.get(native) ?? []].map(([name, bits]) => `\t\tcase ${name}:\n\t\t\treturn ${bits};`);
+	const body = range
+		? `\treturn selector > ${range[0]} && selector < ${range[1]} ? 1 : 0;`
+		: `\tswitch (selector) {\n${cases.join('\n')}\n\t}\n\treturn 0;`;
+	const sharing = [...floatTables.keys(), ...floatRanges.keys()].filter(other => floatOwner(other) === native);
+	return `/** Which arguments of the tail of ${sharing.join(', ')} are Floats, by its ${floatSelector.has(native) ? 'first' : 'last'} fixed argument: bit i the tail's argument i, ${TAIL_FLOAT_RESULT} the result. */
+export function __${native}_floats(selector: i32): i32 {
+${body}
+}`;
 }
 
 // ---------------------------------------------------------------- field natives
@@ -834,7 +945,7 @@ function fieldWrapper(n: NativeFunction, id: string, table: string): string {
 	const field = names[names.length - 1];
 	const pushes = names.map(name => `.num(${name})`).join('');
 	const setter = n.name.startsWith('set_');
-	const doc = `/** ${n.name}(${n.params.map(p => p.isRest ? '...' : `${p.isConst ? 'const ' : ''}${p.type || ''}${p.name}`).join(', ')}) */`;
+	const doc = `/** ${n.name}(${n.params.map(p => p.isRest ? '...' : `${p.isConst ? 'const ' : ''}${p.type ? `${p.type}:` : ''}${p.name}`).join(', ')}) */`;
 	const signature = [...names.map(name => `${name}: number`), ...(setter ? ['value: T'] : []), 'element: number = 0'].join(', ');
 	const call = `new Call(${id})${pushes}, __${table}_kind(<i32>${field})`;
 	return setter
@@ -861,7 +972,13 @@ function writeNatives(): void {
 			if (!known.has(member)) kinds.delete(member);
 		}
 	}
-	const members = fieldMembers.filter(member => known.has(member));
+	for (const table of floatTables.values()) {
+		for (const name of table.keys()) {
+			if (!known.has(name)) table.delete(name);
+		}
+	}
+	const floatNames = [...[...floatTables.values()].flatMap(table => [...table.keys()]), ...[...floatRanges.values()].flat()];
+	const members = [...new Set([...fieldMembers, ...floatNames])].filter(member => known.has(member)).sort();
 
 	writeFileSync(
 		'./as/natives.ts',
@@ -888,12 +1005,14 @@ ${asLines.join('\n\n')}
 // itself. Each one whose shape can be read is also a function here, a Call
 // from as/facade.ts underneath; the rest are \`new Call(NATIVE_x)\` in the facade.
 
-import { Call, __getField, __setField } from "./facade";
+import { Call, NoArgument, __callTail, __getField, __noArgument, __setField } from "./facade";
 import {
 ${chunkNames(members)}
 } from "./constants";
 
 ${[...fieldTables].map(([native, kinds]) => kindFunction(native, kinds)).join('\n\n')}
+
+${[...floatTables.keys(), ...floatRanges.keys()].filter(native => floatOwner(native) === native).map(floatFunction).join('\n\n')}
 
 ${dispatchLines.join('\n\n')}
 `,

@@ -4014,6 +4014,28 @@ export class Call {
 		return unchecked(this.cells[index]);
 	}
 
+	/** The number of arguments added so far: the position the next one takes. */
+	get count(): i32 {
+		return this.n;
+	}
+
+	/**
+	 * Adds room for text the native writes, in a `...` tail, holding `text` to
+	 * begin with; its length follows by address, as `ret[], len` wants it.
+	 * After `run` the text is in `cellsAt` of this position.
+	 */
+	textInto(text: string, length: i32): Call {
+		const cells = new StaticArray<i32>(length + 1);
+		__writeCellText(text, cells);
+		this.hold(cells);
+		return this.push(changetype<i32>(cells), 0x62).ref(length); // b
+	}
+
+	/** The cells at the address of the argument at this position, after `run`: a vector or text the native wrote. */
+	cellsAt(index: i32): StaticArray<i32> {
+		return changetype<StaticArray<i32>>(unchecked(this.args[index]));
+	}
+
 	/** Calls the native with the arguments added so far and returns its result. */
 	run(): number {
 		return _call(this.id, changetype<i32>(this.args), changetype<i32>(this.mask), this.n);
@@ -4029,6 +4051,135 @@ function arrayCells(values: number[], floats: bool): StaticArray<i32> {
 	unchecked(cells[0] = values.length);
 	for (let i = 0; i < values.length; i++) unchecked(cells[i + 1] = floats ? reinterpret<i32>(<f32>unchecked(values[i])) : <i32>unchecked(values[i]));
 	return cells;
+}
+
+// ---------------------------------------------------------------- a native's `...` tail
+
+/** The longest text a native writes into a `Ref<string>`, in bytes. */
+const REF_TEXT: i32 = 1023;
+
+/**
+ * A value a native writes back through its argument, where Pawn passes a
+ * variable for the native to fill: text into `ret[], len`, a number into
+ * `&value`. Give it where the native takes one; after the call, `value` is
+ * what the native wrote.
+ *
+ * ```ts
+ * const reason = new Ref("");
+ * if (!dllfunc(DLLFunc_ClientConnect, id, "Bot", "127.0.0.1", reason)) console.log(reason.value);
+ * ```
+ */
+export class Ref<T> {
+	constructor(/** The value the native wrote; before the call, the one it starts with. */ public value: T) {}
+
+	/** @hidden Adds this to a call: text as room to write in with its length, a number or a boolean by address. */
+	__push(call: Call, float: bool): void {
+		const value = this.value;
+		if (isString<T>()) call.textInto(changetype<string>(value), REF_TEXT);
+		else if (isBoolean<T>()) call.ref(value ? 1 : 0);
+		else if (isFloat<T>() || isInteger<T>()) call.ref(float ? floatCell(<f64>value) : <i32><f64>value);
+		else ERROR("a Ref holds text, a number or a boolean");
+	}
+
+	/** @hidden Reads what the native wrote at this position of the call. */
+	__back(call: Call, at: i32, float: bool): void {
+		if (isString<T>()) this.value = changetype<T>(cellsToString(call.cellsAt(at)));
+		else if (isBoolean<T>()) this.value = <T>(call.out(at) != 0);
+		else this.value = <T>(float ? cellFloat(call.out(at)) : <f64>call.out(at));
+	}
+}
+
+/**
+ * One argument of a native's `...` tail, by its type: a number or a boolean
+ * by address (a number as a Float where `float` says), text as it is, a
+ * Vector or `[x, y, z]` as three Floats, a Player or an Entity as its index,
+ * a Ref as room for what the native writes; nothing for an argument left
+ * out. Each branch is decided as it compiles, so the conditions are the
+ * compiler's own. Returns the argument's position in the call, for tailBack.
+ */
+function tailArgument<T>(call: Call, value: T, float: bool): i32 {
+	const at = call.count;
+	if (isString<T>()) {
+		call.str(changetype<string>(value));
+	} else if (isBoolean<T>()) {
+		call.ref(value ? 1 : 0);
+	} else if (!isReference<T>()) {
+		call.ref(float ? floatCell(<f64>value) : <i32><f64>value);
+	} else if (isArray<T>()) {
+		// @ts-ignore: valueof is AssemblyScript's
+		if (!isFloat<valueof<T>>()) ERROR("a native's `...` takes a vector as a Vector or [x, y, z]");
+		const values = changetype<number[]>(value);
+		call.vec(values.length > 0 ? values[0] : 0, values.length > 1 ? values[1] : 0, values.length > 2 ? values[2] : 0);
+	// @ts-ignore: a Ref's method, looked for at compile time
+	} else if (isDefined(changetype<T>(0).__push)) {
+		// @ts-ignore: T is a Ref here
+		changetype<T>(value).__push(call, float);
+	// @ts-ignore: a Player's or an Entity's index, looked for at compile time
+	} else if (isDefined(changetype<T>(0).id)) {
+		// @ts-ignore: T has an id here
+		call.ref(value ? <i32>changetype<T>(value).id : 0);
+	} else if (idof<T>() != idof<NoArgument>()) {
+		ERROR("a native's `...` takes a number, a boolean, text, a Vector or [x, y, z], a Player, an Entity or a Ref");
+	}
+	return at;
+}
+
+/** What the native wrote back into the argument at `at`: a vector's numbers, a Ref's value. */
+function tailBack<T>(call: Call, value: T, at: i32, float: bool): void {
+	if (isArray<T>()) {
+		const values = changetype<number[]>(value);
+		const cells = call.cellsAt(at);
+		for (let i = 0; i < min(values.length, 3); i++) values[i] = cellFloat(unchecked(cells[i]));
+	// @ts-ignore: a Ref's method, looked for at compile time
+	} else if (isDefined(changetype<T>(0).__back)) {
+		// @ts-ignore: T is a Ref here
+		changetype<T>(value).__back(call, at, float);
+	}
+}
+
+/** @hidden What an argument left out of a native's `...` tail stands at: nothing is sent for it. */
+export function __noArgument<T>(): T {
+	return zeroOf<T>();
+}
+
+/** In a native's float table: its result is a Float. Bit `i` below it: the tail's argument `i` is one. */
+const TAIL_FLOAT_RESULT: i32 = 1 << 16;
+
+/**
+ * @hidden A native's `...` tail of up to twelve arguments of any kind, onto
+ * `call`, and the call run: what the generated wrappers of ~/natives call.
+ * `floats` is the native's float table for this call (bit `i`: the tail's
+ * argument `i` is a Float; TAIL_FLOAT_RESULT: so is the result) - a
+ * plugin's number cannot say whether it is one. What the native wrote into
+ * a vector or a Ref is read back into it.
+ */
+export function __callTail<A, B, C, D, E, F, G, H, I, J, K, L>(call: Call, floats: i32, a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L): number {
+	const at0 = tailArgument<A>(call, a, (floats & 1) != 0);
+	const at1 = tailArgument<B>(call, b, (floats & 2) != 0);
+	const at2 = tailArgument<C>(call, c, (floats & 4) != 0);
+	const at3 = tailArgument<D>(call, d, (floats & 8) != 0);
+	const at4 = tailArgument<E>(call, e, (floats & 16) != 0);
+	const at5 = tailArgument<F>(call, f, (floats & 32) != 0);
+	const at6 = tailArgument<G>(call, g, (floats & 64) != 0);
+	const at7 = tailArgument<H>(call, h, (floats & 128) != 0);
+	const at8 = tailArgument<I>(call, i, (floats & 256) != 0);
+	const at9 = tailArgument<J>(call, j, (floats & 512) != 0);
+	const at10 = tailArgument<K>(call, k, (floats & 1024) != 0);
+	const at11 = tailArgument<L>(call, l, (floats & 2048) != 0);
+	const result = call.run();
+	tailBack<A>(call, a, at0, (floats & 1) != 0);
+	tailBack<B>(call, b, at1, (floats & 2) != 0);
+	tailBack<C>(call, c, at2, (floats & 4) != 0);
+	tailBack<D>(call, d, at3, (floats & 8) != 0);
+	tailBack<E>(call, e, at4, (floats & 16) != 0);
+	tailBack<F>(call, f, at5, (floats & 32) != 0);
+	tailBack<G>(call, g, at6, (floats & 64) != 0);
+	tailBack<H>(call, h, at7, (floats & 128) != 0);
+	tailBack<I>(call, i, at8, (floats & 256) != 0);
+	tailBack<J>(call, j, at9, (floats & 512) != 0);
+	tailBack<K>(call, k, at10, (floats & 1024) != 0);
+	tailBack<L>(call, l, at11, (floats & 2048) != 0);
+	return (floats & TAIL_FLOAT_RESULT) != 0 ? cellFloat(result) : result;
 }
 
 // ---------------------------------------------------------------- field natives

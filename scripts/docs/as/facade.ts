@@ -2738,6 +2738,54 @@ export default {
 		en: `The value the native left in the \`ref\` argument at this position, after \`run\`.`,
 		ru: `Значение, которое натив оставил в аргументе \`ref\` на этой позиции, после \`run\`.`,
 	},
+	'Call.count': {
+		en: `The number of arguments added so far: the position the next one takes.`,
+		ru: `Число уже добавленных аргументов: позиция, которую займёт следующий.`,
+	},
+	'Call.textInto': {
+		en: `
+			Adds room for text the native writes, in a \`...\` tail, holding \`text\` to
+			begin with; its length follows by address, as \`ret[], len\` wants it.
+			After \`run\` the text is in \`cellsAt\` of this position.
+		`,
+		ru: `
+			Добавляет в хвост \`...\` место для текста, который пишет натив, с \`text\`
+			в начале; его длина идёт следом по адресу, как того ждёт \`ret[], len\`.
+			После \`run\` текст — в \`cellsAt\` этой позиции.
+		`,
+	},
+	'Call.cellsAt': {
+		en: `The cells at the address of the argument at this position, after \`run\`: a vector or text the native wrote.`,
+		ru: `Ячейки по адресу аргумента на этой позиции, после \`run\`: вектор или текст, который записал натив.`,
+	},
+	'Ref': {
+		en: `
+			A value a native writes back through its argument, where Pawn passes a
+			variable for the native to fill: text into \`ret[], len\`, a number into
+			\`&value\`. Give it where the native takes one; after the call, \`value\` is
+			what the native wrote.
+
+			\`\`\`ts
+			const reason = new Ref("");
+			if (!dllfunc(DLLFunc_ClientConnect, id, "Bot", "127.0.0.1", reason)) console.log(reason.value);
+			\`\`\`
+		`,
+		ru: `
+			Значение, которое натив возвращает через свой аргумент там, где Pawn
+			передаёт переменную, чтобы натив её заполнил: текст в \`ret[], len\`, число
+			в \`&value\`. Передайте его туда, где натив его ждёт; после вызова \`value\` —
+			то, что записал натив.
+
+			\`\`\`ts
+			const reason = new Ref("");
+			if (!dllfunc(DLLFunc_ClientConnect, id, "Bot", "127.0.0.1", reason)) console.log(reason.value);
+			\`\`\`
+		`,
+	},
+	'Ref.value': {
+		en: `The value the native wrote; before the call, the one it starts with.`,
+		ru: `Значение, которое записал натив; до вызова — то, с которого он начинает.`,
+	},
 	'Call.run': {
 		en: `Calls the native with the arguments added so far and returns its result.`,
 		ru: `Вызывает натив с добавленными аргументами и возвращает его результат.`,
