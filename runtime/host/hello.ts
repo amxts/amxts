@@ -12,6 +12,19 @@ plugin({
 
 server.addCommand("/hp", ({ player }) => sayHp(player), { description: "Show health" });
 
+// A menu: its items can be functions of the player it is shown to.
+const hello = new Menu("Hello");
+hello.addItem({ title: "Wave", onSelect: ({ player }) => print(0, `${player.name} waves`) });
+hello.addItem({
+	title: ({ player }) => `Heal (${player.health} HP)`,
+	visible: ({ player }) => player.health < 100,
+	onSelect: ({ player }) => {
+		player.health = 100;
+	},
+});
+
+server.addCommand("/menu", ({ player }) => hello.show(player), { description: "Open the menu" });
+
 // The event's type comes from its name: `event.player` is a Player. A listener
 // is a closure, as in JavaScript: it may use the variables around it.
 server.addEventListener("putinserver", (event) => {
