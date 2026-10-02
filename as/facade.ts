@@ -3052,18 +3052,6 @@ export class Server {
 	}
 
 	/**
-	 * The AMX Mod X configs folder, relative to the game folder, as `fs` takes it:
-	 * `addons/amxmodx/configs` unless the server moved it.
-	 *
-	 * ```ts
-	 * const text = fs.readFileSync(`${server.configsDir}/myplugin.ini`);
-	 * ```
-	 *
-	 * Pawn: `get_configsdir`
-	 */
-	get configsDir(): string {
-		const dir = get_localinfo("amxx_configsdir");
-	/**
 	 * The players on the server, every one connected - never an HLTV proxy -
 	 * read anew each time. Narrow them with the array's `filter`:
 	 *
@@ -3081,6 +3069,18 @@ export class Server {
 		return list;
 	}
 
+	/**
+	 * The AMX Mod X configs folder, relative to the game folder, as `fs` takes it:
+	 * `addons/amxmodx/configs` unless the server moved it.
+	 *
+	 * ```ts
+	 * const text = fs.readFileSync(`${server.configsDir}/myplugin.ini`);
+	 * ```
+	 *
+	 * Pawn: `get_configsdir`
+	 */
+	get configsDir(): string {
+		const dir = get_localinfo("amxx_configsdir");
 		return dir.length > 0 ? dir : "addons/amxmodx/configs";
 	}
 
