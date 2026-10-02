@@ -931,7 +931,7 @@ export function argString(pointer: number): string {
  * zero cell or `max` cells. AMX Mod X, the engine and the game keep text as
  * bytes - get_amxstring takes the low byte of each cell - so a letter outside
  * ASCII is two or three cells, and a cell per UTF-16 unit came out as
- * mojibake one way and a truncated byte the other ("раз" arrived as "@0").
+ * mojibake one way and a truncated byte the other (a Cyrillic word arrived as "@0").
  */
 export function __cellText(pointer: usize, max: i32): string {
 	let length = 0;
