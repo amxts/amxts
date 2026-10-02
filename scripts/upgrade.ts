@@ -13,8 +13,11 @@
 // command's handler takes one object: `(player) =>` becomes `({ player })
 // =>`; one that reads the words after the name is listed, to be written by
 // hand with the words in the usage. An import of `@amxts/core/http` goes:
-// fetch is a global, and what reads its response the old way is listed. What
-// is rewritten no longer matches, so a second run changes nothing.
+// fetch is a global, and what reads its response the old way is listed.
+// `Player.all(options)` is `server.players` and a `filter`, `player.account`
+// `player.money`, and the events `addAccount`, `restartRound` and
+// `onRoundFreezeEnd` are `addMoney`, `newRound` and `roundStart`. What is
+// rewritten no longer matches, so a second run changes nothing.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -147,7 +150,7 @@ function playerBinding(name: string): string {
 export function upgradeHandlers(file: string, text: string): { text: string; changes: Change[]; left: Left[] } {
 	if (!text.includes('addCommand') && !text.includes('addServerCommand')) return { text, changes: [], left: [] };
 	const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-	const edits: { start: number; end: number; with: string; from: string }[] = [];
+	const edits: Edit[] = [];
 	const left: Left[] = [];
 	const lineOf = (node: ts.Node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
 	const declared = new Map(source.statements.filter(ts.isFunctionDeclaration).filter(fn => fn.name).map(fn => [fn.name!.text, fn]));
@@ -190,14 +193,184 @@ export function upgradeHandlers(file: string, text: string): { text: string; cha
 		}
 	};
 	visit(source);
+	return { ...applyEdits(file, text, source, edits), left };
+}
 
+/** A piece of a file's text to replace: where, with what, and what it was. */
+interface Edit {
+	start: number;
+	end: number;
+	with: string;
+	from: string;
+}
+
+/** The text with its edits made - from the end, so every earlier position stays where it was - and each as a change. */
+function applyEdits(file: string, text: string, source: ts.SourceFile, edits: Edit[]): { text: string; changes: Change[] } {
 	let out = text;
 	for (const edit of [...edits].sort((a, b) => b.start - a.start)) out = out.slice(0, edit.start) + edit.with + out.slice(edit.end);
 	return {
 		text: out,
 		changes: edits.map(edit => ({ file, line: source.getLineAndCharacterOfPosition(edit.start).line + 1, from: edit.from, to: edit.with })),
-		left,
 	};
+}
+
+/** Game events named after ReGameDLL's functions, by the player's words for them; each event's class follows its name. */
+const EVENT_NAMES = new Map([
+	['addAccount', 'addMoney'],
+	['restartRound', 'newRound'],
+	['onRoundFreezeEnd', 'roundStart'],
+]);
+const eventClass = (name: string) => `${name[0].toUpperCase()}${name.slice(1)}Event`;
+const EVENT_CLASSES = new Map([...EVENT_NAMES].map(([from, to]) => [eventClass(from), eventClass(to)]));
+
+/** `Player.all`'s options, each as the test of a player it was, for the value `true`; `false` narrowed nothing. */
+const PLAYER_TESTS: Record<string, string> = {
+	alive: 'player.isAlive',
+	dead: '!player.isAlive',
+	bots: 'player.isBot',
+	humans: '!player.isBot',
+};
+
+/** The array methods whose callback takes the array's element first. */
+const ELEMENT_CALLBACKS = new Set(['filter', 'find', 'findLast', 'forEach', 'map', 'some', 'every', 'flatMap']);
+/** The array methods that give an element, and the ones that give an array of the same elements. */
+const ELEMENT_OF = new Set(['find', 'findLast', 'at', 'pop', 'shift']);
+const SAME_ELEMENTS = new Set(['filter', 'slice', 'concat', 'sort', 'reverse', 'toSorted', 'toReversed']);
+
+/** A type annotation that says a player, or a list of players. */
+const PLAYER_TYPE = /^Player(?:\s*\|\s*(?:null|undefined))*$/;
+const PLAYERS_TYPE = /^(?:Player\[\]|Array<Player>)$/;
+
+const ACCOUNT_BY_HAND = 'the player\'s money is `money`: if this is a Player, write `.money`';
+
+/**
+ * A file's declarations by name, as TypeScript binds them: one file alone,
+ * no library - enough to tell which `player` a name is, not to type it.
+ */
+function declarationOf(source: ts.SourceFile): (name: ts.Identifier) => ts.Declaration | undefined {
+	const options: ts.CompilerOptions = { noLib: true, noResolve: true, types: [] };
+	const host = ts.createCompilerHost(options);
+	host.getSourceFile = name => name === source.fileName ? source : undefined;
+	const checker = ts.createProgram([source.fileName], options, host).getTypeChecker();
+	return name => checker.getSymbolAtLocation(name)?.declarations?.[0];
+}
+
+/**
+ * A file brought to the API's names for players: `Player.all()` is
+ * `server.players`, and its options a `filter` of what each one tested;
+ * `player.account` is `player.money`; the events `addAccount`,
+ * `restartRound` and `onRoundFreezeEnd` - their names in
+ * `addEventListener`, and their classes - are `addMoney`, `newRound` and
+ * `roundStart`. Without a type checker a receiver is a player where the code
+ * says so: `event.player`, `new Player(id)`, a `Player` annotation, an element
+ * of the players, `{ player }` taken from an event or a command. Any other
+ * `.account`, and options not written out as `true` or a team's name, are
+ * listed.
+ */
+export function upgradePlayers(file: string, text: string): { text: string; changes: Change[]; left: Left[] } {
+	if (!/Player\.all|\.account\b|addAccount|AddAccount|estartRound|nRoundFreezeEnd/.test(text)) return { text, changes: [], left: [] };
+	const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+	const declaration = declarationOf(source);
+	const edits: Edit[] = [];
+	const left: Left[] = [];
+	const lineOf = (node: ts.Node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+	const replace = (node: ts.Node, to: string) => edits.push({ start: node.getStart(source), end: node.getEnd(), with: to, from: node.getText(source) });
+
+	const bare = (node: ts.Expression): ts.Expression => ts.isParenthesizedExpression(node) || ts.isNonNullExpression(node) ? bare(node.expression) : node;
+	const isPlayerAll = (node: ts.Node): node is ts.PropertyAccessExpression =>
+		ts.isPropertyAccessExpression(node) && node.name.text === 'all' && ts.isIdentifier(node.expression) && node.expression.text === 'Player';
+	const method = (node: ts.Expression) => ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) ? node.expression : undefined;
+
+	const isPlayers = (expr: ts.Expression): boolean => {
+		const node = bare(expr);
+		if (ts.isPropertyAccessExpression(node)) return node.name.text === 'players' && ts.isIdentifier(node.expression) && node.expression.text === 'server';
+		const call = method(node);
+		if (call) return isPlayerAll(call) || (SAME_ELEMENTS.has(call.name.text) && isPlayers(call.expression));
+		const declared = ts.isIdentifier(node) ? declaration(node) : undefined;
+		if (!declared || !ts.isVariableDeclaration(declared)) return false;
+		return declared.type ? PLAYERS_TYPE.test(declared.type.getText(source)) : !!declared.initializer && isPlayers(declared.initializer);
+	};
+
+	const isPlayer = (expr: ts.Expression): boolean => {
+		const node = bare(expr);
+		if (ts.isNewExpression(node)) return ts.isIdentifier(node.expression) && node.expression.text === 'Player';
+		if (ts.isPropertyAccessExpression(node)) return node.name.text === 'player';
+		if (ts.isElementAccessExpression(node)) return isPlayers(node.expression);
+		const call = method(node);
+		if (call) return ELEMENT_OF.has(call.name.text) && isPlayers(call.expression);
+		const declared = ts.isIdentifier(node) ? declaration(node) : undefined;
+		return !!declared && declaredPlayer(declared);
+	};
+
+	const declaredPlayer = (declared: ts.Declaration): boolean => {
+		if (ts.isBindingElement(declared)) return (declared.propertyName ?? declared.name).getText(source) === 'player';
+		if (!ts.isVariableDeclaration(declared) && !ts.isParameter(declared)) return false;
+		if (declared.type) return PLAYER_TYPE.test(declared.type.getText(source));
+		if (ts.isVariableDeclaration(declared)) {
+			if (declared.initializer) return isPlayer(declared.initializer);
+			const loop = declared.parent.parent;
+			return ts.isForOfStatement(loop) && isPlayers(loop.expression);
+		}
+		// The first parameter of a callback over the players: `.filter(each => ...)`.
+		const fn = declared.parent;
+		const call = fn.parent;
+		return fn.parameters[0] === declared && ts.isCallExpression(call) && ts.isPropertyAccessExpression(call.expression)
+			&& ELEMENT_CALLBACKS.has(call.expression.name.text) && isPlayers(call.expression.expression);
+	};
+
+	/** `Player.all(options)` as `server.players`, or null when its options are not written out. */
+	const playersOf = (call: ts.CallExpression): string | null => {
+		const options = call.arguments[0];
+		if (!options) return 'server.players';
+		if (call.arguments.length > 1 || !ts.isObjectLiteralExpression(options)) return null;
+		const tests: string[] = [];
+		for (const option of options.properties) {
+			if (!ts.isPropertyAssignment(option) || !ts.isIdentifier(option.name)) return null;
+			const name = option.name.text;
+			const value = option.initializer;
+			if (name === 'team' && ts.isStringLiteral(value)) tests.push(`player.team === ${value.getText(source)}`);
+			else if (PLAYER_TESTS[name] && value.kind === ts.SyntaxKind.TrueKeyword) tests.push(PLAYER_TESTS[name]);
+			else if (!PLAYER_TESTS[name] || value.kind !== ts.SyntaxKind.FalseKeyword) return null;
+		}
+		return tests.length ? `server.players.filter(player => ${tests.join(' && ')})` : 'server.players';
+	};
+
+	const visit = (node: ts.Node) => {
+		if (ts.isCallExpression(node) && isPlayerAll(node.expression)) {
+			const to = playersOf(node);
+			if (to) replace(node, to);
+			else left.push({ file, line: lineOf(node), why: 'Player.all is server.players: write its options as a filter, server.players.filter(player => player.isAlive && player.team === "CT")' });
+			node.arguments.forEach(visit);
+			return;
+		}
+		upgradeNode(node);
+		ts.forEachChild(node, visit);
+	};
+
+	const upgradeNode = (node: ts.Node) => {
+		if (isPlayerAll(node)) {
+			left.push({ file, line: lineOf(node), why: 'Player.all is server.players, a list read each time' });
+			return;
+		}
+
+		if (ts.isIdentifier(node) && EVENT_CLASSES.has(node.text)) {
+			replace(node, EVENT_CLASSES.get(node.text)!);
+			return;
+		}
+
+		if (ts.isPropertyAccessExpression(node) && node.name.text === 'account' && node.expression.kind !== ts.SyntaxKind.ThisKeyword) {
+			if (isPlayer(node.expression)) replace(node.name, 'money');
+			else left.push({ file, line: lineOf(node), why: ACCOUNT_BY_HAND });
+			return;
+		}
+
+		if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression) || !/^(?:add|remove)EventListener$/.test(node.expression.name.text)) return;
+		const name = node.arguments[0];
+		const to = name && ts.isStringLiteralLike(name) ? EVENT_NAMES.get(name.text) : undefined;
+		if (to) edits.push({ start: name.getStart(source) + 1, end: name.getEnd() - 1, with: to, from: name.text });
+	};
+	visit(source);
+	return { ...applyEdits(file, text, source, edits), left };
 }
 
 /** Folders that are not the project's code: what is installed, built or generated. */
@@ -225,10 +398,11 @@ export function upgradeProject(dir: string): { changes: Change[]; left: Left[] }
 		const http = dropHttpImports(name, text);
 		const imports = http.text.includes('~/') ? upgradeText(name, http.text, renames) : { text: http.text, changes: [] };
 		const handlers = upgradeHandlers(name, imports.text);
-		left.push(...http.left, ...handlers.left);
-		if (handlers.text === text) continue;
-		writeFileSync(file, handlers.text);
-		changes.push(...http.changes, ...imports.changes, ...handlers.changes);
+		const players = upgradePlayers(name, handlers.text);
+		left.push(...http.left, ...handlers.left, ...players.left);
+		if (players.text === text) continue;
+		writeFileSync(file, players.text);
+		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...players.changes);
 	}
 	return { changes, left };
 }

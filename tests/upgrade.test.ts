@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 // @ts-ignore - bun:test types not available during type checking
 import { afterEach, expect, test } from 'bun:test';
 import { setProjectDir } from '../scripts/project';
-import { dropHttpImports, renamesFor, upgradeHandlers, upgradeProject, upgradeText } from '../scripts/upgrade';
+import { dropHttpImports, renamesFor, upgradeHandlers, upgradePlayers, upgradeProject, upgradeText } from '../scripts/upgrade';
 
 const HERE = process.cwd();
 const made: string[] = [];
@@ -149,4 +149,49 @@ test('an import of fetch from @amxts/core/http goes - fetch is a global - and th
 	expect(left.map(each => each.line)).toEqual([1]);
 	expect(left[0].why).toContain('await response.text()');
 	expect(dropHttpImports('plugins/a.ts', text)).toEqual({ text, changes: [], left: [] });
+});
+
+test('Player.all is server.players and a filter; a player\'s account is his money; the round and money events by their new names', () => {
+	const source = [
+		'import type { AddAccountEvent } from "@amxts/core";',
+		'const everyone = Player.all();',
+		'const cts = Player.all({ alive: true, team: "CT", humans: false });',
+		'const dead = Player.all({ dead: true, bots: true }).length;',
+		'const some = Player.all(options);',
+		'const later = Player.all;',
+		'game.addEventListener("addAccount", (event: AddAccountEvent) => print(event.player, `${event.player.account}`));',
+		'game.addEventListener("restartRound", () => {});',
+		'game.removeEventListener(\'onRoundFreezeEnd\', reset);',
+		'server.addCommand("/money", ({ player }) => print(player, `${player.account}`));',
+		'for (const each of Player.all()) each.account = 0;',
+		'Player.all().filter(one => one.account > 0).forEach(one => { one.account -= 1; });',
+		'function pay(who: Player | null, bank: Bank) { if (who) who.account += bank.account; }',
+		'const rich = everyone.find(one => one.account > 9000)?.account;',
+		'const text = "Player.all() and addAccount";',
+		'',
+	].join('\n');
+	const { text, changes, left } = upgradePlayers('plugins/a.ts', source);
+
+	expect(text.split('\n')).toEqual([
+		'import type { AddMoneyEvent } from "@amxts/core";',
+		'const everyone = server.players;',
+		'const cts = server.players.filter(player => player.isAlive && player.team === "CT");',
+		'const dead = server.players.filter(player => !player.isAlive && player.isBot).length;',
+		'const some = Player.all(options);',
+		'const later = Player.all;',
+		'game.addEventListener("addMoney", (event: AddMoneyEvent) => print(event.player, `${event.player.money}`));',
+		'game.addEventListener("newRound", () => {});',
+		'game.removeEventListener(\'roundStart\', reset);',
+		'server.addCommand("/money", ({ player }) => print(player, `${player.money}`));',
+		'for (const each of server.players) each.money = 0;',
+		'server.players.filter(one => one.money > 0).forEach(one => { one.money -= 1; });',
+		'function pay(who: Player | null, bank: Bank) { if (who) who.money += bank.account; }',
+		'const rich = everyone.find(one => one.money > 9000)?.money;',
+		'const text = "Player.all() and addAccount";',
+		'',
+	]);
+	expect(changes).toHaveLength(18);
+	expect(left.map(each => each.line)).toEqual([5, 6, 13]);
+	expect(left[2].why).toContain('.money');
+	expect(upgradePlayers('plugins/a.ts', text).changes).toEqual([]);
 });
