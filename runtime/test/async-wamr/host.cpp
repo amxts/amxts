@@ -157,6 +157,12 @@ static int32_t w_call(wasm_exec_env_t env, int32_t native, int32_t args, int32_t
 	return 0;
 }
 
+// A server with every library, reapi among them: the hookchains are hooked.
+static int32_t w_libraryExists(wasm_exec_env_t env, int32_t name, int32_t type)
+{
+	return 1;
+}
+
 static NativeSymbol g_natives[] = {
 	{ "abort",         (void *)w_abort,      "(iiii)",   NULL },
 	{ "console.log",   (void *)w_log,        "(i)",      NULL },
@@ -167,6 +173,7 @@ static NativeSymbol g_natives[] = {
 	{ "hook",          (void *)w_hook,       "(iii)i",   NULL },
 	{ "outcome",       (void *)w_outcome,    "(i)",      NULL },
 	{ "call",          (void *)w_call,       "(iiii)i",  NULL },
+	{ "LibraryExists", (void *)w_libraryExists, "(ii)i", NULL },
 	{ "co_entered",    (void *)w_co_entered, "()i",      NULL },
 	{ "co_spawn",      (void *)w_co_spawn,   "(iiiii)i", NULL },
 	{ "co_suspend",    (void *)w_co_suspend, "(i)",      NULL },

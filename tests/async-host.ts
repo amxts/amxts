@@ -65,6 +65,8 @@ export class AsyncHost {
 		for (const imported of WebAssembly.Module.imports(module)) {
 			if (imported.kind === 'function') env[imported.name] = () => 0;
 		}
+		// A server with every library, reapi among them: the hookchains are hooked.
+		env.LibraryExists = () => 1;
 
 		const text = (pointer: number) => {
 			if (!pointer) return '';
