@@ -42,10 +42,10 @@ export interface TestSftp extends TestServer {
 
 export const KEY_PASSPHRASE = 'key secret';
 
-/** A port no one listens on now. */
-async function freePort(): Promise<number> {
+/** A port no one listens on now, on `hostname`. */
+async function freePort(hostname = '127.0.0.1'): Promise<number> {
 	const server = createServer();
-	await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+	await new Promise<void>(resolve => server.listen(0, hostname, resolve));
 	const { port } = server.address() as AddressInfo;
 	await new Promise(resolve => server.close(resolve));
 	return port;
@@ -66,11 +66,13 @@ export async function startTestFtp(tls = false, hostname = '127.0.0.1', host = '
 	const server = new FtpSrv({
 		url: `${scheme}://${hostname}:${port}`,
 		pasv_url: '127.0.0.1',
-		pasv_min: port + 1,
-		pasv_max: port + 200,
 		log: quiet,
 		tls: { key: readFileSync(join(FIXTURES, 'https-key.pem')), cert: readFileSync(join(FIXTURES, 'https-cert.pem')) },
 	});
+	// Each passive connection on a port the system hands out. A range of ports
+	// may hold ones Windows reserves (Hyper-V, Docker Desktop): ftp-srv
+	// answers EPSV there with no reply code, and curl waits for one forever.
+	Object.assign(server, { getNextPasvPort: () => freePort(hostname) });
 	server.on('login', ({ username, password }: { username: string; password: string }, resolve: (options: object) => void, reject: (error: Error) => void) => {
 		if (username === USER && password === PASSWORD) resolve({ root });
 		else reject(new Error('Login incorrect'));
