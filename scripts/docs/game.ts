@@ -165,6 +165,18 @@ export const GAME: Record<string, GameDoc> = {
 	roundStart: {
 		summary: { en: `The freeze time at the start of the round is over.`, ru: `Закончилось время заморозки в начале раунда.` },
 	},
+	shoot: {
+		summary: {
+			en: `A gun fires a shot: the game traces the bullet, through walls as its penetration allows, and deals its damage.`,
+			ru: `Оружие стреляет: игра ведёт пулю, сквозь стены, насколько позволяет пробивание, и наносит её урон.`,
+		},
+	},
+	shootBuckshot: {
+		summary: {
+			en: `A shotgun fires: the game traces each pellet and deals its damage.`,
+			ru: `Дробовик стреляет: игра ведёт каждую дробину и наносит её урон.`,
+		},
+	},
 	radio: {
 		summary: {
 			en: `A radio message is sent. \`preventDefault()\` silences it.`,

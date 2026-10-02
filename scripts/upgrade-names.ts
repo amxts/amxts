@@ -50,6 +50,8 @@ export const EVENTS: Record<string, string> = {
 	onEvent: 'gameEvent',
 	pmDuck: 'duckMovement',
 	pmJump: 'jumpMovement',
+	fireBullets3: 'shoot',
+	fireBuckshots: 'shootBuckshot',
 };
 
 /** Game events out of the API, by the native that hooks them. */

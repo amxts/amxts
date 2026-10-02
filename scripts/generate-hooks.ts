@@ -805,6 +805,9 @@ const EVENT_NAMES: Record<string, string> = {
 	// The player's movement code (pm_shared): pm is the engine's prefix.
 	pm_duck: 'duckMovement',
 	pm_jump: 'jumpMovement',
+	// The game's shot and a shotgun's: fire_bullets stays Half-Life's own FireBullets.
+	fire_bullets3: 'shoot',
+	fire_buckshots: 'shootBuckshot',
 };
 
 // Chains of the engine's own bookkeeping, and Ham Sandwich functions the
