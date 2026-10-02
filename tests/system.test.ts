@@ -5,7 +5,7 @@ import { join } from 'node:path';
 // @ts-ignore - bun:test types not available during type checking
 import { afterAll, expect, test } from 'bun:test';
 import { apiFiles } from '../scripts/system';
-import { describeSystem, detectServerSystem, HOST_SYSTEM, parseSystem, serverSystem, TARGET_ABI } from '../src/system.mjs';
+import { describeSystem, detectServerSystem, HOST_SYSTEM, parseSystem, serverFolder, serverSystem, TARGET_ABI } from '../src/system.mjs';
 
 const root = join(tmpdir(), 'amxts-system-test');
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -40,6 +40,23 @@ test('--os first, then AMXTS_SERVER_OS, then the server, then this machine', () 
 	expect(serverSystem([], {})).toEqual({ system: HOST_SYSTEM, from: 'host' });
 	expect(() => serverSystem(['--os', 'mac'], {})).toThrow('windows or linux');
 	expect(() => serverSystem([], { AMXTS_SERVER_OS: 'bsd' })).toThrow('windows or linux');
+});
+
+test('AMXTS_SERVER is the server\'s addons/amxts, or the hlds folder, cstrike or cstrike/addons above it', () => {
+	const amxts = install('folders', ['hlds_linux']);
+	const hlds = join(amxts, '..', '..', '..');
+	for (const given of [amxts, hlds, join(hlds, 'cstrike'), join(hlds, 'cstrike', 'addons')]) expect(serverFolder(given)).toBe(amxts);
+	expect(serverSystem([], { AMXTS_SERVER: hlds })).toEqual({ system: 'linux', from: 'server', reason: 'hlds_linux' });
+
+	// Not there yet: taken as it is, and dev deploys once it is.
+	expect(serverFolder(join(root, 'later', 'cstrike', 'addons', 'amxts'))).toBe(join(root, 'later', 'cstrike', 'addons', 'amxts'));
+	expect(serverFolder('')).toBe('');
+
+	// There, and no server: one error naming where it looked.
+	const stray = join(root, 'stray');
+	mkdirSync(stray, { recursive: true });
+	const shown = stray.replace(/\\/g, '/');
+	expect(() => serverFolder(stray)).toThrow(`AMXTS_SERVER=${shown} is not a server: there is no ${shown}/cstrike/addons`);
 });
 
 test('how it is said, and what wamrc is told', () => {

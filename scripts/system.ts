@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { executable, MODULE_FILE } from '../src/system.mjs';
 
 export type { ServerSystem, System } from '../src/system.mjs';
-export { describeSystem, detectServerSystem, executable, HOST_SYSTEM, MODULE_FILE, parseSystem, serverSystem, SYSTEM_NAME, SYSTEMS, TARGET_ABI, WAMRC_PACKAGE, wamrcPath } from '../src/system.mjs';
+export { describeSystem, detectServerSystem, executable, HOST_SYSTEM, MODULE_FILE, parseSystem, serverFolder, serverSystem, SYSTEM_NAME, SYSTEMS, TARGET_ABI, WAMRC_PACKAGE, wamrcPath } from '../src/system.mjs';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 

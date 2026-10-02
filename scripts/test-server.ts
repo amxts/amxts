@@ -70,11 +70,11 @@ import { spawnSync } from 'node:child_process';
 import { createSocket } from 'node:dgram';
 import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import { ABI_SECTION, abiIdentity } from './build-identity';
 import { compilePlugin } from './compile';
 import { includeDirs } from './includes';
 import { CORE_DIR, CORE_PLUGINS, loadProject, PROJECT_GAME_FOLDERS, projectPlugins, sourcesFor } from './project';
-import { amxxpcPath, MODULE_FILE, modulePath, wamrcPath } from './system';
-import { ABI_SECTION, abiIdentity } from './build-identity';
+import { amxxpcPath, MODULE_FILE, modulePath, serverFolder, wamrcPath } from './system';
 
 // See build-wasm.ts: asc brings a console without error().
 function fail(message: string): void {
@@ -94,7 +94,14 @@ const ONLY = onlyArg >= 0 ? (args[onlyArg + 1] ?? '').split(',').map(name => nam
 const PORT = Number(portArg >= 0 ? args[portArg + 1] : process.env.AMXTS_TEST_PORT ?? (plain ? 27017 : 27016));
 const MAP = process.env.AMXTS_TEST_MAP ?? (linux ? 'de_dust2' : 'c21_kitty');
 
-const amxtsDir = process.env.AMXTS_SERVER ?? '';
+// The server's addons/amxts, or a folder above it (src/system.mjs).
+let amxtsDir = '';
+try {
+	amxtsDir = serverFolder(process.env.AMXTS_SERVER ?? '');
+} catch (error) {
+	fail((error as Error).message);
+	process.exit(1);
+}
 if (!amxtsDir && !linux) {
 	fail('AMXTS_SERVER is not set: point it at the amxts folder of the server install, as for bun run dev.');
 	process.exit(1);

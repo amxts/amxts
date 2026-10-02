@@ -15,7 +15,7 @@
 // cli-api, both read it.
 import { existsSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
@@ -48,6 +48,31 @@ export function parseSystem(value) {
 	if (text === 'windows' || text === 'win32' || text === 'win') return 'windows';
 	if (text === 'linux') return 'linux';
 	return null;
+}
+
+// The folders AMXTS_SERVER may name above the server's addons/amxts, by what
+// is below them: hlds's own (cstrike/addons), the game's (addons).
+const ABOVE_ADDONS = [join('cstrike', 'addons'), 'addons'];
+
+/**
+ * The server's addons/amxts folder, from what AMXTS_SERVER holds: that
+ * folder itself, or the hlds folder, cstrike or cstrike/addons above it. A
+ * path that is not there yet is taken as addons/amxts, as it is written -
+ * dev builds, and deploys once it is - and so is a folder named amxts, or
+ * one holding the module's plugins.ini. Throws, naming where it looked, for
+ * a folder that is none of them.
+ * @param {string} path
+ * @returns {string} the folder; '' for ''
+ */
+export function serverFolder(path) {
+	if (!path) return '';
+	const dir = resolve(path);
+	if (!existsSync(dir) || basename(dir).toLowerCase() === 'amxts' || existsSync(join(dir, 'plugins.ini'))) return path;
+	if (basename(dir).toLowerCase() === 'addons') return join(dir, 'amxts');
+	const addons = ABOVE_ADDONS.map(below => join(dir, below)).find(folder => existsSync(folder));
+	if (addons) return join(addons, 'amxts');
+	const looked = [...ABOVE_ADDONS, 'plugins.ini'].map(below => join(dir, below).replace(/\\/g, '/'));
+	throw new Error(`AMXTS_SERVER=${path.replace(/\\/g, '/')} is not a server: there is no ${looked.join(', ')}. Set it to the server's folder (where hlds is), its cstrike, or cstrike/addons/amxts.`);
 }
 
 /**
@@ -101,7 +126,7 @@ export function serverSystem(argv = process.argv, env = process.env) {
 		if (!system) throw new Error(`AMXTS_SERVER_OS=${env.AMXTS_SERVER_OS}: windows or linux`);
 		return { system, from: 'env' };
 	}
-	const found = detectServerSystem(env.AMXTS_SERVER ?? '');
+	const found = detectServerSystem(serverFolder(env.AMXTS_SERVER ?? ''));
 	if (found) return { system: found.system, from: 'server', reason: found.reason };
 	return { system: HOST_SYSTEM, from: 'host' };
 }

@@ -46,7 +46,7 @@ import { includeName } from './plugin-natives';
 import { fromRegistry, prebuiltOf, prebuiltSurface } from './prebuilt';
 import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, projectPlugins, sourcesFor } from './project';
 import { sharedModulesBuild } from './shared-modules';
-import { describeSystem, serverSystem, SYSTEM_NAME, WAMRC_PACKAGE, wamrcPath } from './system';
+import { describeSystem, serverFolder, serverSystem, SYSTEM_NAME, WAMRC_PACKAGE, wamrcPath } from './system';
 import { c, live, log, progress, since } from './ui';
 
 function fail(message: string, hint?: string): void {
@@ -78,8 +78,17 @@ const asc_ = process.env.AMXTS_ASC ?? join(CORE_DIR, 'runtime/deps/assemblyscrip
 const signatures = process.env.AMXTS_NATIVES ?? join(CORE_DIR, 'runtime/natives.txt');
 // Where --deploy copies the built plugins: the amxts folder inside a server's
 // addons. It is per-machine, so it comes from the environment rather than from
-// this file, and .env keeps it out of everyone else's way.
-const serverDir = process.env.AMXTS_SERVER ?? '';
+// this file, and .env keeps it out of everyone else's way. AMXTS_SERVER may
+// also name a folder above it - the server's own, cstrike, cstrike/addons
+// (src/system.mjs).
+const serverSetting = process.env.AMXTS_SERVER ?? '';
+let serverDir = '';
+try {
+	serverDir = serverFolder(serverSetting);
+} catch (error) {
+	fail((error as Error).message);
+	process.exit(1);
+}
 
 // The module's server command that starts every plugin over from disk.
 const RELOAD_COMMAND = 'amxts_reload';
@@ -509,7 +518,9 @@ async function serverLine(): Promise<string> {
 	const system = SYSTEM_NAME[target.system];
 	if (forDocker) return `the Docker one that mounts this project · ${system}`;
 	if (!serverDir) return `${c.dim('none - AMXTS_SERVER is not set')} · the plugins are for ${system}`;
-	const folder = serverDir.replace(/\\/g, '/');
+	// The folder used, and what AMXTS_SERVER holds when it named one above it.
+	const above = serverSetting === serverDir ? '' : c.dim(` (AMXTS_SERVER=${serverSetting.replace(/\\/g, '/')})`);
+	const folder = `${serverDir.replace(/\\/g, '/')}${above}`;
 	if (!existsSync(serverDir)) return `${folder} ${c.yellow('is not there')} · the plugins are for ${system}`;
 	const includes = serverIncludes();
 	const rehlds = includes ? existsSync(join(includes, 'reapi.inc')) : project.config?.target !== 'hlds';

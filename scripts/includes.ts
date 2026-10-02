@@ -22,6 +22,7 @@ import { realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { serverFolder } from '../src/system.mjs';
 import { existsSync, readdirSync, readFileSync } from './tracked-fs';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -37,9 +38,14 @@ function same(a: string, b: string): boolean {
 	}
 }
 
-/** The server's own includes: addons/amxmodx/scripting/include beside AMXTS_SERVER (addons/amxts), when it is there. */
+/** The server's own includes: addons/amxmodx/scripting/include beside its addons/amxts (AMXTS_SERVER), when it is there. */
 export function serverIncludes(): string | null {
-	const server = process.env.AMXTS_SERVER;
+	let server: string;
+	try {
+		server = serverFolder(process.env.AMXTS_SERVER ?? '');
+	} catch {
+		return null;
+	}
 	if (!server) return null;
 	const dir = resolve(server, '..', 'amxmodx', 'scripting', 'include');
 	return existsSync(dir) ? dir : null;
