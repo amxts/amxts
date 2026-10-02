@@ -594,7 +594,7 @@ function __floatOf(cell: i32): f64 {
 //
 // Text crosses as UTF-8, a byte a cell: AMX Mod X reads the low byte of each
 // cell (get_amxstring), and what a native writes back is bytes the same way.
-// A cell per UTF-16 unit sent "раз" as "@0" and read Cyrillic back as mojibake.
+// A cell per UTF-16 unit sent a Cyrillic word as "@0" and read Cyrillic back as mojibake.
 function __textCells(text: string): StaticArray<i32> {
 	const bytes = Uint8Array.wrap(String.UTF8.encode(text));
 	const cells = new StaticArray<i32>(bytes.length + 1);

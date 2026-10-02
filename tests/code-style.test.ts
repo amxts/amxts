@@ -1111,6 +1111,36 @@ test('every tracked JSON file is strict JSON, without comments', () => {
 });
 
 /**
+ * 40. Code, comments and test labels are in English. Cyrillic stays where it
+ * is the point: the Russian words of the docs pipeline (whole files), and test
+ * data under a comment that says `Cyrillic on purpose` - the mark covers its
+ * own line and the lines below it, down to the next blank line.
+ */
+const RUSSIAN_FILES = /^(?:docs\/ru\/|scripts\/docs\/|scripts\/(?:apply-docs|generate-entities|generate-hooks|generate-host|hlds-events)\.ts$|tests\/code-style\.test\.ts$|tests\/server\/utf8\.ts$)/;
+
+export function cyrillicOutsideTestData(file: string, source: string): Finding[] {
+	let marked = false;
+	return source.split('\n').flatMap((line, index) => {
+		if (!line.trim()) marked = false;
+		if (line.includes('Cyrillic on purpose')) marked = true;
+		const allowed = marked || !/\p{Script=Cyrillic}/u.test(line);
+		return allowed ? [] : [{ where: `${file}:${index + 1}`, rule: '40: Cyrillic outside test data - write it in English, or mark the data "Cyrillic on purpose"' }];
+	});
+}
+
+test('40: a Russian comment is found, marked test data is not', () => {
+	const source = 'check.expect(x, "длина").toBe(1);\n\n// Cyrillic on purpose: UTF-8.\nconst word = "слово";\nconst other = "ещё";\n\n// комментарий\n';
+	expect(cyrillicOutsideTestData('a.ts', source).map(f => f.where)).toEqual(['a.ts:1', 'a.ts:7']);
+});
+
+test('40: tracked code is in English', () => {
+	const files = execFileSync('git', ['ls-files', '-z', '*.ts', '*.mjs', '*.cpp', '*.h', '*.sma', '*.inc', '*.yml', '*.json'], { cwd: CORE_DIR, encoding: 'utf8' })
+		.split('\0')
+		.filter(file => file && !RUSSIAN_FILES.test(file));
+	expect(files.flatMap(file => cyrillicOutsideTestData(file, readFileSync(join(CORE_DIR, file), 'utf8'))).map(f => `${f.where}  ${f.rule}`)).toEqual([]);
+});
+
+/**
  * 38. The core's API by the package's name, a module by its package's: `~/`
  * is the project's own files. A specifier the build would refuse, with what
  * to write instead.
