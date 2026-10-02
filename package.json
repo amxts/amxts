@@ -52,6 +52,7 @@
 		"scripts/build-identity.ts",
 		"scripts/build-wasm.ts",
 		"scripts/check.ts",
+		"scripts/client-messages.ts",
 		"scripts/compile-cache.ts",
 		"scripts/compile-pool.ts",
 		"scripts/compile-worker.ts",

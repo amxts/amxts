@@ -19,12 +19,15 @@ import type { Kind } from './upgrade-names';
 // or a game event named in the engine's words has the player's
 // (scripts/upgrade-names.ts: `player.account` is `player.money`, the event
 // `restartRound` is `newRound`), and one left out of the API is listed, to be
-// read with the natives. What is rewritten no longer matches, so a second run
-// changes nothing.
+// read with the natives. A game message is heard through its own method, by
+// its name in the player's words: `server.addEventListener("message:DeathMsg",
+// ...)` is `server.addMessageListener("death", ...)`. What is rewritten no
+// longer matches, so a second run changes nothing.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { MESSAGE_NAMES } from './client-messages';
 import { CORE_ENTRIES, CORE_PLUGINS, loadProject } from './project';
 import { c, log } from './ui';
 import { COMMON, EVENTS, HIDDEN, HIDDEN_EVENTS, RENAMED } from './upgrade-names';
@@ -420,6 +423,39 @@ export function upgradeNames(file: string, text: string): { text: string; change
 	return { ...applyEdits(file, text, source, edits), left };
 }
 
+/** The methods a message was listened to with, and the ones it is now. */
+const MESSAGE_METHODS: Record<string, string> = { addEventListener: 'addMessageListener', removeEventListener: 'removeMessageListener' };
+
+/**
+ * A file's game messages brought to their own methods:
+ * `addEventListener("message:DeathMsg", ...)` is
+ * `addMessageListener("death", ...)`, and `removeEventListener` likewise. A
+ * name the game does not have is listed.
+ */
+export function upgradeMessages(file: string, text: string): { text: string; changes: Change[]; left: Left[] } {
+	if (!text.includes('message:')) return { text, changes: [], left: [] };
+	const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+	const edits: Edit[] = [];
+	const left: Left[] = [];
+
+	const visit = (node: ts.Node) => {
+		ts.forEachChild(node, visit);
+		if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return;
+		const method = MESSAGE_METHODS[node.expression.name.text];
+		const name = node.arguments[0];
+		if (!method || !name || !ts.isStringLiteralLike(name) || !name.text.startsWith('message:')) return;
+		const to = MESSAGE_NAMES[name.text.slice('message:'.length)];
+		if (!to) {
+			left.push({ file, line: source.getLineAndCharacterOfPosition(name.getStart(source)).line + 1, why: `"${name.text}" is not a message the game has: server.addMessageListener takes one of the names the editor lists` });
+			return;
+		}
+		edits.push({ start: node.expression.name.getStart(source), end: node.expression.name.getEnd(), with: method, from: node.expression.name.text });
+		edits.push({ start: name.getStart(source) + 1, end: name.getEnd() - 1, with: to, from: name.text });
+	};
+	visit(source);
+	return { ...applyEdits(file, text, source, edits), left };
+}
+
 /** Folders that are not the project's code: what is installed, built or generated. */
 const SKIP = new Set(['node_modules', 'dist', '.amxts', '.git']);
 
@@ -446,10 +482,11 @@ export function upgradeProject(dir: string): { changes: Change[]; left: Left[] }
 		const imports = http.text.includes('~/') ? upgradeText(name, http.text, renames) : { text: http.text, changes: [] };
 		const handlers = upgradeHandlers(name, imports.text);
 		const names = upgradeNames(name, handlers.text);
-		left.push(...http.left, ...handlers.left, ...names.left);
-		if (names.text === text) continue;
-		writeFileSync(file, names.text);
-		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...names.changes);
+		const messages = upgradeMessages(name, names.text);
+		left.push(...http.left, ...handlers.left, ...names.left, ...messages.left);
+		if (messages.text === text) continue;
+		writeFileSync(file, messages.text);
+		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...names.changes, ...messages.changes);
 	}
 	return { changes, left };
 }

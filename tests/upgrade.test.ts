@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 // @ts-ignore - bun:test types not available during type checking
 import { afterEach, expect, test } from 'bun:test';
 import { setProjectDir } from '../scripts/project';
-import { dropHttpImports, renamesFor, upgradeHandlers, upgradeNames, upgradeProject, upgradeText } from '../scripts/upgrade';
+import { dropHttpImports, renamesFor, upgradeHandlers, upgradeMessages, upgradeNames, upgradeProject, upgradeText } from '../scripts/upgrade';
 
 const HERE = process.cwd();
 const made: string[] = [];
@@ -236,4 +236,46 @@ test('fields, methods and events in the engine\'s words are the player\'s; one o
 	]);
 	expect(left[1].why).toContain('get_member(id, m_szTeamName)');
 	expect(upgradeNames('plugins/a.ts', text).changes).toEqual([]);
+});
+
+test('a game message is heard through addMessageListener, by its name in the player\'s words; one the game does not have is listed', () => {
+	const source = [
+		'server.addEventListener("message:DeathMsg", (event) => {',
+		'	if (event.headshot) console.log("headshot");',
+		'});',
+		'server.addEventListener(\'message:SayText\', onChat);',
+		'server.removeEventListener("message:SayText", onChat);',
+		'server.addEventListener("message:BotProgress", (event: ClientMessage) => console.log(event.args.length));',
+		'server.addEventListener("putinserver", () => console.log("message:DeathMsg"));',
+		'server.addEventListener("message:MyModMsg", () => {});',
+		'// server.addEventListener("message:Money", ...)',
+		'',
+	].join('\n');
+	const { text, changes, left } = upgradeMessages('plugins/a.ts', source);
+
+	expect(text.split('\n')).toEqual([
+		'server.addMessageListener("death", (event) => {',
+		'	if (event.headshot) console.log("headshot");',
+		'});',
+		'server.addMessageListener(\'chat\', onChat);',
+		'server.removeMessageListener("chat", onChat);',
+		'server.addMessageListener("botProgress", (event: ClientMessage) => console.log(event.args.length));',
+		'server.addEventListener("putinserver", () => console.log("message:DeathMsg"));',
+		'server.addEventListener("message:MyModMsg", () => {});',
+		'// server.addEventListener("message:Money", ...)',
+		'',
+	]);
+	expect(changes.map(change => `${change.line} ${change.from} ${change.to}`)).toEqual([
+		'1 addEventListener addMessageListener',
+		'1 message:DeathMsg death',
+		'4 addEventListener addMessageListener',
+		'4 message:SayText chat',
+		'5 removeEventListener removeMessageListener',
+		'5 message:SayText chat',
+		'6 addEventListener addMessageListener',
+		'6 message:BotProgress botProgress',
+	]);
+	expect(left.map(each => each.line)).toEqual([8]);
+	expect(left[0].why).toContain('"message:MyModMsg" is not a message the game has');
+	expect(upgradeMessages('plugins/a.ts', text)).toEqual({ text, changes: [], left });
 });
