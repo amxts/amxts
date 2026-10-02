@@ -1063,6 +1063,7 @@ const SAME_AS: Record<string, string> = {
 	// A message sent through the engine, which every plugin's message hooks hear (emessage_end).
 	emessage_begin: 'message_begin',
 	ewrite_byte: 'write_byte',
+	ewrite_long: 'write_byte',
 	ewrite_short: 'write_byte',
 	ewrite_string: 'write_string',
 };

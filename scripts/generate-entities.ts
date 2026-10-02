@@ -772,6 +772,20 @@ const TEAM_SCORES: Record<string, string> = {
 	m_iNumTerroristWins: 'this.ctWins, value',
 };
 
+// A player's member the client learns only from a message - his money, his
+// armour's kind, his flashlight's charge, his night vision, his defuse kit:
+// written, then sent to him as the game sends it when it changes the member
+// itself (setMoney and the rest, below). The member alone would show on his
+// HUD only once the game next sends it.
+const SENT_MEMBERS: Record<string, string> = {
+	m_iAccount: 'setMoney',
+	m_iKevlar: 'setKevlar',
+	m_iFlashBattery: 'setFlashlightBattery',
+	m_bHasNightVision: 'setNightVision',
+	m_bNightVisionOn: 'setNightVisionOn',
+	m_bHasDefuser: 'setDefuser',
+};
+
 // Every entvar's place in entvars_t, which the module reads it at.
 const ENTVARS = entvarLayout();
 
@@ -811,7 +825,8 @@ function accessOf(f: Field, kind: 'entvar' | 'member' | 'game'): Access {
 	}
 	if (kind === 'member') {
 		const at = memberAt(f.reapi, f.owner);
-		return { read: `memberCell(this.id, ${at})`, write: cell => `setMemberCell(this.id, ${at}, ${cell})` };
+		const sent = SENT_MEMBERS[f.reapi];
+		return { read: `memberCell(this.id, ${at})`, write: cell => (sent ? `${sent}(this.id, ${cell})` : `setMemberCell(this.id, ${at}, ${cell})`) };
 	}
 	// A member of ReGameDLL's own is reapi's alone, and says so without it.
 	if (REAPI_ONLY_MEMBERS.has(f.reapi)) {
@@ -1009,6 +1024,12 @@ const AT = {
 	terroristWins: memberAt('m_iNumTerroristWins', 'CSGameRules'),
 	observerTarget: memberAt('m_hObserverTarget', 'CBasePlayer'),
 	observerLastMode: memberAt('m_iObserverLastMode', 'CBasePlayer'),
+	money: memberAt('m_iAccount', 'CBasePlayer'),
+	kevlar: memberAt('m_iKevlar', 'CBasePlayer'),
+	flashlightBattery: memberAt('m_iFlashBattery', 'CBasePlayer'),
+	nightVision: memberAt('m_bHasNightVision', 'CBasePlayer'),
+	nightVisionOn: memberAt('m_bNightVisionOn', 'CBasePlayer'),
+	defuser: memberAt('m_bHasDefuser', 'CBasePlayer'),
 };
 
 // The classes' properties, written before the file: the member table the
@@ -1040,12 +1061,12 @@ import {
 	entity_get_int, entity_set_int, entity_get_edict, create_entity, is_valid_ent,
 	find_ent_by_class, find_ent_in_sphere, get_global_int, entity_set_origin, emit_sound,
 	entity_set_model, entity_set_size, is_user_connected, is_user_alive, get_maxplayers, get_user_msgid,
-	emessage_begin, ewrite_string, ewrite_short, emessage_end, client_print,
+	emessage_begin, ewrite_string, ewrite_short, ewrite_byte, ewrite_long, emessage_end, client_print,
 	get_member_game, set_member_game, rg_update_teamscores, rg_set_observer_mode,
 	NATIVE_get_member_game, NATIVE_set_member_game, NATIVE_ExecuteHam, NATIVE_ExecuteHamB
 } from "./natives";
 import {
-	${chunk([...new Set(gameRules.map(f => f.reapi).concat(stringKeys, ['EV_SZ_classname', 'EV_SZ_model', 'EV_INT_flags', 'EV_ENT_owner', 'FL_KILLME', 'GL_maxEntities', 'MSG_ALL', 'print_center'], HAM_FUNCTIONS.filter(f => f.method).map(f => f.ham)))]).join(',\n\t')}
+	${chunk([...new Set(gameRules.map(f => f.reapi).concat(stringKeys, ['EV_SZ_classname', 'EV_SZ_model', 'EV_INT_flags', 'EV_ENT_owner', 'FL_KILLME', 'GL_maxEntities', 'MSG_ALL', 'MSG_ONE', 'ARMOR_VESTHELM', 'print_center'], HAM_FUNCTIONS.filter(f => f.method).map(f => f.ham)))]).join(',\n\t')}
 } from "./constants";
 
 /** A name's number when it has none ("unknown"): the setter then leaves the field alone. */
@@ -1259,6 +1280,83 @@ function sendTeamScore(team: string, score: number): void {
 	emessage_begin(MSG_ALL, get_user_msgid("TeamScore"));
 	ewrite_string(team);
 	ewrite_short(score);
+	emessage_end();
+}
+
+/**
+ * Begins a message to one player, through the engine as the game's own go,
+ * so every plugin's message listeners hear it: false, and nothing begun, for
+ * a player who is not in the game.
+ */
+function messageTo(id: number, name: string): bool {
+	if (is_user_connected(id) == 0) return false;
+	emessage_begin(MSG_ONE, get_user_msgid(name), [0, 0, 0], id);
+	return true;
+}
+
+/** The player's money, and the Money message that shows it on his HUD, flashing - what cs_set_user_money sends. */
+function setMoney(id: number, cell: i32): void {
+	setMemberCell(id, ${AT.money}, cell);
+	if (!messageTo(id, "Money")) return;
+	ewrite_long(cell);
+	ewrite_byte(1);
+	emessage_end();
+}
+
+/** The player's armour kind, and ArmorType: whether his HUD shows a helmet. */
+function setKevlar(id: number, cell: i32): void {
+	setMemberCell(id, ${AT.kevlar}, cell);
+	if (!messageTo(id, "ArmorType")) return;
+	ewrite_byte(cell == ARMOR_VESTHELM ? 1 : 0);
+	emessage_end();
+}
+
+/** The flashlight's charge, and FlashBat: the bar on his HUD. */
+function setFlashlightBattery(id: number, cell: i32): void {
+	setMemberCell(id, ${AT.flashlightBattery}, cell);
+	if (!messageTo(id, "FlashBat")) return;
+	ewrite_byte(cell);
+	emessage_end();
+}
+
+/** Whether he owns night vision goggles, told to his buy menu (ItemStatus). */
+function setNightVision(id: number, cell: i32): void {
+	setMemberCell(id, ${AT.nightVision}, cell);
+	sendItemStatus(id);
+}
+
+/** Night vision switched on or off, and NVGToggle: his screen turns green or back. */
+function setNightVisionOn(id: number, cell: i32): void {
+	setMemberCell(id, ${AT.nightVisionOn}, cell);
+	if (!messageTo(id, "NVGToggle")) return;
+	ewrite_byte(cell);
+	emessage_end();
+}
+
+/**
+ * A defuse kit given or taken as the game does it: the kit on his model
+ * (pev->body), its icon on his HUD (StatusIcon) and his buy menu told.
+ */
+function setDefuser(id: number, cell: i32): void {
+	setMemberCell(id, ${AT.defuser}, cell);
+	setEntvarCell(id, ${offsetOf('var_body')}, cell);
+	if (messageTo(id, "StatusIcon")) {
+		ewrite_byte(cell);
+		ewrite_string("defuser");
+		if (cell != 0) {
+			ewrite_byte(0);
+			ewrite_byte(160);
+			ewrite_byte(0);
+		}
+		emessage_end();
+	}
+	sendItemStatus(id);
+}
+
+/** ItemStatus: the night vision and the defuse kit the player owns, which his buy menu shows. */
+function sendItemStatus(id: number): void {
+	if (!messageTo(id, "ItemStatus")) return;
+	ewrite_byte((memberCell(id, ${AT.nightVision}) != 0 ? 1 : 0) | (memberCell(id, ${AT.defuser}) != 0 ? 2 : 0));
 	emessage_end();
 }
 

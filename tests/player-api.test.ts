@@ -126,3 +126,26 @@ test('queryCvar: a player who leaves before he answers rejects it with an AbortE
 
 	expect(server.log).toContain('fps_max: AbortError');
 });
+
+test('a field the client learns from a message sends it: money, armour, flashlight, night vision, defuse kit', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	alice.set('m_iAccount', 800);
+	server.userMessages.length = 0;
+
+	alice.command('pl_hud');
+
+	expect(alice.get('m_iAccount')).toBe(1300);
+	expect(alice.get('var_body')).toBe(0);
+	expect(server.userMessages.map(message => [message.name, message.player, ...message.args])).toEqual([
+		['Money', alice.id, 1300, 1],
+		['ArmorType', alice.id, 1],
+		['FlashBat', alice.id, 40],
+		['ItemStatus', alice.id, 1],
+		['NVGToggle', alice.id, 1],
+		['StatusIcon', alice.id, 1, 'defuser', 0, 160, 0],
+		['ItemStatus', alice.id, 3],
+		['StatusIcon', alice.id, 0, 'defuser'],
+		['ItemStatus', alice.id, 1],
+	]);
+});

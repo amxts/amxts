@@ -29,6 +29,15 @@ server.addCommand("/amxts_ping [words]", ({ player, words: typed }) => {
 
 server.addServerCommand("amxts_test_player", run);
 
+// The last Money message and its player, as every plugin's message listeners hear it.
+let moneyShown = -1;
+let moneyShownTo = 0;
+
+server.addEventListener("message:Money", (message) => {
+	moneyShown = message.amount;
+	moneyShownTo = message.player?.id ?? 0;
+});
+
 async function run() {
 	const check = new Checks("player");
 
@@ -54,6 +63,7 @@ async function run() {
 	voice(check, bot);
 	observer(check, bot);
 	fieldOfView(check, bot);
+	money(check, bot);
 	const answer = await bot.queryCvar("fps_max");
 	check.expect(answer == null, "queryCvar of a bot is null: there is no one to ask").toBe(true);
 	joinTeam(check);
@@ -156,6 +166,17 @@ function fieldOfView(check: Checks, bot: Player) {
 	const entity: Entity = bot;
 	check.expect(entity.health, "a player's health through Entity is its own").toBe(bot.health);
 	bot.fov = before;
+}
+
+/** Money written shows on the player's HUD: the Money message goes to him with the new amount. */
+function money(check: Checks, bot: Player) {
+	const before = bot.money;
+	moneyShown = -1;
+	bot.money = before + 500;
+	check.expect(get_ent_data(bot.id, "CBasePlayer", "m_iAccount"), "money is written to m_iAccount").toBe(before + 500);
+	check.expect(moneyShownTo, "a Money message went to the player").toBe(bot.id);
+	check.expect(moneyShown, "with the new amount").toBe(before + 500);
+	bot.money = before;
 }
 
 /**

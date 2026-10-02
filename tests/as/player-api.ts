@@ -9,6 +9,7 @@ server.addCommand("pl_sound", ({ player }) => sound(player));
 server.addCommand("pl_cvar <name>", ({ player, name }) => askCvar(player, name));
 server.addCommand("pl_cvar_left", ({ player }) => askUntilLeft(player));
 server.addCommand("pl_observe <mode>", ({ player, mode }) => observe(player, mode));
+server.addCommand("pl_hud", ({ player }) => equip(player));
 
 interface JoinArgs {
 	team: "CT" | "TERRORIST" | "UNASSIGNED";
@@ -69,4 +70,14 @@ async function askCvar(player: Player, name: string) {
 async function askUntilLeft(player: Player) {
 	const answer = player.queryCvar("fps_max");
 	answer.catch(reason => console.log(`fps_max: ${reason.name}`));
+}
+
+function equip(player: Player) {
+	player.money += 500;
+	player.kevlar = "vestHelmet";
+	player.flashlightBattery = 40;
+	player.hasNightVision = true;
+	player.nightVisionOn = true;
+	player.hasDefuser = true;
+	player.hasDefuser = false;
 }

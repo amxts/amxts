@@ -751,12 +751,12 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 	},
 	m_iKevlar: {
 		en: `
-			The player's armour kind, one of: \`"none"\`; \`"vest"\`; \`"vestHelmet"\` - a vest and a helmet.
+			The player's armour kind, one of: \`"none"\`; \`"vest"\`; \`"vestHelmet"\` - a vest and a helmet. Setting it shows the helmet on his HUD, or takes it off.
 
 			Pawn: \`ARMOR_*\`
 		`,
 		ru: `
-			Вид брони игрока, одно из: \`"none"\` — нет; \`"vest"\` — жилет; \`"vestHelmet"\` — жилет и шлем.
+			Вид брони игрока, одно из: \`"none"\` — нет; \`"vest"\` — жилет; \`"vestHelmet"\` — жилет и шлем. Запись показывает шлем на его HUD или убирает его.
 
 			Pawn: \`ARMOR_*\`
 		`,
@@ -766,8 +766,8 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		ru: `\`true\`, если игрок пережил прошлый раунд и сохраняет снаряжение; при \`false\` он появится со стандартным.`,
 	},
 	m_iAccount: {
-		en: `The player's money: \`800\` at the start. Writing it does not update the money on his HUD; \`rg_add_account\` does.`,
-		ru: `Деньги игрока: \`800\` в начале. Запись не обновляет деньги на его HUD, а \`rg_add_account\` обновляет.`,
+		en: `The player's money: \`800\` at the start. Setting it shows the new amount on his HUD at once, flashing: \`player.money += 500\`.`,
+		ru: `Деньги игрока: \`800\` в начале. Запись сразу показывает новую сумму на его HUD, с миганием: \`player.money += 500\`.`,
 	},
 	m_bHasPrimary: {
 		en: `\`true\` if the player carries a primary weapon (a rifle, a shotgun, a submachine gun).`,
@@ -854,12 +854,12 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		`,
 	},
 	m_bHasNightVision: {
-		en: `\`true\` if the player owns night vision goggles.`,
-		ru: `\`true\`, если у игрока есть прибор ночного видения.`,
+		en: `\`true\` if the player owns night vision goggles. Setting it gives or takes them, and his buy menu knows.`,
+		ru: `\`true\`, если у игрока есть прибор ночного видения. Запись выдаёт или забирает его, и меню покупки это знает.`,
 	},
 	m_bNightVisionOn: {
-		en: `\`true\` while the player's night vision is switched on.`,
-		ru: `\`true\`, пока прибор ночного видения игрока включён.`,
+		en: `\`true\` while the player's night vision is switched on. Setting it switches his screen to night vision or back.`,
+		ru: `\`true\`, пока прибор ночного видения игрока включён. Запись включает или выключает ночное видение на его экране.`,
 	},
 	m_flIdleCheckTime: {
 		en: `The game time of the player's next idle check; checks are 5 seconds apart.`,
@@ -882,8 +882,8 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		ru: `\`true\`, пока игрок несёт бомбу.`,
 	},
 	m_bHasDefuser: {
-		en: `\`true\` if the player has a defuse kit.`,
-		ru: `\`true\`, если у игрока есть набор сапёра.`,
+		en: `\`true\` if the player has a defuse kit. Setting it gives or takes the kit as the game does: on his model, its icon on his HUD and in his buy menu.`,
+		ru: `\`true\`, если у игрока есть набор сапёра. Запись выдаёт или забирает набор, как это делает игра: на модели, значком на HUD и в меню покупки.`,
 	},
 	m_bKilledByBomb: {
 		en: `\`true\` if the bomb's explosion killed the player.`,
@@ -1058,8 +1058,8 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		ru: `Игровое время, когда батарея фонарика игрока в следующий раз разрядится (включён) или зарядится (выключен) на единицу.`,
 	},
 	m_iFlashBattery: {
-		en: `The charge of the player's flashlight, \`0\` to \`100\`.`,
-		ru: `Заряд фонарика игрока, от \`0\` до \`100\`.`,
+		en: `The charge of the player's flashlight, \`0\` to \`100\`. Setting it shows the new charge on his HUD.`,
+		ru: `Заряд фонарика игрока, от \`0\` до \`100\`. Запись сразу показывает новый заряд на его HUD.`,
 	},
 	m_afButtonLast: {
 		en: `The buttons the player held the frame before: \`["Jump"]\`.`,
