@@ -55,7 +55,7 @@ async function run() {
 	fieldOfView(check, bot);
 	const answer = await bot.queryCvar("fps_max");
 	check.expect(answer == null, "queryCvar у бота - null: спросить некого").toBe(true);
-	joinTeam(check, bot);
+	joinTeam(check);
 	check.done();
 }
 
@@ -157,12 +157,17 @@ function fieldOfView(check: Checks, bot: Player) {
 	bot.fov = before;
 }
 
-/** Вход в сторону как выбор игрока - и обратно. Последним: бот при этом может умереть. */
-function joinTeam(check: Checks, bot: Player) {
-	const side = bot.team;
-	const other = side == "CT" ? "TERRORIST" : "CT";
+/**
+ * Вход в сторону как выбор игрока - и обратно. Бот с большей стороны: игра
+ * без ReAPI не пускает туда, где игроков станет больше, чем позволяет
+ * mp_limitteams. Последним: бот при этом может умереть.
+ */
+function joinTeam(check: Checks) {
+	const side: Team = Player.all({ team: "CT" }).length >= Player.all({ team: "TERRORIST" }).length ? "CT" : "TERRORIST";
+	const other: Team = side == "CT" ? "TERRORIST" : "CT";
+	const bot = Player.all({ bots: true, team: side })[0];
 	check.expect(bot.joinTeam(other), `joinTeam("${other}") - игра согласилась`).toBe(true);
 	check.expect(bot.team, "бот на другой стороне").toBe(other);
 	check.expect(bot.joinTeam("UNASSIGNED"), "joinTeam(\"UNASSIGNED\") - false").toBe(false);
-	if (side == "CT" || side == "TERRORIST") bot.joinTeam(side);
+	bot.joinTeam(side);
 }

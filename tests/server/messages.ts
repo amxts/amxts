@@ -1,23 +1,24 @@
 // Messages to clients as events on a real server: a message the game sends -
-// HideWeapon when a bot's hidden HUD changes, Money when his money is set,
+// HideWeapon when a bot's hidden HUD changes, Money when a restart resets it,
 // DeathMsg, ScoreInfo and ScoreAttrib when he dies - is heard by name with
 // its fields typed, a field written is what the next listener reads, and the
 // listener hears only its own message's name. AMX Mod X's message hooks do
 // not see a message a plugin sends itself, so the game's is waited for.
-import { AS_SET } from "@amxts/core/constants";
-import { rg_add_account } from "@amxts/core/natives";
+import { cs_get_user_money } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
 let seen: HideHud[] = [];
 let rewritten: HideHud[] = [];
 let others = 0;
 
-let money = -1;
-let moneyTo = "";
+/** The money the game last showed each player, by name. */
+const money = new Map<string, number>();
 let victim = "";
 let weapon = "";
 let headshot = true;
-let scoreOf = "";
+/** The rows ScoreInfo updated since the bot died: other bots may score meanwhile. */
+const scored: string[] = [];
+let restarts = 0;
 let deadOnBoard = "";
 
 server.addEventListener("message:HideWeapon", (event) => {
@@ -29,8 +30,7 @@ server.addEventListener("message:HideWeapon", (event) => {
 	if (event.name != "HideWeapon") others++;
 });
 server.addEventListener("message:Money", (event) => {
-	money = event.amount;
-	moneyTo = event.player?.name ?? "";
+	money.set(event.player?.name ?? "", event.amount);
 });
 server.addEventListener("message:DeathMsg", (event) => {
 	victim = event.victim?.name ?? "";
@@ -38,10 +38,14 @@ server.addEventListener("message:DeathMsg", (event) => {
 	headshot = event.headshot;
 });
 server.addEventListener("message:ScoreInfo", (event) => {
-	scoreOf = event.target?.name ?? "";
+	scored.push(event.target?.name ?? "");
 });
 server.addEventListener("message:ScoreAttrib", (event) => {
 	if (event.flags.includes("Dead")) deadOnBoard = event.target?.name ?? "";
+});
+
+game.addEventListener("restartRound", () => {
+	restarts++;
 });
 
 server.addServerCommand("amxts_test_messages", () => {
@@ -65,23 +69,30 @@ async function run() {
 	check.expect(others, "only HideWeapon reaches these listeners").toBe(0);
 	bot.hideHud = [];
 
-	rg_add_account(bot.id, 1234, AS_SET);
-	await sleep(300);
-	check.expect(money, "Money: the amount the game shows").toBe(1234);
-	check.expect(moneyTo, "Money goes to the bot").toBe(bot.name);
+	// The game resets everyone's money as it restarts, ReAPI or not, a
+	// second after it reads sv_restart. A plugin's own message
+	// (cs_set_user_money's) is not heard.
+	money.clear();
+	const before = restarts;
+	const restarted = () => restarts != before;
+	server.command("sv_restart 1");
+	for (let tries = 0; tries < 40 && !restarted(); tries++) await sleep(100);
+	check.expect(money.has(bot.name), "Money goes to the bot").toBe(true);
+	check.expect(money.get(bot.name) ?? -1, "Money: the amount the game shows").toBe(cs_get_user_money(bot.id));
 
 	if (!bot.isAlive) {
 		bot.respawn();
 		await sleep(500);
 	}
 
+	scored.length = 0;
 	bot.kill();
 	await sleep(500);
 	check.expect(victim, "DeathMsg: the victim is the bot, a Player").toBe(bot.name);
 	check.expect(weapon.length > 0, `DeathMsg: the weapon is its icon's name (${weapon})`).toBe(true);
 	check.expect(headshot, "DeathMsg: no headshot").toBe(false);
 
-	check.expect(scoreOf, "ScoreInfo: the row is the bot's").toBe(bot.name);
+	check.expect(scored.includes(bot.name), `ScoreInfo: the bot's row is updated (${scored.join(", ")})`).toBe(true);
 	check.expect(deadOnBoard, "ScoreAttrib: the bot is \"Dead\" on the scoreboard").toBe(bot.name);
 
 	bot.respawn();

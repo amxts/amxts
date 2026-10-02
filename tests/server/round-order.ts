@@ -7,7 +7,7 @@
 // written here as the game writes them.
 // It plays a whole round, so it runs after round-end (the suites go by name).
 import { Checks } from "@amxts/core/check";
-import { cs_set_user_money, elog_message, get_user_authid, get_user_userid } from "@amxts/core/natives";
+import { elog_message, get_user_authid, get_user_userid } from "@amxts/core/natives";
 
 /** What the round did, in order. */
 const heard: string[] = [];
@@ -92,8 +92,6 @@ async function run() {
 	if (!game.roundTerminating) killSide("TERRORIST");
 	for (let tries = 0; tries < 20 && !game.roundTerminating; tries++) await sleep(100);
 	if (!game.roundTerminating) game.endRound({ winner: "draw", delay: 1 });
-	// With no money the new round's pay shows, whatever the bots won before.
-	for (const bot of Player.all({ bots: true })) cs_set_user_money(bot.id, 0);
 	heard.length = 0;
 	paid = 0;
 	playing = true;
@@ -104,6 +102,7 @@ async function run() {
 	check.expect(order, "a round's events in order").toBe("new round > spawn > new round, after > round start > round end");
 	check.expect(heard.filter(one => one == "new round").length, "one new round").toBe(1);
 	check.expect(aliveAfter >= 2, `the players are alive when the new round's listeners after the game run (${aliveAfter})`).toBe(true);
+	// The bots are far from the game's 16000 here: a restart (messages) reset them, and a round or two paid since.
 	check.expect(paid > 0, `the new round pays the players (${paid})`).toBe(true);
 	check.expect(winner, "roundEnd: the winner").toBe("CT");
 	check.expect(reason, "roundEnd: the reason").toBe("ctsWin");
