@@ -76,6 +76,7 @@
 		"scripts/typed-configs.ts",
 		"scripts/ui.ts",
 		"scripts/upgrade.ts",
+		"scripts/upgrade-names.ts",
 		"includes/*.inc",
 		"includes/order.txt",
 		"includes/sources.json",

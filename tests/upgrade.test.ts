@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 // @ts-ignore - bun:test types not available during type checking
 import { afterEach, expect, test } from 'bun:test';
 import { setProjectDir } from '../scripts/project';
-import { dropHttpImports, renamesFor, upgradeHandlers, upgradePlayers, upgradeProject, upgradeText } from '../scripts/upgrade';
+import { dropHttpImports, renamesFor, upgradeHandlers, upgradeNames, upgradeProject, upgradeText } from '../scripts/upgrade';
 
 const HERE = process.cwd();
 const made: string[] = [];
@@ -170,7 +170,7 @@ test('Player.all is server.players and a filter; a player\'s account is his mone
 		'const text = "Player.all() and addAccount";',
 		'',
 	].join('\n');
-	const { text, changes, left } = upgradePlayers('plugins/a.ts', source);
+	const { text, changes, left } = upgradeNames('plugins/a.ts', source);
 
 	expect(text.split('\n')).toEqual([
 		'import type { AddMoneyEvent } from "@amxts/core";',
@@ -192,6 +192,48 @@ test('Player.all is server.players and a filter; a player\'s account is his mone
 	]);
 	expect(changes).toHaveLength(18);
 	expect(left.map(each => each.line)).toEqual([5, 6, 13]);
-	expect(left[2].why).toContain('.money');
-	expect(upgradePlayers('plugins/a.ts', text).changes).toEqual([]);
+	expect(left[2].why).toContain('`money` on a Player');
+	expect(upgradeNames('plugins/a.ts', text).changes).toEqual([]);
+});
+
+test('fields, methods and events in the engine\'s words are the player\'s; one out of the API is listed with its native', () => {
+	const source = [
+		'game.addEventListener("flPlayerFallDamage", (event: FlPlayerFallDamageEvent) => event.result / 2, true);',
+		'game.addEventListener("alloc", () => {});',
+		'if (game.freezePeriod) game.numCtWins = game.numCtWins + 1;',
+		'const weapon = event.player.activeItem;',
+		'if (weapon != null && !weapon.inReload) weapon.timeWeaponIdle = 1;',
+		'for (const item of event.player.items) item.clientClip = 0;',
+		'function arm(player: Player) { player.armorValue = 100; player.takeHealth(10, []); player.addPoints(1, false); }',
+		'console.log(`${new Player(1).teamName} ${game.inCareerGame}`);',
+		'const somebody = load();',
+		'somebody.numCtWins = 0;',
+		'menus.menu.title = "x";',
+		'',
+	].join('\n');
+	const { text, changes, left } = upgradeNames('plugins/a.ts', source);
+
+	expect(text.split('\n')).toEqual([
+		'game.addEventListener("fallDamage", (event: FallDamageEvent) => event.result / 2, true);',
+		'game.addEventListener("alloc", () => {});',
+		'if (game.isFreezeTime) game.ctWins = game.ctWins + 1;',
+		'const weapon = event.player.activeItem;',
+		'if (weapon != null && !weapon.isReloading) weapon.nextIdle = 1;',
+		'for (const item of event.player.items) item.clipSent = 0;',
+		'function arm(player: Player) { player.armor = 100; player.heal(10, []); player.addFrags(1, false); }',
+		'console.log(`${new Player(1).teamName} ${game.inCareerGame}`);',
+		'const somebody = load();',
+		'somebody.numCtWins = 0;',
+		'menus.menu.title = "x";',
+		'',
+	]);
+	expect(changes).toHaveLength(11);
+	expect(left.map(each => `${each.line} ${each.why.split(':')[0]}`)).toEqual([
+		'2 "alloc" is not in the API',
+		'8 teamName is not in the API',
+		'8 inCareerGame is not in the API',
+		'10 numCtWins is `ctWins` on the game',
+	]);
+	expect(left[1].why).toContain('get_member(id, m_szTeamName)');
+	expect(upgradeNames('plugins/a.ts', text).changes).toEqual([]);
 });

@@ -1,3 +1,4 @@
+import type { Kind } from './upgrade-names';
 // `amxts upgrade`: a project's code brought to the API of the core it has
 // installed.
 //
@@ -14,16 +15,19 @@
 // =>`; one that reads the words after the name is listed, to be written by
 // hand with the words in the usage. An import of `@amxts/core/http` goes:
 // fetch is a global, and what reads its response the old way is listed.
-// `Player.all(options)` is `server.players` and a `filter`, `player.account`
-// `player.money`, and the events `addAccount`, `restartRound` and
-// `onRoundFreezeEnd` are `addMoney`, `newRound` and `roundStart`. What is
-// rewritten no longer matches, so a second run changes nothing.
+// `Player.all(options)` is `server.players` and a `filter`; a field, a method
+// or a game event named in the engine's words has the player's
+// (scripts/upgrade-names.ts: `player.account` is `player.money`, the event
+// `restartRound` is `newRound`), and one left out of the API is listed, to be
+// read with the natives. What is rewritten no longer matches, so a second run
+// changes nothing.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { CORE_ENTRIES, CORE_PLUGINS, loadProject } from './project';
 import { c, log } from './ui';
+import { COMMON, EVENTS, HIDDEN, HIDDEN_EVENTS, RENAMED } from './upgrade-names';
 
 /** The old spelling of a specifier and the new one. */
 export type Renames = Map<string, string>;
@@ -214,14 +218,9 @@ function applyEdits(file: string, text: string, source: ts.SourceFile, edits: Ed
 	};
 }
 
-/** Game events named after ReGameDLL's functions, by the player's words for them; each event's class follows its name. */
-const EVENT_NAMES = new Map([
-	['addAccount', 'addMoney'],
-	['restartRound', 'newRound'],
-	['onRoundFreezeEnd', 'roundStart'],
-]);
 const eventClass = (name: string) => `${name[0].toUpperCase()}${name.slice(1)}Event`;
-const EVENT_CLASSES = new Map([...EVENT_NAMES].map(([from, to]) => [eventClass(from), eventClass(to)]));
+const EVENT_CLASSES = new Map(Object.entries(EVENTS).map(([from, to]) => [eventClass(from), eventClass(to)]));
+const HIDDEN_CLASSES = new Map(Object.entries(HIDDEN_EVENTS).map(([name, native]) => [eventClass(name), native]));
 
 /** `Player.all`'s options, each as the test of a player it was, for the value `true`; `false` narrowed nothing. */
 const PLAYER_TESTS: Record<string, string> = {
@@ -237,11 +236,12 @@ const ELEMENT_CALLBACKS = new Set(['filter', 'find', 'findLast', 'forEach', 'map
 const ELEMENT_OF = new Set(['find', 'findLast', 'at', 'pop', 'shift']);
 const SAME_ELEMENTS = new Set(['filter', 'slice', 'concat', 'sort', 'reverse', 'toSorted', 'toReversed']);
 
-/** A type annotation that says a player, or a list of players. */
-const PLAYER_TYPE = /^Player(?:\s*\|\s*(?:null|undefined))*$/;
-const PLAYERS_TYPE = /^(?:Player\[\]|Array<Player>)$/;
-
-const ACCOUNT_BY_HAND = 'the player\'s money is `money`: if this is a Player, write `.money`';
+/** The fields that are a weapon - the ones a player's `items` hold - and the entity classes a `new` or an annotation names. */
+const WEAPON_FIELDS = new Set(['activeItem', 'lastItem', 'activeItemSent', 'clientActiveItem']);
+const CLASSES = new Set<Kind>(['Player', 'Weapon', 'Entity']);
+/** An annotation of one of them, or a list of them: `Player | null`, `Weapon[]`. */
+const ONE_TYPE = /^(Player|Weapon|Entity)(?:\s*\|\s*(?:null|undefined))*$/;
+const LIST_TYPE = /^(?:(Player|Weapon|Entity)\[\]|Array<(Player|Weapon|Entity)>)$/;
 
 /**
  * A file's declarations by name, as TypeScript binds them: one file alone,
@@ -255,67 +255,93 @@ function declarationOf(source: ts.SourceFile): (name: ts.Identifier) => ts.Decla
 	return name => checker.getSymbolAtLocation(name)?.declarations?.[0];
 }
 
+/** The old names of fields and methods, renamed or out of the API. */
+const OLD_MEMBERS = new Set([...Object.values(RENAMED), ...Object.values(HIDDEN)].flatMap(Object.keys));
+
+/** An old name a file may hold: a field, a method, an event or its class. */
+const OLD_NAMES = new RegExp(`\\b(?:Player\\.all|${[
+	...OLD_MEMBERS,
+	...Object.keys(EVENTS),
+	...Object.keys(HIDDEN_EVENTS),
+].map(name => name.replace(/^./, first => `[${first}${first.toUpperCase()}]`)).join('|')})\\b`);
+
 /**
- * A file brought to the API's names for players: `Player.all()` is
- * `server.players`, and its options a `filter` of what each one tested;
- * `player.account` is `player.money`; the events `addAccount`,
- * `restartRound` and `onRoundFreezeEnd` - their names in
- * `addEventListener`, and their classes - are `addMoney`, `newRound` and
- * `roundStart`. Without a type checker a receiver is a player where the code
- * says so: `event.player`, `new Player(id)`, a `Player` annotation, an element
- * of the players, `{ player }` taken from an event or a command. Any other
- * `.account`, and options not written out as `true` or a team's name, are
- * listed.
+ * A file brought to the API's names. `Player.all()` is `server.players`, and
+ * its options a `filter` of what each one tested. A field or a method named
+ * after the engine's member (`player.account`, `game.numCtWins`,
+ * `weapon.inReload`) is the player's word (`money`, `ctWins`, `isReloading`),
+ * and a game event's name in `addEventListener` and its class are the new
+ * ones. Without a type checker a value is a player, a weapon, an entity or the
+ * game where the code says so: `event.player`, `new Weapon(id)`, an
+ * annotation, `player.activeItem`, an element of `server.players` or of a
+ * player's `items`, `{ player }` taken from an event or a command, `game`.
+ * The rest is listed: an old name on a value the code does not say, options
+ * not written out as `true` or a team's name, and a field or an event left out
+ * of the API, which the natives reach.
  */
-export function upgradePlayers(file: string, text: string): { text: string; changes: Change[]; left: Left[] } {
-	if (!/Player\.all|\.account\b|addAccount|AddAccount|estartRound|nRoundFreezeEnd/.test(text)) return { text, changes: [], left: [] };
+export function upgradeNames(file: string, text: string): { text: string; changes: Change[]; left: Left[] } {
+	if (!OLD_NAMES.test(text)) return { text, changes: [], left: [] };
 	const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
 	const declaration = declarationOf(source);
 	const edits: Edit[] = [];
 	const left: Left[] = [];
 	const lineOf = (node: ts.Node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
 	const replace = (node: ts.Node, to: string) => edits.push({ start: node.getStart(source), end: node.getEnd(), with: to, from: node.getText(source) });
+	const leave = (node: ts.Node, why: string) => left.push({ file, line: lineOf(node), why });
 
 	const bare = (node: ts.Expression): ts.Expression => ts.isParenthesizedExpression(node) || ts.isNonNullExpression(node) ? bare(node.expression) : node;
 	const isPlayerAll = (node: ts.Node): node is ts.PropertyAccessExpression =>
 		ts.isPropertyAccessExpression(node) && node.name.text === 'all' && ts.isIdentifier(node.expression) && node.expression.text === 'Player';
 	const method = (node: ts.Expression) => ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) ? node.expression : undefined;
 
-	const isPlayers = (expr: ts.Expression): boolean => {
+	/** What the elements of a list are: `server.players`, a player's `items`, `Entity.findAll(...)`. */
+	const elementsOf = (expr: ts.Expression): Kind | undefined => {
 		const node = bare(expr);
-		if (ts.isPropertyAccessExpression(node)) return node.name.text === 'players' && ts.isIdentifier(node.expression) && node.expression.text === 'server';
-		const call = method(node);
-		if (call) return isPlayerAll(call) || (SAME_ELEMENTS.has(call.name.text) && isPlayers(call.expression));
-		const declared = ts.isIdentifier(node) ? declaration(node) : undefined;
-		if (!declared || !ts.isVariableDeclaration(declared)) return false;
-		return declared.type ? PLAYERS_TYPE.test(declared.type.getText(source)) : !!declared.initializer && isPlayers(declared.initializer);
-	};
-
-	const isPlayer = (expr: ts.Expression): boolean => {
-		const node = bare(expr);
-		if (ts.isNewExpression(node)) return ts.isIdentifier(node.expression) && node.expression.text === 'Player';
-		if (ts.isPropertyAccessExpression(node)) return node.name.text === 'player';
-		if (ts.isElementAccessExpression(node)) return isPlayers(node.expression);
-		const call = method(node);
-		if (call) return ELEMENT_OF.has(call.name.text) && isPlayers(call.expression);
-		const declared = ts.isIdentifier(node) ? declaration(node) : undefined;
-		return !!declared && declaredPlayer(declared);
-	};
-
-	const declaredPlayer = (declared: ts.Declaration): boolean => {
-		if (ts.isBindingElement(declared)) return (declared.propertyName ?? declared.name).getText(source) === 'player';
-		if (!ts.isVariableDeclaration(declared) && !ts.isParameter(declared)) return false;
-		if (declared.type) return PLAYER_TYPE.test(declared.type.getText(source));
-		if (ts.isVariableDeclaration(declared)) {
-			if (declared.initializer) return isPlayer(declared.initializer);
-			const loop = declared.parent.parent;
-			return ts.isForOfStatement(loop) && isPlayers(loop.expression);
+		if (ts.isPropertyAccessExpression(node)) {
+			if (node.name.text === 'players' && ts.isIdentifier(node.expression) && node.expression.text === 'server') return 'Player';
+			return node.name.text === 'items' && kindOf(node.expression) === 'Player' ? 'Weapon' : undefined;
 		}
-		// The first parameter of a callback over the players: `.filter(each => ...)`.
+		const call = method(node);
+		if (call) {
+			if (isPlayerAll(call)) return 'Player';
+			if (call.name.text === 'findAll' && ts.isIdentifier(call.expression) && call.expression.text === 'Entity') return 'Entity';
+			return SAME_ELEMENTS.has(call.name.text) ? elementsOf(call.expression) : undefined;
+		}
+		const declared = ts.isIdentifier(node) ? declaration(node) : undefined;
+		if (!declared || !ts.isVariableDeclaration(declared)) return undefined;
+		if (declared.type) return (declared.type.getText(source).match(LIST_TYPE)?.slice(1).find(Boolean) as Kind | undefined);
+		return declared.initializer && elementsOf(declared.initializer);
+	};
+
+	/** What a value is, where the code says so. */
+	const kindOf = (expr: ts.Expression): Kind | undefined => {
+		const node = bare(expr);
+		if (ts.isNewExpression(node)) return ts.isIdentifier(node.expression) && CLASSES.has(node.expression.text as Kind) ? node.expression.text as Kind : undefined;
+		if (ts.isPropertyAccessExpression(node)) return node.name.text === 'player' ? 'Player' : WEAPON_FIELDS.has(node.name.text) ? 'Weapon' : undefined;
+		if (ts.isElementAccessExpression(node)) return elementsOf(node.expression);
+		const call = method(node);
+		if (call) return ELEMENT_OF.has(call.name.text) ? elementsOf(call.expression) : undefined;
+		if (!ts.isIdentifier(node)) return undefined;
+		const declared = declaration(node);
+		// `game` is the facade's, auto-imported or imported by name.
+		if (node.text === 'game' && (!declared || ts.isImportSpecifier(declared))) return 'Game';
+		return declared && declaredKind(declared);
+	};
+
+	const declaredKind = (declared: ts.Declaration): Kind | undefined => {
+		if (ts.isBindingElement(declared)) return (declared.propertyName ?? declared.name).getText(source) === 'player' ? 'Player' : undefined;
+		if (!ts.isVariableDeclaration(declared) && !ts.isParameter(declared)) return undefined;
+		if (declared.type) return declared.type.getText(source).match(ONE_TYPE)?.[1] as Kind | undefined;
+		if (ts.isVariableDeclaration(declared)) {
+			if (declared.initializer) return kindOf(declared.initializer);
+			const loop = declared.parent.parent;
+			return ts.isForOfStatement(loop) ? elementsOf(loop.expression) : undefined;
+		}
+		// The first parameter of a callback over a list: `.filter(each => ...)`.
 		const fn = declared.parent;
 		const call = fn.parent;
-		return fn.parameters[0] === declared && ts.isCallExpression(call) && ts.isPropertyAccessExpression(call.expression)
-			&& ELEMENT_CALLBACKS.has(call.expression.name.text) && isPlayers(call.expression.expression);
+		if (fn.parameters[0] !== declared || !ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression)) return undefined;
+		return ELEMENT_CALLBACKS.has(call.expression.name.text) ? elementsOf(call.expression.expression) : undefined;
 	};
 
 	/** `Player.all(options)` as `server.players`, or null when its options are not written out. */
@@ -335,11 +361,34 @@ export function upgradePlayers(file: string, text: string): { text: string; chan
 		return tests.length ? `server.players.filter(player => ${tests.join(' && ')})` : 'server.players';
 	};
 
+	/** A field or a method by an old name: the new one where the value is known, else a line for the author. */
+	const upgradeMember = (node: ts.PropertyAccessExpression) => {
+		const name = node.name.text;
+		if (!OLD_MEMBERS.has(name) || node.expression.kind === ts.SyntaxKind.ThisKeyword) return;
+		const kind = kindOf(node.expression);
+		const renamed = kind && RENAMED[kind][name];
+		const hidden = kind && HIDDEN[kind][name];
+		if (renamed) replace(node.name, renamed);
+		else if (hidden) leave(node, `${name} is not in the API: read it with the natives of @amxts/core/natives, e.g. get_member(id, ${hidden})`);
+		if (kind || COMMON.has(name)) return;
+		const where = (Object.keys(RENAMED) as Kind[]).filter(each => RENAMED[each][name]);
+		if (where.length) leave(node, `${name} is ${where.map(each => `\`${RENAMED[each][name]}\` on ${each === 'Game' ? 'the game' : `a ${each}`}`).join(', ')}: if this is one, write that`);
+	};
+
+	/** A game event's name in `addEventListener`: the new one, or a line for one out of the API. */
+	const upgradeListener = (call: ts.CallExpression) => {
+		const name = call.arguments[0];
+		if (!name || !ts.isStringLiteralLike(name)) return;
+		const to = EVENTS[name.text];
+		if (to) edits.push({ start: name.getStart(source) + 1, end: name.getEnd() - 1, with: to, from: name.text });
+		else if (Object.hasOwn(HIDDEN_EVENTS, name.text)) leave(name, `"${name.text}" is not in the API: hook it with @amxts/core/natives, ${HIDDEN_EVENTS[name.text]}`);
+	};
+
 	const visit = (node: ts.Node) => {
 		if (ts.isCallExpression(node) && isPlayerAll(node.expression)) {
 			const to = playersOf(node);
 			if (to) replace(node, to);
-			else left.push({ file, line: lineOf(node), why: 'Player.all is server.players: write its options as a filter, server.players.filter(player => player.isAlive && player.team === "CT")' });
+			else leave(node, 'Player.all is server.players: write its options as a filter, server.players.filter(player => player.isAlive && player.team === "CT")');
 			node.arguments.forEach(visit);
 			return;
 		}
@@ -349,25 +398,23 @@ export function upgradePlayers(file: string, text: string): { text: string; chan
 
 	const upgradeNode = (node: ts.Node) => {
 		if (isPlayerAll(node)) {
-			left.push({ file, line: lineOf(node), why: 'Player.all is server.players, a list read each time' });
+			leave(node, 'Player.all is server.players, a list read each time');
 			return;
 		}
 
-		if (ts.isIdentifier(node) && EVENT_CLASSES.has(node.text)) {
-			replace(node, EVENT_CLASSES.get(node.text)!);
+		if (ts.isIdentifier(node)) {
+			const to = EVENT_CLASSES.get(node.text);
+			if (to) replace(node, to);
+			else if (HIDDEN_CLASSES.has(node.text)) leave(node, `${node.text} is not in the API: hook its event with @amxts/core/natives, ${HIDDEN_CLASSES.get(node.text)}`);
 			return;
 		}
 
-		if (ts.isPropertyAccessExpression(node) && node.name.text === 'account' && node.expression.kind !== ts.SyntaxKind.ThisKeyword) {
-			if (isPlayer(node.expression)) replace(node.name, 'money');
-			else left.push({ file, line: lineOf(node), why: ACCOUNT_BY_HAND });
+		if (ts.isPropertyAccessExpression(node)) {
+			upgradeMember(node);
 			return;
 		}
 
-		if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression) || !/^(?:add|remove)EventListener$/.test(node.expression.name.text)) return;
-		const name = node.arguments[0];
-		const to = name && ts.isStringLiteralLike(name) ? EVENT_NAMES.get(name.text) : undefined;
-		if (to) edits.push({ start: name.getStart(source) + 1, end: name.getEnd() - 1, with: to, from: name.text });
+		if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && /^(?:add|remove)EventListener$/.test(node.expression.name.text)) upgradeListener(node);
 	};
 	visit(source);
 	return { ...applyEdits(file, text, source, edits), left };
@@ -398,11 +445,11 @@ export function upgradeProject(dir: string): { changes: Change[]; left: Left[] }
 		const http = dropHttpImports(name, text);
 		const imports = http.text.includes('~/') ? upgradeText(name, http.text, renames) : { text: http.text, changes: [] };
 		const handlers = upgradeHandlers(name, imports.text);
-		const players = upgradePlayers(name, handlers.text);
-		left.push(...http.left, ...handlers.left, ...players.left);
-		if (players.text === text) continue;
-		writeFileSync(file, players.text);
-		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...players.changes);
+		const names = upgradeNames(name, handlers.text);
+		left.push(...http.left, ...handlers.left, ...names.left);
+		if (names.text === text) continue;
+		writeFileSync(file, names.text);
+		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...names.changes);
 	}
 	return { changes, left };
 }
