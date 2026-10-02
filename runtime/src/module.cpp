@@ -3189,13 +3189,12 @@ static void Teardown()
 #define COMPILE_TIMEOUT_MS 120000
 
 /**
- * Runs `tool source output` with its output going to `log`, and waits for it.
+ * Runs `tool args...` with its output going to `log`, and waits for it.
  * Returns its exit code, or -1 when it could not start or did not finish,
  * which it has said on the console.
  */
 #ifdef _WIN32
-static int RunCompiler(const std::string &tool, const std::string &source,
-                       const std::string &output, const std::string &log)
+static int RunCompiler(const std::string &tool, const std::vector<std::string> &args, const std::string &log)
 {
 	SECURITY_ATTRIBUTES inherit;
 	inherit.nLength = sizeof(inherit);
@@ -3205,7 +3204,9 @@ static int RunCompiler(const std::string &tool, const std::string &source,
 	HANDLE out = CreateFileA(log.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &inherit,
 	                         CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
-	std::string command = "\"" + tool + "\" \"" + source + "\" \"" + output + "\"";
+	std::string command = "\"" + tool + "\"";
+	for (size_t i = 0; i < args.size(); i++)
+		command += " \"" + args[i] + "\"";
 	std::vector<char> line(command.begin(), command.end());
 	line.push_back(0);
 
@@ -3257,8 +3258,7 @@ static int RunCompiler(const std::string &tool, const std::string &source,
 #else
 extern char **environ;
 
-static int RunCompiler(const std::string &tool, const std::string &source,
-                       const std::string &output, const std::string &log)
+static int RunCompiler(const std::string &tool, const std::vector<std::string> &args, const std::string &log)
 {
 	// An upload over FTP or a panel's file manager drops the execute bit; the
 	// compiler and the wamrc beside it get it back rather than fail with EACCES.
@@ -3288,14 +3288,15 @@ static int RunCompiler(const std::string &tool, const std::string &source,
 		env.push_back(&keep[i][0]);
 	env.push_back(NULL);
 
-	std::vector<char> a0(tool.begin(), tool.end()), a1(source.begin(), source.end()), a2(output.begin(), output.end());
-	a0.push_back(0);
-	a1.push_back(0);
-	a2.push_back(0);
-	char *argv[] = { &a0[0], &a1[0], &a2[0], NULL };
+	std::vector<std::string> words(1, tool);
+	words.insert(words.end(), args.begin(), args.end());
+	std::vector<char *> argv;
+	for (size_t i = 0; i < words.size(); i++)
+		argv.push_back(&words[i][0]);
+	argv.push_back(NULL);
 
 	pid_t pid;
-	int failed = posix_spawn(&pid, tool.c_str(), &files, NULL, argv, &env[0]);
+	int failed = posix_spawn(&pid, tool.c_str(), &files, NULL, &argv[0], &env[0]);
 	posix_spawn_file_actions_destroy(&files);
 
 	if (failed) {
@@ -3351,6 +3352,39 @@ static int RunCompiler(const std::string &tool, const std::string &source,
  * file and from there to the console; nothing is run through a shell (on
  * Windows, cmd.exe would flash a window on every build).
  */
+/** The first line of a file, without its line ending; "" when there is none. */
+static std::string FirstLine(const std::string &file)
+{
+	char text[256] = "";
+	FILE *f = fopen(file.c_str(), "r");
+	if (f) {
+		if (!fgets(text, sizeof(text), f))
+			text[0] = 0;
+		fclose(f);
+	}
+	text[strcspn(text, "\r\n")] = 0;
+	return text;
+}
+
+/**
+ * The build amxts-compile says it is of (`--version`), asked once a file:
+ * "" for one too old to say - it takes the flag for a source and answers with
+ * its usage.
+ */
+static std::string CompilerBuild(const std::string &tool, const std::string &log)
+{
+	static time_t asked = 0;
+	static std::string build;
+
+	time_t stamp = FileStamp(tool.c_str());
+	if (stamp != asked) {
+		asked = stamp;
+		std::vector<std::string> args(1, "--version");
+		build = RunCompiler(tool, args, log) == 0 ? FirstLine(log) : "";
+	}
+	return build;
+}
+
 static bool CompilePlugin(const std::string &source, const std::string &output)
 {
 	std::string tool = MF_BuildPathname("addons/amxts/tools/" COMPILER_FILE);
@@ -3360,10 +3394,24 @@ static bool CompilePlugin(const std::string &source, const std::string &output)
 		return false;
 	}
 
+	std::string log = MF_BuildPathname("addons/amxts/build/compile.log");
+
+	// The module writes the API a plugin imports, and a compiler of another
+	// build reads it with another AssemblyScript: its errors would say nothing
+	// of why. So one of another build compiles nothing.
+	std::string build = CompilerBuild(tool, log);
+	if (build != AMXTS_BUILD) {
+		MF_PrintSrvConsole("[amxts] %s is not compiled: amxts-compile is %s%s, the module %s - take both from the same release\n",
+		                   source.c_str(), build.empty() ? "of an older release" : "", build.c_str(), AMXTS_BUILD);
+		return false;
+	}
+
 	MF_PrintSrvConsole("[amxts] compiling %s\n", source.c_str());
 
-	std::string log = MF_BuildPathname("addons/amxts/build/compile.log");
-	int code = RunCompiler(tool, source, output, log);
+	std::vector<std::string> args;
+	args.push_back(source);
+	args.push_back(output);
+	int code = RunCompiler(tool, args, log);
 
 	if (code < 0)
 		return false;

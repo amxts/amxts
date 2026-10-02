@@ -9,6 +9,7 @@
 // natives.ts from another build compiles calls the module has no thunk for,
 // and a natives.txt from another build makes wamrc emit the wrong signature.
 import { writeFileSync } from 'node:fs';
+import { buildIdentity } from './build-identity';
 import { serverFiles } from './server-files';
 
 /**
@@ -54,6 +55,9 @@ writeFileSync(
 // here rather than beside the module is the only way to be sure of that: the
 // module's thunks, a plugin's imports and wamrc's signatures are three faces
 // of one list and cannot travel separately.
+
+// The build this module is of, which amxts-compile beside it has to be of too.
+#define AMXTS_BUILD "${buildIdentity()}"
 
 ${files.map(f => `static const char *const ${f.name}[] = {\n${chunks(f.text)}\n};`).join('\n\n')}
 

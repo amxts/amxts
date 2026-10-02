@@ -25,6 +25,7 @@ import { spawnSync } from 'node:child_process';
 // plugin's imports and wamrc's signatures are three faces of one list.
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { buildDefine, moduleBuild } from './build-identity';
 import { serverFiles } from './server-files';
 import { executable, HOST_SYSTEM, MODULE_FILE, modulePath, parseSystem, SYSTEM_NAME, wamrcPath } from './system';
 
@@ -69,16 +70,25 @@ mkdirSync(join(out, 'addons/amxts/plugins'), { recursive: true });
 mkdirSync(join(out, 'addons/amxts/build'), { recursive: true });
 mkdirSync(join(out, 'addons/amxmodx/modules'), { recursive: true });
 
+// The module's build, which the compiler is built as: the module refuses a
+// compiler of another (scripts/build-identity.ts).
+const identity = moduleBuild();
+if (!identity) {
+	fail('runtime/src/embedded.h names no build - run bun run generate, then build the module');
+	process.exit(1);
+}
+
 // One executable rather than a JS runtime and a node_modules: nothing on a
 // game server should need `bun install`.
-const build = spawnSync('bun', [
+const build = spawnSync(process.execPath, [
 	'build',
 	'--compile',
 	'scripts/compile-one.ts',
+	buildDefine(identity),
 	`--target=${BUN_TARGET[system]}`,
 	'--outfile',
 	join(out, 'addons/amxts/tools', executable('amxts-compile', system)),
-], { encoding: 'utf-8', shell: true });
+], { encoding: 'utf-8' });
 
 if (build.status !== 0) {
 	fail(build.stdout + build.stderr);

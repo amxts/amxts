@@ -1,6 +1,7 @@
 // The compiler a server runs: .ts in, .aot out.
 //
 //   amxts-compile <source.ts> <out.aot>
+//   amxts-compile --version             the build it is of: 0.2.0+1bf291c0ab
 //
 // This is what the module spawns when it finds a plugin whose source is newer
 // than its compiled form, so that a server takes .ts files the way AMX Mod X
@@ -24,7 +25,16 @@ function fail(message: string): void {
 	process.stderr.write(`${message}\n`);
 }
 
+// `bun run serverkit` builds it as the module's build (scripts/build-identity.ts);
+// the module asks before it compiles, and refuses a compiler of another.
+declare const AMXTS_BUILD: string;
+
 const [source, output] = process.argv.slice(2);
+
+if (source === '--version') {
+	process.stdout.write(`${typeof AMXTS_BUILD === 'string' ? AMXTS_BUILD : 'unknown'}\n`);
+	process.exit(0);
+}
 
 if (!source || !output) {
 	fail('usage: amxts-compile <source.ts> <out.aot>');
