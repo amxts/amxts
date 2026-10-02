@@ -4,6 +4,13 @@
 // of ReGameDLL's own, heard through the stock modules or not at all; fields
 // in memory; a team's score and a round's end.
 
+// First: its logevent comes before roundEnd's, as a listener of the freeze
+// time's end that ends the round logs "Round_End" inside it.
+let endAtStart = false;
+game.addEventListener("onRoundFreezeEnd", () => {
+	console.log("round start");
+	if (endAtStart) game.endRound({ winner: "CT", delay: 4, dispatch: true });
+});
 game.addEventListener("takeDamage", event => console.log(`hurt ${event.player.id} ${event.damage}`));
 game.addEventListener("jump", event => console.log(`jump ${event.player.id}`));
 game.addEventListener("canDeploy", event => console.log(`can deploy ${event.weapon.id}`));
@@ -17,7 +24,6 @@ function onRoundEnd(event: RoundEndEvent) {
 
 game.addEventListener("restartRound", () => console.log("new round"));
 game.addEventListener("restartRound", () => console.log("new round, respawned"), true);
-game.addEventListener("onRoundFreezeEnd", () => console.log("round start"));
 game.addEventListener("cleanUpMap", () => console.log("map cleaned up"));
 game.addEventListener("playerSpawn", event => console.log(`spawned ${event.player.id}`));
 game.addEventListener("addAccount", event => console.log(`money ${event.player.id} ${event.amount}`));
@@ -47,6 +53,10 @@ server.addServerCommand("scores", () => {
 server.addServerCommand("end", () => {
 	game.endRound({ winner: "TERRORIST", delay: 3 });
 	console.log(`ended ${game.roundWinner} ${game.roundTerminating}`);
+});
+
+server.addServerCommand("end_at_start", () => {
+	endAtStart = true;
 });
 
 server.addServerCommand("end_told", () => {

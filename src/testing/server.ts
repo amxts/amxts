@@ -675,6 +675,8 @@ export class FakeServer {
 	readonly logEvents: { argc: number; filters: string[]; slot: Slot }[] = [];
 	/** The log line logevent callbacks are reading, as AMX Mod X splits it. @internal */
 	logArgs: string[] = [];
+	/** That line whole, as read_logdata reads it. @internal */
+	logLine = '';
 	/** register_event's callbacks, by the message's name, with their conditions ("1=0"). @internal */
 	readonly messageEvents: { name: string; conditions: string[]; slot: Slot }[] = [];
 	/** register_forward's callbacks, by `<FM_* number>:pre|post`. */
@@ -1668,21 +1670,19 @@ export class FakeServer {
 	 * ```
 	 */
 	gameLog(line: string): void {
-		const args = splitLog(line);
+		// AMX Mod X keeps one parsed line: one logged while a callback runs
+		// replaces it, and the walk of the outer line's callbacks goes on with it.
+		this.logLine = line;
+		this.logArgs = splitLog(line);
+		const argc = this.logArgs.length;
 		const passes = (filter: string) => {
 			const match = filter.match(/^(\d+)([=&!])(.*)$/);
 			if (!match) return true;
-			const value = args[Number(match[1])] ?? '';
+			const value = this.logArgs[Number(match[1])] ?? '';
 			return match[2] === '=' ? value === match[3] : match[2] === '&' ? value.includes(match[3]) : value !== match[3];
 		};
-		const previous = this.logArgs;
-		this.logArgs = args;
-		try {
-			for (const { argc, filters, slot } of [...this.logEvents]) {
-				if (args.length === argc && filters.every(passes)) this.withCallArgs([], () => this.call(slot, [0, 0, 0, 0], 0));
-			}
-		} finally {
-			this.logArgs = previous;
+		for (const event of [...this.logEvents]) {
+			if (event.argc === argc && event.filters.every(passes)) this.withCallArgs([], () => this.call(event.slot, [0, 0, 0, 0], 0));
 		}
 	}
 

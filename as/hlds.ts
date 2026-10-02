@@ -32,7 +32,7 @@ import {
 	GetHamReturnInteger, NATIVE_dllfunc, NATIVE_engfunc, NATIVE_forward_return, NATIVE_register_event,
 	NATIVE_register_logevent, cs_get_user_money, find_ent_by_model, get_cvar_float, get_ent_data,
 	get_gametime, get_maxplayers, get_orig_retval, get_timeleft, get_user_info, get_user_msgid, get_user_name,
-	get_user_userid, is_user_alive, is_user_connected, read_argv, read_logargv, register_clcmd, register_forward,
+	get_user_userid, is_user_alive, is_user_connected, pev_valid, read_argv, read_logargv, read_logdata, register_clcmd, register_forward,
 	set_cvar_float,
 } from "./natives";
 import {
@@ -85,9 +85,25 @@ function playerOr0(id: i32): i32 {
  */
 function onLog(key: string, argc: i32, filter: string, handler: () => void): void {
 	__whenUp((): void => {
-		const pub = publicFor((a: number, b: number, c: number, d: number): void => handler(), `hlds:log:${key}`);
+		const pub = publicFor((a: number, b: number, c: number, d: number): void => {
+			if (heardTwice(key)) return;
+			handler();
+		}, `hlds:log:${key}`);
 		if (pub.length > 0) new Call(NATIVE_register_logevent).str(pub).num(argc).str(filter).run();
 	});
+}
+
+// AMX Mod X walks its logevents with the line it parsed last. A line logged
+// while a logevent runs - the "Round_End" of the kills a listener of
+// "Round_Start" makes - is heard, and then again by every logevent after
+// the outer one as its walk goes on. Each logevent hears a line once a frame.
+const lastLines = new Map<string, string>();
+
+function heardTwice(key: string): bool {
+	const line = `${get_gametime()} ${read_logdata()}`;
+	if (lastLines.has(key) && lastLines.get(key) == line) return true;
+	lastLines.set(key, line);
+	return false;
 }
 
 /** The player a log line names first - `"Name<userid><authid><team>"` - or 0. */
@@ -180,17 +196,14 @@ function commandNumber(): i32 {
 let newRoundAt: f64 = -1;
 
 /**
- * A new round - the HLTV message the game sends when it restarts a round,
- * before the players respawn - and the map's first round, which has none,
- * when the plugins start on a map no round has ended on yet.
+ * A new round: the HLTV message the game sends when it restarts a round,
+ * before the players respawn. A map's first round is a restart too - the
+ * game commences once both sides have players.
  */
 export function restartRoundHlds(fire: Fire<RestartRoundEvent>): void {
 	__whenUp((): void => {
 		const pub = publicFor((a: number, b: number, c: number, d: number): void => newRound(fire), "hlds:event:HLTV");
 		if (pub.length > 0) new Call(NATIVE_register_event).str("HLTV").str(pub).str("a").str("1=0").str("2=0").run();
-	});
-	server.addEventListener("cfg", (): void => {
-		if (game.freezePeriod && game.restartRoundTime == 0) newRound(fire);
 	});
 }
 
@@ -533,8 +546,11 @@ const moneySent: i32[] = new Array<i32>(33).fill(-1);
 
 /** A player's money changed: the Money message the game sends him, by how much it moved. */
 export function addAccountHlds(fire: Fire<AddAccountEvent>): void {
+	// A bot is put in the server before the game has made him: his money is
+	// not there yet, and the first message he is sent is what counts from.
 	server.addEventListener("putinserver", (event): void => {
-		moneySent[<i32>event.player.id] = <i32>cs_get_user_money(event.player.id);
+		const id = <i32>event.player.id;
+		moneySent[id] = pev_valid(id) == 2 ? <i32>cs_get_user_money(id) : -1;
 	});
 	__whenUp((): void => {
 		const max = get_maxplayers();

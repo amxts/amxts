@@ -61,11 +61,11 @@ export const HEARD: Record<string, HeardEvent> = {
 	// The round.
 	restartRound: {
 		class: 'B',
-		backend: 'HLTV message (1=0 2=0) before, decal_reset.sc playback at its time after; the map\'s first round at plugin_cfg',
+		backend: 'HLTV message (1=0 2=0) before, decal_reset.sc playback at its time after; the map\'s first round is the game\'s restart as it commences',
 		post: true,
 		gaps: {
-			en: 'heard as the round restarts - the listeners before the game when it announces the round, the ones after it once its players have respawned - but `preventDefault()` does nothing; the map\'s first round is heard when the plugins start, and only by the listeners before the game',
-			ru: 'слышно при перезапуске раунда — обработчики «до» игры, когда она объявляет раунд, обработчики «после» — когда её игроки возродились, — но `preventDefault()` ничего не делает; первый раунд карты слышен, когда плагины стартуют, и только обработчиками «до»',
+			en: 'heard as the round restarts - the listeners before the game when it announces the round, the ones after it once its players have respawned - but `preventDefault()` does nothing',
+			ru: 'слышно при перезапуске раунда — обработчики «до» игры, когда она объявляет раунд, обработчики «после» — когда её игроки возродились, — но `preventDefault()` ничего не делает',
 		},
 	},
 	onRoundFreezeEnd: { class: 'B', backend: 'logevent World triggered "Round_Start"', gaps: after },

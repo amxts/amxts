@@ -668,6 +668,8 @@ export const NATIVES: Record<string, Native> = {
 	create_entity: (c, [classname]) => c.server.createEntity(c.memory.text(classname)).id,
 	remove_entity: (c, [id]) => +c.server.entities.delete(id),
 	is_valid_ent: (c, [id]) => +c.server.entities.has(id),
+	// 2: the entity has the game's private data, which every fake one has.
+	pev_valid: (c, [id]) => (player(c, id) || c.server.entities.has(id) ? 2 : 0),
 	find_ent_by_class: (c, [start, classname]) => {
 		const name = c.memory.text(classname);
 		const found = [...c.server.entities.values()].find(e => e.id > start && e.classname === name);
@@ -987,6 +989,7 @@ export const NATIVES: Record<string, Native> = {
 		c.server.logEvents.push({ argc, filters: filters.map(at => c.memory.text(at)), slot: c.server.slotByPublic(c.memory.text(callback)) });
 		return c.server.logEvents.length;
 	},
+	read_logdata: (c, [buffer, length]) => c.memory.setText(buffer, length, c.server.logLine),
 	read_logargc: c => c.server.logArgs.length,
 	read_logargv: (c, [index, buffer, length]) => c.memory.setText(buffer, length, c.server.logArgs[index] ?? ''),
 	// A line logged through the engine, where the logevents hear it.

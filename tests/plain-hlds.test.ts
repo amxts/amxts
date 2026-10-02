@@ -76,13 +76,20 @@ test('without reapi a new round is the HLTV message before the respawn, and the 
 	expect(server.logLines.filter(line => line === 'new round')).toHaveLength(1);
 });
 
-test('without reapi the map\'s first round is heard when the plugins start, once', async () => {
+test('without reapi the map\'s first round is the game\'s restart, not the plugins\' start', async () => {
 	const server = await loadPlugin(PLUGIN, PLAIN);
-	expect(server.logLines.filter(line => line === 'new round')).toEqual([]);
 	server.rules.set(constant('m_bFreezePeriod'), 1);
 	server.fire('plugin_cfg');
+	expect(server.logLines.filter(line => line === 'new round')).toEqual([]);
 	server.sendMessage('HLTV', [0, 0]);
 	expect(server.logLines.filter(line => line === 'new round')).toEqual(['new round']);
+});
+
+test('without reapi a round ended as the freeze time ends is heard once', async () => {
+	const server = await loadPlugin(PLUGIN, PLAIN);
+	server.serverCommand('end_at_start');
+	server.gameLog('World triggered "Round_Start"');
+	expect(server.logLines.filter(line => line.startsWith('round'))).toEqual(['round start', 'round CT ctsWin 4', 'round CT ctsWin 4']);
 });
 
 test('without reapi a round\'s end is its log line, with the winner and the reason from the message before it', async () => {
