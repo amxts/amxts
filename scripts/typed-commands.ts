@@ -20,7 +20,8 @@
 //   optional one in one and a required one in the other, a required one after
 //   an optional one, stop the build with the place and the fix;
 // - a class of the handler's argument: `player` (a player's command) and the
-//   interface's fields, typed as the interface types them;
+//   interface's fields, typed as the interface types them, which implements
+//   the interface, so the argument goes where the interface is expected;
 // - a function that registers the command with a parser of its words, each
 //   read as its type says (`CommandWords` in the facade): a `number` parsed,
 //   a `Player` found by `#userid`, the whole name or a part of it, a union of
@@ -164,8 +165,12 @@ function readOf(arg: Argument, at: number, last: boolean, tabs: string): string[
 	}
 }
 
-/** The generated code for one call: the class of its handler's argument, and the function that registers it. */
-function commandCode(index: number, method: 'addCommand' | 'addServerCommand', args: Argument[]): string {
+/**
+ * The generated code for one call: the class of its handler's argument - an
+ * implementation of `shape`, the interface the call names - and the function
+ * that registers it.
+ */
+function commandCode(index: number, method: 'addCommand' | 'addServerCommand', args: Argument[], shape: string | undefined): string {
 	const player = method === 'addCommand';
 	const type = `__AmxtsCommandArgs${index}`;
 	const required = args.filter(arg => !arg.optional).length;
@@ -175,7 +180,7 @@ function commandCode(index: number, method: 'addCommand' | 'addServerCommand', a
 		return arg.optional ? [`\t\tif (words.count > ${at}) {`, ...lines, '\t\t}'] : lines;
 	});
 	return [
-		`class ${type} {`,
+		`class ${type}${shape ? ` implements ${shape}` : ''} {`,
 		...(player ? ['\tplayer!: __AmxtsPlayer;'] : []),
 		...args.map(arg => `\t${arg.name}${arg.optional ? '?' : '!'}: ${typeOf(arg)};`),
 		'}',
@@ -233,7 +238,8 @@ export function typedCommands(path: string, display: string, text: string, impor
 			if (!usageNode) throw new ShapeError(node, file, 'the usage is missing: server.addCommand("/hp", ({ player }) => ...)');
 			const usage = usageOf(usageNode, !!node.typeArguments?.length, file);
 			const name = `__amxtsCommand${functions.length}`;
-			functions.push(commandCode(functions.length, method, argumentsOf(node, usage, shapes, at, method === 'addCommand')));
+			const shape = node.typeArguments?.[0]?.getText(file);
+			functions.push(commandCode(functions.length, method, argumentsOf(node, usage, shapes, at, method === 'addCommand'), shape));
 			const start = node.expression.getStart(file);
 			const end = node.arguments.pos - 1;
 			edits.push({ start, end, with: name.padEnd(end - start) });

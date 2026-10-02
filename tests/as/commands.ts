@@ -16,6 +16,11 @@ interface ResetArgs {
 	what?: "scores" | "all";
 }
 
+interface Login {
+	url: string;
+	user: string;
+}
+
 let heard = "";
 
 server.addCommand<KickArgs>("/kick <target> [reason]", ({ player, target, reason }) => {
@@ -41,6 +46,13 @@ server.addCommand("say rules", ({ player }) => {
 server.addServerCommand<ResetArgs>("cmd_reset [what]", ({ what }) => {
 	heard = `reset ${what ?? "all"}`;
 });
+
+/** Written apart: a command's arguments go where their interface is expected. */
+function logIn(login: Login) {
+	heard = `${login.user} at ${login.url}`;
+}
+
+server.addServerCommand<Login>("cmd_login <url> <user>", login => logIn(login));
 
 server.addCommand("/help", ({ player }) => {
 	for (const command of server.commands) {

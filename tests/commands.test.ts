@@ -103,11 +103,18 @@ describe('a command\'s arguments, read as their types say', () => {
 		expect(server.log).toContain('Usage: cmd_reset [what]');
 	});
 
+	test('the arguments go to a function written apart as their interface', async () => {
+		const { server, heard } = await boot();
+
+		server.serverCommand('cmd_login ftp://example.com ann');
+		expect(heard()).toBe('ann at ftp://example.com');
+	});
+
 	test('server.commands lists them: what a /help prints, by the access of who asks', async () => {
 		const { admin, alice } = await boot();
 
 		alice.say('/help');
-		expect(alice.chat).toBe(['give <amount> [what]', '/me <text>', '/hp', 'say rules', 'cmd_reset [what]', '/help'].join('\n'));
+		expect(alice.chat).toBe(['give <amount> [what]', '/me <text>', '/hp', 'say rules', 'cmd_reset [what]', 'cmd_login <url> <user>', '/help'].join('\n'));
 		admin.say('/help');
 		expect(admin.chat.split('\n')[0]).toBe('/kick <target> [reason]');
 	});
@@ -159,7 +166,7 @@ describe('what does not build', () => {
 		const { text } = built(source);
 		const lines = text.split('\n');
 		expect(lines[5]).toBe('__amxtsCommand0            ("/kick <target> [reason]", ({ target }) => {});');
-		expect(text).toContain('class __AmxtsCommandArgs0 {\n\tplayer!: __AmxtsPlayer;\n\ttarget!: __AmxtsPlayer;\n\treason?: string;\n}');
+		expect(text).toContain('class __AmxtsCommandArgs0 implements KickArgs {\n\tplayer!: __AmxtsPlayer;\n\ttarget!: __AmxtsPlayer;\n\treason?: string;\n}');
 		// The generated code parses.
 		const parsed = ts.createSourceFile('a.ts', text, ts.ScriptTarget.Latest, true);
 		expect((parsed as unknown as { parseDiagnostics: unknown[] }).parseDiagnostics).toEqual([]);
