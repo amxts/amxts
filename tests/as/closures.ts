@@ -25,7 +25,7 @@ function countdown(player: Player, from: number) {
 // Each player of the loop gets a timer of his own, with his own name in it.
 server.addCommand("/wave", () => {
 	let order = 0;
-	for (const player of Player.all()) {
+	for (const player of server.players) {
 		order++;
 		const place = order;
 		setTimeout(() => print(player, `${player.name} is #${place} of ${order}`), place * 100);

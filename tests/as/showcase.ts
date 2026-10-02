@@ -73,7 +73,7 @@ function showTip() {
 	const tip = tips[tipIndex % tips.length];
 	tipIndex++;
 
-	for (const player of Player.all({ humans: true })) print(player, tip.text);
+	for (const player of server.players.filter(one => !one.isBot)) print(player, tip.text);
 }
 
 server.addCommand("/tour", ({ player }) => tour(player), { description: "Walk through the plugin API" });
@@ -99,8 +99,8 @@ function showPlayer(player: Player) {
 	player.setAmmo("weapon_flashbang", 2);
 	player.switchWeapon("weapon_knife");
 
-	const living = Player.all({ alive: true, humans: true });
-	print(player, `${living.length} living people, ${Player.all({ team: "CT" }).length} counter-terrorists`);
+	const living = server.players.filter(player => player.isAlive && !player.isBot);
+	print(player, `${living.length} living people, ${server.players.filter(player => player.team === "CT").length} counter-terrorists`);
 
 	if (player.access.includes("Cvar")) print(player, "You may change the server's settings.");
 }

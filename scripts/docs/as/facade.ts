@@ -530,36 +530,6 @@ export default {
 		en: `An item \`player.give\` hands over: a weapon, armour (\`"item_kevlar"\`, \`"item_assaultsuit"\`) or the defuse kit (\`"item_thighpack"\`).`,
 		ru: `Предмет, который выдаёт \`player.give\`: оружие, броня (\`"item_kevlar"\`, \`"item_assaultsuit"\`) или набор сапёра (\`"item_thighpack"\`).`,
 	},
-	'PlayerFilter': {
-		en: `
-			The filter of \`Player.all\`; every field is optional, e.g.
-			\`Player.all({ alive: true, team: "CT" })\`.
-		`,
-		ru: `
-			Фильтр \`Player.all\`; все поля необязательны, например
-			\`Player.all({ alive: true, team: "CT" })\`.
-		`,
-	},
-	'PlayerFilter.alive': {
-		en: `Only living players.`,
-		ru: `Только живые игроки.`,
-	},
-	'PlayerFilter.dead': {
-		en: `Only dead players.`,
-		ru: `Только мёртвые игроки.`,
-	},
-	'PlayerFilter.team': {
-		en: `Only players of this team, e.g. \`"CT"\`.`,
-		ru: `Только игроки этой команды, например \`"CT"\`.`,
-	},
-	'PlayerFilter.bots': {
-		en: `Only bots.`,
-		ru: `Только боты.`,
-	},
-	'PlayerFilter.humans': {
-		en: `Only people, no bots.`,
-		ru: `Только люди, без ботов.`,
-	},
 	'ModuleName': {
 		en: `An AMX Mod X module a plugin can check for, one of \`"reapi"\`, \`"cstrike"\`, \`"fun"\`, \`"hamsandwich"\`, \`"engine"\`, \`"fakemeta"\`.`,
 		ru: `Модуль AMX Mod X, наличие которого плагин может проверить, — одно из \`"reapi"\`, \`"cstrike"\`, \`"fun"\`, \`"hamsandwich"\`, \`"engine"\`, \`"fakemeta"\`.`,
@@ -679,34 +649,15 @@ export default {
 			A player in the game: everything a Client has, plus health, armor, frags,
 			weapons and the screen.
 
-			An event about a player gives one as \`event.player\`; \`Player.all()\`
+			An event about a player gives one as \`event.player\`; \`server.players\`
 			lists everyone on the server.
 		`,
 		ru: `
 			Игрок в игре: всё, что есть у Client, а также здоровье, броня, фраги,
 			оружие и экран.
 
-			Событие об игроке передаёт его как \`event.player\`; \`Player.all()\`
+			Событие об игроке передаёт его как \`event.player\`; \`server.players\`
 			возвращает всех на сервере.
-		`,
-	},
-	'Player.all': {
-		en: `
-			The players on the server: \`Player.all({ alive: true })\`.
-
-			Every field narrows: \`{ bots: true }\` is bots only, \`{ humans: true }\`
-			people only. Without a filter, everyone connected, never an HLTV proxy.
-
-			Pawn: \`get_players\`
-		`,
-		ru: `
-			Игроки на сервере: \`Player.all({ alive: true })\`.
-
-			Каждое поле сужает выборку: \`{ bots: true }\` — только боты,
-			\`{ humans: true }\` — только люди. Без фильтра — все подключённые, кроме
-			HLTV-прокси.
-
-			Pawn: \`get_players\`
 		`,
 	},
 	'Player.name': {
@@ -1160,15 +1111,15 @@ export default {
 	'playerIds': {
 		en: `
 			The ids of the players on the server, as an array. \`flags\`: \`"a"\` living,
-			\`"b"\` dead, \`"c"\` no bots, \`"h"\` no HLTV, \`"e"\` only \`team\`. \`Player.all\` does the
-			same with readable options.
+			\`"b"\` dead, \`"c"\` no bots, \`"h"\` no HLTV, \`"e"\` only \`team\`. \`server.players\` is
+			everyone, as players, to filter as an array.
 
 			Pawn: \`get_players\`
 		`,
 		ru: `
 			\`id\` игроков на сервере в виде массива. \`flags\`: \`"a"\` живые, \`"b"\` мёртвые,
-			\`"c"\` без ботов, \`"h"\` без HLTV, \`"e"\` только \`team\`. \`Player.all\` делает то
-			же с понятными полями.
+			\`"c"\` без ботов, \`"h"\` без HLTV, \`"e"\` только \`team\`. \`server.players\` — все,
+			как игроки, их фильтруют как массив.
 
 			Pawn: \`get_players\`
 		`,
@@ -1914,6 +1865,30 @@ export default {
 			Число слотов для игроков на сервере, например \`32\`.
 
 			Pawn: \`get_maxplayers\`
+		`,
+	},
+	'Server.players': {
+		en: `
+			The players on the server, every one connected - never an HLTV proxy -
+			read anew each time. Narrow them with the array's \`filter\`:
+
+			\`\`\`ts
+			const alive = server.players.filter(player => player.isAlive);
+			const cts = server.players.filter(player => player.team === "CT" && !player.isBot);
+			\`\`\`
+
+			Pawn: \`get_players\`
+		`,
+		ru: `
+			Игроки на сервере, все подключённые, кроме HLTV-прокси; читается заново
+			при каждом обращении. Выборку сужает \`filter\` массива:
+
+			\`\`\`ts
+			const alive = server.players.filter(player => player.isAlive);
+			const cts = server.players.filter(player => player.team === "CT" && !player.isBot);
+			\`\`\`
+
+			Pawn: \`get_players\`
 		`,
 	},
 	'Server.configsDir': {

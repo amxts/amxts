@@ -16,7 +16,7 @@ function tsValue(id: number, target: number, value: number, len: number) {
 
 server.addServerCommand("amxts_test_menu_lang", () => {
 	const check = new Checks("menu-lang");
-	const bot = Player.all({ bots: true }).find(one => one.isConnected);
+	const bot = server.players.find(player => player.isBot && player.isConnected);
 	check.expect(bot != null, "на сервере есть бот").toBe(true);
 	if (bot == null) {
 		check.done();

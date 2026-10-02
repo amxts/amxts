@@ -67,7 +67,7 @@ server.addCommand("badge_read", ({ player }) => {
 
 function othersThan(player: Player) {
 	const others: Player[] = [];
-	for (const one of Player.all()) {
+	for (const one of server.players) {
 		if (one.id != player.id) others.push(one);
 	}
 	return others;

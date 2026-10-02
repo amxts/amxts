@@ -5,7 +5,7 @@ import "../as/player-state";
 
 server.addServerCommand("amxts_test_data_read", () => {
 	const check = new Checks("data-read");
-	const bot = Player.all({ bots: true }).find(one => one.isConnected);
+	const bot = server.players.find(player => player.isBot && player.isConnected);
 	check.expect(bot != null, "на сервере есть бот").toBe(true);
 	if (bot == null) {
 		check.done();

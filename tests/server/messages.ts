@@ -54,7 +54,7 @@ server.addServerCommand("amxts_test_messages", () => {
 
 async function run() {
 	const check = new Checks("messages");
-	const bot = Player.all({ bots: true }).find(one => one.isConnected);
+	const bot = server.players.find(player => player.isBot && player.isConnected);
 	check.expect(bot != null, "a bot is on the server").toBe(true);
 
 	if (bot == null) {

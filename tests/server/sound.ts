@@ -17,7 +17,7 @@ function run() {
 	check.expect(indices.length, "прекэш прошёл в событии precache").toBe(3);
 	check.expect(indices.every(index => index > 0), `у каждого файла есть индекс (${indices.join(", ")})`).toBe(true);
 
-	const bot = Player.all({ bots: true }).find(one => one.isConnected);
+	const bot = server.players.find(player => player.isBot && player.isConnected);
 	check.expect(bot != null, "на сервере есть бот").toBe(true);
 
 	if (bot != null) {

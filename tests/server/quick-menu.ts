@@ -29,7 +29,7 @@ shop.addItem({
 
 server.addServerCommand("amxts_test_quick_menu", () => {
 	const check = new Checks("quick-menu");
-	const bot = Player.all({ bots: true }).find(one => one.isConnected && one.isAlive);
+	const bot = server.players.find(player => player.isBot && player.isConnected && player.isAlive);
 	check.expect(bot != null, "на сервере есть живой бот").toBe(true);
 	if (bot == null) {
 		check.done();

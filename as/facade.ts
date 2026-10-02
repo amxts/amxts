@@ -1144,23 +1144,6 @@ export function __weaponClassnames(): string[] {
 	return WEAPON_IDS.filter((name) => name.length > 0);
 }
 
-/**
- * The filter of `Player.all`; every field is optional, e.g.
- * `Player.all({ alive: true, team: "CT" })`.
- */
-export interface PlayerFilter {
-	/** Only living players. */
-	alive?: boolean;
-	/** Only dead players. */
-	dead?: boolean;
-	/** Only players of this team, e.g. `"CT"`. */
-	team?: Team;
-	/** Only bots. */
-	bots?: boolean;
-	/** Only people, no bots. */
-	humans?: boolean;
-}
-
 /** An AMX Mod X module a plugin can check for, one of `"reapi"`, `"cstrike"`, `"fun"`, `"hamsandwich"`, `"engine"`, `"fakemeta"`. */
 export type ModuleName = "reapi" | "cstrike" | "fun" | "hamsandwich" | "engine" | "fakemeta";
 
@@ -1283,36 +1266,12 @@ export interface Client {
  * A player in the game: everything a Client has, plus health, armor, frags,
  * weapons and the screen.
  *
- * An event about a player gives one as `event.player`; `Player.all()`
+ * An event about a player gives one as `event.player`; `server.players`
  * lists everyone on the server.
  */
 export class Player extends PlayerFields implements Client {
 	constructor(id: number) {
 		super(id);
-	}
-
-	/**
-	 * The players on the server: `Player.all({ alive: true })`.
-	 *
-	 * Every field narrows: `{ bots: true }` is bots only, `{ humans: true }`
-	 * people only. Without a filter, everyone connected, never an HLTV proxy.
-	 *
-	 * Pawn: `get_players`
-	 */
-	static all(filter: PlayerFilter = {}): Player[] {
-		let flags = "h";
-		if (filter.alive) flags += "a";
-		if (filter.dead) flags += "b";
-		if (filter.humans) flags += "c";
-		if (filter.bots) flags += "d";
-
-		const team = filter.team;
-		if (team != null) flags += "e";
-
-		const ids = playerIds(flags, team ?? "");
-		const list: Player[] = [];
-		for (let i = 0; i < ids.length; i++) list.push(new Player(ids[i]));
-		return list;
 	}
 
 	/**
@@ -1775,8 +1734,8 @@ export function readText(fill: (out: number, max: number) => number, max: number
 
 /**
  * The ids of the players on the server, as an array. `flags`: `"a"` living,
- * `"b"` dead, `"c"` no bots, `"h"` no HLTV, `"e"` only `team`. `Player.all` does the
- * same with readable options.
+ * `"b"` dead, `"c"` no bots, `"h"` no HLTV, `"e"` only `team`. `server.players` is
+ * everyone, as players, to filter as an array.
  *
  * Pawn: `get_players`
  */
@@ -1838,7 +1797,7 @@ function commandName(usage: string): string {
 
 /** The players a command's word names: `#userid`; else the whole name, in any case; else a part of it. */
 function playersNamed(word: string): Player[] {
-	const players = Player.all();
+	const players = server.players;
 	if (word.startsWith("#")) {
 		const userid = <i32>Number(word.substring(1));
 		return players.filter((player: Player) => get_user_userid(player.id) == userid);
@@ -3092,6 +3051,24 @@ export class Server {
 	 */
 	get configsDir(): string {
 		const dir = get_localinfo("amxx_configsdir");
+	/**
+	 * The players on the server, every one connected - never an HLTV proxy -
+	 * read anew each time. Narrow them with the array's `filter`:
+	 *
+	 * ```ts
+	 * const alive = server.players.filter(player => player.isAlive);
+	 * const cts = server.players.filter(player => player.team === "CT" && !player.isBot);
+	 * ```
+	 *
+	 * Pawn: `get_players`
+	 */
+	get players(): Player[] {
+		const ids = playerIds("h");
+		const list: Player[] = [];
+		for (let i = 0; i < ids.length; i++) list.push(new Player(ids[i]));
+		return list;
+	}
+
 		return dir.length > 0 ? dir : "addons/amxmodx/configs";
 	}
 

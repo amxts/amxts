@@ -40,7 +40,7 @@ if (text.includes(to)) {
 }
 
 // find and findLast are in our AssemblyScript (runtime/patches) but not in the
-// typings asc ships: `Player.all().find(...)` was red and compiled fine. They
+// typings asc ships: `server.players.find(...)` was red and compiled fine. They
 // give the element or undefined, as in JavaScript, for any element.
 for (const array of ['Array<T>', 'StaticArray<T>']) {
 	const anchor = `  findIndex(callbackfn: (value: T, index: i32, array: ${array}) => bool): i32;\n`;

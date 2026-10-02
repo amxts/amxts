@@ -17,7 +17,7 @@ function run() {
 	const again = server.precache("sprites/laserbeam.spr");
 	check.expect(again.index, "asked for again after the map loaded, the same index").toBe(beam.index);
 
-	const bot = Player.all({ bots: true }).find(one => one.isConnected);
+	const bot = server.players.find(player => player.isBot && player.isConnected);
 	check.expect(bot != null, "a bot is on the server").toBe(true);
 
 	if (bot == null) {

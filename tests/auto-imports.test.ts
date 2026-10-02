@@ -73,10 +73,10 @@ describe('what a file uses without declaring it', () => {
 		expect(free([
 			'class Box<T> { value: T | null = null; constructor(readonly owner: Entity) {} }',
 			'type Picked<K> = K extends Array<infer U> ? U : Team;',
-			'for (const each of Player.all()) each.health = 100;',
+			'for (const each of server.players) each.health = 100;',
 			'try { risky(); } catch (error) { console.log(error); }',
 			'declare module "@amxts/core" { interface Player { ghost: boolean } }',
-		].join('\n'))).toEqual(['Array', 'Entity', 'Player', 'Team', 'console', 'risky']);
+		].join('\n'))).toEqual(['Array', 'Entity', 'Team', 'console', 'risky', 'server']);
 	});
 
 	test('the imports go after the last line, so every line keeps its number', () => {

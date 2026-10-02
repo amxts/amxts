@@ -50,7 +50,7 @@ function observe(player: Player, name: string) {
 
 /** Gives the other player every weapon this one carries, each with the rounds in its clip. */
 function copyWeapons(player: Player) {
-	const other = Player.all().find(one => one.id != player.id);
+	const other = server.players.find(one => one.id != player.id);
 	if (other == null) return;
 
 	for (const item of player.items) {

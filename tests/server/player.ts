@@ -32,7 +32,7 @@ server.addServerCommand("amxts_test_player", run);
 async function run() {
 	const check = new Checks("player");
 
-	const bot = Player.all({ bots: true }).find(one => one.isConnected);
+	const bot = server.players.find(player => player.isBot && player.isConnected);
 	check.expect(bot != null, "на сервере есть бот").toBe(true);
 	if (bot == null) {
 		check.done();
@@ -163,9 +163,10 @@ function fieldOfView(check: Checks, bot: Player) {
  * mp_limitteams. Последним: бот при этом может умереть.
  */
 function joinTeam(check: Checks) {
-	const side: Team = Player.all({ team: "CT" }).length >= Player.all({ team: "TERRORIST" }).length ? "CT" : "TERRORIST";
+	const count = (team: Team) => server.players.filter(player => player.team === team).length;
+	const side: Team = count("CT") >= count("TERRORIST") ? "CT" : "TERRORIST";
 	const other: Team = side == "CT" ? "TERRORIST" : "CT";
-	const bot = Player.all({ bots: true, team: side })[0];
+	const bot = server.players.filter(player => player.isBot && player.team === side)[0];
 	check.expect(bot.joinTeam(other), `joinTeam("${other}") - игра согласилась`).toBe(true);
 	check.expect(bot.team, "бот на другой стороне").toBe(other);
 	check.expect(bot.joinTeam("UNASSIGNED"), "joinTeam(\"UNASSIGNED\") - false").toBe(false);

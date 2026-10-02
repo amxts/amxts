@@ -29,7 +29,7 @@ server.addServerCommand("amxts_test_data_reset", () => {
 
 async function run() {
 	const check = new Checks("data-reset");
-	const bot = Player.all({ bots: true }).find(one => one.isConnected);
+	const bot = server.players.find(player => player.isBot && player.isConnected);
 	check.expect(bot != null, "на сервере есть бот").toBe(true);
 	if (bot == null) {
 		check.done();
@@ -64,7 +64,7 @@ async function run() {
 async function nextBot() {
 	await sleep(1000);
 	for (let waited = 0; waited < 12000; waited += 500) {
-		const found = Player.all({ bots: true }).find(one => one.isConnected);
+		const found = server.players.find(player => player.isBot && player.isConnected);
 		if (found != null) return found;
 		if (waited == 2000) server.command("yb add");
 		await sleep(500);

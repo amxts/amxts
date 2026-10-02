@@ -30,7 +30,7 @@ game.addEventListener("restartRound", () => {
 });
 game.addEventListener("restartRound", () => {
 	heard.push("new round, after");
-	aliveAfter = Player.all({ alive: true }).length;
+	aliveAfter = server.players.filter(player => player.isAlive).length;
 }, true);
 game.addEventListener("playerSpawn", () => {
 	heard.push("spawn");
@@ -60,16 +60,16 @@ server.addServerCommand("amxts_test_round_order", () => {
 });
 
 function killSide(team: Team) {
-	for (const player of Player.all({ alive: true, team })) player.kill();
+	for (const player of server.players.filter(one => one.isAlive && one.team === team)) player.kill();
 }
 
 /** A bot on each side, alive: the game ends a round when one side is dead. */
 async function twoSides(): Promise<boolean> {
-	if (Player.all({ bots: true }).length < 2) server.command("yb add");
+	if (server.players.filter(player => player.isBot).length < 2) server.command("yb add");
 	// A bot that has just come picks his side himself first: wait for it, then move him.
-	const sided = () => Player.all({ bots: true }).filter(bot => bot.team == "TERRORIST" || bot.team == "CT").length;
+	const sided = () => server.players.filter(bot => bot.isBot && (bot.team == "TERRORIST" || bot.team == "CT")).length;
 	for (let tries = 0; tries < 30 && sided() < 2; tries++) await sleep(200);
-	const bots = Player.all({ bots: true });
+	const bots = server.players.filter(player => player.isBot);
 	if (bots.length < 2) return false;
 	bots[0].team = "TERRORIST";
 	bots[1].team = "CT";
@@ -109,7 +109,7 @@ async function run() {
 
 	if (!hasModule("reapi")) {
 		// Plain HLDS hears the bomb's defuse as the game's log lines.
-		const defuser = Player.all({ bots: true })[1];
+		const defuser = server.players.filter(player => player.isBot)[1];
 		const named = `"${defuser.name}<${get_user_userid(defuser.id)}><${get_user_authid(defuser.id)}><CT>"`;
 		elog_message(`${named} triggered "Begin_Bomb_Defuse_With_Kit"`);
 		elog_message(`${named} triggered "Defused_The_Bomb"`);

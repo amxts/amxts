@@ -41,7 +41,7 @@ function run() {
 		box.remove();
 	}
 
-	const bot = Player.all({ bots: true, alive: true }).find(one => one.isConnected);
+	const bot = server.players.find(player => player.isBot && player.isAlive && player.isConnected);
 	check.expect(bot != null, "a living bot is on the server").toBe(true);
 
 	if (bot == null) {
