@@ -42,6 +42,7 @@ function handler() {
 			case '/json':
 				return json({ name: 'amxts', players: [1, 2, 3], online: true });
 			case '/text':
+				// Cyrillic on purpose: a UTF-8 body.
 				return new Response('Привет, мир', { headers: { 'content-type': 'text/plain; charset=utf-8' } });
 			case '/echo':
 				return json({

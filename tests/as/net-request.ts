@@ -46,6 +46,7 @@ server.addServerCommand<Login>("net_put <url> <user> <password>", async (target)
 	const options = login(target.user, target.password);
 	options.upload = true;
 	options.createDirs = true;
+	// Cyrillic on purpose: the body crosses as UTF-8.
 	options.body = "Привет, FTP";
 	report("put", await request(target.url, options));
 });

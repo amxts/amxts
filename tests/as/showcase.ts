@@ -1,8 +1,8 @@
-// Экскурсия по API плагинов: каждая часть в том виде, в каком её пишет плагин.
+// A tour of the plugin API: each part as a plugin writes it.
 //
-// Команда /tour в чате показывает на вас игрока, сущность, оружие и флаги.
-// Остальное - события, хукчейны, форвард с подпиской, хранилище, таймеры - работает само,
-// когда игроки заходят, дерутся и падают.
+// The /tour command in chat shows the player, an entity, a weapon and flags on you.
+// The rest - events, hookchains, a forward with a subscription, storage, timers - works by itself,
+// when players join, fight and fall.
 
 plugin({
 	name: "API Showcase",
@@ -11,7 +11,7 @@ plugin({
 	description: "Every part of the plugin API in one file",
 });
 
-/** Подсказка игроку - просто запись, поэтому interface и литерал. */
+/** A hint for a player - just a record, so an interface and a literal. */
 interface Tip {
 	text: string;
 	seconds: number;
@@ -22,13 +22,13 @@ const tips: Tip[] = [
 	{ text: "Fall damage here is halved", seconds: 60 },
 ];
 
-/** Сколько раз каждый игрок заходил - переживает смену карты. */
+/** How many times each player joined - survives a map change. */
 const visits = new Storage("showcase_visits");
 
-/** Про каждое приветствие узнают другие плагины, на Pawn и на TypeScript. */
+/** Other plugins, in Pawn and in TypeScript, hear about every greeting. */
 const greeted = new Forward<string, number>("showcase_on_greeted");
 
-// Слушать форвард может кто угодно, в том числе сам плагин.
+// Anyone may listen to the forward, the plugin itself included.
 greeted.subscribe((name, count) => console.log(`${name} came back for visit ${count}`));
 
 server.addEventListener("putinserver", (event) => {
@@ -51,17 +51,17 @@ game.addEventListener("takeDamage", onTakeDamage);
 game.addEventListener("fallDamage", onFallDamage, true);
 game.addEventListener("canPlayerHearPlayer", onHear);
 
-/** Светящийся игрок под защитой: урон блокируется, отвечать ничего не нужно. */
+/** A glowing player is protected: the damage is blocked, nothing needs answering. */
 function onTakeDamage(event: TakeDamageEvent) {
 	if (event.player.renderFx == "glowShell") event.preventDefault();
 }
 
-/** Ответ - это то, что вернул обработчик: половина урона, который посчитала игра. */
+/** The answer is what the listener returned: half the damage the game counted. */
 function onFallDamage(event: FallDamageEvent) {
 	return event.result / 2;
 }
 
-/** Слышат друг друга только игроки одной команды. */
+/** Only players of one team hear each other. */
 function onHear(event: CanPlayerHearPlayerEvent) {
 	return event.listener.team == event.sender.team;
 }
@@ -91,7 +91,7 @@ function tour(player: Player) {
 	showServer(player);
 }
 
-/** Игрок: его данные, команда и действия над ним. */
+/** A player: their data, team and actions on them. */
 function showPlayer(player: Player) {
 	print(player, `${player.name}: ${player.health} HP, ${player.armor} armor, team ${player.team}`);
 
@@ -105,12 +105,12 @@ function showPlayer(player: Player) {
 	if (player.access.includes("Cvar")) print(player, "You may change the server's settings.");
 }
 
-/** Поля сущности с их типами. */
+/** An entity's fields with their types. */
 function showEntity(player: Player) {
 	const lowGravity = 0.5;
 	player.gravity = lowGravity;
 
-	// Свечение на пять секунд - и onTakeDamage не трогает светящегося игрока.
+	// A glow for five seconds - and onTakeDamage leaves the glowing player alone.
 	player.renderFx = "glowShell";
 	player.renderColor = [0.0, 160.0, 255.0];
 	player.renderAmount = 20.0;
@@ -126,7 +126,7 @@ function stopGlow(player: Player) {
 	player.gravity = 1.0;
 }
 
-/** Оружие в руках и всё, что игрок несёт. */
+/** The weapon in hand and everything the player carries. */
 function showWeapon(player: Player) {
 	const weapon = player.activeItem;
 	if (weapon == null) return;
@@ -135,7 +135,7 @@ function showWeapon(player: Player) {
 	if (weapon.kind != "knife") weapon.clip = 1;
 }
 
-/** Флаги - массивы имён. */
+/** Flags are arrays of names. */
 function showFlags(player: Player) {
 	player.hideHud.push("Money");
 	setTimeout(() => showMoney(player), 3000);
@@ -148,12 +148,12 @@ function showMoney(player: Player) {
 	player.hideHud = player.hideHud.filter(part => part != "Money");
 }
 
-/** Сам сервер. */
+/** The server itself. */
 function showServer(player: Player) {
 	print(player, `${server.map}, ${server.maxPlayers} slots, reapi ${hasModule("reapi") ? "loaded" : "missing"}`);
 	print({ id: player.id, variant: "center" }, "Tour complete!");
 
-	// Таймер, который отменяют до того, как он сработает.
+	// A timer cancelled before it fires.
 	const never = setTimeout(neverRuns, 60000);
 	clearTimeout(never);
 }

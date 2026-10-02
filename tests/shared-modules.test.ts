@@ -17,7 +17,7 @@ setDefaultTimeout(240_000);
 const CONFIGS = 'addons/amxmodx/configs';
 
 async function boot(plugins: string[]) {
-	const server = new FakeServer({ files: { [`${CONFIGS}/shared/on-disk.ini`]: '[DISK]\nNAME = диск\n' } });
+	const server = new FakeServer({ files: { [`${CONFIGS}/shared/on-disk.ini`]: '[DISK]\nNAME = disk\n' } });
 	const menus = installMenus(server);
 	for (const plugin of plugins) await server.load(plugin);
 	server.start();
@@ -34,15 +34,15 @@ describe('one instance, two plugins', () => {
 		const bob = server.join('Bob');
 
 		expect(server.native('shared_show', alice.id)).toBe(true);
-		expect(menus.screen(alice)!.text).toContain('Лавка');
-		expect(menus.screen(alice)!.text).toContain('\\y[1]\\w Привет (40)');
+		expect(menus.screen(alice)!.text).toContain('Shop');
+		expect(menus.screen(alice)!.text).toContain('\\y[1]\\w Hello (40)');
 		menus.press(alice, 1);
 		expect(server.native('shared_chosen')).toBe('GREET Alice');
 
 		expect(server.native('shared_show', bob.id)).toBe(true);
-		expect(menus.screen(bob)!.text).toContain('\\d[1] Привет (100)');
+		expect(menus.screen(bob)!.text).toContain('\\d[1] Hello (100)');
 		menus.press(bob, 2);
-		expect(server.native('shared_chosen')).toBe('нож Bob');
+		expect(server.native('shared_chosen')).toBe('knife Bob');
 	});
 
 	test('preventDefault() in the other plugin stops the menu', async () => {
@@ -55,37 +55,37 @@ describe('one instance, two plugins', () => {
 	test('the menu object is the owner\'s: its fields are read and written there', async () => {
 		const { server, menus } = await boot(BOTH);
 		expect(server.native('shared_menu')).toBe('items|SHARED_SHOP');
-		server.native('shared_retitle', 'Базар');
+		server.native('shared_retitle', 'Bazaar');
 		const alice = server.join('Alice');
 		server.native('shared_show', alice.id);
-		expect(menus.screen(alice)!.text).toStartWith('Базар');
+		expect(menus.screen(alice)!.text).toStartWith('Bazaar');
 	});
 
 	test('its methods run there too: an item from the other plugin, whose functions are called back', async () => {
 		const { server, menus } = await boot(BOTH);
-		expect(server.native('shared_add', 'Щит')).toBe(true);
+		expect(server.native('shared_add', 'Shield')).toBe(true);
 		const alice = server.join('Alice');
 		const bob = server.join('Bob');
 
 		expect(server.native('shared_open', alice.id)).toBe(true);
-		expect(menus.screen(alice)!.text).toContain('\\y[3]\\w Щит для Alice');
+		expect(menus.screen(alice)!.text).toContain('\\y[3]\\w Shield for Alice');
 		menus.press(alice, 3);
-		expect(server.native('shared_picked')).toBe('Щит Alice');
+		expect(server.native('shared_picked')).toBe('Shield Alice');
 
 		server.native('shared_open', bob.id);
-		expect(menus.screen(bob)!.text).not.toContain('Щит'); // visible says no to Bob
+		expect(menus.screen(bob)!.text).not.toContain('Shield'); // visible says no to Bob
 	});
 
 	test('a config one plugin writes, the other reads; the base folder is one for both', async () => {
 		const { server } = await boot(BOTH);
-		expect(server.native('shared_config')).toBe('значение|диск');
+		expect(server.native('shared_config')).toBe('value|disk');
 	});
 
 	test('without the owner running, a call fails in the log and answers nothing', async () => {
 		const { server } = await boot(['tests/as/shared-viewer.ts']);
 		const alice = server.join('Alice');
 		expect(server.native('shared_show', alice.id)).toBe(false);
-		expect(server.native('shared_menu')).toBe('нет меню');
+		expect(server.native('shared_menu')).toBe('no menu');
 		expect(server.log).toContain('menu-core: no plugin runs it - is menu-core.aot in plugins.ini?');
 	});
 });

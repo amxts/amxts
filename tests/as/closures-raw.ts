@@ -1,7 +1,7 @@
-// Тестовый плагин tests/closures.test.ts: замыкания там, где фасад отдаёт
-// функцию хосту по номеру (cmd, cmdWide, hook, publicFor, nativeFn),
-// функция-значение с меньшим числом параметров, всплытие объявлений функций,
-// `super` в стрелке, рекурсия по имени и замыкания на верхнем уровне файла.
+// The test plugin of tests/closures.test.ts: closures where the facade hands a
+// function to the host by number (cmd, cmdWide, hook, publicFor, nativeFn),
+// a function value with fewer parameters, hoisting of function declarations,
+// `super` in an arrow, recursion by name and closures at the file's top level.
 import { cmd, cmdWide, handled, hook, nativeFn, publicFor } from "@amxts/core";
 import { register_touch } from "@amxts/core/natives";
 

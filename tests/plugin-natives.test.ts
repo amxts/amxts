@@ -17,6 +17,7 @@ const server = await loadPlugin('tests/as/natives.ts');
 
 describe('natives from export function', () => {
 	test('strings in, a string out through out[] and len', () => {
+		// Cyrillic on purpose: strings cross as UTF-8.
 		expect(server.native('xn_join', 'a', 'бв', 'c')).toBe('a|бв|c');
 	});
 
@@ -28,14 +29,15 @@ describe('natives from export function', () => {
 
 	test('a string result is cut to the caller\'s buffer, never mid-character', () => {
 		expect(server.nativeWithRoom('xn_join', 4, ['ab', 'cd', ''])).toBe('ab|c');
+		// Cyrillic on purpose: a two-byte letter is not cut in half.
 		expect(server.nativeWithRoom('xn_join', 3, ['aж', '', ''])).toBe('aж');
 		expect(server.nativeWithRoom('xn_join', 2, ['aж', '', ''])).toBe('a');
 	});
 
 	test('an optional string: left out it is "", which is false', () => {
-		expect(server.native('xn_greet')).toBe('никого');
-		expect(server.native('xn_greet', '')).toBe('никого');
-		expect(server.native('xn_greet', 'Боб')).toBe('привет, Боб');
+		expect(server.native('xn_greet')).toBe('nobody');
+		expect(server.native('xn_greet', '')).toBe('nobody');
+		expect(server.native('xn_greet', 'Bob')).toBe('hello, Bob');
 	});
 
 	test('a default parameter: the .inc has it, and a value passed wins', () => {
@@ -74,6 +76,7 @@ describe('natives from export function', () => {
 	});
 
 	test('string | null is a bool, and the text in out[]', () => {
+		// Cyrillic on purpose: the settings file is UTF-8.
 		expect(server.native('xn_lookup', 'greeting')).toBe('привет');
 		expect(server.native('xn_lookup', 'nothing')).toBe(null);
 	});
@@ -95,6 +98,7 @@ describe('natives from export function', () => {
 	});
 
 	test('fs from inside a native', () => {
+		// Cyrillic on purpose: a file's text is UTF-8.
 		expect(server.native('xn_save', 'addons/amxmodx/data/n.txt', 'текст')).toBe(true);
 		expect(server.file('addons/amxmodx/data/n.txt')).toBe('текст');
 		expect(server.native('xn_load', 'addons/amxmodx/data/n.txt')).toBe('текст');
@@ -123,22 +127,25 @@ describe('natives from export function', () => {
 		// `name?: string` is text Pawn may leave out.
 		expect(include).toContain('native xn_greet(out[], len, const name[] = "");');
 		// The function's own comment goes along.
-		expect(include).toContain('Три строки через');
+		expect(include).toContain('Three strings joined by');
 	});
 });
 
 describe('fs', () => {
 	test('the file the plugin wrote at load', () => {
+		// Cyrillic on purpose: the settings file is UTF-8.
 		expect(server.file('addons/amxmodx/data/amxts-natives.ini')).toBe('greeting=привет\nround_time=2.5\n');
 	});
 
 	test('a file of any size is read whole', () => {
+		// Cyrillic on purpose: two-byte letters make the file bigger than its length.
 		const big = 'абв'.repeat(20000);
 		server.writeFile('addons/amxmodx/data/big.txt', big);
 		expect(server.nativeWithRoom('xn_load', 200000, ['addons/amxmodx/data/big.txt'])).toBe(big);
 	});
 
 	test('a file of any size is written whole', () => {
+		// Cyrillic on purpose: two-byte letters make the file bigger than its length.
 		const big = `${'строка;'.repeat(5000)}end`;
 		expect(server.native('xn_save', 'addons/amxmodx/data/big-out.txt', big)).toBe(true);
 		expect(server.file('addons/amxmodx/data/big-out.txt')).toBe(big);

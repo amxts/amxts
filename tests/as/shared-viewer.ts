@@ -1,6 +1,6 @@
-// Второй плагин: показывает меню, которое завёл shared-shop, не даёт открыть
-// его Кэрол, читает поля меню и секцию конфига, созданную в памяти другим
-// плагином, - всё через те же имена модулей, что и у владельца.
+// The second plugin: shows the menu shared-shop made, does not let Carol open
+// it, reads the menu's fields and a config section another plugin created in
+// memory - all through the same module names as the owner.
 
 server.addEventListener("init", () => {
 	menus.addEventListener("show", (event) => {
@@ -13,18 +13,18 @@ export function shared_show(id: number) {
 	return menus.show(player, "SHARED_SHOP");
 }
 
-/** Вид и имя меню другого плагина. */
+/** Another plugin's menu: its kind and name. */
 export function shared_menu() {
 	const menu = menus.find("SHARED_SHOP");
-	if (menu == null) return "нет меню";
+	if (menu == null) return "no menu";
 	return `${menu.kind}|${menu.name}`;
 }
 
-/** Пункт в чужое меню: метод меню выполняется в экземпляре движка, а выбор пункта зовёт функцию этого плагина. */
+/** An item in someone else's menu: the menu's method runs in the engine's instance, and choosing the item calls this plugin's function. */
 export function shared_add(text: string) {
 	const menu = menus.find("SHARED_SHOP");
 	if (menu == null) return false;
-	menu.addItem(player => `${text} для ${player.name}`, {
+	menu.addItem(player => `${text} for ${player.name}`, {
 		visible: player => player.name != "Bob",
 		onSelect: (player) => {
 			picked = `${text} ${player.name}`;
@@ -33,7 +33,7 @@ export function shared_add(text: string) {
 	return true;
 }
 
-/** Открывает меню методом самого меню. */
+/** Opens the menu by the menu's own method. */
 export function shared_open(id: number) {
 	const player = new Player(id);
 	const menu = menus.find("SHARED_SHOP");
@@ -46,15 +46,15 @@ export function shared_picked() {
 	return picked;
 }
 
-/** Меняет заголовок: запись в поле уходит в экземпляр движка. */
+/** Changes the title: the write to the field goes to the engine's instance. */
 export function shared_retitle(title: string) {
 	const menu = menus.find("SHARED_SHOP");
 	if (menu != null) menu.title = title;
 }
 
-/** Конфиг, который записал shared-shop, и файл из общей папки конфигов: папку задал shared-shop. */
+/** The config shared-shop wrote, and a file from the shared configs folder: shared-shop set the folder. */
 export function shared_config() {
-	const made = configs.read("made").getString("MADE.KEY", "нет");
-	const disk = configs.read("on-disk").getString("DISK.NAME", "нет");
+	const made = configs.read("made").getString("MADE.KEY", "none");
+	const disk = configs.read("on-disk").getString("DISK.NAME", "none");
 	return `${made}|${disk}`;
 }

@@ -1,5 +1,5 @@
-// Тестовый плагин tests/closures.test.ts: обработчики, которые используют
-// переменные вокруг себя - замыкания.
+// The test plugin of tests/closures.test.ts: handlers that use the variables
+// around them - closures.
 
 const greeting = "Welcome";
 

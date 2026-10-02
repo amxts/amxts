@@ -207,6 +207,7 @@ test('each of them is heard on plain HLDS, fully or with its gaps, or is not, wi
 
 test('the game events page lists what plain HLDS does not give of each, in both languages', () => {
 	const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+	// Cyrillic on purpose: the Russian page's heading.
 	for (const [lang, heading] of [['en', '## A server without ReAPI'], ['ru', '## Сервер без ReAPI']] as const) {
 		const page = readFileSync(`docs/${lang}/2.core/02.hooks.md`, 'utf8');
 		const section = page.slice(page.indexOf(heading), page.indexOf('\n## ', page.indexOf(heading) + 1));

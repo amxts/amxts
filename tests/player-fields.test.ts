@@ -24,6 +24,7 @@ test('what one plugin writes, another reads', async () => {
 	alice.command('data_read');
 	expect(alice.console).toBe('ghost=false glow=default kills=0 tag=');
 
+	// Cyrillic on purpose: a string field is UTF-8, cut at a letter's boundary.
 	alice.command('data_write Привет мир');
 	alice.command('data_write Привет мир');
 	alice.clearMessages();
@@ -54,11 +55,13 @@ test('a player who leaves takes his fields with him, after the plugins heard him
 test('Pawn reads and writes the same fields through the module natives', async () => {
 	const server = await loadPlugin(PLUGINS);
 	const alice = server.join('Alice');
+	// Cyrillic on purpose: a string field is UTF-8, cut at a letter's boundary.
 	alice.command('data_write Привет');
 
 	expect(server.amxtsNative('amxts_get_player_data', alice.id, 'ghost')).toBe(1);
 	expect(server.amxtsNative('amxts_get_player_data', alice.id, 'kills')).toBe(1);
 	expect(server.amxtsNative('amxts_get_player_data_float', alice.id, 'kills')).toBe(1.5);
+	// Cyrillic on purpose: a string field is UTF-8, cut at a letter's boundary.
 	expect(server.amxtsNative('amxts_get_player_data_string', alice.id, 'tag')).toBe('Привет');
 	// Half of a letter is not a character: cut before it.
 	expect(server.amxtsNative('amxts_get_player_data_string', alice.id, 'tag', 3)).toBe('П');
@@ -143,6 +146,7 @@ describe('an object field', () => {
 		alice.command('badge_write');
 		alice.clearMessages();
 		alice.command('badge_read');
+		// Cyrillic on purpose: a text field is UTF-8.
 		expect(alice.console).toBe(`title=Охотник level=2.5 shown=true color=blue fans=${bob.id} friends=${bob.id},${alice.id}`);
 		expect(server.amxtsNative('amxts_get_player_data_float', alice.id, 'badge.level')).toBe(2.5);
 		expect(server.amxtsNative('amxts_get_player_data', alice.id, 'badge.shown')).toBe(1);

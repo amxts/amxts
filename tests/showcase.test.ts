@@ -32,8 +32,10 @@ describe('the showcase greets', () => {
 
 	test('a player whose key is not ASCII by the count kept under it', async () => {
 		const server = await loadPlugin('tests/as/showcase.ts');
+		// Cyrillic on purpose: a vault key beyond ASCII.
 		server.vault('showcase_visits').set('ключ', '6');
 
+		// Cyrillic on purpose: a vault key beyond ASCII.
 		const alice = server.join('Alice', { authid: 'ключ' });
 
 		expect(alice.chat).toContain('Visit #7.');

@@ -123,6 +123,7 @@ import { Float, Forward, Player, Vector, server } from "@amxts/core";
 const bought = new Forward<Player, string, number, Float, boolean, number[], Vector, string>("probe_on_every_kind");
 bought.subscribe(onBought);
 server.addCommand("fw_every", ({ player }) => {
+	// Cyrillic on purpose: a string crosses the forward as UTF-8.
 	bought.emit(player, "раз два", 7, 2.5, true, [1, 2, 3], new Vector(1.5, 2.5, 3.5), "x".repeat(700));
 });
 function onBought(player: Player, word: string, count: number, speed: Float, flag: boolean, list: number[], at: Vector, long: string) {
@@ -139,6 +140,7 @@ test('a forward carries eight arguments of every kind to Pawn and to a subscribe
 	});
 	const sent = heard.server.forwards.find(f => f.name === 'probe_on_every_kind');
 	// A Float without an include is a Float by its type; a Vector is three Floats.
+	// Cyrillic on purpose: a string crosses the forward as UTF-8.
 	expect(sent?.args).toEqual([heard.alice.id, 'раз два', 7, 2.5, 1, [1, 2, 3], [1.5, 2.5, 3.5].map(floatBits), 'x'.repeat(700)]);
 	expect(heard.server.log).toContain('heard Alice раз два 7 2.5 true 1,2,3 1.5,2.5,3.5 700');
 });
@@ -147,6 +149,7 @@ test('a forward a Pawn plugin raises reaches a subscriber with all its arguments
 	const log = await pluginProbe('forward', EVERY_KIND, '', async (file) => {
 		const server = await loadPlugin(file);
 		const alice = server.join('Alice');
+		// Cyrillic on purpose: a string crosses the forward as UTF-8.
 		server.fire('probe_on_every_kind', alice.id, 'три', 9, floatBits(0.25), 0, [4, 5], [1, 2, 3].map(floatBits), 'y'.repeat(3000));
 		return server.log;
 	});

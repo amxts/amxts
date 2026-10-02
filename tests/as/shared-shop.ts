@@ -1,7 +1,7 @@
-// Один из двух плагинов, которые пишут обычный импорт модулей: меню и
-// конфиг, заведённые здесь, - в единственном экземпляре движка на сервере,
-// и второй плагин (shared-viewer) видит их как свои: меню - то же самое,
-// конфиг - в той же папке.
+// One of two plugins that write a plain import of the modules: the menu and
+// config made here live in the engine's single instance on the server,
+// and the second plugin (shared-viewer) sees them as its own: the menu is the same one,
+// the config is in the same folder.
 
 let chosen = "";
 
@@ -11,18 +11,18 @@ server.addEventListener("init", () => {
 	});
 	menus.addPlaceholder("hp", player => `${player.health}`);
 
-	const shop = menus.create("SHARED_SHOP", { title: "Лавка" });
-	shop.addItem("Привет (%hp%)", { enabled: [{ when: player => player.name == "Alice" }], action: "GREET" });
-	shop.addItem("Нож", { onSelect: takeKnife });
+	const shop = menus.create("SHARED_SHOP", { title: "Shop" });
+	shop.addItem("Hello (%hp%)", { enabled: [{ when: player => player.name == "Alice" }], action: "GREET" });
+	shop.addItem("Knife", { onSelect: takeKnife });
 
 	configs.setBaseDir("shared");
 	const made = configs.read("made");
-	made.set("MADE.KEY", "значение");
+	made.set("MADE.KEY", "value");
 	made.save();
 });
 
 function takeKnife(player: Player) {
-	chosen = `нож ${player.name}`;
+	chosen = `knife ${player.name}`;
 }
 
 export function shared_chosen() {

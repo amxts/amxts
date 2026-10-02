@@ -34,6 +34,7 @@ describe('fetch', () => {
 	});
 
 	test('a URL as the input; text in UTF-8; the body is read once', async () => {
+		// Cyrillic on purpose: the body is UTF-8.
 		expect(await run(`fetch_text ${web.http}`)).toEqual(['text text/plain; charset=utf-8 Привет, мир true']);
 	});
 

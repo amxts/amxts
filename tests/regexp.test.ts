@@ -32,6 +32,7 @@ const cases: [string, string, string][] = [
 	['[\\d.]+', 'g', 'v1.2.3 and 4'],
 	['\\s+', 'g', 'a  b\tc'],
 	['(?:)', 'g', 'ab'],
+	// Cyrillic on purpose: case and ranges beyond ASCII.
 	['Привет', 'i', 'привет мир'],
 	['\\u0041\\x42', '', 'xAB'],
 	['[\\]\\-]', 'g', 'a]b-c'],
@@ -44,6 +45,7 @@ const cases: [string, string, string][] = [
 	['\\Bo\\B', 'g', 'foo boo o'],
 	['((a)|b)+', '', 'abab'],
 	['(?:a|b)*c', '', 'ababababx'],
+	// Cyrillic on purpose: case and ranges beyond ASCII.
 	['[а-я]+', 'gi', 'Привет, МИР'],
 	['(\\w+)\\s(\\w+)', 'g', 'John Smith, Jane Doe'],
 ];

@@ -186,6 +186,7 @@ describe('options', () => {
 			hasSetup: true,
 		});
 
+		// Cyrillic on purpose: an option's text is UTF-8 and upper-cases beyond ASCII.
 		const source = moduleSource('greeter.ts', GREETER, { greeting: 'Привет', times: 2, loud: false });
 		expect(source).not.toContain('defineModule');
 		expect(source).not.toContain('declare module');
@@ -211,6 +212,7 @@ describe('setup and the owner', () => {
 	test('setup runs once, in the owner, with the merged options; every plugin calls that instance', async () => {
 		const dir = project({
 			...module('greeter', GREETER),
+			// Cyrillic on purpose: an option's text is UTF-8 and upper-cases beyond ASCII.
 			'amxts.config.ts': 'export default defineConfig({ modules: ["@test/greeter"], greeter: { greeting: "Привет", loud: true } });\n',
 			'plugins/a.ts': greeting('a_greet'),
 			'plugins/b.ts': greeting('b_greet'),
@@ -224,6 +226,7 @@ describe('setup and the owner', () => {
 		await server.load(join(dir, 'plugins/b.ts'));
 		server.start();
 
+		// Cyrillic on purpose: an option's text is UTF-8 and upper-cases beyond ASCII.
 		expect(server.log.split('\n').filter(line => line.includes('greeter setup'))).toEqual(['greeter setup: Привет x1']);
 		expect(server.native('a_greet', 'Alice')).toBe('ПРИВЕТ, Alice (32)');
 		expect(server.native('b_greet', 'Bob')).toBe('ПРИВЕТ, Bob (32)');
@@ -522,7 +525,7 @@ describe('the official modules by package name', () => {
 
 		const alice = server.join('Alice');
 		expect(server.native('by_name_show', alice.id)).toBe(true);
-		expect(menus.screen(alice)!.text).toContain('По имени пакета');
+		expect(menus.screen(alice)!.text).toContain('By package name');
 	});
 });
 

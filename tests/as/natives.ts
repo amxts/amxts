@@ -1,73 +1,74 @@
-// Проверка на сервере: свои нативы плагина с настоящими типами и fs.
+// A check on the server: the plugin's own natives with real types, and fs.
 //
-// Каждая `export function` этого файла - натив AMX Mod X с тем же именем;
-// сборка кладёт рядом `api_natives.inc` для Pawn. Нативы вызывает Pawn-плагин
-// runtime/test/natives_caller.sma и сам пишет в лог ok/FAIL. Здесь - fs:
-// `say /fs` в чате.
+// Every `export function` of this file is an AMX Mod X native of the same name;
+// the build puts `api_natives.inc` beside it for Pawn. The Pawn plugin
+// runtime/test/natives_caller.sma calls the natives and writes ok/FAIL to the log itself. Here is fs:
+// `say /fs` in chat.
 import { Checks } from "@amxts/core/check";
 import * as fs from "@amxts/core/fs";
 
-plugin({ name: "api-natives", version: "1.0.0", author: "amxts", description: "Свои нативы и fs" });
+plugin({ name: "api-natives", version: "1.0.0", author: "amxts", description: "Own natives and fs" });
 
 const SETTINGS = "addons/amxmodx/data/amxts-natives.ini";
 
-// Файл, из которого читает xn_lookup: пишется при загрузке плагина.
+// The file xn_lookup reads from: written when the plugin loads.
+// Cyrillic on purpose: the settings file is UTF-8.
 fs.writeFileSync(SETTINGS, "greeting=привет\nround_time=2.5\n");
 
-/** Три строки через `|`: строки на входе, строка в out[] на выходе. */
+/** Three strings joined by `|`: strings in, a string in out[] out. */
 export function xn_join(a: string, b: string, c: string) {
 	return `${a}|${b}|${c}`;
 }
 
-/** Длина строки в символах: строка любой длины на входе. */
+/** A string's length in characters: a string of any length in. */
 export function xn_length(text: string) {
 	return text.length;
 }
 
-/** Число из текста или запасное значение: параметр со значением по умолчанию. */
+/** A number from text, or a fallback: a parameter with a default value. */
 export function xn_parse_int(text: string, fallback = -1) {
 	const value = parseInt(text);
 	if (isNaN(value)) return fallback;
 	return value;
 }
 
-/** Половина: Float на входе и на выходе. */
+/** A half: Float in and out. */
 export function xn_half(value: Float): Float {
 	return value / 2;
 }
 
-/** Сумма массива: массив и его размер на входе. */
+/** An array's sum: an array and its size in. */
 export function xn_sum(values: number[]) {
 	let total = 0;
 	for (let i = 0; i < values.length; i++) total += values[i];
 	return total;
 }
 
-/** Каждое значение, умноженное на коэффициент: Float-массив в out[], число записанных - результат. */
+/** Every value times a factor: a Float array in out[], the count written is the result. */
 export function xn_scale(values: Float[], factor: Float): Float[] {
 	const scaled: number[] = [];
 	for (let i = 0; i < values.length; i++) scaled.push(values[i] * factor);
 	return scaled;
 }
 
-/** Числа от 0 до count - 1: массив целых в out[]. */
+/** The numbers from 0 to count - 1: an array of integers in out[]. */
 export function xn_range(count: number) {
 	const list: number[] = [];
 	for (let i = 0; i < count; i++) list.push(i);
 	return list;
 }
 
-/** Длина вектора: `Float:v[3]` на входе. */
+/** A vector's length: `Float:v[3]` in. */
 export function xn_magnitude(v: Vector): Float {
 	return v.magnitude();
 }
 
-/** Логическое «не»: bool на входе и на выходе. */
+/** A logical "not": bool in and out. */
 export function xn_not(flag: boolean) {
 	return !flag;
 }
 
-/** Значение по ключу из файла настроек или false: `string | null` - это bool и текст в out[]. */
+/** The value for a key from the settings file, or false: `string | null` is a bool and text in out[]. */
 export function xn_lookup(key: string) {
 	const text = fs.readFileSync(SETTINGS);
 	if (text == null) return null;
@@ -80,45 +81,45 @@ export function xn_lookup(key: string) {
 	return null;
 }
 
-/** Записать текст в файл - fs из натива. */
+/** Writes text to a file - fs from a native. */
 export function xn_save(path: string, text: string) {
 	return fs.writeFileSync(path, text);
 }
 
-/** Есть ли файл или папка. */
+/** Whether a file or folder exists. */
 export function xn_exists(path: string) {
 	return fs.existsSync(path);
 }
 
-/** Имена в папке через запятую или false, если папки нет. */
+/** The names in a folder joined by commas, or false if there is no folder. */
 export function xn_list(path: string) {
 	const names = fs.readdirSync(path);
 	if (names == null) return null;
 	return names.join(",");
 }
 
-/** Имя игрока: Player на входе - для Pawn это id, не игрок - и натив отвечает "". */
+/** A player's name: Player in - for Pawn it is an id, not a player - and the native answers "". */
 export function xn_player_name(player: Player) {
 	return player.name;
 }
 
-/** Номер игрока или -1 для 0: `Player | null` - 0 это null. */
+/** A player's id, or -1 for 0: `Player | null` - 0 is null. */
 export function xn_player_or_none(player?: Player) {
 	if (player == null) return -1;
 	return player.id;
 }
 
-/** Приветствие: имя необязательно - Pawn без него передаёт "", и это тоже «нет». */
+/** A greeting: the name is optional - Pawn passes "" without it, and that is "no" too. */
 export function xn_greet(name?: string) {
-	return name ? `привет, ${name}` : "никого";
+	return name ? `hello, ${name}` : "nobody";
 }
 
-/** Два игрока и число после них: дошло ли всё по местам. */
+/** Two players and a number after them: whether everything arrived in its place. */
 export function xn_player_pair(first: Player, second: Player, extra: number) {
 	return first.id * 100 + second.id * 10 + extra;
 }
 
-/** Прочитать файл целиком - текст любой длины в out[]. */
+/** Reads a whole file - text of any length in out[]. */
 export function xn_load(path: string) {
 	return fs.readFileSync(path) || "";
 }
@@ -129,38 +130,39 @@ async function checkFs(player: Player) {
 	const check = new Checks("api-natives", player);
 	const path = "addons/amxmodx/data/amxts-fs-check.txt";
 
-	// Длинный текст с кириллицей: больше 255 символов и больше одного блока чтения.
+	// Cyrillic on purpose: a long text, over 255 characters and more than one read block.
 	let long = "";
 	for (let i = 0; i < 200; i++) long += `строка ${i};`;
 
 	check.expect(fs.writeFileSync(path, long), "writeFileSync").toBe(true);
-	check.expect(fs.existsSync(path), "existsSync после записи").toBe(true);
+	check.expect(fs.existsSync(path), "existsSync after the write").toBe(true);
 
 	const back = fs.readFileSync(path);
-	check.expect(back == null ? -1 : back.length, "readFileSync: длина").toBe(long.length);
-	check.expect(back == long, "readFileSync: тот же текст").toBe(true);
+	check.expect(back == null ? -1 : back.length, "readFileSync: the length").toBe(long.length);
+	check.expect(back == long, "readFileSync: the same text").toBe(true);
 
-	check.expect(fs.appendFileSync(path, "!конец"), "appendFileSync").toBe(true);
+	check.expect(fs.appendFileSync(path, "!end"), "appendFileSync").toBe(true);
 	const appended = fs.readFileSync(path);
-	check.expect(appended != null && appended.endsWith("!конец"), "appendFileSync дописал в конец").toBe(true);
+	check.expect(appended != null && appended.endsWith("!end"), "appendFileSync appended at the end").toBe(true);
 
-	check.expect(fs.readFileSync("addons/amxmodx/data/нет-такого.txt") == null, "readFileSync: нет файла - null").toBe(true);
-	check.expect(fs.existsSync("addons/amxmodx/data/нет-такого.txt"), "existsSync: нет файла").toBe(false);
-	check.expect(fs.existsSync("addons/amxmodx"), "existsSync: папка").toBe(true);
+	check.expect(fs.readFileSync("addons/amxmodx/data/no-such-file.txt") == null, "readFileSync: no file - null").toBe(true);
+	check.expect(fs.existsSync("addons/amxmodx/data/no-such-file.txt"), "existsSync: no file").toBe(false);
+	check.expect(fs.existsSync("addons/amxmodx"), "existsSync: a folder").toBe(true);
 
 	const names = fs.readdirSync("addons/amxmodx/data");
-	check.expect(names != null && names.includes("amxts-fs-check.txt"), "readdirSync видит файл").toBe(true);
-	check.expect(names != null && !names.includes("."), "readdirSync без . и ..").toBe(true);
-	check.expect(fs.readdirSync("addons/нет-такой-папки") == null, "readdirSync: нет папки - null").toBe(true);
+	check.expect(names != null && names.includes("amxts-fs-check.txt"), "readdirSync sees the file").toBe(true);
+	check.expect(names != null && !names.includes("."), "readdirSync without . and ..").toBe(true);
+	check.expect(fs.readdirSync("addons/no-such-folder") == null, "readdirSync: no folder - null").toBe(true);
 
-	await fs.writeFile(path, "из промиса");
+	await fs.writeFile(path, "from a promise");
 	const text = await fs.readFile(path);
-	check.expect(text, "writeFile + readFile через await").toBe("из промиса");
-	check.expect(await fs.exists(path), "exists через await").toBe(true);
+	check.expect(text, "writeFile + readFile through await").toBe("from a promise");
+	check.expect(await fs.exists(path), "exists through await").toBe(true);
 
-	const missing = await fs.readFile("addons/amxmodx/data/нет-такого.txt").catch(error => `отказ: ${error.message}`);
-	check.expect(missing.startsWith("отказ: ENOENT"), "readFile: нет файла - отказ ENOENT").toBe(true);
+	const missing = await fs.readFile("addons/amxmodx/data/no-such-file.txt").catch(error => `rejected: ${error.message}`);
+	check.expect(missing.startsWith("rejected: ENOENT"), "readFile: no file - rejected with ENOENT").toBe(true);
 
-	check.expect(xn_lookup("greeting"), "файл настроек записан при загрузке").toBe("привет");
+	// Cyrillic on purpose: the settings file is UTF-8.
+	check.expect(xn_lookup("greeting"), "the settings file is written on load").toBe("привет");
 	check.done();
 }

@@ -42,12 +42,14 @@ describe('text', () => {
 	test('a menu over 500 bytes reaches the player whole', async () => {
 		const { server, menus } = await boot();
 		const plugin = menus.pawnPlugin('a.amxx', {});
+		// Cyrillic on purpose: two-byte letters take the menu past 500 bytes.
 		const title = 'Очень длинное меню для проверки';
 		plugin.native('mc_create_menu', 'LONG', title);
 		for (let i = 1; i <= 7; i++) plugin.native('mc_add_menu_item', 'LONG', `Пункт номер ${i} - довольно длинное название`);
 		const alice = server.join('Alice');
 		plugin.native('mc_show_menu', alice.id, 'LONG');
 
+		// Cyrillic on purpose: two-byte letters take the menu past 500 bytes.
 		const text = menus.screen(alice)!.text;
 		expect(new TextEncoder().encode(text).length).toBeGreaterThan(500);
 		expect(text.startsWith(`${title}\n\n\\y[1]\\w Пункт номер 1`)).toBe(true);
@@ -75,13 +77,13 @@ describe('TypeScript plugins', () => {
 		const { server, menus } = await boot({}, ['tests/as/menu-api.ts']);
 		const alice = server.join('Alice', { health: 40 });
 		expect(server.native('menu_api_open', alice.id)).toBe(true);
-		expect(menus.screen(alice)!.text).toBe('Магазин для Alice\n\n\\y[1]\\w Лечение (40 HP)\n\\y[2]\\w Только раненым\n\\y[3]\\w Выбор\n\n\\y[4]\\w Выход\n\n\n\n\n\\y[0]\\w Exit');
+		expect(menus.screen(alice)!.text).toBe('Shop for Alice\n\n\\y[1]\\w Heal (40 HP)\n\\y[2]\\w Wounded only\n\\y[3]\\w Choose\n\n\\y[4]\\w Leave\n\n\n\n\n\\y[0]\\w Exit');
 
 		menus.press(alice, 1);
 		expect(alice.health).toBe(100);
 		expect(server.native('menu_api_healed')).toBe(1);
 		// enabled says no: greyed out, with its message; visible says no: gone, and the rest move up.
-		expect(menus.screen(alice)!.text).toBe('Магазин для Alice\n\n\\d[1] Лечение (100 HP)\\y здоров: 100\n\\y[2]\\w Выбор\n\n\\y[3]\\w Выход\n\n\n\n\n\n\\y[0]\\w Exit');
+		expect(menus.screen(alice)!.text).toBe('Shop for Alice\n\n\\d[1] Heal (100 HP)\\y healthy: 100\n\\y[2]\\w Choose\n\n\\y[3]\\w Leave\n\n\n\n\n\n\\y[0]\\w Exit');
 
 		menus.press(alice, 2);
 		expect(server.native('menu_api_choice')).toBe('Alice:PICK');
@@ -90,6 +92,7 @@ describe('TypeScript plugins', () => {
 	});
 
 	test('a menu from a dictionary keeps its colours, in the reader\'s language', async () => {
+		// Cyrillic on purpose: the dictionary's Russian translation.
 		const dictionary = String.raw`[en]
 MYPLUGIN_TITLE = \yModes
 MYPLUGIN_ON = \d[\yOn\d]
@@ -109,6 +112,7 @@ MYPLUGIN_ON = \d[\yВкл\d]
 		expect(menus.screen(alice)!.text.startsWith(`${String.raw`\yModes`}\n\n${String.raw`\y[1]\w DM \d[\yOn\d]`}\n`)).toBe(true);
 		// Boris reads Russian; the title only English has comes in English.
 		server.native('menu_lang_open', boris.id);
+		// Cyrillic on purpose: the dictionary's Russian translation.
 		expect(menus.screen(boris)!.text.startsWith(`${String.raw`\yModes`}\n\n${String.raw`\y[1]\w DM \d[\yВкл\d]`}\n`)).toBe(true);
 
 		server.native('menu_lang_tell', alice.id);
@@ -119,7 +123,7 @@ MYPLUGIN_ON = \d[\yВкл\d]
 		const { server, menus } = await boot({}, ['tests/as/menu-consumer.ts']);
 		const alice = server.join('Alice');
 		expect(menus.pawnPlugin('a.amxx', {}).native('mc_show_menu', alice.id, 'TS_MENU')).toBe(1);
-		expect(menus.screen(alice)!.text).toContain('\\y[1]\\w Значение: сорок два');
+		expect(menus.screen(alice)!.text).toContain('\\y[1]\\w Value: forty-two');
 		menus.press(alice, 1);
 		expect(server.native('ts_chosen')).toBe('TS_ACTION');
 	});

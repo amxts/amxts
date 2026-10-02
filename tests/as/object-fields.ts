@@ -49,6 +49,7 @@ server.addCommand("sc_read", ({ player }) => {
 });
 
 server.addCommand("badge_write", ({ player }) => {
+	// Cyrillic on purpose: a text field is UTF-8.
 	const badge: Badge = { title: "Охотник", level: 2, shown: true, color: "blue", fans: [] };
 	player.badge = badge;
 	player.badge.level = player.badge.level + 0.5;

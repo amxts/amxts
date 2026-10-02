@@ -110,6 +110,7 @@ describe('values', () => {
 		'NOEQUALS line here',
 		'TOOLONGKEY_ABCDEFGHIJKLMNOPQRSTUVWXYZ = long',
 		`LONG = ${'x'.repeat(150)}`,
+		// Cyrillic on purpose: a key and a value beyond ASCII.
 		'Кириллица = значение',
 		'',
 	].join('\n');
@@ -128,6 +129,7 @@ describe('values', () => {
 	});
 
 	test('keys are case-insensitive, Cyrillic too; text is UTF-8 both ways', async () => {
+		// Cyrillic on purpose: a key's case folds beyond ASCII.
 		const { cfg, sec } = await section(TEXT);
 		expect(cfg('cfg_get_value', sec, 'key')).toBe('value');
 		expect(cfg('cfg_get_value', sec, 'КИРИЛЛИЦА')).toBe('значение');
@@ -149,6 +151,7 @@ describe('values', () => {
 	test('the out buffer is cut to the caller\'s len, never inside a letter', async () => {
 		const { server, sec } = await section(TEXT);
 		expect(server.nativeWithRoom('cfg_get_value', 3, [sec, 'KEY'])).toBe('val');
+		// Cyrillic on purpose: a two-byte letter is not cut in half.
 		expect(server.nativeWithRoom('cfg_get_value', 5, [sec, 'Кириллица'])).toBe('зн');
 	});
 

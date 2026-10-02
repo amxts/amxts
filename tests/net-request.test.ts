@@ -49,6 +49,7 @@ describe('FTP', () => {
 
 	test('an upload of text makes its folders; a download and the names read it back', async () => {
 		expect(await run(`net_put ${ftp.url}/up/hello.txt ${account}`)).toEqual(['put 226 [] 226 ']);
+		// Cyrillic on purpose: the text is UTF-8 both ways.
 		expect(readFileSync(join(ftp.root, 'up/hello.txt'), 'utf8')).toBe('Привет, FTP');
 		expect(await run(`net_get ${ftp.url}/up/hello.txt ${account}`)).toEqual(['get 226 [] 226 Привет, FTP']);
 		expect(await run(`net_names ${ftp.url}/up/ ${account}`)).toEqual(['names 226 [] 226 hello.txt']);
@@ -97,6 +98,7 @@ describe('SFTP', () => {
 
 	test('an upload of text makes its folders; a download and the names read it back', async () => {
 		expect(await run(`net_put ${sftp.url}/up/hello.txt ${account}`)).toEqual(['put 0 [] 0 ']);
+		// Cyrillic on purpose: the text is UTF-8 both ways.
 		expect(readFileSync(join(sftp.root, 'up/hello.txt'), 'utf8')).toBe('Привет, FTP');
 		expect(await run(`net_get ${sftp.url}/up/hello.txt ${account}`)).toEqual(['get 0 [] 0 Привет, FTP']);
 		expect(await run(`net_names ${sftp.url}/up/ ${account}`)).toEqual(['names 0 [] 0 hello.txt']);

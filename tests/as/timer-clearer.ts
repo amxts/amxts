@@ -1,5 +1,5 @@
-// Тестовый плагин tests/closures.test.ts: таймер, который этот плагин сам
-// останавливает, - таймер другого плагина от этого не останавливается.
+// The test plugin of tests/closures.test.ts: a timer this plugin stops itself
+// - another plugin's timer does not stop because of it.
 
 const handle = setTimeout(() => console.log("the clearer's timer fired"), 1000);
 
