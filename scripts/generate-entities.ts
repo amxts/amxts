@@ -130,8 +130,8 @@ const ENTVAR_WORDS: Record<string, string> = {
 	colormap: 'colorMap',
 	max_health: 'maxHealth',
 	teleport_time: 'teleportTime',
-	armortype: 'armorType',
-	armorvalue: 'armorValue',
+	// The armour's points: `player.armor` is the facade's, the same number.
+	armorvalue: 'armor',
 	waterlevel: 'waterLevel',
 	watertype: 'waterType',
 	targetname: 'targetName',
@@ -178,12 +178,126 @@ const MEMBER_NAMES: Record<string, string> = {
 	m_flCheckWinConditions: 'checkWinConditionsTime',
 	// reapi keeps ReGameDLL's spelling; the property is spelled right.
 	m_szAnimExtention: 'animExtension',
-	// The game's word for the player's money: `player.money`, as a player says it.
+	// The game's words for what a player has another word for: `player.money`,
+	// as a player says it, not the engine's `account`.
 	m_iAccount: 'money',
+	m_iLastAccount: 'lastSentMoney',
+	m_tmNextAccountHealthUpdate: 'nextScoreboardUpdate',
+	// "Client" here is the value last sent to the player's game.
+	m_iClientHealth: 'healthSent',
+	m_iClientFOV: 'fovSent',
+	m_iClientBattery: 'batterySent',
+	m_iClientHideHUD: 'hideHudSent',
+	m_pClientActiveItem: 'activeItemSent',
+	m_iFlashBattery: 'flashlightBattery',
+	m_flFlashLightTime: 'flashlightTime',
+	// A lowercase word after the prefix, which HUNGARIAN does not strip.
+	m_flgeigerDelay: 'geigerDelay',
+	m_flgeigerRange: 'geigerRange',
+	m_igeigerRangePrev: 'geigerRangePrev',
+	m_idrowndmg: 'drownDamage',
+	m_idrownrestored: 'drownRestored',
+	currentammo: 'currentAmmo',
+	m_flGaitframe: 'gaitFrame',
+	// pev->gaitsequence is gaitSequence; this is the one the game picked.
+	m_iGaitsequence: 'playerGaitSequence',
+	m_flGaityaw: 'gaitYaw',
+	m_prevgaitorigin: 'prevGaitOrigin',
+	m_lastx: 'lastX',
+	m_lasty: 'lastY',
+	m_SbarString0: 'statusBarText',
+	m_flNextSBarUpdateTime: 'nextStatusBarUpdate',
+	m_pentSndLast: 'lastSoundEntity',
+	m_flSndRange: 'soundRange',
+	m_flSndRoomtype: 'roomType',
+	m_tbdPrev: 'timeBasedDamagePrev',
+	m_bPunishedForTK: 'punishedForTeamKill',
+	m_fLongJump: 'hasLongJump',
+	m_flVelocityModifier: 'slowdown',
+	m_tSneaking: 'sneakingUntil',
+	m_pTank: 'mountedGun',
+	m_iTrain: 'trainControls',
+	m_fWeapon: 'weaponHudValid',
+	m_iMenu: 'openMenu',
+	m_iNumSpawns: 'spawnCount',
+	m_iAutoWepSwitch: 'autoSwitchWeapon',
+	m_progressStart: 'progressBarStart',
+	m_progressEnd: 'progressBarEnd',
+	m_fOnTarget: 'aimingAtTarget',
+	// The game rules, in a player's words for the round and the sides.
+	m_iAccountCT: 'ctRoundBonus',
+	m_iAccountTerrorist: 'terroristRoundBonus',
+	m_iC4Guy: 'bomber',
+	m_iC4Timer: 'bombTimer',
+	m_iNumCT: 'ctCount',
+	m_iNumTerrorist: 'terroristCount',
+	m_iNumCTWins: 'ctWins',
+	m_iNumTerroristWins: 'terroristWins',
+	m_iNumSpawnableCT: 'spawnableCts',
+	m_iNumSpawnableTerrorist: 'spawnableTerrorists',
+	m_iNumConsecutiveCTLoses: 'ctLossStreak',
+	m_iNumConsecutiveTerroristLoses: 'terroristLossStreak',
+	m_flRestartRoundTime: 'newRoundTime',
+	m_fRoundStartTimeReal: 'freezeStartTime',
+	m_iIntroRoundTime: 'freezeTime',
+	m_bFreezePeriod: 'isFreezeTime',
+	m_bRoundTerminating: 'roundEnding',
+	m_bTCantBuy: 'terroristsCantBuy',
+	m_bCTCantBuy: 'ctsCantBuy',
+	m_iUnBalancedRounds: 'unbalancedRounds',
+	m_bLevelInitialized: 'mapInitialized',
+	m_iEndIntermissionButtonHit: 'intermissionSkipped',
+	m_flForceCameraValue: 'forceCamera',
+	m_flForceChaseCamValue: 'forceChaseCam',
+	m_flFadeToBlackValue: 'fadeToBlack',
+	m_GameDesc: 'gameName',
+	// A weapon's.
+	m_Weapon_fInReload: 'isReloading',
+	m_Weapon_fInSpecialReload: 'shotgunReloadStage',
+	m_Weapon_iClientClip: 'clipSent',
+	m_Weapon_flGlock18Shoot: 'glockNextBurstShot',
+	m_Weapon_iGlock18ShotsFired: 'glockBurstShots',
+	m_Weapon_flFamasShoot: 'famasNextBurstShot',
+	m_Weapon_iFamasShotsFired: 'famasBurstShots',
+	m_Weapon_flDecreaseShotsFired: 'recoilResetTime',
+	m_Weapon_flTimeWeaponIdle: 'nextIdle',
+	m_Weapon_iPrimaryAmmoType: 'ammoType',
 };
+
+// Left out of the API, still read and written through the natives
+// (`get_member(id, m_Activity)`): the monster AI's members a player carries
+// but the game never uses for one, Condition Zero's career mode, the user
+// message numbers, the firing events' indexes, a second copy of the team, the
+// pistol's own last-shot time beside every weapon's `lastFireTime`, and
+// pev->armortype, which Counter-Strike does not use (`kevlar` is the armour's kind).
+const HIDDEN = new Set([
+	'm_Activity',
+	'm_IdealActivity',
+	'm_MonsterState',
+	'm_IdealMonsterState',
+	'm_afConditions',
+	'm_afMemory',
+	'm_vecEnemyLKP',
+	'm_HackedGunPos',
+	'm_hTargetEnt',
+	'm_bInCareerGame',
+	'm_fCareerRoundMenuTime',
+	'm_iCareerMatchWins',
+	'm_fCareerMatchMenuTime',
+	'm_iRoundWinDifference',
+	'm_msgPlayerVoiceMask',
+	'm_msgRequestState',
+	'm_Weapon_usFireGlock18',
+	'm_Weapon_usFireFamas',
+	'm_szTeamName',
+	'm_Weapon_flLastFire',
+	'var_armortype',
+]);
 
 function nameOf(reapi: string) {
 	if (MEMBER_NAMES[reapi]) return MEMBER_NAMES[reapi];
+	// maxammo_9mm is two words glued: maxAmmo9mm, as ammo_9mm is ammo9mm.
+	if (reapi.startsWith('maxammo_')) return camel(`max_ammo_${reapi.slice('maxammo_'.length)}`);
 	if (reapi.startsWith('var_')) {
 		const rest = reapi.slice(4);
 		if (ENTVAR_WORDS[rest]) return ENTVAR_WORDS[rest];
@@ -203,11 +317,11 @@ function pointsAt(memberType: string): 'Weapon' | 'Player' | undefined {
 }
 
 // Written by hand in the facade's Player, with the type a plugin expects
-// (team a name). A generated one would clash. `health` is not here: every
-// entity has pev->health, and Player's whole number overrides Entity's.
+// (team a name). A generated one would clash. `health` and `armor` are not
+// here: every entity has pev->health and pev->armorvalue, and Player's whole
+// numbers override Entity's.
 const HAND_WRITTEN = new Set([
 	'name',
-	'armor',
 	'frags',
 	'deaths',
 	'team',
@@ -374,12 +488,6 @@ const ENUM_TYPES: Record<string, EnumType> = {
 	},
 	// BLOOD_COLOR_GREEN is BLOOD_COLOR_YELLOW under another name.
 	BloodColor: { pawn: 'BLOOD_COLOR_*', names: { none: 'DONT_BLEED', red: 'BLOOD_COLOR_RED', yellow: 'BLOOD_COLOR_YELLOW' } },
-	// Not in the includes (ham_const.inc only mentions MONSTERSTATE_*): the
-	// numbers are ReGameDLL's enum MONSTERSTATE in basemonster.h.
-	MonsterState: {
-		pawn: 'MONSTERSTATE_*',
-		names: { none: 0, idle: 1, combat: 2, alert: 3, hunt: 4, prone: 5, script: 6, playDead: 7, dead: 8 },
-	},
 	// Not in the includes: ReGameDLL's player.h, enum MusicState { SILENT, CALM, INTENSE }.
 	MusicState: { pawn: 'MusicState', names: { silent: 0, calm: 1, intense: 2 } },
 	// Not in the includes: ReGameDLL's gamerules.h, MAP_VIP_SAFETYZONE_UNINITIALIZED,
@@ -388,10 +496,7 @@ const ENUM_TYPES: Record<string, EnumType> = {
 };
 
 // Which enum each field holds, by its reapi name; player.observerMode
-// (var_iuser1) is added by hand below. m_Activity and m_IdealActivity stay
-// numbers: ACT_CROUCHIDLE (a player crouching) and ACT_CROUCH_IDLE (a CZ
-// hostage) would both be "crouchIdle", and which one gets another name is the
-// developer's call, still open.
+// (var_iuser1) is added by hand below.
 const ENUM_FIELDS: Record<string, string> = {
 	var_rendermode: 'RenderMode',
 	var_renderfx: 'RenderFx',
@@ -411,8 +516,6 @@ const ENUM_FIELDS: Record<string, string> = {
 	m_iIgnoreGlobalChat: 'IgnoredChat',
 	m_iThrowDirection: 'ThrowDirection',
 	m_bloodColor: 'BloodColor',
-	m_MonsterState: 'MonsterState',
-	m_IdealMonsterState: 'MonsterState',
 	m_musicState: 'MusicState',
 	m_iRoundWinStatus: 'RoundWinner',
 	m_bMapHasVIPSafetyZone: 'VipSafetyZone',
@@ -493,6 +596,7 @@ function collect(path: string, enumName: string, taken = used, handWritten = HAN
 		const get = line(comment, 'Get params').replace(/get_member_game\(member/, 'get_member_game(index, member');
 		const set = line(comment, 'Set params');
 		const shape = shapeOf(get, memberType);
+		if (HIDDEN.has(reapi)) continue;
 
 		if (!shape) {
 			skipped.push({ reapi, why: `shape not read: ${get || 'no Get params'} (${memberType})` });
@@ -664,8 +768,8 @@ function actions(target: HamFunction['target'], owner: string, fields: Field[]) 
 // The two team scores, each written with the other as it is: both are set
 // and sent to the scoreboard at once (setTeamScores).
 const TEAM_SCORES: Record<string, string> = {
-	m_iNumCTWins: 'value, this.numTerroristWins',
-	m_iNumTerroristWins: 'this.numCtWins, value',
+	m_iNumCTWins: 'value, this.terroristWins',
+	m_iNumTerroristWins: 'this.ctWins, value',
 };
 
 // Every entvar's place in entvars_t, which the module reads it at.
@@ -1355,7 +1459,7 @@ ${actions('player', 'Player', [...entvars, ...members])}
 
 /**
  * The game rules' members, the fields of \`game\`: \`game.freezePeriod\`,
- * \`game.numCtWins\`. The facade's Game extends this.
+ * \`game.ctWins\`. The facade's Game extends this.
  */
 export class GameFields {
 ${gameBody}

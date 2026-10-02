@@ -18,20 +18,20 @@ import {
 } from "./facade";
 import { Entity } from "./entities";
 import {
-	HookEvent, AddMoneyEvent, BounceGibTouchEvent, BuyGunAmmoEvent, BuyItemEvent, BuyWeaponByWeaponIdEvent,
-	CanPlayerHearPlayerEvent, ChangeLevelEvent, CleanUpMapEvent, ChooseAppearanceEvent, ChooseTeamEvent, ClientConnectedEvent,
-	ClientUserInfoChangedEvent, ConnectClientEvent, DeathNoticeEvent, DeathSoundEvent, DefuseBombEndEvent,
-	DefuseBombStartEvent, DropClientEvent, DropPlayerItemEvent, ExplodeBombEvent, GameThinkEvent, GibSpawnEvent,
-	GiveC4Event, GoToIntermissionEvent, HasRestrictItemEvent, MakeBomberEvent, MakeVipEvent, RoundStartEvent,
+	HookEvent, AddMoneyEvent, BounceGibTouchEvent, BuyAmmoEvent, BuyItemEvent, BuyWeaponEvent,
+	CanPlayerHearPlayerEvent, ChangeLevelEvent, MapResetEvent, ChooseAppearanceEvent, ChooseTeamEvent, ClientConnectedEvent,
+	UserInfoChangeEvent, ConnectClientEvent, DeathNoticeEvent, DeathSoundEvent, DefuseBombEndEvent,
+	DefuseBombStartEvent, DisconnectClientEvent, DropPlayerItemEvent, ExplodeBombEvent, GameThinkEvent, GibSpawnEvent,
+	GiveBombEvent, IntermissionEvent, ItemRestrictedEvent, BecomeBomberEvent, BecomeVipEvent, RoundStartEvent,
 	PainEvent, PlantBombEvent, PlayerBlindEvent, PlayerGotWeaponEvent, PlayerKilledEvent, PlayerSpawnEvent,
-	PrecacheGenericIEvent, PrecacheModelIEvent, PrecacheSoundIEvent, NewRoundEvent, RoundEndEvent,
-	SendDeathMessageEvent, SetClientUserInfoNameEvent, SetModelEvent, ShowVguiMenuEvent, StartSoundEvent,
+	PrecacheFileEvent, PrecacheModelEvent, PrecacheSoundEvent, NewRoundEvent, RoundEndEvent,
+	SendDeathMessageEvent, ChangeNameEvent, SetModelEvent, ShowVguiMenuEvent, StartSoundEvent,
 	ThrowFlashbangEvent, ThrowGrenadeEvent, ThrowHeGrenadeEvent, ThrowSmokeGrenadeEvent
 } from "./hooks";
 import {
 	GetHamReturnInteger, NATIVE_dllfunc, NATIVE_engfunc, NATIVE_forward_return, NATIVE_register_event,
 	NATIVE_register_logevent, cs_get_user_money, find_ent_by_model, get_cvar_float, get_ent_data,
-	get_gametime, get_maxplayers, get_orig_retval, get_timeleft, get_user_info, get_user_msgid, get_user_name,
+	get_gametime, get_maxplayers, get_orig_retval, get_timeleft, get_user_info, get_user_name,
 	get_user_userid, is_user_alive, is_user_connected, pev_valid, read_argv, read_logargv, read_logdata, register_clcmd, register_forward,
 	set_cvar_float,
 } from "./natives";
@@ -247,8 +247,8 @@ export function newRoundPostHlds(fire: Fire<NewRoundEvent>): void {
 }
 
 /** The map cleaned up for a new round: the decals' reset, its last step. */
-export function cleanUpMapHlds(fire: Fire<CleanUpMapEvent>): void {
-	onDecalsReset((): void => hear(fire, new CleanUpMapEvent(), "cleanUpMap"));
+export function mapResetHlds(fire: Fire<MapResetEvent>): void {
+	onDecalsReset((): void => hear(fire, new MapResetEvent(), "mapReset"));
 }
 
 /** The freeze time is over: the game logs "Round_Start". */
@@ -330,8 +330,8 @@ export function roundEndHlds(fire: Fire<RoundEndEvent>): void {
 		if (ending == null && endTriggerAt == now) ending = endingOf(endTrigger);
 		const reason = ending != null ? ending.reason : ROUND_NONE;
 		const winner = ending != null ? ending.winner : endSoundAt == now ? soundWinner(endSound) : WINSTATUS_NONE;
-		const terminating = game.roundTerminating && game.restartRoundTime > now;
-		const delay = terminating ? game.restartRoundTime - now : reason == ROUND_GAME_COMMENCE ? 3.0 : 5.0;
+		const terminating = game.roundEnding && game.newRoundTime > now;
+		const delay = terminating ? game.newRoundTime - now : reason == ROUND_GAME_COMMENCE ? 3.0 : 5.0;
 		const event = new RoundEndEvent();
 		event.__give(0, winner);
 		event.__give(1, reason);
@@ -354,9 +354,9 @@ export function gameThinkHlds(fire: Fire<GameThinkEvent>): void {
 }
 
 /** The map is over: the game sends SVC_INTERMISSION, which AMX Mod X's events hear as "30". */
-export function goToIntermissionHlds(fire: Fire<GoToIntermissionEvent>): void {
+export function intermissionHlds(fire: Fire<IntermissionEvent>): void {
 	__whenUp((): void => {
-		const pub = publicFor((a: number, b: number, c: number, d: number): void => hear(fire, new GoToIntermissionEvent(), "goToIntermission"), "hlds:event:30");
+		const pub = publicFor((a: number, b: number, c: number, d: number): void => hear(fire, new IntermissionEvent(), "intermission"), "hlds:event:30");
 		if (pub.length > 0) new Call(NATIVE_register_event).str("30").str(pub).str("a").run();
 	});
 }
@@ -468,28 +468,28 @@ export function startSoundHlds(fire: Fire<StartSoundEvent>): void {
 // ---------------------------------------------------------------- the bomb and the VIP
 
 /** The terrorist who gets the bomb at the round's start: the game logs "Spawned_With_The_Bomb". */
-export function giveC4Hlds(fire: Fire<GiveC4Event>): void {
-	onPlayerLog("giveC4", "Spawned_With_The_Bomb", (id: i32): void => {
-		const event = new GiveC4Event();
+export function giveBombHlds(fire: Fire<GiveBombEvent>): void {
+	onPlayerLog("giveBomb", "Spawned_With_The_Bomb", (id: i32): void => {
+		const event = new GiveBombEvent();
 		event.__give(-1, id);
-		hear(fire, event, "giveC4");
+		hear(fire, event, "giveBomb");
 	});
 }
 
-export function makeBomberHlds(fire: Fire<MakeBomberEvent>): void {
-	onPlayerLog("makeBomber", "Spawned_With_The_Bomb", (id: i32): void => {
-		const event = new MakeBomberEvent();
+export function becomeBomberHlds(fire: Fire<BecomeBomberEvent>): void {
+	onPlayerLog("becomeBomber", "Spawned_With_The_Bomb", (id: i32): void => {
+		const event = new BecomeBomberEvent();
 		event.__give(0, id);
 		event.__give(-1, 1);
-		hear(fire, event, "makeBomber");
+		hear(fire, event, "becomeBomber");
 	});
 }
 
-export function makeVipHlds(fire: Fire<MakeVipEvent>): void {
-	onPlayerLog("makeVip", "Became_VIP", (id: i32): void => {
-		const event = new MakeVipEvent();
+export function becomeVipHlds(fire: Fire<BecomeVipEvent>): void {
+	onPlayerLog("becomeVip", "Became_VIP", (id: i32): void => {
+		const event = new BecomeVipEvent();
 		event.__give(0, id);
-		hear(fire, event, "makeVip");
+		hear(fire, event, "becomeVip");
 	});
 }
 
@@ -580,13 +580,13 @@ function onBuy(handler: (id: i32, item: i32) => void): void {
 const EQUIPMENT: i32[] = [CSI_VEST, CSI_VESTHELM, CSI_FLASHBANG, CSI_HEGRENADE, CSI_SMOKEGRENADE, CSI_NVGS, CSI_DEFUSER, CSI_SHIELD];
 
 /** A weapon bought: CS_OnBuy of a gun; a grenade is equipment. */
-export function buyWeaponByWeaponIdHlds(fire: Fire<BuyWeaponByWeaponIdEvent>): void {
+export function buyWeaponHlds(fire: Fire<BuyWeaponEvent>): void {
 	onBuy((id: i32, item: i32): void => {
 		if (item < 1 || item > CSI_LAST_WEAPON || EQUIPMENT.includes(item)) return;
-		const event = new BuyWeaponByWeaponIdEvent();
+		const event = new BuyWeaponEvent();
 		event.__give(0, id);
 		event.__give(1, item);
-		hear(fire, event, "buyWeaponByWeaponId", PLUGIN_HANDLED);
+		hear(fire, event, "buyWeapon", PLUGIN_HANDLED);
 	});
 }
 
@@ -603,23 +603,23 @@ export function buyItemHlds(fire: Fire<BuyItemEvent>): void {
 }
 
 /** Ammo bought: CS_OnBuy of a gun's ammo. */
-export function buyGunAmmoHlds(fire: Fire<BuyGunAmmoEvent>): void {
+export function buyAmmoHlds(fire: Fire<BuyAmmoEvent>): void {
 	onBuy((id: i32, item: i32): void => {
 		if (item != CSI_PRIAMMO && item != CSI_SECAMMO) return;
-		const event = new BuyGunAmmoEvent();
+		const event = new BuyAmmoEvent();
 		event.__give(0, id);
 		event.__give(2, 1);
 		event.__give(-1, 1);
-		hear(fire, event, "buyGunAmmo", PLUGIN_HANDLED);
+		hear(fire, event, "buyAmmo", PLUGIN_HANDLED);
 	});
 }
 
 /** Whether an item is forbidden to buy: cstrike's CS_OnBuyAttempt, answered `true` to forbid. */
-export function hasRestrictItemHlds(fire: Fire<HasRestrictItemEvent>): void {
+export function itemRestrictedHlds(fire: Fire<ItemRestrictedEvent>): void {
 	server.addEventListener("CS_OnBuyAttempt", (attempt): void => {
 		const item = itemOf(<i32>attempt.item);
 		if (item < ITEM_SHIELDGUN) return;
-		const event = new HasRestrictItemEvent();
+		const event = new ItemRestrictedEvent();
 		event.__give(0, <i32>attempt.player.id);
 		event.__give(1, item);
 		event.__give(2, ITEM_TYPE_BUYING);
@@ -628,7 +628,7 @@ export function hasRestrictItemHlds(fire: Fire<HasRestrictItemEvent>): void {
 		if (event.__answered && event.__answerCell != 0) handled();
 		// Blocking it answers false: the game decides, as it does unasked.
 		event.__prevented = false;
-		settle(event, "hasRestrictItem", -1, true);
+		settle(event, "itemRestricted", -1, true);
 	});
 }
 
@@ -655,7 +655,7 @@ export function chooseTeamHlds(fire: Fire<ChooseTeamEvent>): void {
 	};
 	onCommand("chooseTeam", "jointeam", chosen);
 	onCommand("chooseTeam", "menuselect", (id: i32): void => {
-		const menu = new Player(id).menu;
+		const menu = new Player(id).openMenu;
 		if (menu == "team" || menu == "teamInGame") chosen(id);
 	});
 }
@@ -670,7 +670,7 @@ export function chooseAppearanceHlds(fire: Fire<ChooseAppearanceEvent>): void {
 	};
 	onCommand("chooseAppearance", "joinclass", chosen);
 	onCommand("chooseAppearance", "menuselect", (id: i32): void => {
-		if (new Player(id).menu == "appearance") chosen(id);
+		if (new Player(id).openMenu == "appearance") chosen(id);
 	});
 }
 
@@ -711,34 +711,34 @@ export function connectClientHlds(fire: Fire<ConnectClientEvent>): void {
 }
 
 /** A client dropped: AMX Mod X's client_disconnected, with the reason it was told. */
-export function dropClientHlds(fire: Fire<DropClientEvent>): void {
+export function disconnectClientHlds(fire: Fire<DisconnectClientEvent>): void {
 	server.addEventListener("disconnected", (left): void => {
-		const event = new DropClientEvent();
+		const event = new DisconnectClientEvent();
 		event.__give(0, <i32>left.player.id);
 		event.__giveText(2, left.reason);
-		hear(fire, event, "dropClient");
+		hear(fire, event, "disconnectClient");
 	});
 }
 
-export function clientUserInfoChangedHlds(fire: Fire<ClientUserInfoChangedEvent>): void {
+export function userInfoChangeHlds(fire: Fire<UserInfoChangeEvent>): void {
 	server.addEventListener("infochanged", (changed): void => {
-		const event = new ClientUserInfoChangedEvent();
+		const event = new UserInfoChangeEvent();
 		event.__give(0, <i32>changed.player.id);
-		hear(fire, event, "clientUserInfoChanged");
+		hear(fire, event, "userInfoChange");
 	});
 }
 
 /** A new name asked for: the info's name is not the one the player has. */
-export function setClientUserInfoNameHlds(fire: Fire<SetClientUserInfoNameEvent>): void {
+export function changeNameHlds(fire: Fire<ChangeNameEvent>): void {
 	server.addEventListener("infochanged", (changed): void => {
 		const id = changed.player.id;
 		const wanted = get_user_info(id, "name");
 		if (wanted == get_user_name(id)) return;
-		const event = new SetClientUserInfoNameEvent();
+		const event = new ChangeNameEvent();
 		event.__give(0, <i32>id);
 		event.__giveText(2, wanted);
 		event.__give(-1, 1);
-		hear(fire, event, "setClientUserInfoName");
+		hear(fire, event, "changeName");
 	});
 }
 
@@ -922,40 +922,40 @@ function onPrecache<E>(fn: i32, key: string, make: () => E, fire: Fire<E>, name:
 	}, true);
 }
 
-export function precacheModelIHlds(fire: Fire<PrecacheModelIEvent>): void {
-	onPrecache<PrecacheModelIEvent>(FM_PrecacheModel, "model", (): PrecacheModelIEvent => new PrecacheModelIEvent(), fire, "precacheModelI");
+export function precacheModelHlds(fire: Fire<PrecacheModelEvent>): void {
+	onPrecache<PrecacheModelEvent>(FM_PrecacheModel, "model", (): PrecacheModelEvent => new PrecacheModelEvent(), fire, "precacheModel");
 }
 
-export function precacheSoundIHlds(fire: Fire<PrecacheSoundIEvent>): void {
-	onPrecache<PrecacheSoundIEvent>(FM_PrecacheSound, "sound", (): PrecacheSoundIEvent => new PrecacheSoundIEvent(), fire, "precacheSoundI");
+export function precacheSoundHlds(fire: Fire<PrecacheSoundEvent>): void {
+	onPrecache<PrecacheSoundEvent>(FM_PrecacheSound, "sound", (): PrecacheSoundEvent => new PrecacheSoundEvent(), fire, "precacheSound");
 }
 
-export function precacheGenericIHlds(fire: Fire<PrecacheGenericIEvent>): void {
-	onPrecache<PrecacheGenericIEvent>(FM_PrecacheGeneric, "generic", (): PrecacheGenericIEvent => new PrecacheGenericIEvent(), fire, "precacheGenericI");
+export function precacheFileHlds(fire: Fire<PrecacheFileEvent>): void {
+	onPrecache<PrecacheFileEvent>(FM_PrecacheGeneric, "generic", (): PrecacheFileEvent => new PrecacheFileEvent(), fire, "precacheFile");
 }
 
 // ---------------------------------------------------------------- the game rules' fields
 
-// The game's description a plugin wrote, answered for the game's own; "" for none yet.
-let gameDescWritten = "";
+// The game's name a plugin wrote, answered for the game's own; "" for none yet.
+let gameNameWritten = "";
 
-/** The game's description: the one written, or the game's own. */
-export function gameDescHlds(): string {
-	if (gameDescWritten.length > 0) return gameDescWritten;
+/** The game's name in the server browser: the one written, or the game's own. */
+export function gameNameHlds(): string {
+	if (gameNameWritten.length > 0) return gameNameWritten;
 	const text = new CellBuffer(64);
 	new Call(NATIVE_dllfunc).num(DLLFunc_GetGameDescription).tailBuffer(text, 63).run();
 	return text.text();
 }
 
-/** Writes the game's description: the game's GetGameDescription is answered with it from now on. */
-export function setGameDescHlds(value: string): void {
-	if (gameDescWritten.length == 0) {
+/** Writes the game's name: the game's GetGameDescription is answered with it from now on. */
+export function setGameNameHlds(value: string): void {
+	if (gameNameWritten.length == 0) {
 		onFakemeta(FM_GetGameDescription, false, "gamedesc", (): void => {
-			new Call(NATIVE_forward_return).num(FMV_STRING).str(gameDescWritten).run();
+			new Call(NATIVE_forward_return).num(FMV_STRING).str(gameNameWritten).run();
 			__outcome(FMRES_SUPERCEDE);
 		});
 	}
-	gameDescWritten = value;
+	gameNameWritten = value;
 }
 
 /**
@@ -994,22 +994,6 @@ export function maxPlayersHlds(): i32 {
 
 export function setMaxPlayersHlds(cell: i32): void {
 	readOnly("maxPlayers");
-}
-
-export function msgPlayerVoiceMaskHlds(): i32 {
-	return <i32>get_user_msgid("VoiceMask");
-}
-
-export function setMsgPlayerVoiceMaskHlds(cell: i32): void {
-	readOnly("msgPlayerVoiceMask");
-}
-
-export function msgRequestStateHlds(): i32 {
-	return <i32>get_user_msgid("ReqState");
-}
-
-export function setMsgRequestStateHlds(cell: i32): void {
-	readOnly("msgRequestState");
 }
 
 function readOnly(name: string): void {

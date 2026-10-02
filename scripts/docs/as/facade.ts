@@ -1979,7 +1979,7 @@ export default {
 			  if (event.player.isBot) event.preventDefault();
 			});
 			game.addEventListener("canPlayerHearPlayer", (event) => event.listener.team == event.sender.team);
-			game.addEventListener("flPlayerFallDamage", (event) => event.result / 2, true);
+			game.addEventListener("fallDamage", (event) => event.result / 2, true);
 			\`\`\`
 
 			The event's type follows from its name. What a listener returns is the
@@ -1988,7 +1988,7 @@ export default {
 			nothing leaves it to the game; \`event.preventDefault()\` blocks without an
 			answer. A value of the wrong type is an error in the editor and in the build.
 
-			The game rules are its fields: \`game.freezePeriod\`, \`game.numCtWins\`,
+			The game rules are its fields: \`game.isFreezeTime\`, \`game.ctWins\`,
 			\`game.roundWinner\`.
 
 			Pawn: \`RegisterHookChain\`, \`RegisterHam\`, \`get_member_game\`
@@ -2002,7 +2002,7 @@ export default {
 			  if (event.player.isBot) event.preventDefault();
 			});
 			game.addEventListener("canPlayerHearPlayer", (event) => event.listener.team == event.sender.team);
-			game.addEventListener("flPlayerFallDamage", (event) => event.result / 2, true);
+			game.addEventListener("fallDamage", (event) => event.result / 2, true);
 			\`\`\`
 
 			Тип события следует из его имени. То, что возвращает обработчик, — ответ
@@ -2011,7 +2011,7 @@ export default {
 			игре; \`event.preventDefault()\` блокирует без ответа. Значение не того типа —
 			ошибка и в редакторе, и при сборке.
 
-			Правила игры — её поля: \`game.freezePeriod\`, \`game.numCtWins\`,
+			Правила игры — её поля: \`game.isFreezeTime\`, \`game.ctWins\`,
 			\`game.roundWinner\`.
 
 			Pawn: \`RegisterHookChain\`, \`RegisterHam\`, \`get_member_game\`
@@ -2126,8 +2126,8 @@ export default {
 		`,
 	},
 	'ActionOptions': {
-		en: `The options of an entity's action such as \`weapon.deploy()\` or \`entity.takeHealth(...)\`.`,
-		ru: `Настройки действия сущности, такого как \`weapon.deploy()\` или \`entity.takeHealth(...)\`.`,
+		en: `The options of an entity's action such as \`weapon.deploy()\` or \`entity.heal(...)\`.`,
+		ru: `Настройки действия сущности, такого как \`weapon.deploy()\` или \`entity.heal(...)\`.`,
 	},
 	'ActionOptions.hooks': {
 		en: `

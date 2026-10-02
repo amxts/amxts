@@ -89,9 +89,9 @@ async function run() {
 	}
 
 	// The round on now ends - by the game, these deaths, or as a draw - and the next is the one checked.
-	if (!game.roundTerminating) killSide("TERRORIST");
-	for (let tries = 0; tries < 20 && !game.roundTerminating; tries++) await sleep(100);
-	if (!game.roundTerminating) game.endRound({ winner: "draw", delay: 1 });
+	if (!game.roundEnding) killSide("TERRORIST");
+	for (let tries = 0; tries < 20 && !game.roundEnding; tries++) await sleep(100);
+	if (!game.roundEnding) game.endRound({ winner: "draw", delay: 1 });
 	heard.length = 0;
 	paid = 0;
 	playing = true;

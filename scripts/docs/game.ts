@@ -49,7 +49,7 @@ export const GAME: Record<string, GameDoc> = {
 			damageType: { en: `The kinds of damage, e.g. \`"Fall"\`, \`"Bullet"\`, \`"Burn"\`.`, ru: `Виды урона, например \`"Fall"\`, \`"Bullet"\`, \`"Burn"\`.` },
 		},
 	},
-	flPlayerFallDamage: {
+	fallDamage: {
 		summary: {
 			en: `The game works out how much a fall hurts. In a post listener \`event.result\` is that number; return a number to replace it.`,
 			ru: `Игра считает урон от падения. В post-обработчике \`event.result\` — это число; верните своё, чтобы заменить его.`,
@@ -198,7 +198,7 @@ export const GAME: Record<string, GameDoc> = {
 		summary: { en: `A dead player's camera starts.`, ru: `Включается камера погибшего игрока.` },
 		fields: { player },
 	},
-	impulseCommands: {
+	impulse: {
 		summary: { en: `A player sends an impulse: \`100\` is the flashlight, \`201\` the spray.`, ru: `Игрок отправляет impulse: \`100\` — фонарик, \`201\` — спрей.` },
 		fields: { player },
 	},
@@ -236,7 +236,7 @@ export const GAME: Record<string, GameDoc> = {
 			},
 		},
 	},
-	buyWeaponByWeaponId: {
+	buyWeapon: {
 		summary: {
 			en: `A player buys a weapon. In a post listener \`event.result\` is the weapon.`,
 			ru: `Игрок покупает оружие. В post-обработчике \`event.result\` — само оружие.`,
@@ -256,7 +256,7 @@ export const GAME: Record<string, GameDoc> = {
 			},
 		},
 	},
-	hasRestrictItem: {
+	itemRestricted: {
 		summary: {
 			en: `The game asks if an item is forbidden to a player. Return \`true\` to forbid it.`,
 			ru: `Игра спрашивает, запрещён ли игроку предмет. Верните \`true\`, чтобы запретить.`,
@@ -316,7 +316,7 @@ export const GAME: Record<string, GameDoc> = {
 			resourceIndex: { en: `The resource's number in the list.`, ru: `Номер ресурса в списке.` },
 		},
 	},
-	onEvent: {
+	gameEvent: {
 		summary: {
 			en: `The game tells the bots something happened.`,
 			ru: `Игра сообщает ботам, что что-то произошло.`,
@@ -348,7 +348,7 @@ export const GAME: Record<string, GameDoc> = {
 		summary: { en: `A player throws a grenade.`, ru: `Игрок бросает гранату.` },
 		fields: { player: thrower, velocity: grenadeVelocity },
 	},
-	hintMessageEx: {
+	hintMessage: {
 		summary: { en: `The game shows a player a hint.`, ru: `Игра показывает игроку подсказку.` },
 		fields: {
 			player,
@@ -358,7 +358,7 @@ export const GAME: Record<string, GameDoc> = {
 			},
 		},
 	},
-	sendSayMessage: {
+	chatMessage: {
 		summary: {
 			en: `A player's chat message goes out to the players and to the server console. Assign \`event.text\` to change what they read, or call \`preventDefault()\` so nobody gets it.`,
 			ru: `Сообщение игрока в чат уходит игрокам и в консоль сервера. Чтобы изменить, что они прочтут, присвойте \`event.text\`; чтобы его не получил никто, вызовите \`preventDefault()\`.`,

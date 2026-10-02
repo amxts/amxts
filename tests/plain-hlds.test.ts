@@ -40,7 +40,7 @@ test('without reapi a player\'s event is Ham Sandwich\'s on "player", a weapon\'
 test('an event nothing on plain HLDS hears says so once, and is not listened for', async () => {
 	const server = await loadPlugin(PLUGIN, PLAIN);
 	const said = server.logLines.filter(line => line.includes('needs ReAPI'));
-	expect(said).toEqual(['warning: flPlayerFallDamage needs ReAPI, which this server does not have: its listeners are never called']);
+	expect(said).toEqual(['warning: fallDamage needs ReAPI, which this server does not have: its listeners are never called']);
 });
 
 test('without reapi a player spawns through Ham Sandwich\'s Spawn, after the game: preventDefault() is said once', async () => {
@@ -202,7 +202,7 @@ test('each of them is heard on plain HLDS, fully or with its gaps, or is not, wi
 	expect(said).toEqual([]);
 	expect([...unheardEvents()].sort()).toEqual(Object.keys(NOT_HEARD).sort());
 	for (const event of ['playerSpawn', 'roundEnd', 'newRound', 'roundStart', 'addMoney', 'plantBomb']) expect(HEARD[event]?.class).toBe('B');
-	for (const event of ['flPlayerFallDamage', 'move', 'canHavePlayerItem']) expect(NOT_HEARD[event]).toBeString();
+	for (const event of ['fallDamage', 'move', 'canHaveItem']) expect(NOT_HEARD[event]).toBeString();
 });
 
 test('the game events page lists what plain HLDS does not give of each, in both languages', () => {
@@ -217,7 +217,7 @@ test('the game events page lists what plain HLDS does not give of each, in both 
 });
 
 test('so is each game rules field of ReGameDLL\'s own', () => {
-	const own = ['gameDesc', 'timeLimit', 'gameStartTime', 'teamBalanced', 'neededPlayers', 'skipShowMenu', 'escapeRatio', 'maxPlayers', 'updateInterval', 'msgPlayerVoiceMask', 'msgRequestState'];
+	const own = ['gameName', 'timeLimit', 'gameStartTime', 'teamBalanced', 'neededPlayers', 'skipShowMenu', 'escapeRatio', 'maxPlayers', 'updateInterval'];
 	expect([...Object.keys(HEARD_FIELDS), ...Object.keys(FIELDS_NOT_HEARD)].sort()).toEqual(own.sort());
 });
 
@@ -247,13 +247,13 @@ test('a project for plain HLDS does not build a listener for an event nothing th
 		'plugins/rounds.ts': [
 			'game.addEventListener("takeDamage", (event) => console.log(`${event.damage}`));',
 			'game.addEventListener("roundEnd", (event) => console.log(event.winner));',
-			'game.addEventListener("flPlayerFallDamage", (event) => event.result / 2, true);',
+			'game.addEventListener("fallDamage", (event) => event.result / 2, true);',
 			'',
 		].join('\n'),
 	});
 
 	const failed = await setup({ rootDir: dir }).then(() => '', (error: Error) => error.message);
-	expect(failed).toMatch(/rounds\.ts:3: "flPlayerFallDamage" needs ReAPI, and amxts\.config\.ts's target is "hlds" - nothing on plain HLDS hears it/);
+	expect(failed).toMatch(/rounds\.ts:3: "fallDamage" needs ReAPI, and amxts\.config\.ts's target is "hlds" - nothing on plain HLDS hears it/);
 	// takeDamage is Ham Sandwich's there, roundEnd the game's log line: both build.
 	expect(failed).not.toContain('takeDamage');
 	expect(failed).not.toContain('roundEnd');

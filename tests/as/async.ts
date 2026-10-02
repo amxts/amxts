@@ -281,7 +281,7 @@ export function rangeError(): void {
 // An async game listener: its answer counts if it gave one before its first await.
 let fallMode = "";
 
-game.addEventListener("flPlayerFallDamage", async () => {
+game.addEventListener("fallDamage", async () => {
 	if (fallMode == "") return;
 	if (fallMode == "early") return 0;
 	await sleep(10);

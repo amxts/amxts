@@ -2,7 +2,7 @@
 // команду, и её обработчик получает этого игрока. Поля игрока модуль читает
 // и пишет в памяти сам; записанное сверяется с модулями engine и fakemeta,
 // которые есть на любом сервере, а нативы reapi - там, где reapi есть.
-import { EV_FL_fov, EV_INT_weapons, m_flVelocityModifier, m_szTeamName } from "@amxts/core/constants";
+import { EV_FL_fov, EV_INT_weapons, m_autoBuyString, m_flVelocityModifier } from "@amxts/core/constants";
 import {
 	amxclient_cmd,
 	entity_get_float,
@@ -73,14 +73,14 @@ function ammo(check: Checks, bot: Player) {
 
 /** Члены игрока: текстовый пишется и читается строкой, дробный - числом; натив reapi видит то же. */
 function memberFields(check: Checks, bot: Player) {
-	const team = bot.teamName;
-	bot.teamName = "amxts";
-	check.expect(get_ent_data_string(bot.id, "CBasePlayer", "m_szTeamName"), "текстовый член записан, где его держит игра").toBe("amxts");
-	if (hasModule("reapi")) check.expect(get_member<string>(bot.id, m_szTeamName), "get_member<string> читает записанное").toBe("amxts");
-	bot.teamName = team;
+	const autoBuy = bot.autoBuyString;
+	bot.autoBuyString = "amxts";
+	check.expect(get_ent_data_string(bot.id, "CBasePlayer", "m_autoBuyString"), "текстовый член записан, где его держит игра").toBe("amxts");
+	if (hasModule("reapi")) check.expect(get_member<string>(bot.id, m_autoBuyString), "get_member<string> читает записанное").toBe("amxts");
+	bot.autoBuyString = autoBuy;
 
-	check.expect(get_ent_data_float(bot.id, "CBasePlayer", "m_flVelocityModifier"), "дробный член - число").toBe(bot.velocityModifier);
-	if (hasModule("reapi")) check.expect(get_member(bot.id, m_flVelocityModifier), "get_member дробного поля - число").toBe(bot.velocityModifier);
+	check.expect(get_ent_data_float(bot.id, "CBasePlayer", "m_flVelocityModifier"), "дробный член - число").toBe(bot.slowdown);
+	if (hasModule("reapi")) check.expect(get_member(bot.id, m_flVelocityModifier), "get_member дробного поля - число").toBe(bot.slowdown);
 }
 
 /** Поля игрока с именами вместо чисел движка: броня, режим наблюдения, оружие. */

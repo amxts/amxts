@@ -1042,7 +1042,7 @@ export class FakeServer {
 	 *
 	 * ```ts
 	 * server.fireHook("takeDamage", [victim.id, 0, attacker.id, 30.0, 2]);
-	 * server.fireHook("flPlayerFallDamage", [player.id], { result: 40 });
+	 * server.fireHook("fallDamage", [player.id], { result: 40 });
 	 * ```
 	 *
 	 * `event` is the name game.addEventListener takes, or reapi's short one

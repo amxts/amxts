@@ -29,7 +29,7 @@ test('a team score written is on the scoreboard at once, the other side kept', a
 	alice.command('game_rules');
 
 	const scores = server.userMessages.filter(m => m.name === 'TeamScore').map(m => m.args.join(' '));
-	// numCtWins = 3, then numTerroristWins = 2: each sends both sides.
+	// ctWins = 3, then terroristWins = 2: each sends both sides.
 	expect(scores).toEqual(['CT 3', 'TERRORIST 4', 'CT 3', 'TERRORIST 2']);
 });
 

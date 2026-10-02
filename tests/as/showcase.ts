@@ -48,7 +48,7 @@ server.addEventListener("disconnected", (event) => {
 });
 
 game.addEventListener("takeDamage", onTakeDamage);
-game.addEventListener("flPlayerFallDamage", onFallDamage, true);
+game.addEventListener("fallDamage", onFallDamage, true);
 game.addEventListener("canPlayerHearPlayer", onHear);
 
 /** Светящийся игрок под защитой: урон блокируется, отвечать ничего не нужно. */
@@ -57,7 +57,7 @@ function onTakeDamage(event: TakeDamageEvent) {
 }
 
 /** Ответ - это то, что вернул обработчик: половина урона, который посчитала игра. */
-function onFallDamage(event: FlPlayerFallDamageEvent) {
+function onFallDamage(event: FallDamageEvent) {
 	return event.result / 2;
 }
 

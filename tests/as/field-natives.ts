@@ -19,7 +19,7 @@ function readAndWrite(player: Player) {
 	const origin = get_entvar<Vector>(player.id, var_origin);
 	console.log(`gravity ${get_entvar(player.id, var_gravity)} ${player.gravity}`);
 	console.log(`origin ${origin.x} ${origin.y} ${origin.z}`);
-	console.log(`team ${get_member<string>(player.id, m_szTeamName)} ${player.teamName}`);
+	console.log(`team ${get_member<string>(player.id, m_szTeamName)}`);
 	console.log(`ammo ${get_member(player.id, m_rgAmmo, 3)}`);
 	console.log(`classname ${get_entvar<string>(player.id, var_classname)}`);
 	console.log(`as a number ${get_entvar(player.id, var_origin)}`);

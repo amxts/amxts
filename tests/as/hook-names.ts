@@ -8,7 +8,7 @@ game.addEventListener("pain", (event) => {
 	console.log(`pain ${event.lastHitGroup}`);
 	if (event.lastHitGroup == "head") event.lastHitGroup = "chest";
 });
-game.addEventListener("hasRestrictItem", (event) => {
+game.addEventListener("itemRestricted", (event) => {
 	console.log(`restrict ${event.item} ${event.restriction}`);
 	return event.item == "awp";
 });

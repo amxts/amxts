@@ -23,14 +23,14 @@ function onRoundEnd(event: RoundEndEvent) {
 
 function run() {
 	const check = new Checks("round-end");
-	const ctWins = game.numCtWins;
+	const ctWins = game.ctWins;
 
 	game.endRound({ winner: "CT", delay: 3, message: "", sound: "", dispatch: true });
 
 	check.expect(game.roundWinner, "roundWinner - победитель").toBe("CT");
-	check.expect(game.roundTerminating, "раунд кончается").toBe(true);
-	check.expect(game.restartRoundTime - game.time, "следующий раунд через delay").toBeCloseTo(3);
-	check.expect(game.numCtWins, "счёт не тронут").toBe(ctWins);
+	check.expect(game.roundEnding, "раунд кончается").toBe(true);
+	check.expect(game.newRoundTime - game.time, "следующий раунд через delay").toBeCloseTo(3);
+	check.expect(game.ctWins, "счёт не тронут").toBe(ctWins);
 
 	check.expect(heard, "обработчик roundEnd услышал конец раунда").toBe(true);
 	check.expect(winner, "event.winner").toBe("CT");

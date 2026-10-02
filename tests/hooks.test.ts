@@ -29,7 +29,7 @@ test('take_damage: damage is a float argument 4, the victim is read only', () =>
 });
 
 test('fall damage returns a float result', () => {
-	expect(classBody('FlPlayerFallDamageEvent')).toContain('get result(): number { return cellFloat(this.__resultCell(ATYPE_FLOAT)); }');
+	expect(classBody('FallDamageEvent')).toContain('get result(): number { return cellFloat(this.__resultCell(ATYPE_FLOAT)); }');
 });
 
 test('start_sound: the sample is a string that can be rewritten', () => {
@@ -77,8 +77,8 @@ test('chains reapi leaves the return type out of answer as ReGameDLL returns', (
 	expect(classBody('RoundEndEvent')).toContain('preventDefault(): void { this.__block(ATYPE_BOOL); }');
 	expect(classBody('ChooseTeamEvent')).toContain('preventDefault(): void { this.__block(ATYPE_INTEGER); }');
 	expect(hooks).toContain('SetHookChainReturn(atype, atype == ATYPE_FLOAT ? floatCell(0.0) : 0);');
-	expect(classBody('TakeHealthEvent')).toContain('get result(): number');
-	expect(classBody('HasRestrictItemEvent')).toContain('get result(): boolean');
+	expect(classBody('HealEvent')).toContain('get result(): number');
+	expect(classBody('ItemRestrictedEvent')).toContain('get result(): boolean');
 });
 
 test('a Pawn enum argument is a union of names, from the include', () => {
@@ -88,20 +88,20 @@ test('a Pawn enum argument is a union of names, from the include', () => {
 	expect(roundEnd).toContain('get delay(): number');
 	expect(classBody('CanSwitchTeamEvent')).toContain('get team(): Team');
 	expect(classBody('ChooseTeamEvent')).toContain('get choice(): TeamChoice');
-	expect(classBody('BuyWeaponByWeaponIdEvent')).toContain('get weapon(): WeaponKind');
+	expect(classBody('BuyWeaponEvent')).toContain('get weapon(): WeaponKind');
 	expect(classBody('AddMoneyEvent')).toContain('get reason(): RewardReason');
-	expect(classBody('HasRestrictItemEvent')).toContain('get restriction(): ItemRestriction');
-	expect(classBody('HasRestrictItemEvent')).toContain('get item(): ItemKind');
+	expect(classBody('ItemRestrictedEvent')).toContain('get restriction(): ItemRestriction');
+	expect(classBody('ItemRestrictedEvent')).toContain('get item(): ItemKind');
 	expect(classBody('PainEvent')).toContain('get lastHitGroup(): HitGroup');
 	expect(classBody('SetAnimationEvent')).toContain('get playerAnim(): PlayerAnimation');
 	expect(classBody('AddResourceEvent')).toContain('get resourceType(): ResourceType');
 	expect(classBody('AddResourceEvent')).toContain('get resourceIndex(): number');
-	expect(classBody('OnEventEvent')).toContain('get gameEvent(): BotEvent');
+	expect(classBody('GameEventEvent')).toContain('get gameEvent(): BotEvent');
 	expect(classBody('ShowVguiMenuEvent')).toContain('get menu(): VguiMenu');
 	expect(classBody('SendDeathMessageEvent')).toContain('get flags(): DeathMessageFlag[]');
 	expect(classBody('SendDeathMessageEvent')).toContain('get rarity(): KillRarity[]');
 	expect(classBody('ThrowGrenadeEvent')).toContain('get velocity(): Vector');
-	expect(classBody('HintMessageExEvent')).toContain('get displayIfHintsOff(): boolean');
+	expect(classBody('HintMessageEvent')).toContain('get displayIfHintsOff(): boolean');
 
 	// The values are the include's: ROUND_TARGET_SAVED is 12, VGUI_Menu_Class_CT 27, t_eventscript 5.
 	expect(hooks).toContain('case 12: return "targetSaved";');
@@ -138,7 +138,7 @@ test('the same function under reapi and Ham Sandwich is one event: reapi for its
 	// A weapon chain's own class is every weapon: a class narrows it to Ham Sandwich, and without reapi it hooks every weapon's.
 	expect(hooks).toContain('if ((classname.length > 0) || !__hasReapi()) { canDeployHams.listen(classname.length > 0 ? classname : EVERY_WEAPON, post, canDeployFire).push(entry); return; }');
 	// A chain of ReGameDLL's own that nothing on plain HLDS hears says so there, once, and is not added.
-	expect(hooks).toContain('if (!__hasReapi()) { __sayOnce("flPlayerFallDamage needs ReAPI, which this server does not have: its listeners are never called"); return; }');
+	expect(hooks).toContain('if (!__hasReapi()) { __sayOnce("fallDamage needs ReAPI, which this server does not have: its listeners are never called"); return; }');
 	// One a stock hook hears goes to its backend (as/hlds.ts), registered on the first listener.
 	expect(hooks).toContain('if (!roundEndHldsHooked) { roundEndHldsHooked = true; roundEndHlds(roundEndFireHlds); }');
 	expect(hooks).toContain('if (post && !newRoundPostHldsHooked) { newRoundPostHldsHooked = true; newRoundPostHlds(newRoundFireHlds); }');

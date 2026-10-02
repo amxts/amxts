@@ -50,7 +50,7 @@ test.each([
 	['hideHud', 'm_iHideHUD', 'HideHud[]'],
 	['flags', 'var_flags', 'EntityFlag[]'],
 	['nightVisionOn', 'm_bNightVisionOn', 'boolean'],
-	['velocityModifier', 'm_flVelocityModifier', 'number'],
+	['slowdown', 'm_flVelocityModifier', 'number'],
 ])('%s is %s as %s', (name: string, reapi: string, type: string) => {
 	expect(reapiOf(name)).toBe(reapi);
 	expect(typeOf(name)).toBe(type);
@@ -105,14 +105,14 @@ test('pointers are objects: activeItem is a Weapon, a weapon knows its player', 
 });
 
 test('the game rules name what they hold: the bomb carrier is a Player, the VIP zone a name', () => {
-	expect(source).toMatch(/\tget c4Guy\(\): Player \| null \{/);
+	expect(source).toMatch(/\tget bomber\(\): Player \| null \{/);
 	expect(source).toMatch(/\tget mapHasVipSafetyZone\(\): VipSafetyZone \{/);
 	expect(source).toMatch(/export type VipSafetyZone =\n\t\| "notChecked"\n\t\| "yes"\n\t\| "no"\n\t\| "unknown";/);
 });
 
 test('an action answers what the game\'s function answers', () => {
-	expect(source).toMatch(/\taddPlayerItem\(item: Weapon, options: ActionOptions = \{\}\): bool \{/);
-	expect(source).toMatch(/\tremovePlayerItem\(item: Weapon, options: ActionOptions = \{\}\): bool \{/);
+	expect(source).toMatch(/\taddItem\(item: Weapon, options: ActionOptions = \{\}\): bool \{/);
+	expect(source).toMatch(/\tremoveItem\(item: Weapon, options: ActionOptions = \{\}\): bool \{/);
 	// CBasePlayerItem::Holster is void: nothing comes back to read.
 	expect(weaponSource()).toMatch(/\tholster\(options: ActionOptions = \{\}\): void \{/);
 });
@@ -145,7 +145,7 @@ function docOf(name: string) {
 test('a field\'s tooltip says what it is, then the engine name on its last line', () => {
 	expect(docOf('gravity')).toMatch(/0\.5[\s\S]*\n\nPawn: `pev->gravity`\n$/);
 	expect(docOf('iuser4')).toMatch(/\n\nPawn: `pev->iuser4`\n$/);
-	expect(docOf('velocityModifier')).toMatch(/\n\nPawn: `CBasePlayer::m_flVelocityModifier`\n$/);
+	expect(docOf('slowdown')).toMatch(/\n\nPawn: `CBasePlayer::m_flVelocityModifier`\n$/);
 	expect(docOf('clip')).toContain('\n\nPawn: `CBasePlayerWeapon::m_iClip` (reapi `m_Weapon_iClip`)');
 	// An entry whose numbers are an engine constant family names it after the field.
 	expect(docOf('renderMode')).toMatch(/\n\nPawn: `pev->rendermode`, `kRender\*`\n$/);
@@ -165,8 +165,8 @@ test('a field is read where the game keeps it, not through reapi\'s natives', ()
 	expect(source).not.toContain('NATIVE_get_member)');
 	expect(source).toContain('\tget gravity(): number { return cellFloat(entvarCell(this.id, 284)); }');
 	// The game rules are read in memory too, through reapi only where the gamedata cannot find them.
-	expect(source).toMatch(/\tget numCtWins\(\): number \{ return gameCell\(\d+, m_iNumCTWins\); \}/);
+	expect(source).toMatch(/\tget ctWins\(\): number \{ return gameCell\(\d+, m_iNumCTWins\); \}/);
 	// ReGameDLL's own member is reapi's; without it, what the server has instead (as/hlds.ts), or nothing, said once.
-	expect(source).toContain('\tget gameDesc(): string { return reapiGameText(m_GameDesc, "gameDesc", gameDescHlds); }');
+	expect(source).toContain('\tget gameName(): string { return reapiGameText(m_GameDesc, "gameName", gameNameHlds); }');
 	expect(source).toContain('\tget teamBalanced(): boolean { return reapiGameCell(m_bTeamBalanced, "teamBalanced") != 0; }');
 });

@@ -21,11 +21,11 @@ function afterDamage(event: TakeDamageEvent) {
 }
 
 function rules(player: Player) {
-	const before = `${game.freezePeriod} ${game.numCtWins} ${game.roundWinner}`;
-	game.freezePeriod = false;
-	game.numCtWins = 3;
-	game.numTerroristWins = 2;
+	const before = `${game.isFreezeTime} ${game.ctWins} ${game.roundWinner}`;
+	game.isFreezeTime = false;
+	game.ctWins = 3;
+	game.terroristWins = 2;
 	game.roundWinner = "TERRORIST";
-	game.restartRoundTime = 12.5;
-	print(player, `${before} -> ${game.freezePeriod} ${game.numCtWins} ${game.numTerroristWins} ${game.roundWinner} ${game.restartRoundTime}`, "console");
+	game.newRoundTime = 12.5;
+	print(player, `${before} -> ${game.isFreezeTime} ${game.ctWins} ${game.terroristWins} ${game.roundWinner} ${game.newRoundTime}`, "console");
 }

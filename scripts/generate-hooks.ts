@@ -759,7 +759,75 @@ const EVENT_NAMES: Record<string, string> = {
 	add_account: 'addMoney',
 	restart_round: 'newRound',
 	on_round_freeze_end: 'roundStart',
+	has_restrict_item: 'itemRestricted',
+	clean_up_map: 'mapReset',
+	// Hungarian prefixes of the game rules' questions: fl a float, f a BOOL.
+	fl_player_fall_damage: 'fallDamage',
+	f_player_can_take_damage: 'canTakeDamage',
+	f_player_can_respawn: 'canRespawn',
+	f_should_switch_weapon: 'shouldSwitchWeapon',
+	buy_weapon_by_weapon_id: 'buyWeapon',
+	buy_gun_ammo: 'buyAmmo',
+	give_named_item: 'giveItem',
+	give_c4: 'giveBomb',
+	make_bomber: 'becomeBomber',
+	make_vip: 'becomeVip',
+	go_to_intermission: 'intermission',
+	// ReHLDS's internal functions end in I; the file kinds are the author's words.
+	precache_generic_i: 'precacheFile',
+	precache_model_i: 'precacheModel',
+	precache_sound_i: 'precacheSound',
+	ent_select_spawn_point: 'selectSpawnPoint',
+	get_player_spawn_spot: 'spawnSpot',
+	execute_server_string_cmd: 'serverCommand',
+	client_printf: 'consoleMessage',
+	send_say_message: 'chatMessage',
+	hint_message_ex: 'hintMessage',
+	drop_client: 'disconnectClient',
+	set_client_user_info_name: 'changeName',
+	set_client_user_info_model: 'changeModel',
+	client_user_info_changed: 'userInfoChange',
+	add_points: 'addFrags',
+	add_points_to_team: 'addTeamScore',
+	take_health: 'heal',
+	add_player_item: 'addItem',
+	remove_player_item: 'removeItem',
+	can_have_player_item: 'canHaveItem',
+	dead_player_weapons: 'dropWeaponsOnDeath',
+	kick_back: 'recoil',
+	is_penetrable_entity: 'canShootThrough',
+	start_observer: 'startSpectating',
+	observer_find_next_player: 'spectateNext',
+	observer_is_valid_target: 'canSpectate',
+	impulse_commands: 'impulse',
+	on_spawn_equip: 'spawnEquip',
+	on_event: 'gameEvent',
+	// The player's movement code (pm_shared): pm is the engine's prefix.
+	pm_duck: 'duckMovement',
+	pm_jump: 'jumpMovement',
 };
+
+// Chains of the engine's own bookkeeping, and Ham Sandwich functions the
+// game leaves empty or keeps for debugging: not game events a plugin
+// listens for. RegisterHookChain and RegisterHam (`@amxts/core/natives`)
+// still reach them.
+const HIDDEN_EVENTS = new Set([
+	'alloc',
+	'free',
+	'directSet',
+	'emitPings',
+	'objectCaps',
+	'getEntityInit',
+	'allowPhysent',
+	'writeFullClientUpdate',
+	'sendResources',
+	'reportAiState',
+	'useDecrement',
+	'addDuplicate',
+	'overrideReset',
+	'onControls',
+	'updateOwner',
+]);
 
 const hamOf = new Map(HAM_FUNCTIONS.filter(f => f.reapi).map(f => [f.reapi!, f]));
 
@@ -821,6 +889,7 @@ for (const [hook, id] of [...idOfName].sort((a, b) => a[0].localeCompare(b[0])))
 	}
 
 	const camel = EVENT_NAMES[hook] ?? camelOfHook(hook);
+	if (HIDDEN_EVENTS.has(camel)) continue;
 	const ham = hamOf.get(camel);
 	const paramsLine = line(comment, 'Params');
 	const spec: EventSpec = {
@@ -848,7 +917,7 @@ for (const [hook, id] of [...idOfName].sort((a, b) => a[0].localeCompare(b[0])))
 }
 
 const taken = new Set(specs.map(spec => spec.camel));
-for (const f of HAM_FUNCTIONS.filter(row => !row.reapi)) {
+for (const f of HAM_FUNCTIONS.filter(row => !row.reapi && !HIDDEN_EVENTS.has(row.event))) {
 	if (taken.has(f.event)) throw new Error(`${f.ham}: the event ${f.event} is another function's - name it for its own action`);
 	const ours = GAME[f.event];
 	specs.push({
@@ -863,7 +932,7 @@ for (const f of HAM_FUNCTIONS.filter(row => !row.reapi)) {
 		extra: [],
 	});
 }
-const orphan = HAM_FUNCTIONS.find(f => f.reapi && !specs.some(spec => spec.hook && spec.camel === f.reapi));
+const orphan = HAM_FUNCTIONS.find(f => f.reapi && !HIDDEN_EVENTS.has(f.reapi) && !specs.some(spec => spec.hook && spec.camel === f.reapi));
 if (orphan) throw new Error(`${orphan.ham}: no reapi event named ${orphan.reapi}`);
 
 const classes: string[] = [];

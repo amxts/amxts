@@ -33,7 +33,7 @@ test('a field native reads and writes a field as what it holds', async () => {
 
 	expect(server.log).toContain('gravity 0.5 0.5');
 	expect(server.log).toContain('origin 10 20 30.5');
-	expect(server.log).toContain('team CT CT');
+	expect(server.log).toContain('team CT');
 	expect(server.log).toContain('ammo 42');
 	expect(server.log).toContain('classname player');
 	// A vector read as a number is nothing, and the console says what to write.

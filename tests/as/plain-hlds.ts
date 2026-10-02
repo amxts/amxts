@@ -16,7 +16,7 @@ game.addEventListener("jump", event => console.log(`jump ${event.player.id}`));
 game.addEventListener("canDeploy", event => console.log(`can deploy ${event.weapon.id}`));
 game.addEventListener("roundEnd", onRoundEnd);
 game.addEventListener("roundEnd", onRoundEnd, true);
-game.addEventListener("flPlayerFallDamage", event => event.result / 2, true);
+game.addEventListener("fallDamage", event => event.result / 2, true);
 
 function onRoundEnd(event: RoundEndEvent) {
 	console.log(`round ${event.winner} ${event.reason} ${event.delay}`);
@@ -24,7 +24,7 @@ function onRoundEnd(event: RoundEndEvent) {
 
 game.addEventListener("newRound", () => console.log("new round"));
 game.addEventListener("newRound", () => console.log("new round, respawned"), true);
-game.addEventListener("cleanUpMap", () => console.log("map cleaned up"));
+game.addEventListener("mapReset", () => console.log("map cleaned up"));
 game.addEventListener("playerSpawn", event => console.log(`spawned ${event.player.id}`));
 game.addEventListener("addMoney", event => console.log(`money ${event.player.id} ${event.amount}`));
 game.addEventListener("defuseBombEnd", event => console.log(`defused ${event.player.id} ${event.defused}`));
@@ -33,7 +33,7 @@ game.addEventListener("defuseBombEnd", event => console.log(`defused ${event.pla
 game.addEventListener("chooseTeam", (event) => {
 	if (event.choice == "SPECTATOR") event.preventDefault();
 });
-game.addEventListener("hasRestrictItem", event => event.item == "awp");
+game.addEventListener("itemRestricted", event => event.item == "awp");
 
 // Asked of a stock hook that hears the game after it acted: one line, once.
 game.addEventListener("playerSpawn", event => event.preventDefault());
@@ -41,18 +41,18 @@ game.addEventListener("playerSpawn", event => event.preventDefault());
 server.addCommand("/fields", ({ player }) => {
 	player.money = 1234;
 	player.gravity = 0.5;
-	player.teamName = "amxts";
-	console.log(`fields ${player.money} ${player.gravity} ${player.teamName} ${player.origin.z}`);
+	player.autoBuyString = "amxts";
+	console.log(`fields ${player.money} ${player.gravity} ${player.autoBuyString} ${player.origin.z}`);
 });
 
 server.addServerCommand("scores", () => {
-	game.numCtWins = 3;
-	console.log(`scores ${game.numCtWins} ${game.numTerroristWins}`);
+	game.ctWins = 3;
+	console.log(`scores ${game.ctWins} ${game.terroristWins}`);
 });
 
 server.addServerCommand("end", () => {
 	game.endRound({ winner: "TERRORIST", delay: 3 });
-	console.log(`ended ${game.roundWinner} ${game.roundTerminating}`);
+	console.log(`ended ${game.roundWinner} ${game.roundEnding}`);
 });
 
 server.addServerCommand("end_at_start", () => {
@@ -64,6 +64,6 @@ server.addServerCommand("end_told", () => {
 });
 
 server.addServerCommand("time_limit", () => {
-	console.log(`time limit ${game.timeLimit} ${game.gameStartTime} ${game.gameDesc} ${game.maxPlayers}`);
+	console.log(`time limit ${game.timeLimit} ${game.gameStartTime} ${game.gameName} ${game.maxPlayers}`);
 	game.timeLimit = 600;
 });

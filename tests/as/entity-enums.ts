@@ -18,14 +18,14 @@ function write(player: Player) {
 	player.observerMode = "inEye";
 	player.observerLastMode = "chaseFree";
 	player.bloodColor = "none";
-	player.menu = "buyRifle";
+	player.openMenu = "buyRifle";
 	player.modelName = "gign";
 	player.ignoreGlobalChat = "all";
 }
 
 function read(player: Player) {
 	console.log(`read ${player.renderMode} ${player.renderFx} ${player.moveType} ${player.solid} ${player.takeDamage} ${player.deadFlag}`);
-	console.log(`read ${player.waterType} ${player.waterLevel} ${player.kevlar} ${player.observerMode} ${player.observerLastMode} ${player.bloodColor} ${player.menu} ${player.modelName} ${player.ignoreGlobalChat}`);
+	console.log(`read ${player.waterType} ${player.waterLevel} ${player.kevlar} ${player.observerMode} ${player.observerLastMode} ${player.bloodColor} ${player.openMenu} ${player.modelName} ${player.ignoreGlobalChat}`);
 }
 
 function writeUnknown(player: Player) {

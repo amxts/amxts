@@ -3196,7 +3196,7 @@ export const server = new Server();
  *   if (event.player.isBot) event.preventDefault();
  * });
  * game.addEventListener("canPlayerHearPlayer", (event) => event.listener.team == event.sender.team);
- * game.addEventListener("flPlayerFallDamage", (event) => event.result / 2, true);
+ * game.addEventListener("fallDamage", (event) => event.result / 2, true);
  * ```
  *
  * The event's type follows from its name. What a listener returns is the
@@ -3205,7 +3205,7 @@ export const server = new Server();
  * nothing leaves it to the game; `event.preventDefault()` blocks without an
  * answer. A value of the wrong type is an error in the editor and in the build.
  *
- * The game rules are its fields: `game.freezePeriod`, `game.numCtWins`,
+ * The game rules are its fields: `game.isFreezeTime`, `game.ctWins`,
  * `game.roundWinner`.
  *
  * Pawn: `RegisterHookChain`, `RegisterHam`, `get_member_game`
@@ -3287,8 +3287,8 @@ export class Game extends GameFields {
 		// round marked as ending, so the game does not end it again meanwhile;
 		// then the message and the sound.
 		this.roundWinner = options.winner;
-		this.roundTerminating = true;
-		this.restartRoundTime = this.time + delay;
+		this.roundEnding = true;
+		this.newRoundTime = this.time + delay;
 		const text = message == "default" ? ROUND_MESSAGES[status] : message;
 		const radio = sound == "default" ? ROUND_SOUNDS[status] : sound;
 		if (!(options.dispatch ?? false)) {
@@ -3314,7 +3314,7 @@ export class Game extends GameFields {
 			ewrite_short(100);
 			emessage_end();
 		}
-		const score = `(CT "${this.numCtWins}") (T "${this.numTerroristWins}")`;
+		const score = `(CT "${this.ctWins}") (T "${this.terroristWins}")`;
 		if (status == 3) elog_message(`World triggered "Round_Draw" ${score}`);
 		else if (status > 0) elog_message(`Team "${status == 1 ? "CT" : "TERRORIST"}" triggered "${status == 1 ? "CTs_Win" : "Terrorists_Win"}" ${score}`);
 		elog_message(`World triggered "Round_End"`);
@@ -3344,7 +3344,7 @@ export interface GameListenerOptions {
  */
 export type UseType = "off" | "on" | "set" | "toggle";
 
-/** The options of an entity's action such as `weapon.deploy()` or `entity.takeHealth(...)`. */
+/** The options of an entity's action such as `weapon.deploy()` or `entity.heal(...)`. */
 export interface ActionOptions {
 	/**
 	 * Whether the game's listeners run too - this plugin's and every other's,
@@ -3491,7 +3491,7 @@ export { Entity, Weapon, WeaponKind, weaponKindOf } from "./entities";
 // The names an enum field takes and gives: `entity.renderMode = "additive"`.
 export {
 	RenderMode, RenderFx, MoveType, Solid, TakeDamage, DeadFlag, WaterLevel, Contents, FixAngle, HitGroup,
-	ArmorType, ObserverMode, JoinState, GameMenu, PlayerModel, IgnoredChat, ThrowDirection, BloodColor, MonsterState, MusicState
+	ArmorType, ObserverMode, JoinState, GameMenu, PlayerModel, IgnoredChat, ThrowDirection, BloodColor, MusicState
 } from "./entities";
 import {
 	NATIVE_server_cmd, NATIVE_client_cmd, NATIVE_CreateMultiForward, NATIVE_ExecuteForward, get_gametime, get_mapname,

@@ -16,8 +16,8 @@
 // unit or range and typical values; no engine names outside the Pawn line. Angles are degrees, speeds units per second, a "game time"
 // is get_gametime() seconds. Where the game itself keeps a field up to date,
 // the entry says so - writing it is then undone on the next frame. Keyed by
-// the reapi name: `timeWeaponIdle` is a player's and a weapon's field, and
-// the reapi names tell them apart.
+// the reapi name: m_flTimeWeaponIdle and m_Weapon_flTimeWeaponIdle are a
+// player's and a weapon's, and the reapi names tell them apart.
 //
 // Sources: HLSDK progdefs.h (entvars_t), ReHLDS sv_user.cpp and sv_phys.cpp
 // (what the engine does with them), ReGameDLL player.h, weapons.h, cbase.h
@@ -385,7 +385,6 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		en: `The player's remaining jump out of water, in milliseconds.`,
 		ru: `Остаток прыжка игрока из воды, в миллисекундах.`,
 	},
-	var_armortype: unused(`The Half-Life armour type.`, `Тип брони Half-Life.`),
 	var_armorvalue: {
 		en: `The entity's armour points, \`0\` to \`100\` in a normal game. The kind of armour is in \`kevlar\`.`,
 		ru: `Очки брони сущности, от \`0\` до \`100\` в обычной игре. Вид брони — в \`kevlar\`.`,
@@ -643,30 +642,6 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 	},
 
 	// CBaseMonster: a player is a monster to the game, so these are his too.
-	m_Activity: {
-		en: `
-			The model's current activity (idle, run, walk, ...); the game sets it with the player's animation.
-
-			Pawn: \`ACT_*\`
-		`,
-		ru: `
-			Текущее действие модели (стоит, бежит, идёт, ...); игра ставит его вместе с анимацией игрока.
-
-			Pawn: \`ACT_*\`
-		`,
-	},
-	m_IdealActivity: {
-		en: `
-			The model's next activity, the one it should switch to.
-
-			Pawn: \`ACT_*\`
-		`,
-		ru: `
-			Следующее действие модели — на которое она должна переключиться.
-
-			Pawn: \`ACT_*\`
-		`,
-	},
 	m_LastHitGroup: {
 		en: `
 			The body part the last bullet hit, one of: \`"generic"\` - no particular part; \`"head"\`, \`"chest"\`, \`"stomach"\`, \`"leftArm"\`, \`"rightArm"\`, \`"leftLeg"\`, \`"rightLeg"\`; \`"shield"\`.
@@ -683,29 +658,9 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		en: `The kinds of damage the player took since the HUD was last told, e.g. \`"Fall"\`, \`"Bullet"\`, \`"Burn"\`; the game clears all but the lasting ones after the damage indicator is sent.`,
 		ru: `Виды урона, полученного игроком с последнего обновления HUD, например \`"Fall"\`, \`"Bullet"\`, \`"Burn"\`; отправив индикатор урона, игра оставляет только длительные.`,
 	},
-	m_MonsterState: {
-		en: `A monster's (a hostage's) AI state, one of: \`"none"\`, \`"idle"\`, \`"combat"\`, \`"alert"\`, \`"hunt"\`, \`"prone"\`, \`"script"\`, \`"playDead"\`, \`"dead"\`.`,
-		ru: `Состояние ИИ монстра (заложника), одно из: \`"none"\`, \`"idle"\`, \`"combat"\`, \`"alert"\`, \`"hunt"\`, \`"prone"\`, \`"script"\`, \`"playDead"\`, \`"dead"\`.`,
-	},
-	m_IdealMonsterState: {
-		en: `The AI state a monster (a hostage) should move to - the names \`monsterState\` has.`,
-		ru: `Состояние ИИ, в которое монстр (заложник) должен перейти, — те же имена, что у \`monsterState\`.`,
-	},
-	m_afConditions: {
-		en: `A monster's AI conditions this think, as bits: sees an enemy, is hurt, hears a sound.`,
-		ru: `Условия ИИ монстра в этом think, битами: видит врага, ранен, слышит звук.`,
-	},
-	m_afMemory: {
-		en: `A monster's AI memory, as bits kept between thinks.`,
-		ru: `Память ИИ монстра — биты, которые хранятся между think.`,
-	},
 	m_flNextAttack: {
 		en: `The player's delay before any weapon can be used, in seconds; it counts down to \`0\` by itself. The game sets it while he switches weapons or reloads.`,
 		ru: `Задержка игрока до использования любого оружия, в секундах; сама отсчитывается до \`0\`. Игра ставит её при смене оружия и перезарядке.`,
-	},
-	m_hTargetEnt: {
-		en: `A monster's target: the entity it moves to or follows, like the player a hostage follows.`,
-		ru: `Цель монстра: сущность, к которой он идёт или за которой следует, — например, игрок, за которым идёт заложник.`,
 	},
 	m_flFieldOfView: {
 		en: `A monster's field of view, as the cosine of half the cone: \`0.5\` sees 120 degrees wide.`,
@@ -722,14 +677,6 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 
 			Pawn: \`BLOOD_COLOR_*\`, \`DONT_BLEED\`
 		`,
-	},
-	m_HackedGunPos: {
-		en: `The position of a monster's gun relative to its \`origin\`, where its shots come from.`,
-		ru: `Положение оружия монстра относительно \`origin\` — откуда он стреляет.`,
-	},
-	m_vecEnemyLKP: {
-		en: `The position where a monster last saw its enemy.`,
-		ru: `Место, где монстр последний раз видел врага.`,
 	},
 
 	// CBasePlayer.
@@ -994,10 +941,6 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		en: `The status bar text the game last sent the player - the line that names whom he aims at, as a format his client fills in.`,
 		ru: `Текст строки состояния, который игра последним отправила игроку, — строка о том, в кого он целится, в виде формата, который заполняет его клиент.`,
 	},
-	m_szTeamName: {
-		en: `A team name the game keeps for Half-Life's team play; Counter-Strike leaves it empty. The player's team is \`player.team\`.`,
-		ru: `Имя команды, которое игра держит для командной игры Half-Life; Counter-Strike оставляет его пустым. Команда игрока — \`player.team\`.`,
-	},
 	m_szAnimExtention: {
 		en: `The animation set the player's model holds his weapon with, e.g. \`"knife"\`, \`"rifle"\`, \`"c4"\`.`,
 		ru: `Набор анимаций, с которым модель игрока держит оружие, например \`"knife"\`, \`"rifle"\`, \`"c4"\`.`,
@@ -1160,8 +1103,8 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		ru: `Игровое время, когда команда kill снова сработает для игрока, — через секунду после прошлой.`,
 	},
 	m_flTimeWeaponIdle: {
-		en: `The player's idle timer from Half-Life; CS keeps it on the weapon (a Weapon's \`timeWeaponIdle\`) and does not use this one.`,
-		ru: `Таймер покоя игрока из Half-Life; CS держит его у оружия (\`timeWeaponIdle\` у Weapon), а этот не использует.`,
+		en: `The player's idle timer from Half-Life; CS keeps it on the weapon (a Weapon's \`nextIdle\`) and does not use this one.`,
+		ru: `Таймер покоя игрока из Half-Life; CS держит его у оружия (\`nextIdle\` у Weapon), а этот не использует.`,
 	},
 	m_flWallJumpTime: unused(`The player's wall-jump timer from Half-Life.`, `Таймер прыжка от стены у игрока из Half-Life.`),
 	m_flSuitUpdate: {
@@ -1553,10 +1496,6 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		en: `The weapon's current inaccuracy: it grows as it fires and settles back; each weapon has its own range (\`0.2\` for a fresh AK-47).`,
 		ru: `Текущий разброс оружия: растёт при стрельбе и возвращается; у каждого оружия свои пределы (\`0.2\` у свежего AK-47).`,
 	},
-	m_Weapon_flLastFire: {
-		en: `The game time of a pistol's last shot, for its accuracy.`,
-		ru: `Игровое время последнего выстрела пистолета — для его точности.`,
-	},
 	m_Weapon_iShotsFired: {
 		en: `The shots in the weapon's current burst; the recoil grows with it, and it drops back once the player stops firing.`,
 		ru: `Выстрелы в текущей очереди оружия; с ними растёт отдача, и счёт сбрасывается, когда игрок перестаёт стрелять.`,
@@ -1601,14 +1540,6 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		en: `The game time when \`shotsFired\` next goes down by one after the player stops firing.`,
 		ru: `Игровое время, когда \`shotsFired\` уменьшится на единицу после того, как игрок перестал стрелять.`,
 	},
-	m_Weapon_usFireGlock18: {
-		en: `The Glock's firing event (precached).`,
-		ru: `Событие выстрела Glock (подгруженное).`,
-	},
-	m_Weapon_usFireFamas: {
-		en: `The FAMAS's firing event (precached).`,
-		ru: `Событие выстрела FAMAS (подгруженное).`,
-	},
 	m_Weapon_flPrevPrimaryAttack: {
 		en: `The delay between the weapon's last two shots, in seconds; the game uses it to keep the fire rate even.`,
 		ru: `Задержка между двумя последними выстрелами оружия, в секундах; по ней игра выравнивает темп стрельбы.`,
@@ -1629,14 +1560,6 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 	m_GameDesc: {
 		en: `The game's name in the server browser, e.g. \`"Counter-Strike"\`.`,
 		ru: `Название игры в браузере серверов, например \`"Counter-Strike"\`.`,
-	},
-	m_msgPlayerVoiceMask: {
-		en: `The number of the user message that tells a player whose voice he hears.`,
-		ru: `Номер пользовательского сообщения, которое говорит игроку, чей голос он слышит.`,
-	},
-	m_msgRequestState: {
-		en: `The number of the user message that asks a player's game for its voice settings.`,
-		ru: `Номер пользовательского сообщения, которое спрашивает у игры игрока её голосовые настройки.`,
 	},
 	m_nMaxPlayers: {
 		en: `The number of player slots, as the game's voice code counts them.`,
@@ -1926,26 +1849,6 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		en: `\`true\` once the game has begun: both sides have had players. Until then a round ends with “Game Commencing”.`,
 		ru: `\`true\`, когда игра началась: на обеих сторонах были игроки. До этого раунд кончается надписью «Game Commencing».`,
 	},
-	m_bInCareerGame: {
-		en: `\`true\` in a Condition Zero career game.`,
-		ru: `\`true\` в карьере Condition Zero.`,
-	},
-	m_fCareerRoundMenuTime: {
-		en: `The game time the Condition Zero career's menu after a round shows.`,
-		ru: `Игровое время, когда в карьере Condition Zero появится меню после раунда.`,
-	},
-	m_iCareerMatchWins: {
-		en: `The number of rounds to win a Condition Zero career match.`,
-		ru: `Число раундов для победы в матче карьеры Condition Zero.`,
-	},
-	m_iRoundWinDifference: {
-		en: `The lead in rounds a Condition Zero career match needs to be won.`,
-		ru: `Перевес в раундах, нужный для победы в матче карьеры Condition Zero.`,
-	},
-	m_fCareerMatchMenuTime: {
-		en: `The game time the Condition Zero career's menu after a match shows.`,
-		ru: `Игровое время, когда в карьере Condition Zero появится меню после матча.`,
-	},
 	m_bSkipSpawn: {
 		en: `\`true\` when the next round starts without respawning the players.`,
 		ru: `\`true\`, если следующий раунд начнётся, не возрождая игроков.`,
@@ -2033,8 +1936,8 @@ export const ENTITY_TYPES: Record<string, Text> = {
 		ru: `Стадия входа игрока в игру — \`player.joiningState\`.`,
 	},
 	GameMenu: {
-		en: `An old-style menu of the game - \`player.menu\`.`,
-		ru: `Старое меню игры — \`player.menu\`.`,
+		en: `An old-style menu of the game - \`player.openMenu\`.`,
+		ru: `Старое меню игры — \`player.openMenu\`.`,
 	},
 	ThrowDirection: {
 		en: `The way a dead player's body is thrown - \`player.throwDirection\`.`,
@@ -2043,10 +1946,6 @@ export const ENTITY_TYPES: Record<string, Text> = {
 	BloodColor: {
 		en: `The colour of an entity's blood - \`player.bloodColor\`.`,
 		ru: `Цвет крови сущности — \`player.bloodColor\`.`,
-	},
-	MonsterState: {
-		en: `A monster's (a hostage's) AI state - \`monsterState\`, \`idealMonsterState\`.`,
-		ru: `Состояние ИИ монстра (заложника) — \`monsterState\`, \`idealMonsterState\`.`,
 	},
 	PlayerModel: {
 		en: `A player's model - \`player.modelName\`.`,
@@ -2118,7 +2017,7 @@ Pawn: \`ExecuteHamB(Ham_Activate, ...)\`, \`ExecuteHam\``,
 Pawn: \`ExecuteHamB(Ham_Activate, ...)\`, \`ExecuteHam\``,
 	},
 
-	'Entity.takeHealth': {
+	'Entity.heal': {
 		en: `Heals the entity as the game does, up to its maximum: \`true\` when it took any.
 
 Pawn: \`ExecuteHamB(Ham_TakeHealth, ...)\`, \`ExecuteHam\``,
@@ -2166,7 +2065,7 @@ Pawn: \`ExecuteHamB(Ham_CS_Restart, ...)\`, \`ExecuteHam\``,
 
 Pawn: \`ExecuteHamB(Ham_CS_Restart, ...)\`, \`ExecuteHam\``,
 	},
-	'Player.addPoints': {
+	'Player.addFrags': {
 		en: `Adds points to the player's score, as a kill does; \`allowNegative\` lets the score go below \`0\`.
 
 Pawn: \`ExecuteHamB(Ham_AddPoints, ...)\`, \`ExecuteHam\``,
@@ -2174,7 +2073,7 @@ Pawn: \`ExecuteHamB(Ham_AddPoints, ...)\`, \`ExecuteHam\``,
 
 Pawn: \`ExecuteHamB(Ham_AddPoints, ...)\`, \`ExecuteHam\``,
 	},
-	'Player.addPointsToTeam': {
+	'Player.addTeamScore': {
 		en: `Adds points to the scores of the player's team, as the game does for an objective.
 
 Pawn: \`ExecuteHamB(Ham_AddPointsToTeam, ...)\`, \`ExecuteHam\``,
@@ -2182,7 +2081,7 @@ Pawn: \`ExecuteHamB(Ham_AddPointsToTeam, ...)\`, \`ExecuteHam\``,
 
 Pawn: \`ExecuteHamB(Ham_AddPointsToTeam, ...)\`, \`ExecuteHam\``,
 	},
-	'Player.addPlayerItem': {
+	'Player.addItem': {
 		en: `Puts a weapon entity into the player's inventory; \`true\` when it went in. To give a weapon by name, \`player.give\`.
 
 Pawn: \`ExecuteHamB(Ham_AddPlayerItem, ...)\`, \`ExecuteHam\``,
@@ -2190,7 +2089,7 @@ Pawn: \`ExecuteHamB(Ham_AddPlayerItem, ...)\`, \`ExecuteHam\``,
 
 Pawn: \`ExecuteHamB(Ham_AddPlayerItem, ...)\`, \`ExecuteHam\``,
 	},
-	'Player.removePlayerItem': {
+	'Player.removeItem': {
 		en: `Takes a weapon entity out of the player's inventory, leaving the entity; \`true\` when it was there.
 
 Pawn: \`ExecuteHamB(Ham_RemovePlayerItem, ...)\`, \`ExecuteHam\``,

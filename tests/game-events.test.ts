@@ -39,7 +39,7 @@ test('a fall hurts half as much: the post listener returns the new answer', asyn
 	const server = await loadPlugin('tests/as/showcase.ts');
 	const player = server.join('Alice');
 
-	const fall = server.fireHook('flPlayerFallDamage', [player.id], { result: 40.0 });
+	const fall = server.fireHook('fallDamage', [player.id], { result: 40.0 });
 
 	expect(fall.prevented).toBe(false);
 	expect(fall.result).toBe(20);
@@ -107,12 +107,12 @@ describe('enum and flag arguments are names', () => {
 		expect(pained.args[1]).toBe(2);
 	});
 
-	test('hasRestrictItem: the item by its kind', async () => {
+	test('itemRestricted: the item by its kind', async () => {
 		const server = await loadPlugin('tests/as/hook-names.ts');
 		const player = server.join('Alice');
 
-		expect(server.fireHook('hasRestrictItem', [player.id, 18, 0], { result: false }).result).toBe(true);
-		expect(server.fireHook('hasRestrictItem', [player.id, 32, 0], { result: false }).result).toBe(false);
+		expect(server.fireHook('itemRestricted', [player.id, 18, 0], { result: false }).result).toBe(true);
+		expect(server.fireHook('itemRestricted', [player.id, 32, 0], { result: false }).result).toBe(false);
 		expect(server.log).toContain('restrict awp buying');
 		expect(server.log).toContain('restrict defusekit buying');
 	});
