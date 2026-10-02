@@ -873,7 +873,8 @@ export default {
 			Joins a side the way the game joins a player who picks it in the team
 			menu, appearance picked for him: \`player.joinTeam("CT")\`. A player who
 			has just arrived is in the game after it and can spawn, which
-			\`player.team = ...\` does not do for him. \`false\` if the game refused.
+			\`player.team = ...\` does not do for him. A living player sent to the
+			spectators dies quietly: no death, no frag. \`false\` if the game refused.
 
 			Pawn: \`rg_join_team\`
 		`,
@@ -881,7 +882,8 @@ export default {
 			Вводит игрока в сторону так, как игра вводит того, кто выбрал её в меню
 			команд, а внешность выбирается за него: \`player.joinTeam("CT")\`. Только
 			что пришедший игрок после этого в игре и может появиться, чего
-			\`player.team = ...\` для него не делает. \`false\`, если игра отказала.
+			\`player.team = ...\` для него не делает. Живой игрок, отправленный в
+			зрители, тихо умирает: без смерти и без фрага. \`false\`, если игра отказала.
 
 			Pawn: \`rg_join_team\`
 		`,

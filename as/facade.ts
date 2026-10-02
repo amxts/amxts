@@ -1250,8 +1250,8 @@ export interface KillOptions {
 
 // ---------------------------------------------------------------- bots
 
-import { dllfunc, engfunc, global_get } from "./natives";
-import { DLLFunc_ClientConnect, DLLFunc_ClientPutInServer, EngFunc_CreateFakeClient, EngFunc_RunPlayerMove, glb_frametime } from "./constants";
+import { dllfunc, engfunc, global_get, set_pev } from "./natives";
+import { DLLFunc_ClientConnect, DLLFunc_ClientPutInServer, EngFunc_CreateFakeClient, EngFunc_RunPlayerMove, glb_frametime, pev_health } from "./constants";
 import { BUTTON, Button } from "./flags";
 
 /** How long the server's current frame lasts, in seconds. */
@@ -1431,7 +1431,8 @@ export class Player extends PlayerFields implements Client {
 	 * Joins a side the way the game joins a player who picks it in the team
 	 * menu, appearance picked for him: `player.joinTeam("CT")`. A player who
 	 * has just arrived is in the game after it and can spawn, which
-	 * `player.team = ...` does not do for him. `false` if the game refused.
+	 * `player.team = ...` does not do for him. A living player sent to the
+	 * spectators dies quietly: no death, no frag. `false` if the game refused.
 	 *
 	 * Pawn: `rg_join_team`
 	 */
@@ -1440,7 +1441,13 @@ export class Player extends PlayerFields implements Client {
 		if (__hasReapi()) return rg_join_team(this.id, teamCell(team)) != 0;
 
 		// Without reapi, what the player would type: the team menu's slot, then
-		// the appearance menu's automatic pick.
+		// the appearance menu's automatic pick. The menu takes a living player
+		// to the spectators only in the freeze time, so he dies quietly first,
+		// as rg_join_team has him: no death, no frag.
+		if (team == "SPECTATOR" && this.isAlive) {
+			this.deadFlag = "dead";
+			set_pev(this.id, pev_health, 0);
+		}
 		engclient_cmd(this.id, "jointeam", team == "TERRORIST" ? "1" : team == "CT" ? "2" : "6");
 		if (team != "SPECTATOR") engclient_cmd(this.id, "joinclass", "5");
 		return this.team == team;
