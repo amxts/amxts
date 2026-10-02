@@ -19,6 +19,7 @@ import * as assemblyscript from '../runtime/deps/assemblyscript/dist/assemblyscr
 // @ts-ignore - its types are beside it, under a path tsconfig does not map
 import binaryen from '../runtime/deps/assemblyscript/node_modules/binaryen/index.js';
 import { ascMain } from './asc';
+import { ABI_SECTION, abiIdentity } from './build-identity';
 import { playerFieldsBuild } from './player-fields';
 import { includeName, nativeContract, nativesTransform, pawnInclude } from './plugin-natives';
 import { ascPath, sourcesFor } from './project';
@@ -108,9 +109,11 @@ const WAKE_IMPORT = 'env.co_wake';
  * function's frame with its index and the offset of the call it is in, or of
  * the trap - a store at each call, a push and a pop at each function, about
  * what a stack check costs. No values: with them WAMR's frames are no longer
- * the small ones. The map goes into the .aot with them.
+ * the small ones. The map goes into the .aot with them, and so does the ABI
+ * the plugin is compiled against, which the module checks before it loads it
+ * (scripts/build-identity.ts).
  */
-const STACK_FLAGS = ['--enable-dump-call-stack', '--call-stack-features=bounds-checks,ip,func-idx,trap-ip', `--emit-custom-sections=${MAP_SECTION}`];
+const STACK_FLAGS = ['--enable-dump-call-stack', '--call-stack-features=bounds-checks,ip,func-idx,trap-ip', `--emit-custom-sections=${MAP_SECTION},${ABI_SECTION}`];
 
 /**
  * Where compilePlugin writes the Pawn include for a plugin's natives: beside
@@ -225,7 +228,7 @@ export async function compileToWasm(
 	}
 	if (typeof made === 'string') return made;
 	mkdirSync(dirname(resolve(wasm)), { recursive: true });
-	writeFileSync(wasm, withSection(made.binary, MAP_SECTION, mapText(made.map)));
+	writeFileSync(wasm, withSection(withSection(made.binary, MAP_SECTION, mapText(made.map)), ABI_SECTION, abiIdentity()));
 	return null;
 }
 

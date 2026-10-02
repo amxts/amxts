@@ -26,7 +26,8 @@ function fail(message: string): void {
 }
 
 // `bun run serverkit` builds it as the module's build (scripts/build-identity.ts);
-// the module asks before it compiles, and refuses a compiler of another.
+// the module asks before it compiles, and refuses a compiler of another. The
+// plugins it compiles carry the module's ABI, built in as AMXTS_ABI.
 declare const AMXTS_BUILD: string;
 
 const [source, output] = process.argv.slice(2);

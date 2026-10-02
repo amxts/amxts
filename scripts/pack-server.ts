@@ -25,7 +25,7 @@ import { spawnSync } from 'node:child_process';
 // plugin's imports and wamrc's signatures are three faces of one list.
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { buildDefine, moduleBuild } from './build-identity';
+import { buildDefines, moduleAbi, moduleBuild } from './build-identity';
 import { serverFiles } from './server-files';
 import { executable, HOST_SYSTEM, MODULE_FILE, modulePath, parseSystem, SYSTEM_NAME, wamrcPath } from './system';
 
@@ -71,9 +71,11 @@ mkdirSync(join(out, 'addons/amxts/build'), { recursive: true });
 mkdirSync(join(out, 'addons/amxmodx/modules'), { recursive: true });
 
 // The module's build, which the compiler is built as: the module refuses a
-// compiler of another (scripts/build-identity.ts).
+// compiler of another (scripts/build-identity.ts). Its plugins are stamped
+// with the module's ABI.
 const identity = moduleBuild();
-if (!identity) {
+const abi = moduleAbi();
+if (!identity || !abi) {
 	fail('runtime/src/embedded.h names no build - run bun run generate, then build the module');
 	process.exit(1);
 }
@@ -84,7 +86,7 @@ const build = spawnSync(process.execPath, [
 	'build',
 	'--compile',
 	'scripts/compile-one.ts',
-	buildDefine(identity),
+	...buildDefines(identity, abi),
 	`--target=${BUN_TARGET[system]}`,
 	'--outfile',
 	join(out, 'addons/amxts/tools', executable('amxts-compile', system)),

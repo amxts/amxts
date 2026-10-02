@@ -74,6 +74,7 @@ import { compilePlugin } from './compile';
 import { includeDirs } from './includes';
 import { CORE_DIR, CORE_PLUGINS, loadProject, PROJECT_GAME_FOLDERS, projectPlugins, sourcesFor } from './project';
 import { amxxpcPath, MODULE_FILE, modulePath, wamrcPath } from './system';
+import { ABI_SECTION, abiIdentity } from './build-identity';
 
 // See build-wasm.ts: asc brings a console without error().
 function fail(message: string): void {
@@ -581,7 +582,41 @@ function testCoreIni(): string {
 	].join('\n')}\n`;
 }
 
-function stage(built: string[], pawn: string[], password: string): void {
+// ---------------------------------------------------------------- another ABI
+
+/** A plugin the module has to refuse, and the line it says so with. */
+interface Refused {
+	file: string;
+	line: string;
+}
+
+/**
+ * The first plugin built, twice more: stamped with another amxts's ABI, and
+ * with none, as one built before plugins carried it. The module refuses each
+ * with one line and loads the plugins listed after them as usual
+ * (scripts/build-identity.ts). The ABI is changed in place, keeping its
+ * length, so the section keeps its size.
+ */
+function refusedCopies(built: string[]): Refused[] {
+	const abi = abiIdentity();
+	const aot = readFileSync(join(buildDir, built[0]));
+	const at = aot.indexOf(`${ABI_SECTION}\0${abi}`);
+	if (at < 0) throw new Error(`${built[0]} carries no ${ABI_SECTION} section of ${abi}`);
+	const other = abi.replace(/\d/g, '9');
+	const version = (identity: string) => identity.slice(0, identity.indexOf('+'));
+	const copies = [
+		{ file: 'other-abi.aot', section: `${ABI_SECTION}\0${other}`, by: `amxts ${version(other)}` },
+		{ file: 'no-abi.aot', section: `amxts.xyz\0${abi}`, by: 'an older amxts' },
+	];
+	return copies.map(({ file, section, by }) => {
+		const bytes = Buffer.from(aot);
+		bytes.write(section, at, 'latin1');
+		writeFileSync(join(buildDir, file), bytes);
+		return { file, line: `[amxts] ${file} was built for ${by}, this is ${version(abi)} - build it again` };
+	});
+}
+
+function stage(built: string[], refused: Refused[], pawn: string[], password: string): void {
 	if (linux) {
 		freshDir(rootDir);
 		mkdirSync(testDir, { recursive: true });
@@ -590,10 +625,11 @@ function stage(built: string[], pawn: string[], password: string): void {
 		freshDir(rootDir);
 	}
 
-	// amxts: the list and the plugins.
+	// amxts: the list and the plugins, the refused ones first.
+	const listed = [...refused.map(copy => copy.file), ...built];
 	mkdirSync(join(testDir, 'plugins'));
-	for (const file of built) copyFileSync(join(buildDir, file), join(testDir, 'plugins', file));
-	writeFileSync(join(testDir, 'plugins.ini'), `${built.join('\n')}\n`);
+	for (const file of listed) copyFileSync(join(buildDir, file), join(testDir, 'plugins', file));
+	writeFileSync(join(testDir, 'plugins.ini'), `${listed.join('\n')}\n`);
 
 	// AMX Mod X: the Pawn suites, the modules with the amxts module under
 	// test, and the configs a suite reads. The host plugin is the module's: it
@@ -795,7 +831,8 @@ async function main(): Promise<number> {
 	console.log(`built ${built.length} plugins and ${pawn.length} Pawn suite(s) (${((performance.now() - started) / 1000).toFixed(1)}s)`);
 
 	const password = `amxts-${Math.random().toString(36).slice(2, 12)}`;
-	stage(built, pawn.map(file => basename(file).replace(/\.sma$/, '.amxx')), password);
+	const refused = refusedCopies(built);
+	stage(built, refused, pawn.map(file => basename(file).replace(/\.sma$/, '.amxx')), password);
 
 	// In the container hlds listens on 27015 of its own network, which Docker
 	// publishes as 127.0.0.1:PORT; its console is the container's output.
@@ -872,6 +909,11 @@ async function main(): Promise<number> {
 
 		for (const file of built) {
 			if (!consoleLines().some(line => line.includes(`[amxts] loaded ${file}`))) problems.push(`${file} did not load`);
+		}
+		for (const copy of refused) {
+			const lines = consoleLines();
+			if (!lines.some(line => line.includes(copy.line))) problems.push(`${copy.file} was not refused with "${copy.line}"`);
+			if (lines.some(line => line.includes(`[amxts] loaded ${copy.file}`))) problems.push(`${copy.file} of another ABI loaded`);
 		}
 
 		// A player for the suites that need one: YaPB's.

@@ -200,6 +200,12 @@ export function withSection(wasm: Uint8Array, name: string, text: string): Uint8
 
 /** The map a wasm carries, or null. */
 export function readMap(wasm: Uint8Array): PluginMap | null {
+	const text = readSection(wasm, MAP_SECTION);
+	return text === null ? null : parseMap(text);
+}
+
+/** The text of a wasm's custom section by its name, or null. */
+export function readSection(wasm: Uint8Array, wanted: string): string | null {
 	let at = 8;
 	const u32 = () => {
 		let result = 0;
@@ -218,7 +224,7 @@ export function readMap(wasm: Uint8Array): PluginMap | null {
 		if (id === 0) {
 			const length = u32();
 			const name = new TextDecoder().decode(wasm.subarray(at, at + length));
-			if (name === MAP_SECTION) return parseMap(new TextDecoder().decode(wasm.subarray(at + length, end)));
+			if (name === wanted) return new TextDecoder().decode(wasm.subarray(at + length, end));
 		}
 		at = end;
 	}

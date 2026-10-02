@@ -49,6 +49,7 @@
 		"scripts/apply-docs.ts",
 		"scripts/asc.ts",
 		"scripts/auto-imports.ts",
+		"scripts/build-identity.ts",
 		"scripts/build-wasm.ts",
 		"scripts/check.ts",
 		"scripts/compile-cache.ts",

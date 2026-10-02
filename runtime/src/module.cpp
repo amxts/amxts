@@ -3478,6 +3478,85 @@ static const char *AotBuiltForOtherSystem(const unsigned char *data, size_t size
 #endif
 }
 
+// The custom section that holds the ABI a plugin was compiled against
+// (scripts/build-identity.ts).
+#define ABI_SECTION "amxts.abi"
+
+static uint32_t ReadU32(const unsigned char *at)
+{
+	return at[0] | at[1] << 8 | at[2] << 16 | (uint32_t)at[3] << 24;
+}
+
+/**
+ * The ABI an .aot was compiled against - its custom section amxts.abi, which
+ * scripts/compile.ts writes and wamrc copies - or "" when it has none: a
+ * plugin built before plugins carried one.
+ *
+ * It is read off the file before WAMR sees it: a plugin of another ABI calls
+ * imports this module does not have, or has with other types, and crashes
+ * the server. After the header ("\0aot" and a version) the file is a list of
+ * sections, each at a 4-byte boundary: its type and its size, then its body.
+ * A custom one (type 100) is a kind (0, raw), its name - a 16-bit length
+ * that counts the terminator, then the bytes - and its content
+ * (aot_emit_custom_sections in WAMR's aot_emit_aot_file.c).
+ */
+static std::string AotAbi(const unsigned char *data, size_t size)
+{
+	const size_t nameLength = sizeof(ABI_SECTION);
+	size_t at = 8;
+	while (at + 8 <= size) {
+		uint32_t type = ReadU32(data + at);
+		size_t length = ReadU32(data + at + 4);
+		const unsigned char *body = data + at + 8;
+		if (length > size - at - 8)
+			break;
+		if (type == 100 && length >= 6 + nameLength && ReadU32(body) == 0
+		    && (size_t)(body[4] | body[5] << 8) == nameLength && memcmp(body + 6, ABI_SECTION, nameLength) == 0)
+			return std::string((const char *)body + 6 + nameLength, length - 6 - nameLength);
+		at = (at + 8 + length + 3) & ~(size_t)3;
+	}
+	return "";
+}
+
+/** The ABI of the .aot at `path`, "" when it has none or is not there. */
+static std::string FileAbi(const std::string &path)
+{
+	FILE *f = fopen(path.c_str(), "rb");
+	if (!f)
+		return "";
+	std::vector<unsigned char> data;
+	unsigned char chunk[65536];
+	size_t got;
+	while ((got = fread(chunk, 1, sizeof(chunk), f)) > 0)
+		data.insert(data.end(), chunk, chunk + got);
+	fclose(f);
+	return data.empty() ? "" : AotAbi(&data[0], data.size());
+}
+
+/** The version of an ABI: 0.2.0 of 0.2.0+abi.1a2b3c4d. */
+static std::string AbiVersion(const std::string &abi)
+{
+	return abi.substr(0, abi.find('+'));
+}
+
+/**
+ * Whether a plugin is of this module's ABI; when not, one line says so. It
+ * names the versions when they differ, and the whole ABIs when only the
+ * imports do.
+ */
+static bool OfThisAbi(const char *name, const unsigned char *data, size_t size)
+{
+	std::string abi = AotAbi(data, size);
+	if (abi == AMXTS_ABI)
+		return true;
+	std::string ours = AMXTS_ABI;
+	bool sameVersion = AbiVersion(abi) == AbiVersion(ours);
+	std::string built = abi.empty() ? "an older amxts" : "amxts " + (sameVersion ? abi : AbiVersion(abi));
+	MF_PrintSrvConsole("[amxts] %s was built for %s, this is %s - build it again\n",
+	                   name, built.c_str(), (sameVersion ? ours : AbiVersion(ours)).c_str());
+	return false;
+}
+
 static bool LoadPlugin(const char *file, const char *name, const char *source = NULL)
 {
 	FILE *f = fopen(file, "rb");
@@ -3512,6 +3591,11 @@ static bool LoadPlugin(const char *file, const char *name, const char *source = 
 	if (other) {
 		MF_PrintSrvConsole("[amxts] %s was compiled for a %s server, and this one runs %s - build it for this server (amxts build picks the system from AMXTS_SERVER, or --os)\n",
 		                   name, other, THIS_SYSTEM);
+		free(p.file);
+		return false;
+	}
+
+	if (!OfThisAbi(name, p.file, got)) {
 		free(p.file);
 		return false;
 	}
@@ -3668,7 +3752,9 @@ static void LoadScripts()
 		broken.output = output;
 		broken.stamp = FileStamp(source.c_str());
 
-		if (FileStamp(output.c_str()) < broken.stamp && !CompilePlugin(source, output)) {
+		// Built from an older source, or by an amxts of another ABI: compiled again.
+		bool stale = FileStamp(output.c_str()) < broken.stamp || FileAbi(output) != AMXTS_ABI;
+		if (stale && !CompilePlugin(source, output)) {
 			g_broken.push_back(broken);
 			continue;
 		}
