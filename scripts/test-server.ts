@@ -6,6 +6,7 @@
 //   bun run test:server --linux    the same suites on a Linux server, in Docker
 //   bun run test:server --plain    the same on Linux without ReHLDS, ReGameDLL, ReAPI
 //   bun run test:server --quick    the suites compiled as `amxts dev` compiles them
+//   bun run test:server --only cvar,player   only these suites
 //
 // It runs the suites of the project in the current folder, as the build does
 // (scripts/project.ts): the core's own in tests/server, a project's in
@@ -22,6 +23,11 @@
 // server's console must show while that suite runs, as it is - how a check
 // sees what reached the console, and how an error line a suite causes on
 // purpose is told from a real one.
+//
+// --only <suite>[,<suite>...] builds, loads and checks only the files that
+// hold those suites, beside the plugins every run loads and the files that
+// hold no suite (exports.ts, which a Pawn suite includes). A suite that reads
+// what an earlier one left (data-read after data-write) needs it named too.
 //
 // It never touches the server that owns the install, which may be running
 // with people on it:
@@ -81,6 +87,9 @@ const plain = args.includes('--plain');
 const linux = plain || args.includes('--linux');
 const quick = args.includes('--quick');
 const portArg = args.indexOf('--port');
+const onlyArg = args.indexOf('--only');
+/** The suites --only names; none for every suite. */
+const ONLY = onlyArg >= 0 ? (args[onlyArg + 1] ?? '').split(',').map(name => name.trim()).filter(Boolean) : [];
 const PORT = Number(portArg >= 0 ? args[portArg + 1] : process.env.AMXTS_TEST_PORT ?? (plain ? 27017 : 27016));
 const MAP = process.env.AMXTS_TEST_MAP ?? (linux ? 'de_dust2' : 'c21_kitty');
 
@@ -440,22 +449,29 @@ async function until<T>(ms: number, ready: () => T | null | Promise<T | null>, a
 
 // ---------------------------------------------------------------- suites
 
-function discoverSuites(): { suites: Suite[]; plugins: string[]; pawn: string[] } {
+/** The suites to run and the files to build: with --only, those holding its suites and the ones holding none. */
+function discoverSuites(): { suites: Suite[]; plugins: string[]; pawn: string[]; unknown: string[] } {
 	const files = readdirSync(suitesDir).filter(f => f.endsWith('.ts') || f.endsWith('.sma')).sort();
 	const suites: Suite[] = [];
+	const chosen: string[] = [];
+	const names: string[] = [];
 
 	for (const file of files) {
 		const source = readFileSync(join(suitesDir, file), 'utf-8');
 		const expectedLog = [...source.matchAll(/^\/\/ @log (.+)$/gm)].map(m => m[1].trim());
-		for (const [, tail] of source.matchAll(/(?:addServerCommand(?:<\w+>)?|register_srvcmd)\(\s*["']amxts_test_(\w+)[\s"']/g)) {
-			suites.push({ name: tail.replace(/_/g, '-'), command: `amxts_test_${tail}`, expectedLog });
-		}
+		const own = [...source.matchAll(/(?:addServerCommand(?:<\w+>)?|register_srvcmd)\(\s*["']amxts_test_(\w+)[\s"']/g)]
+			.map(([, tail]) => ({ name: tail.replace(/_/g, '-'), command: `amxts_test_${tail}`, expectedLog }));
+		const wanted = own.filter(suite => ONLY.length === 0 || ONLY.includes(suite.name));
+		if (own.length === 0 || wanted.length > 0) chosen.push(join(suitesDir, file));
+		suites.push(...wanted);
+		names.push(...own.map(suite => suite.name));
 	}
 
 	return {
 		suites,
-		plugins: files.filter(f => f.endsWith('.ts')).map(f => join(suitesDir, f)),
-		pawn: files.filter(f => f.endsWith('.sma')).map(f => join(suitesDir, f)),
+		plugins: chosen.filter(f => f.endsWith('.ts')),
+		pawn: chosen.filter(f => f.endsWith('.sma')),
+		unknown: ONLY.filter(name => !names.includes(name)),
 	};
 }
 
@@ -767,7 +783,11 @@ async function main(): Promise<number> {
 	}
 
 	const started = performance.now();
-	const { suites, plugins, pawn } = discoverSuites();
+	const { suites, plugins, pawn, unknown } = discoverSuites();
+	if (unknown.length) {
+		fail(`--only: no suite ${unknown.join(', ')} in ${suitesDir}`);
+		return 1;
+	}
 	await startWeb(suites);
 	const built = await build(plugins, pawn);
 	if (!built) return 1;
