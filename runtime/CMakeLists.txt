@@ -20,6 +20,13 @@ set(WAMR_BUILD_JIT 0)
 set(WAMR_BUILD_LIBC_BUILTIN 0)
 set(WAMR_BUILD_LIBC_WASI 0)
 set(WAMR_BUILD_MULTI_MODULE 0)
+# A failed call's stack, in TypeScript's words: the frames a trap leaves
+# (wamrc's --enable-dump-call-stack, the WAMR patch's
+# wasm_runtime_take_trap_frames), the frames of a running call for `stack`
+# (wasm_copy_callstack), and the plugin's own map of them, a custom section.
+set(WAMR_BUILD_DUMP_CALL_STACK 1)
+set(WAMR_BUILD_COPY_CALL_STACK 1)
+set(WAMR_BUILD_LOAD_CUSTOM_SECTION 1)
 include("${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake")
 
 # fetch's network client: libcurl, mbedTLS and libssh2, built static.

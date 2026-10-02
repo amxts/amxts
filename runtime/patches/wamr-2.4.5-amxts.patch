@@ -162,6 +162,60 @@ index 771ef87..7bdb74d 100644
                      module->float_plt_count++;
                  }
              }
+diff --git a/core/iwasm/aot/aot_runtime.c b/core/iwasm/aot/aot_runtime.c
+index d2621fb..47178c4 100644
+--- a/core/iwasm/aot/aot_runtime.c
++++ b/core/iwasm/aot/aot_runtime.c
+@@ -2682,9 +2682,9 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
+             }
+ #endif
+ #if WASM_ENABLE_DUMP_CALL_STACK != 0
+-            if (aot_create_call_stack(exec_env)) {
+-                aot_dump_call_stack(exec_env, true, NULL, 0);
+-            }
++            /* amxts: the host reads the frames (wasm_runtime_take_trap_frames)
++               and prints them its own way, rather than to stdout here */
++            aot_create_call_stack(exec_env);
+ #endif
+         }
+ 
+@@ -2755,9 +2755,9 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
+             }
+ #endif
+ #if WASM_ENABLE_DUMP_CALL_STACK != 0
+-            if (aot_create_call_stack(exec_env)) {
+-                aot_dump_call_stack(exec_env, true, NULL, 0);
+-            }
++            /* amxts: the host reads the frames (wasm_runtime_take_trap_frames)
++               and prints them its own way, rather than to stdout here */
++            aot_create_call_stack(exec_env);
+ #endif
+         }
+ 
+@@ -3414,6 +3414,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
+ #endif
+         ret = invoke_native_internal(exec_env, func_ptr, func_type, signature,
+                                      attachment, argv1, argc, argv);
++#if WASM_ENABLE_DUMP_CALL_STACK != 0
++        /* amxts: the frames of a trap, as aot_call_function keeps them */
++        if (!ret)
++            aot_create_call_stack(exec_env);
++#endif
+ #if WASM_ENABLE_AOT_STACK_FRAME != 0
+         /* Free all frames allocated, note that some frames
+            may be allocated in AOT code and haven't been
+@@ -3474,6 +3479,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
+ #endif
+         ret = invoke_native_internal(exec_env, func_ptr, func_type, signature,
+                                      attachment, argv, argc, argv);
++#if WASM_ENABLE_DUMP_CALL_STACK != 0
++        /* amxts: the frames of a trap, as aot_call_function keeps them */
++        if (!ret)
++            aot_create_call_stack(exec_env);
++#endif
+ #if WASM_ENABLE_AOT_STACK_FRAME != 0
+         /* Free all frames allocated, note that some frames
+            may be allocated in AOT code and haven't been
 diff --git a/core/iwasm/aot/arch/aot_reloc_x86_32.c b/core/iwasm/aot/arch/aot_reloc_x86_32.c
 index f7f2421..89ba8b9 100644
 --- a/core/iwasm/aot/arch/aot_reloc_x86_32.c
@@ -218,6 +272,100 @@ index 060bb2c..28c182d 100644
                  return NULL;
              }
              else
+diff --git a/core/iwasm/common/wasm_runtime_common.c b/core/iwasm/common/wasm_runtime_common.c
+index 943b46f..e93f867 100644
+--- a/core/iwasm/common/wasm_runtime_common.c
++++ b/core/iwasm/common/wasm_runtime_common.c
+@@ -6867,6 +6867,32 @@ wasm_runtime_dump_call_stack_to_buf(wasm_exec_env_t exec_env, char *buf,
+ 
+     return 0;
+ }
++
++/* amxts: the frames the last trap left, innermost first, and forgets them */
++uint32
++wasm_runtime_take_trap_frames(WASMModuleInstanceCommon *module_inst,
++                              WASMCApiFrame *buffer, uint32 length)
++{
++    Vector *frames = ((WASMModuleInstance *)module_inst)->frames;
++    uint32 count = 0, i, size;
++
++    if (!frames)
++        return 0;
++    size = (uint32)bh_vector_size(frames);
++    for (i = 0; i < size; i++) {
++        WASMCApiFrame frame;
++        if (!bh_vector_get(frames, i, &frame))
++            break;
++        if (frame.lp)
++            wasm_runtime_free(frame.lp);
++        if (count < length) {
++            frame.lp = NULL;
++            buffer[count++] = frame;
++        }
++    }
++    bh_vector_destroy(frames);
++    return count;
++}
+ #endif /* end of WASM_ENABLE_DUMP_CALL_STACK */
+ 
+ #if WASM_ENABLE_STATIC_PGO != 0
+diff --git a/core/iwasm/compilation/aot_compiler.c b/core/iwasm/compilation/aot_compiler.c
+index 82f70ca..ea501fb 100644
+--- a/core/iwasm/compilation/aot_compiler.c
++++ b/core/iwasm/compilation/aot_compiler.c
+@@ -1027,6 +1027,15 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
+         comp_ctx->builder,
+         func_ctx->block_stack.block_list_head->llvm_entry_block);
+ 
++    /* amxts: the frame first - the frame's own bounds check below can trap,
++       and a trap's ip (trap-ip) is read from it; before, that was the frame
++       of the function compiled last, freed, and wamrc crashed */
++    if (comp_ctx->aux_stack_frame_type) {
++        if (!init_comp_frame(comp_ctx, func_ctx, func_index)) {
++            return false;
++        }
++        comp_ctx->aot_frame->frame_ip = frame_ip;
++    }
+     if (comp_ctx->aux_stack_frame_type
+         && comp_ctx->call_stack_features.frame_per_function) {
+         INT_CONST(func_index_ref,
+@@ -1037,11 +1046,6 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
+             return false;
+         }
+     }
+-    if (comp_ctx->aux_stack_frame_type) {
+-        if (!init_comp_frame(comp_ctx, func_ctx, func_index)) {
+-            return false;
+-        }
+-    }
+ 
+     while (frame_ip < frame_ip_end) {
+         opcode = *frame_ip++;
+diff --git a/core/iwasm/include/wasm_export.h b/core/iwasm/include/wasm_export.h
+index 81efb8f..2d80cf2 100644
+--- a/core/iwasm/include/wasm_export.h
++++ b/core/iwasm/include/wasm_export.h
+@@ -2075,6 +2075,20 @@ WASM_RUNTIME_API_EXTERN uint32_t
+ wasm_runtime_dump_call_stack_to_buf(wasm_exec_env_t exec_env, char *buf,
+                                     uint32_t len);
+ 
++/**
++ * amxts: the frames of the last trap - a call that failed - innermost first,
++ * and forgets them, so a later failure that left none reads none.
++ *
++ * @param module_inst the module instance the call failed in
++ * @param buffer where the frames go
++ * @param length how many fit
++ *
++ * @return how many were written
++ */
++WASM_RUNTIME_API_EXTERN uint32_t
++wasm_runtime_take_trap_frames(wasm_module_inst_t module_inst,
++                              WASMCApiFrame *buffer, uint32_t length);
++
+ /**
+  * Get the size required to store the LLVM PGO profile data
+  *
 diff --git a/wamr-compiler/CMakeLists.txt b/wamr-compiler/CMakeLists.txt
 index 8ee61ca..5a496cd 100644
 --- a/wamr-compiler/CMakeLists.txt
