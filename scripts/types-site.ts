@@ -13,7 +13,9 @@
 //                       amxts.d.ts has the globals defineModule and defineConfig,
 //                       imports.d.ts what an example uses without an import
 //   packages/<name>/    what `@amxts/<name>` resolves to: index.d.ts of the
-//                       modules amxts.config.ts lists, and under <sub>/ what
+//                       modules amxts.config.ts lists and of every official
+//                       module checked out beside the core (../amxts-modules/*),
+//                       whose READMEs the site shows, and under <sub>/ what
 //                       their package.json "exports" has besides "." -
 //                       `@amxts/menu-core/testing` is packages/menu-core/testing/
 //   root/src/testing/   the testing library (`loadPlugin`), with the build
@@ -30,13 +32,13 @@
 // to root/src/testing/index.d.ts and `@amxts/<name>` to
 // packages/<name>/index.d.ts.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
 import process from 'node:process';
 import { applyTable, docsLang, loadTable } from './apply-docs';
-import { importsDeclaration } from './auto-imports';
-import { loadProject } from './project';
+import { coreImports, importsDeclaration, importTable } from './auto-imports';
+import { loadProject, readPackage } from './project';
 
 const langAt = process.argv.indexOf('--lang');
 const lang = docsLang(langAt >= 0 ? process.argv[langAt + 1] : 'en');
@@ -82,7 +84,17 @@ async function translate(dir: string, docsRoot: string) {
 	}
 }
 
+// The modules amxts.config.ts lists, and every official one checked out
+// beside the core: the docs and the modules' READMEs use them all.
+const above = dirname(process.cwd());
+const official = join(above, 'amxts-modules');
+const modules = [...new Map([
+	...loadProject().modules,
+	...(existsSync(official) ? readdirSync(official).map(name => readPackage(join(official, name))) : []).filter(pkg => pkg !== null),
+].map(pkg => [pkg.name, pkg])).values()];
+
 rmSync(out, { recursive: true, force: true });
+mkdirSync(out, { recursive: true });
 
 const regenerate = docsLang() !== lang;
 if (regenerate) generate(lang);
@@ -93,12 +105,21 @@ try {
 }
 
 async function emitAll() {
-	// as/tsconfig.json takes in the modules' repositories beside this one too, so
-	// the declarations come out under the folder holding both.
-	const above = dirname(process.cwd());
-	emit('as', join(out, 'emitted'), above);
+	// as/tsconfig.json with every module in it, so the declarations come out
+	// under the folder holding the core and the modules' repositories.
+	const as = JSON.parse(readFileSync('as/tsconfig.json', 'utf8'));
+	const paths: Record<string, string[]> = Object.fromEntries(Object.entries(as.compilerOptions.paths as Record<string, string[]>).map(([name, [path]]) => [name, [resolve('as', path)]]));
+	for (const pkg of modules) paths[pkg.name] = [pkg.module];
+	const project = join(out, 'tsconfig.site.json');
+	writeFileSync(project, JSON.stringify({
+		extends: resolve('as/tsconfig.json'),
+		compilerOptions: { paths },
+		include: [...(as.include as string[]).map(path => resolve('as', path)), ...modules.map(pkg => pkg.module)],
+	}));
+	emit(project, join(out, 'emitted'), above);
+	rmSync(project);
 	renameSync(join(out, 'emitted', relative(above, 'as')), join(out, 'amxts'));
-	for (const pkg of loadProject().modules) {
+	for (const pkg of modules) {
 		cpSync(join(out, 'emitted', relative(above, pkg.dir), 'src'), join(out, 'packages', pkg.name.replace(/^@amxts\//, '')), { recursive: true });
 	}
 	rmSync(join(out, 'emitted'), { recursive: true, force: true });
@@ -116,7 +137,10 @@ async function emitAll() {
 	const facade = join(out, 'amxts', 'facade.d.ts');
 	writeFileSync(facade, `/// <reference path="./amxts.d.ts" />\n${readFileSync(facade, 'utf8')}`);
 	// What an example uses without an import, as a project's .amxts/imports.d.ts has it.
-	writeFileSync(join(out, 'amxts', 'imports.d.ts'), importsDeclaration(loadProject().autoImports));
+	const problems: string[] = [];
+	const table = importTable(coreImports(resolve('as/facade.ts')), modules.map(pkg => ({ name: pkg.name, imports: pkg.definition.imports })), problems);
+	if (problems.length) throw new Error(problems.join('\n'));
+	writeFileSync(join(out, 'amxts', 'imports.d.ts'), importsDeclaration([...table.values()]));
 
 	emit('tsconfig.json', join(out, 'root'));
 	for (const entry of readdirSync(join(out, 'root'))) {
@@ -146,8 +170,8 @@ async function emitAll() {
 	].join('\n'));
 
 	await translate(join(out, 'amxts'), join('scripts', 'docs', 'as'));
-	for (const pkg of loadProject().modules) await translate(join(out, 'packages', pkg.name.replace(/^@amxts\//, '')), join(pkg.dir, 'scripts', 'docs', 'src'));
-	await emitExports(above);
+	for (const pkg of modules) await translate(join(out, 'packages', pkg.name.replace(/^@amxts\//, '')), join(pkg.dir, 'scripts', 'docs', 'src'));
+	await emitExports();
 }
 
 /**
@@ -157,8 +181,8 @@ async function emitAll() {
  * files for the test runner, not the plugin tree: they import
  * `@amxts/core/test-utils` and the modules by name, and keep those imports.
  */
-async function emitExports(above: string) {
-	const entries = loadProject().modules.flatMap((pkg) => {
+async function emitExports() {
+	const entries = modules.flatMap((pkg) => {
 		const exports = JSON.parse(readFileSync(join(pkg.dir, 'package.json'), 'utf8')).exports ?? {};
 		return Object.entries(exports as Record<string, unknown>)
 			.filter((entry): entry is [string, string] => entry[0] !== '.' && entry[0] !== './package.json' && typeof entry[1] === 'string' && entry[1].endsWith('.ts') && !entry[0].includes('*'))
@@ -169,7 +193,7 @@ async function emitExports(above: string) {
 	const emitted = join(out, 'emitted');
 	const project = join(out, 'tsconfig.exports.json');
 	const paths: Record<string, string[]> = { '@amxts/core/test-utils': [resolve('src/testing/index.ts')], '@amxts/core': [resolve('as/facade.ts')] };
-	for (const pkg of loadProject().modules) paths[pkg.name] = [pkg.module];
+	for (const pkg of modules) paths[pkg.name] = [pkg.module];
 	writeFileSync(project, JSON.stringify({
 		compilerOptions: { target: 'ES2022', lib: ['ES2022'], module: 'ESNext', moduleResolution: 'bundler', types: ['node'], typeRoots: [resolve('node_modules/@types')], skipLibCheck: true, noEmit: true, paths },
 		files: entries.map(entry => entry.target),
