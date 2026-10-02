@@ -1790,7 +1790,8 @@ export function playerIds(flags: string = "", team: string = ""): number[] {
 	return ids;
 }
 
-// Server's event name is typed like a DOM one - `K extends keyof ServerEventMap` -
+// Server's event name is typed like a DOM one - `K extends keyof ServerEventMap`,
+// and a message's `K extends keyof ServerMessageMap` -
 // so an editor completes it, refuses a misspelled one, and hands the listener
 // the event's own type. The compiler reads the same signature through a patch
 // (runtime/patches): the name has to be written out as a string literal,
@@ -2494,7 +2495,7 @@ const FFADE_STAYOUT = 0x0004;
  * or a text, as the message wrote it.
  *
  * ```ts
- * server.addEventListener("message:BotProgress", (event) => {
+ * server.addMessageListener("botProgress", (event) => {
  *   console.log(`${event.args.length} ${event.args.number(0)}`);
  * });
  * ```
@@ -2543,7 +2544,7 @@ export class MessageArgs {
  * HUD icon - heard on its way, before it leaves:
  *
  * ```ts
- * server.addEventListener("message:TextMsg", (event) => {
+ * server.addMessageListener("text", (event) => {
  *   if (event.text == "#Round_Draw") event.preventDefault();
  * });
  * ```
@@ -2556,12 +2557,10 @@ export class MessageArgs {
  * Pawn: `register_message`
  */
 export class ClientMessage {
-	/** @hidden What a message's event is told apart by, at compile time. */
-	__message: bool = true;
 	/** @hidden The player it goes to: the message's msg_entity. */
 	__receiver: i32 = 0;
 
-	/** The message's name, e.g. `"TextMsg"`. */
+	/** The game's name of the message, e.g. `"TextMsg"` for `text`. */
 	name: string = "";
 
 	/** The player the message goes to; `null` for a message to everyone. */
@@ -2684,7 +2683,7 @@ function messageChannel(name: string): MessageChannel | null {
 	return null;
 }
 
-function addMessageListener<E>(name: string, listener: (event: E) => void): void {
+function listenToMessage<E>(name: string, listener: (event: E) => void): void {
 	let channel = messageChannel(name);
 
 	if (channel == null) {
@@ -2697,7 +2696,7 @@ function addMessageListener<E>(name: string, listener: (event: E) => void): void
 	channel.listeners.push(changetype<(event: ClientMessage) => void>(listener));
 }
 
-function removeMessageListener<E>(name: string, listener: (event: E) => void): void {
+function stopListeningToMessage<E>(name: string, listener: (event: E) => void): void {
 	const channel = messageChannel(name);
 	if (channel == null) return;
 	const at = channel.listeners.indexOf(changetype<(event: ClientMessage) => void>(listener));
@@ -2708,7 +2707,7 @@ function registerMessage(channel: MessageChannel): void {
 	const id = get_user_msgid(channel.name);
 
 	if (id == 0) {
-		console.error(`message:${channel.name} - the game has no message by that name`);
+		console.error(`${channel.name} - the game has no message by that name`);
 		return;
 	}
 
@@ -3040,25 +3039,45 @@ export class Cvar {
  */
 export class Server {
 	/**
-	 * Calls `listener` every time the server raises the event `type` - or,
-	 * for `"message:<Name>"`, every time it sends that message to a client.
+	 * Calls `listener` every time the server raises the event `type`.
 	 * `"playerchange"` takes the field it is for: `{ field: "spawnProtected" }`.
 	 */
 	addEventListener<K extends keyof ServerEventMap>(type: K, listener: (event: ServerEventMap[K]) => void, options: ServerListenerOptions = {}): void {
-		// @ts-ignore: a message's event is told apart by its field, at compile time
-		if (isDefined(changetype<ServerEventMap[K]>(0).__message)) addMessageListener<ServerEventMap[K]>(type.slice(8), listener);
-		// @ts-ignore: and so is a field's change
-		else if (isDefined(changetype<ServerEventMap[K]>(0).__playerChange)) addPlayerChangeListener<ServerEventMap[K]>(options.field ?? "", listener);
+		// @ts-ignore: a field's change is told apart by its field, at compile time
+		if (isDefined(changetype<ServerEventMap[K]>(0).__playerChange)) addPlayerChangeListener<ServerEventMap[K]>(options.field ?? "", listener);
 		else addServerListener<ServerEventMap[K]>(listener);
 	}
 
 	/** Stops calling a listener added with `addEventListener` - the same function and the same options. */
 	removeEventListener<K extends keyof ServerEventMap>(type: K, listener: (event: ServerEventMap[K]) => void, options: ServerListenerOptions = {}): void {
 		// @ts-ignore: as in addEventListener
-		if (isDefined(changetype<ServerEventMap[K]>(0).__message)) removeMessageListener<ServerEventMap[K]>(type.slice(8), listener);
-		// @ts-ignore: as in addEventListener
-		else if (isDefined(changetype<ServerEventMap[K]>(0).__playerChange)) removePlayerChangeListener<ServerEventMap[K]>(options.field ?? "", listener);
+		if (isDefined(changetype<ServerEventMap[K]>(0).__playerChange)) removePlayerChangeListener<ServerEventMap[K]>(options.field ?? "", listener);
 		else removeServerListener<ServerEventMap[K]>(listener);
+	}
+
+	/**
+	 * Calls `listener` every time the server sends the message `name` to a
+	 * client, before it leaves: the listener reads its fields, changes them, or
+	 * stops it with `preventDefault()`.
+	 *
+	 * ```ts
+	 * server.addMessageListener("death", (event) => {
+	 *   if (event.headshot) console.log(`${event.killer?.name} - headshot - ${event.victim?.name}`);
+	 * });
+	 * ```
+	 *
+	 * The editor lists the names, each with the game's own one in its words:
+	 * `death` is the game's `DeathMsg`.
+	 *
+	 * Pawn: `register_message`
+	 */
+	addMessageListener<K extends keyof ServerMessageMap>(name: K, listener: (event: ServerMessageMap[K]) => void): void {
+		listenToMessage<ServerMessageMap[K]>(protocolMessageName(name), listener);
+	}
+
+	/** Stops calling a listener added with `addMessageListener` - the same name and the same function. */
+	removeMessageListener<K extends keyof ServerMessageMap>(name: K, listener: (event: ServerMessageMap[K]) => void): void {
+		stopListeningToMessage<ServerMessageMap[K]>(protocolMessageName(name), listener);
 	}
 
 	/**
@@ -3527,7 +3546,7 @@ import {
 } from "./natives";
 import { ET_IGNORE, ET_STOP, FP_ARRAY, FP_CELL, FP_FLOAT, FP_STRING } from "./constants";
 import { ROUND_NONE, ROUND_CTS_WIN, ROUND_TERRORISTS_WIN, ROUND_END_DRAW, print_center } from "./constants";
-import { PluginInitEvent, PluginPrecacheEvent, ServerEventMap, addServerListener, removeServerListener } from "./events";
+import { PluginInitEvent, PluginPrecacheEvent, ServerEventMap, ServerMessageMap, addServerListener, protocolMessageName, removeServerListener } from "./events";
 
 function variantOf(variant: VariantName): number {
 	if (variant == Variant.center) return 4;

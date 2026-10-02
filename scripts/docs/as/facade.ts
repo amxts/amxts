@@ -1299,7 +1299,7 @@ export default {
 			or a text, as the message wrote it.
 
 			\`\`\`ts
-			server.addEventListener("message:BotProgress", (event) => {
+			server.addMessageListener("botProgress", (event) => {
 			  console.log(\`\${event.args.length} \${event.args.number(0)}\`);
 			});
 			\`\`\`
@@ -1311,7 +1311,7 @@ export default {
 			записало сообщение.
 
 			\`\`\`ts
-			server.addEventListener("message:BotProgress", (event) => {
+			server.addMessageListener("botProgress", (event) => {
 			  console.log(\`\${event.args.length} \${event.args.number(0)}\`);
 			});
 			\`\`\`
@@ -1349,7 +1349,7 @@ export default {
 			HUD icon - heard on its way, before it leaves:
 
 			\`\`\`ts
-			server.addEventListener("message:TextMsg", (event) => {
+			server.addMessageListener("text", (event) => {
 			  if (event.text == "#Round_Draw") event.preventDefault();
 			});
 			\`\`\`
@@ -1366,7 +1366,7 @@ export default {
 			HUD, — услышанное по пути, до того как оно ушло:
 
 			\`\`\`ts
-			server.addEventListener("message:TextMsg", (event) => {
+			server.addMessageListener("text", (event) => {
 			  if (event.text == "#Round_Draw") event.preventDefault();
 			});
 			\`\`\`
@@ -1380,8 +1380,8 @@ export default {
 		`,
 	},
 	'ClientMessage.name': {
-		en: `The message's name, e.g. \`"TextMsg"\`.`,
-		ru: `Имя сообщения, например \`"TextMsg"\`.`,
+		en: `The game's name of the message, e.g. \`"TextMsg"\` for \`text\`.`,
+		ru: `Имя сообщения у игры, например \`"TextMsg"\` у \`text\`.`,
 	},
 	'ClientMessage.player': {
 		en: `The player the message goes to; \`null\` for a message to everyone.`,
@@ -1829,19 +1829,55 @@ export default {
 	},
 	'Server.addEventListener': {
 		en: `
-			Calls \`listener\` every time the server raises the event \`type\` - or,
-			for \`"message:<Name>"\`, every time it sends that message to a client.
+			Calls \`listener\` every time the server raises the event \`type\`.
 			\`"playerchange"\` takes the field it is for: \`{ field: "spawnProtected" }\`.
 		`,
 		ru: `
-			Вызывает \`listener\` каждый раз, когда сервер поднимает событие \`type\`, —
-			или, для \`"message:<Name>"\`, каждый раз, когда он шлёт это сообщение клиенту.
+			Вызывает \`listener\` каждый раз, когда сервер поднимает событие \`type\`.
 			\`"playerchange"\` принимает поле, для которого он: \`{ field: "spawnProtected" }\`.
 		`,
 	},
 	'Server.removeEventListener': {
 		en: `Stops calling a listener added with \`addEventListener\` - the same function and the same options.`,
 		ru: `Перестаёт вызывать обработчик, добавленный через \`addEventListener\`, — ту же функцию с теми же настройками.`,
+	},
+	'Server.addMessageListener': {
+		en: `
+			Calls \`listener\` every time the server sends the message \`name\` to a
+			client, before it leaves: the listener reads its fields, changes them, or
+			stops it with \`preventDefault()\`.
+
+			\`\`\`ts
+			server.addMessageListener("death", (event) => {
+			  if (event.headshot) console.log(\`\${event.killer?.name} - headshot - \${event.victim?.name}\`);
+			});
+			\`\`\`
+
+			The editor lists the names, each with the game's own one in its words:
+			\`death\` is the game's \`DeathMsg\`.
+
+			Pawn: \`register_message\`
+		`,
+		ru: `
+			Вызывает \`listener\` каждый раз, когда сервер шлёт клиенту сообщение
+			\`name\`, до того как оно ушло: обработчик читает его поля, меняет их или
+			останавливает его через \`preventDefault()\`.
+
+			\`\`\`ts
+			server.addMessageListener("death", (event) => {
+			  if (event.headshot) console.log(\`\${event.killer?.name} - headshot - \${event.victim?.name}\`);
+			});
+			\`\`\`
+
+			Редактор подсказывает имена, и в описании каждого — собственное имя у игры:
+			\`death\` — это \`DeathMsg\` игры.
+
+			Pawn: \`register_message\`
+		`,
+	},
+	'Server.removeMessageListener': {
+		en: `Stops calling a listener added with \`addMessageListener\` - the same name and the same function.`,
+		ru: `Перестаёт вызывать обработчик, добавленный через \`addMessageListener\`, — то же имя и ту же функцию.`,
 	},
 	'Server.map': {
 		en: `

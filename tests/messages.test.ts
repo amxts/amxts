@@ -3,7 +3,7 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // Messages to clients as events, on the fake server: tests/as/messages.ts.
 // @ts-ignore - bun:test types not available during type checking
 import { expect, setDefaultTimeout, test } from 'bun:test';
-import { CLIENT_MESSAGES, MESSAGE_FIELDS } from '../scripts/client-messages';
+import { CLIENT_MESSAGES, MESSAGE_FIELDS, MESSAGE_NAMES } from '../scripts/client-messages';
 import { MESSAGES } from '../scripts/docs/messages';
 
 setDefaultTimeout(120_000);
@@ -135,7 +135,14 @@ test('the layouts: every message the game has, every field with its words in bot
 		// Two fields over one argument only as bits of it.
 		const plain = fields.filter(field => field.kind !== 'bit' && field.kind !== 'fadeDirection').map(field => field.arg);
 		expect(new Set(plain).size).toBe(plain.length);
-		expect(events).toContain(`"message:${name}": ${name}Message;`);
+		expect(events).toContain(`	${MESSAGE_NAMES[name]}: ${name}Message;`);
+	}
+	// Every message a name of its own in the player's words, and words in both languages ending with the game's name.
+	expect(new Set(Object.values(MESSAGE_NAMES)).size).toBe(CLIENT_MESSAGES.length);
+	for (const name of CLIENT_MESSAGES) {
+		expect(MESSAGE_NAMES[name]).toMatch(/^[a-z][A-Za-z0-9]*$/);
+		expect(`${name}: ${MESSAGES[name]?.summary.en && MESSAGES[name]?.summary.ru ? 'words' : 'none'}`).toBe(`${name}: words`);
+		expect(events).toContain(`The game's \`${name}\` message.`);
 	}
 	// The menu names are the game event's: VguiMenu from the same include.
 	expect(events).toContain('case 27: return "classCT";');

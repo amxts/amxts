@@ -23,26 +23,26 @@ const scored: string[] = [];
 let restarts = 0;
 let deadOnBoard = "";
 
-server.addEventListener("message:HideWeapon", (event) => {
+server.addMessageListener("hideWeapon", (event) => {
 	if (event.player?.id == watched) seen = event.flags;
 	event.flags = event.flags.concat(["Crosshair"]);
 });
-server.addEventListener("message:HideWeapon", (event) => {
+server.addMessageListener("hideWeapon", (event) => {
 	rewritten = event.flags;
 	if (event.name != "HideWeapon") others++;
 });
-server.addEventListener("message:Money", (event) => {
+server.addMessageListener("money", (event) => {
 	money.set(event.player?.name ?? "", event.amount);
 });
-server.addEventListener("message:DeathMsg", (event) => {
+server.addMessageListener("death", (event) => {
 	victim = event.victim?.name ?? "";
 	weapon = event.weapon;
 	headshot = event.headshot;
 });
-server.addEventListener("message:ScoreInfo", (event) => {
+server.addMessageListener("score", (event) => {
 	scored.push(event.target?.name ?? "");
 });
-server.addEventListener("message:ScoreAttrib", (event) => {
+server.addMessageListener("scoreAttribute", (event) => {
 	if (event.flags.includes("Dead")) deadOnBoard = event.target?.name ?? "";
 });
 

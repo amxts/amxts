@@ -33,7 +33,7 @@ server.addServerCommand("amxts_test_player", run);
 let moneyShown = -1;
 let moneyShownTo = 0;
 
-server.addEventListener("message:Money", (message) => {
+server.addMessageListener("money", (message) => {
 	moneyShown = message.amount;
 	moneyShownTo = message.player?.id ?? 0;
 });

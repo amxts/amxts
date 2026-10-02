@@ -1,8 +1,11 @@
 // The messages Counter-Strike's server sends its clients, as
-// server.addEventListener("message:<Name>", ...) hears them - read by
+// server.addMessageListener(name, ...) hears them - read by
 // scripts/generate-host.ts, which writes their events into as/events.ts.
 //
-// Every name the game registers is an event. MESSAGE_FIELDS is the one table
+// Every name the game registers is a message a plugin can listen to, by the
+// name MESSAGE_NAMES gives it in the player's words: `death`, not `DeathMsg`.
+// The game's own name stays in the tooltip and in `event.name`, where someone
+// porting a Pawn plugin looks for it. MESSAGE_FIELDS is the one table
 // of the layouts the game writes them in: a message there is a class of its
 // own with a typed field per argument it names (1 is the first write_*),
 // read and written as the kind says; one without a known layout - a bot's
@@ -136,3 +139,94 @@ export const CLIENT_MESSAGES = `
 	TextMsg Train TutorClose TutorLine TutorState TutorText VGUIMenu ViewMode VoiceMask WeaponList
 	WeapPickup
 `.trim().split(/\s+/);
+
+/**
+ * Every message's name in the player's words, by the game's: lowerCamelCase,
+ * without the protocol's `Msg`, an abbreviation spelled out (`CurWeapon` is
+ * `currentWeapon`, `SetFOV` `fov`) and an opaque name given its meaning
+ * (`SayText` is `chat`, `Battery` `armor`, `ShowMenu` `menu`).
+ */
+export const MESSAGE_NAMES: Record<string, string> = {
+	ADStop: 'adStop',
+	AllowSpec: 'allowSpectate',
+	AmmoPickup: 'ammoPickup',
+	AmmoX: 'ammo',
+	ArmorType: 'armorType',
+	BarTime: 'progressBar',
+	BarTime2: 'progressBarPartial',
+	Battery: 'armor',
+	BlinkAcct: 'moneyBlink',
+	BombDrop: 'bombDrop',
+	BombPickup: 'bombPickup',
+	BotProgress: 'botProgress',
+	BotVoice: 'botVoice',
+	Brass: 'shellCasing',
+	BuyClose: 'closeBuyMenu',
+	ClCorpse: 'corpse',
+	Crosshair: 'crosshair',
+	CurWeapon: 'currentWeapon',
+	CZCareer: 'czCareer',
+	CZCareerHUD: 'czCareerHud',
+	Damage: 'damage',
+	DeathMsg: 'death',
+	Flashlight: 'flashlight',
+	FlashBat: 'flashlightBattery',
+	Fog: 'fog',
+	ForceCam: 'forceCamera',
+	GameMode: 'gameMode',
+	GameTitle: 'gameTitle',
+	Geiger: 'geiger',
+	Health: 'health',
+	HideWeapon: 'hideWeapon',
+	HLTV: 'hltv',
+	HostageK: 'hostageKilled',
+	HostagePos: 'hostagePosition',
+	HudText: 'hint',
+	HudTextArgs: 'hintWithParams',
+	HudTextPro: 'newPlayerHint',
+	InitHUD: 'initHud',
+	ItemPickup: 'itemPickup',
+	ItemStatus: 'itemStatus',
+	Location: 'location',
+	Money: 'money',
+	MOTD: 'motd',
+	NVGToggle: 'nightVision',
+	Radar: 'radar',
+	ReceiveW: 'weather',
+	ReloadSound: 'reloadSound',
+	ReqState: 'requestState',
+	ResetHUD: 'resetHud',
+	RoundTime: 'roundTime',
+	SayText: 'chat',
+	Scenario: 'scenarioIcon',
+	ScoreAttrib: 'scoreAttribute',
+	ScoreInfo: 'score',
+	ScreenFade: 'screenFade',
+	ScreenShake: 'screenShake',
+	SendAudio: 'sound',
+	ServerName: 'serverName',
+	SetFOV: 'fov',
+	ShadowIdx: 'shadow',
+	ShowMenu: 'menu',
+	ShowTimer: 'showTimer',
+	SpecHealth: 'spectatedHealth',
+	SpecHealth2: 'spectatedPlayerHealth',
+	Spectator: 'spectator',
+	StatusIcon: 'statusIcon',
+	StatusText: 'statusText',
+	StatusValue: 'statusValue',
+	TaskTime: 'taskTime',
+	TeamInfo: 'team',
+	TeamScore: 'teamScore',
+	TextMsg: 'text',
+	Train: 'train',
+	TutorClose: 'tutorClose',
+	TutorLine: 'tutorLine',
+	TutorState: 'tutorState',
+	TutorText: 'tutorText',
+	VGUIMenu: 'vguiMenu',
+	ViewMode: 'viewMode',
+	VoiceMask: 'voiceMask',
+	WeaponList: 'weaponList',
+	WeapPickup: 'weaponPickup',
+};

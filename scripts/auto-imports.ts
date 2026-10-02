@@ -72,7 +72,7 @@ export const HOOD = new Set([
 	// The kit's.
 	'caller cellArrayRows cellsText colorTags createCellArray defineModule destroyCellArray menuColors PawnCall PawnFunction pushCellArrayRow request RequestErrorKind RequestOptions RequestResult showMenu textCells',
 	// The generated listener and flag tables.
-	'addGameListener addServerListener removeGameListener removeServerListener GameAnswerMap GameEventMap ServerEventMap HookEntry HookEvent EntvarFlags FlagFamily FlagList flagList FlagStore MemberFlags ACCESS BUTTON DAMAGE EFFECT ENTITY_FLAG HIDE_HUD PHYSICS_FLAG WEAPON_STATE',
+	'addGameListener addServerListener removeGameListener removeServerListener GameAnswerMap GameEventMap ServerEventMap ServerMessageMap protocolMessageName HookEntry HookEvent EntvarFlags FlagFamily FlagList flagList FlagStore MemberFlags ACCESS BUTTON DAMAGE EFFECT ENTITY_FLAG HIDE_HUD PHYSICS_FLAG WEAPON_STATE',
 ].flatMap(group => group.split(' ')));
 
 // ---------------------------------------------------------------- the table

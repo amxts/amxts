@@ -1,8 +1,9 @@
 // Our own words for the messages the server sends its clients, as
-// server.addEventListener("message:<Name>", ...) hears them - in both
-// languages. scripts/generate-host.ts writes them into as/events.ts as the
-// tooltips an editor shows on the name, the event and its fields. A message
-// without an entry has the words of every message: its arguments by number.
+// server.addMessageListener(name, ...) hears them - in both languages.
+// scripts/generate-host.ts writes them into as/events.ts as the tooltips an
+// editor shows on the name, the event and its fields: the summary, then the
+// game's name of the message, so a Pawn author who searches for `DeathMsg`
+// finds `death`.
 import type { EventDoc, Text } from './events';
 
 const receiver: Text = { en: `The player the message goes to.`, ru: `Игрок, которому идёт сообщение.` };
@@ -71,12 +72,18 @@ export const MESSAGES: Record<string, EventDoc> = {
 	BombPickup: {
 		summary: { en: `The bomb is picked up: it leaves the terrorists' radar.`, ru: `Бомбу подобрали: она пропадает с радара террористов.` },
 	},
+	BotProgress: {
+		summary: { en: `The progress bar a player's client shows while the bots learn a new map.`, ru: `Полоса прогресса, которую клиент игрока показывает, пока боты изучают новую карту.` },
+	},
 	BotVoice: {
 		summary: { en: `The voice icon over a bot who talks on the radio.`, ru: `Значок голоса над ботом, который говорит по рации.` },
 		fields: {
 			talking: { en: `\`true\` while the bot talks.`, ru: `\`true\`, пока бот говорит.` },
 			target: { en: `The bot who talks.`, ru: `Бот, который говорит.` },
 		},
+	},
+	Brass: {
+		summary: { en: `A spent shell a weapon throws out, for the clients to draw.`, ru: `Гильза, которую выбрасывает оружие, — клиенты её рисуют.` },
 	},
 	BuyClose: {
 		summary: { en: `A player's buy menu is closed.`, ru: `Меню закупки игрока закрывается.` },
@@ -100,6 +107,12 @@ export const MESSAGES: Record<string, EventDoc> = {
 			weapon: { en: `The weapon, by its kind, e.g. \`"ak47"\`.`, ru: `Оружие по его виду, например \`"ak47"\`.` },
 			clip: { en: `The rounds in the clip.`, ru: `Патроны в обойме.` },
 		},
+	},
+	CZCareer: {
+		summary: { en: `A step of Condition Zero's career, its single-player campaign.`, ru: `Шаг карьеры Condition Zero, её одиночной кампании.` },
+	},
+	CZCareerHUD: {
+		summary: { en: `Condition Zero's career on a player's HUD.`, ru: `Карьера Condition Zero на HUD игрока.` },
 	},
 	Damage: {
 		summary: { en: `A player is shown the damage he took: the red marks at the side of his screen.`, ru: `Игроку показывают полученный урон: красные метки сбоку экрана.` },
@@ -130,6 +143,18 @@ export const MESSAGES: Record<string, EventDoc> = {
 		summary: { en: `The flashlight's battery on a player's HUD changes.`, ru: `Меняется заряд фонарика на HUD игрока.` },
 		fields: { battery },
 	},
+	Fog: {
+		summary: { en: `The fog on a player's screen: its colour and density.`, ru: `Туман на экране игрока: его цвет и плотность.` },
+	},
+	ForceCam: {
+		summary: { en: `The views a dead player may watch the game in, as \`mp_forcecamera\` and \`mp_forcechasecam\` allow.`, ru: `Виды, в которых мёртвый игрок может смотреть игру, как разрешают \`mp_forcecamera\` и \`mp_forcechasecam\`.` },
+	},
+	GameMode: {
+		summary: { en: `Whether the game is played in teams, for a player's client.`, ru: `Играют ли командами — для клиента игрока.` },
+	},
+	GameTitle: {
+		summary: { en: `The game's title on a player's screen when he enters the game.`, ru: `Заголовок игры на экране игрока, когда он входит в игру.` },
+	},
 	Geiger: {
 		summary: { en: `The Geiger counter's clicks a player hears near radiation.`, ru: `Щелчки счётчика Гейгера, которые игрок слышит рядом с радиацией.` },
 		fields: { range: { en: `The distance to the radiation: the less, the faster the clicks.`, ru: `Расстояние до радиации: чем меньше, тем чаще щелчки.` } },
@@ -141,6 +166,9 @@ export const MESSAGES: Record<string, EventDoc> = {
 	HideWeapon: {
 		summary: { en: `The parts of a player's HUD that are hidden change.`, ru: `Меняются скрытые части HUD игрока.` },
 		fields: { flags: { en: `The hidden parts, e.g. \`"Money"\`, \`"Timer"\`. Assign to change them.`, ru: `Скрытые части, например \`"Money"\`, \`"Timer"\`. Присвойте, чтобы изменить.` } },
+	},
+	HLTV: {
+		summary: { en: `A note to the HLTV proxies, such as a new round's start.`, ru: `Заметка для прокси HLTV, например о начале нового раунда.` },
 	},
 	HostageK: {
 		summary: { en: `A hostage is killed: it leaves the counter-terrorists' radar.`, ru: `Заложник убит: он пропадает с радара спецназа.` },
@@ -210,6 +238,12 @@ export const MESSAGES: Record<string, EventDoc> = {
 			target: { en: `The teammate shown.`, ru: `Показанный союзник.` },
 			origin: { en: `The point where the teammate is.`, ru: `Точка, где находится союзник.` },
 		},
+	},
+	ReceiveW: {
+		summary: { en: `The weather on the map, rain or snow, for a player's client.`, ru: `Погода на карте, дождь или снег, — для клиента игрока.` },
+	},
+	ReloadSound: {
+		summary: { en: `The sound of a weapon reloaded nearby, for a player's client.`, ru: `Звук перезарядки оружия поблизости — для клиента игрока.` },
 	},
 	ReqState: {
 		summary: { en: `The game asks a player's client for its state, for the voice.`, ru: `Игра запрашивает у клиента игрока его состояние — для голоса.` },
@@ -287,6 +321,9 @@ export const MESSAGES: Record<string, EventDoc> = {
 	SetFOV: {
 		summary: { en: `A player's field of view is set.`, ru: `Задаётся поле зрения игрока.` },
 		fields: { fov: { en: `The field of view, in degrees.`, ru: `Поле зрения, в градусах.` } },
+	},
+	ShadowIdx: {
+		summary: { en: `The sprite a player's client draws the players' shadows with.`, ru: `Спрайт, которым клиент игрока рисует тени игроков.` },
 	},
 	ShowMenu: {
 		summary: { en: `A text menu on a player's screen - the team menu without VGUI, the radio, a plugin's menu.`, ru: `Текстовое меню на экране игрока — меню команды без VGUI, рация, меню плагина.` },
@@ -375,12 +412,24 @@ export const MESSAGES: Record<string, EventDoc> = {
 	TutorClose: {
 		summary: { en: `A tutor's message on a player's screen closes.`, ru: `Сообщение подсказчика на экране игрока закрывается.` },
 	},
+	TutorLine: {
+		summary: { en: `A tutor's pointer on a player's screen, at a thing in the world.`, ru: `Указатель подсказчика на экране игрока — на предмет в мире.` },
+	},
+	TutorState: {
+		summary: { en: `The tutor's state on a player's client.`, ru: `Состояние подсказчика на клиенте игрока.` },
+	},
+	TutorText: {
+		summary: { en: `A tutor's message on a player's screen.`, ru: `Сообщение подсказчика на экране игрока.` },
+	},
 	VGUIMenu: {
 		summary: { en: `A VGUI menu of the game opens on a player's screen: the team menu, the class menu, the buy menu.`, ru: `На экране игрока открывается VGUI-меню игры: меню команды, класса, закупки.` },
 		fields: { menu: { en: `The menu, e.g. \`"team"\`, \`"classT"\`, \`"buy"\`.`, ru: `Меню, например \`"team"\`, \`"classT"\`, \`"buy"\`.` } },
 	},
 	ViewMode: {
 		summary: { en: `A player's view goes back to first person.`, ru: `Вид игрока возвращается к виду от первого лица.` },
+	},
+	VoiceMask: {
+		summary: { en: `The players a player hears on the voice chat, and the ones he has muted.`, ru: `Игроки, которых игрок слышит в голосовом чате, и те, кого он заглушил.` },
 	},
 	WeaponList: {
 		summary: { en: `A weapon's description for a player's client: its ammo, its slot, its place in the slot.`, ru: `Описание оружия для клиента игрока: его патроны, слот, место в слоте.` },
@@ -401,8 +450,13 @@ export const MESSAGES: Record<string, EventDoc> = {
 	},
 };
 
-/** The words of a message that has no entry, and of the receiver every message has. */
-export const ANY_MESSAGE: { summary: Text; player: Text } = {
-	summary: { en: `A message the server sends its clients; its arguments are \`event.args\`.`, ru: `Сообщение, которое сервер шлёт клиентам; его аргументы — \`event.args\`.` },
+/** The line every message's words end with: the game's name of it. */
+export function gameName(name: string): Text {
+	return { en: `The game's \`${name}\` message.`, ru: `Сообщение игры \`${name}\`.` };
+}
+
+/** The words of a message without fields, and of the receiver every message has. */
+export const ANY_MESSAGE: { args: Text; player: Text } = {
+	args: { en: `Its arguments are read by place, through \`event.args\`.`, ru: `Его аргументы читаются по месту, через \`event.args\`.` },
 	player: receiver,
 };

@@ -2,47 +2,47 @@
 // clients as events - typed fields read and written, a message stopped, one
 // whose layout the table does not know read by its arguments.
 
-server.addEventListener("message:TextMsg", onText);
-server.addEventListener("message:RoundTime", (event) => {
+server.addMessageListener("text", onText);
+server.addMessageListener("roundTime", (event) => {
 	event.seconds = 90;
 });
-server.addEventListener("message:HideWeapon", onHideWeapon);
-server.addEventListener("message:TeamScore", (event) => {
+server.addMessageListener("hideWeapon", onHideWeapon);
+server.addMessageListener("teamScore", (event) => {
 	console.log(`score ${event.name} ${event.team} ${event.score}`);
 	if (event.team == "CT") event.score = event.score + 1;
 });
-server.addEventListener("message:ItemPickup", (event) => {
+server.addMessageListener("itemPickup", (event) => {
 	if (event.item == "weapon_knife") event.preventDefault();
 });
-server.addEventListener("message:DeathMsg", (event) => {
+server.addMessageListener("death", (event) => {
 	const killer = event.killer;
 	console.log(`death ${killer != null ? killer.name : "world"} ${event.victim?.name} ${event.headshot} ${event.weapon}`);
 });
-server.addEventListener("message:TeamInfo", (event) => {
+server.addMessageListener("team", (event) => {
 	console.log(`team ${event.target?.name} ${event.team}`);
 	if (event.team == "SPECTATOR") event.team = "CT";
 });
-server.addEventListener("message:ScreenFade", (event) => {
+server.addMessageListener("screenFade", (event) => {
 	console.log(`fade ${event.duration} ${event.hold} ${event.direction} ${event.modulate} ${event.stay} ${event.color.join(",")}`);
 	event.direction = "in";
 	event.stay = true;
 	event.color = [255, 0, 0, 128];
 });
-server.addEventListener("message:StatusIcon", (event) => {
+server.addMessageListener("statusIcon", (event) => {
 	console.log(`icon ${event.state} ${event.sprite} [${event.color.join(",")}]`);
 });
-server.addEventListener("message:ScoreAttrib", (event) => {
+server.addMessageListener("scoreAttribute", (event) => {
 	console.log(`attrib ${event.target?.name} ${event.flags.join(",")}`);
 	event.flags = event.flags.filter(flag => flag != "Bomb");
 });
-server.addEventListener("message:VGUIMenu", (event) => {
+server.addMessageListener("vguiMenu", (event) => {
 	if (event.menu == "team") event.preventDefault();
 });
-server.addEventListener("message:Damage", (event) => {
+server.addMessageListener("damage", (event) => {
 	console.log(`damage ${event.damage} ${event.origin.x} ${event.origin.y} ${event.origin.z}`);
 	event.origin = [1, 2, 3];
 });
-server.addEventListener("message:VoiceMask", (event) => {
+server.addMessageListener("voiceMask", (event) => {
 	console.log(`voice ${event.args.length} ${event.args.number(0)} ${event.args.isText(0)}`);
 });
 

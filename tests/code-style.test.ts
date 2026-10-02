@@ -131,7 +131,7 @@ const FACADE_EQUIVALENTS: Record<string, string> = {
 	rg_find_weapon_bpack_by_name: 'player.items.find(item => item.classname == name)',
 	register_touch: 'game.addEventListener("touch", listener, { toucher, touched })',
 	RegisterHam: 'game.addEventListener(event, listener, { classname })',
-	register_message: 'server.addEventListener("message:<Name>", listener)',
+	register_message: 'server.addMessageListener(name, listener)',
 	get_msg_arg_int: 'event.<field>, event.args.number(i)',
 	get_msg_arg_float: 'event.<field>, event.args.number(i)',
 	get_msg_arg_string: 'event.<field>, event.args.text(i)',

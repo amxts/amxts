@@ -1119,8 +1119,11 @@ export class FakeServer {
 	 * const sent = server.sendMessage("RoundTime", [120]);   // sent.args: [90] with a listener that writes 90
 	 * ```
 	 *
-	 * A text argument is a string; a whole number is written as a byte, a
-	 * fraction as a coordinate, unless `types` gives each argument's ARG_*.
+	 * `name` is the game's name of the message, `"TextMsg"` for the
+	 * `"text"` that server.addMessageListener takes, and `args` are its
+	 * arguments in the game's order. A text argument is a string; a whole
+	 * number is written as a byte, a fraction as a coordinate, unless `types`
+	 * gives each argument's ARG_*.
 	 * Returns whether a callback stopped it, and the arguments as they left.
 	 */
 	sendMessage(name: string, args: (number | string)[], options: { player?: FakePlayer; types?: number[] } = {}): { prevented: boolean; args: (number | string)[] } {

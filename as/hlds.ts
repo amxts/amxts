@@ -306,12 +306,12 @@ function endingOf(text: string): Ending | null {
  * the original game's: 3 seconds for "Game Commencing", 5 for every other end.
  */
 export function roundEndHlds(fire: Fire<RoundEndEvent>): void {
-	server.addEventListener("message:TextMsg", (message: TextMsgMessage): void => {
+	server.addMessageListener("text", (message: TextMsgMessage): void => {
 		if (message.destination != "center" || !message.text.startsWith("#")) return;
 		endText = message.text;
 		endTextAt = get_gametime();
 	});
-	server.addEventListener("message:SendAudio", (message: SendAudioMessage): void => {
+	server.addMessageListener("sound", (message: SendAudioMessage): void => {
 		if (message.sender != null || !message.sound.startsWith("%!MRAD_")) return;
 		endSound = message.sound;
 		endSoundAt = get_gametime();
@@ -392,7 +392,7 @@ export function playerKilledHlds(fire: Fire<PlayerKilledEvent>): void {
 
 /** The game tells everyone of a death: its DeathMsg. */
 export function deathNoticeHlds(fire: Fire<DeathNoticeEvent>): void {
-	server.addEventListener("message:DeathMsg", (message: DeathMsgMessage): void => {
+	server.addMessageListener("death", (message: DeathMsgMessage): void => {
 		const victim = message.victim;
 		const killer = message.killer;
 		const event = new DeathNoticeEvent();
@@ -404,7 +404,7 @@ export function deathNoticeHlds(fire: Fire<DeathNoticeEvent>): void {
 
 /** The death message itself: DeathMsg, which preventDefault() keeps from the players. */
 export function sendDeathMessageHlds(fire: Fire<SendDeathMessageEvent>): void {
-	server.addEventListener("message:DeathMsg", (message: DeathMsgMessage): void => {
+	server.addMessageListener("death", (message: DeathMsgMessage): void => {
 		const victim = message.victim;
 		const killer = message.killer;
 		const event = new SendDeathMessageEvent();
@@ -556,7 +556,7 @@ export function addMoneyHlds(fire: Fire<AddMoneyEvent>): void {
 		const max = get_maxplayers();
 		for (let id = 1; id <= max; id++) moneySent[id] = is_user_connected(id) != 0 ? <i32>cs_get_user_money(id) : -1;
 	});
-	server.addEventListener("message:Money", (message: MoneyMessage): void => {
+	server.addMessageListener("money", (message: MoneyMessage): void => {
 		const player = message.player;
 		if (player == null) return;
 		const id = <i32>player.id;
@@ -686,7 +686,7 @@ export function dropPlayerItemHlds(fire: Fire<DropPlayerItemEvent>): void {
 
 /** A VGUI menu shown: its VGUIMenu message, which preventDefault() keeps from the player. */
 export function showVguiMenuHlds(fire: Fire<ShowVguiMenuEvent>): void {
-	server.addEventListener("message:VGUIMenu", (message: VGUIMenuMessage): void => {
+	server.addMessageListener("vguiMenu", (message: VGUIMenuMessage): void => {
 		const player = message.player;
 		const event = new ShowVguiMenuEvent();
 		event.__give(0, player != null ? <i32>player.id : 0);

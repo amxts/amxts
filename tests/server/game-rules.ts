@@ -1,6 +1,6 @@
 // Game rules - game's fields, generated as an entity's: a number, a fraction,
 // a boolean, text and the round's winner by name. A team's score goes to the
-// scoreboard at once: TeamScore is heard as the "message:TeamScore" event. What
+// scoreboard at once: TeamScore is heard through the "teamScore" message. What
 // is written is checked against reapi, and without it against fakemeta, whose
 // offsets are the original game's, not ReGameDLL's. ReGameDLL's members without reapi
 // read from what the server has: gameName is the game's name, timeLimit comes from mp_timelimit.
@@ -15,7 +15,7 @@ server.addServerCommand("amxts_test_game_rules", () => {
 /** The score sent out: "CT 7;TERRORIST 2;". */
 let scores = "";
 
-server.addEventListener("message:TeamScore", (event) => {
+server.addMessageListener("teamScore", (event) => {
 	scores += `${event.args.text(0)} ${event.args.number(1)};`;
 });
 
