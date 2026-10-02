@@ -1026,41 +1026,33 @@ static void w_outcome(wasm_exec_env_t env, int32_t value)
 }
 
 /**
- * abort(message, file, line, column) - AssemblyScript's own.
- *
- * It is what an out-of-range index, a null dereference or a failed assertion
- * ends in. The plugins used to be compiled with `--use abort=`, which made all
- * of those carry on into whatever was next - the failure stayed, and the line
- * that caused it did not. Now it says where it happened and stops that call.
+ * `text` on the console, `prefix` before its first line: a line at a time,
+ * since AMX Mod X cuts what it prints at 384 bytes - a stack is longer.
  */
-static void w_abort(wasm_exec_env_t env, int32_t msg, int32_t file, int32_t line, int32_t column)
+static void PrintLines(const char *prefix, const std::string &text)
 {
-	wasm_module_inst_t inst = Inst(env);
-
-	std::string text = msg ? AsString(inst, msg) : "";
-	std::string where = file ? AsString(inst, file) : "";
-
-	MF_PrintSrvConsole("[amxts] abort: %s (%s:%d:%d)\n",
-		text.empty() ? "assertion failed" : text.c_str(),
-		where.empty() ? "?" : where.c_str(), line, column);
-
-	// Ends this call rather than the server: Fire clears it and carries on.
-	wasm_runtime_set_exception(inst, "aborted");
+	size_t at = 0;
+	do {
+		size_t end = text.find('\n', at);
+		std::string line = text.substr(at, end == std::string::npos ? std::string::npos : end - at);
+		MF_PrintSrvConsole("%s%s\n", at ? "" : prefix, line.c_str());
+		at = end == std::string::npos ? std::string::npos : end + 1;
+	} while (at != std::string::npos);
 }
 
 static void w_console_log(wasm_exec_env_t env, int32_t msg)
 {
-	MF_PrintSrvConsole("[amxts] %s\n", AsString(Inst(env), msg).c_str());
+	PrintLines("[amxts] ", AsString(Inst(env), msg));
 }
 
 static void w_console_error(wasm_exec_env_t env, int32_t msg)
 {
-	MF_PrintSrvConsole("[amxts] error: %s\n", AsString(Inst(env), msg).c_str());
+	PrintLines("[amxts] error: ", AsString(Inst(env), msg));
 }
 
 static void w_console_warn(wasm_exec_env_t env, int32_t msg)
 {
-	MF_PrintSrvConsole("[amxts] warning: %s\n", AsString(Inst(env), msg).c_str());
+	PrintLines("[amxts] warning: ", AsString(Inst(env), msg));
 }
 
 static void w_console_assert(wasm_exec_env_t env, int32_t condition, int32_t msg)
@@ -2481,6 +2473,28 @@ static int32_t w_playerChangeGetText(wasm_exec_env_t env, int32_t which, int32_t
 	return CopyText(Inst(env), text, out, max);
 }
 
+// ---------------------------------------------------------------- plugins
+
+/** Which plugin a module instance is - or, while it is being loaded, the current one. */
+static int PluginOf(wasm_module_inst_t inst)
+{
+	for (size_t i = 0; i < g_plugins.size(); i++)
+		if (g_plugins[i].inst == inst)
+			return (int)i;
+	return g_currentPlugin;
+}
+
+static const char *PluginName(int index)
+{
+	return index >= 0 && (size_t)index < g_plugins.size() ? g_plugins[index].name.c_str() : "?";
+}
+
+// ---------------------------------------------------------------- errors
+
+// A failed call's stack, in the plugin's TypeScript: abort, Failed, and the
+// natives of an Error's stack.
+#include "stack.h"
+
 // ---------------------------------------------------------------- coroutines
 
 // async functions: co_spawn, co_suspend and the rest, and DrainJobs.
@@ -2583,9 +2597,7 @@ static int32_t w_rpc(wasm_exec_env_t env, int32_t service, int32_t plugin, int32
 		memcpy(answer.data(), &target, 4);
 		if (!g_rpcReply.empty()) memcpy(answer.data() + 4, g_rpcReply.data(), g_rpcReply.size());
 	} else {
-		const char *ex = wasm_runtime_get_exception(p.inst);
-		MF_PrintSrvConsole("[amxts] %s: %s\n", p.name.c_str(), ex ? ex : "call failed");
-		wasm_runtime_clear_exception(p.inst);
+		Failed(target, p.inst);
 	}
 
 	g_outcomeSaid = saidBefore;
@@ -2638,6 +2650,8 @@ static void w_rpcResult(wasm_exec_env_t env, int32_t to)
 
 static NativeSymbol g_wasmNatives[] = {
 	{ "abort",        (void *)w_abort,        "(iiii)", NULL },
+	{ "stack_frames", (void *)w_stack_frames, "(ii)i",  NULL },
+	{ "stack_text",   (void *)w_stack_text,   "(iiii)i", NULL },
 	{ "print_client", (void *)w_print_client, "(iii)",  NULL },
 	{ "say_text",     (void *)w_say_text,     "(iii)",  NULL },
 	{ "get_name",     (void *)w_get_name,     "(iii)i", NULL },
@@ -2799,9 +2813,7 @@ static cell Fire(const Handler &h, uint32_t *argv, int argc, cell fallback)
 	p.depth--;
 
 	if (!called) {
-		const char *ex = wasm_runtime_get_exception(p.inst);
-		MF_PrintSrvConsole("[amxts] %s: %s\n", p.name.c_str(), ex ? ex : "call failed");
-		wasm_runtime_clear_exception(p.inst);
+		Failed(h.plugin, p.inst);
 	}
 	else if (g_outcomeSaid) {
 		result = g_outcome;
@@ -3546,7 +3558,8 @@ static bool LoadPlugin(const char *file, const char *name, const char *source = 
 	g_currentPlugin = previous;
 
 	if (!inst) {
-		MF_PrintSrvConsole("[amxts] %s: %s\n", name, err);
+		// Its top level failed, or WAMR refused it: an abort's frames are kept.
+		PrintFailure(index, TakeFailure(index, NULL, err));
 		g_plugins.pop_back();
 		wasm_runtime_unload(p.module);
 		free(p.file);
@@ -3600,9 +3613,7 @@ static void InitPlugin(int index)
 
 	p.depth++;
 	if (!wasm_runtime_call_wasm(p.env, init, 0, NULL)) {
-		const char *ex = wasm_runtime_get_exception(p.inst);
-		MF_PrintSrvConsole("[amxts] %s: %s\n", p.name.c_str(), ex ? ex : "init failed");
-		wasm_runtime_clear_exception(p.inst);
+		Failed(index, p.inst);
 	} else {
 		MF_PrintSrvConsole("[amxts] loaded %s\n", p.name.c_str());
 	}

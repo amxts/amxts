@@ -49,7 +49,7 @@ const PLUGINS = ['hello', ...MODULES];
 /** How long the server may take to load the plugins. */
 const START_TIMEOUT = 180_000;
 /** Console lines that mean a plugin did not load or something crashed. */
-const ERROR_LINE = /failed to load|resolve symbol|exception|\[amxts\] abort:|run time error|plugin file open error|bad load|did not compile|cannot create exec env|init failed|did not load the host plugin/i;
+const ERROR_LINE = /failed to load|resolve symbol|exception|\[amxts\] [^:\s]+: \w*Error:|run time error|plugin file open error|bad load|did not compile|cannot create exec env|init failed|did not load the host plugin/i;
 
 class CheckError extends Error {}
 

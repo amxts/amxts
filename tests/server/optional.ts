@@ -2,8 +2,7 @@
 // undefined (a NaN of its own) survives the i386 build, an optional boolean
 // keeps whether it was given, `?.` and destructuring work, and a variable read
 // before its declaration aborts only the call that read it.
-// @log [amxts] abort: x is not initialized
-// @log optional.aot: Exception: aborted
+// @log optional.aot: ReferenceError: x is not initialized
 import { Checks } from "@amxts/core/check";
 
 interface Options {

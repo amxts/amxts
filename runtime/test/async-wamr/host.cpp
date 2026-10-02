@@ -62,6 +62,39 @@ static wasm_module_inst_t Inst(wasm_exec_env_t env)
 	return wasm_runtime_get_module_inst(env);
 }
 
+static int PluginOf(wasm_module_inst_t inst)
+{
+	for (size_t i = 0; i < g_plugins.size(); i++)
+		if (g_plugins[i].inst == inst)
+			return (int)i;
+	return g_currentPlugin;
+}
+
+static const char *PluginName(int index)
+{
+	return index >= 0 && (size_t)index < g_plugins.size() ? g_plugins[index].name.c_str() : "?";
+}
+
+// The module's report of a failed call (runtime/src/stack.h), without the
+// stack: this host keeps no plugin's map.
+struct Failure {
+	std::string message;
+};
+
+static Failure TakeFailure(int index, wasm_module_inst_t inst, const char *ex)
+{
+	Failure failure;
+	failure.message = ex ? ex : "call failed";
+	if (inst)
+		wasm_runtime_clear_exception(inst);
+	return failure;
+}
+
+static void PrintFailure(int index, const Failure &failure, const char *context = "")
+{
+	MF_PrintSrvConsole("[amxts] %s: %s%s\n", PluginName(index), failure.message.c_str(), context);
+}
+
 #include "coroutines.h"
 
 // ---------------------------------------------------------------- the rest of a host
@@ -110,6 +143,17 @@ static void w_error(wasm_exec_env_t env, int32_t message)
 {
 	printf("log: error: %s\n", Text(Inst(env), message).c_str());
 	fflush(stdout);
+}
+
+// An error's stack: the module's frames; this host keeps none, so `stack` is the first line.
+static int32_t w_stackFrames(wasm_exec_env_t env, int32_t out, int32_t max)
+{
+	return 0;
+}
+
+static int32_t w_stackText(wasm_exec_env_t env, int32_t frames, int32_t count, int32_t out, int32_t max)
+{
+	return 0;
 }
 
 static int32_t w_task(wasm_exec_env_t env, int32_t secondsBits, int32_t fn, int32_t id, int32_t repeat)
@@ -167,6 +211,8 @@ static NativeSymbol g_natives[] = {
 	{ "abort",         (void *)w_abort,      "(iiii)",   NULL },
 	{ "console.log",   (void *)w_log,        "(i)",      NULL },
 	{ "console.error", (void *)w_error,      "(i)",      NULL },
+	{ "stack_frames",  (void *)w_stackFrames, "(ii)i",   NULL },
+	{ "stack_text",    (void *)w_stackText,  "(iiii)i",  NULL },
 	{ "task",          (void *)w_task,       "(iiii)i",  NULL },
 	{ "stop_task",     (void *)w_stopTask,   "(i)i",     NULL },
 	{ "on",            (void *)w_on,         "(iii)",    NULL },

@@ -31,20 +31,6 @@
 // the same number would stop each other's timers.
 static int32_t g_nextCoId = 0x60000000;
 
-/** Which plugin a module instance is - or, while it is being loaded, the current one. */
-static int PluginOf(wasm_module_inst_t inst)
-{
-	for (size_t i = 0; i < g_plugins.size(); i++)
-		if (g_plugins[i].inst == inst)
-			return (int)i;
-	return g_currentPlugin;
-}
-
-static const char *PluginName(int index)
-{
-	return index >= 0 && (size_t)index < g_plugins.size() ? g_plugins[index].name.c_str() : "?";
-}
-
 /**
  * Calls one of the scheduler's exports, or Asyncify's, with up to three i32
  * arguments. Returns the i32 it gives back; `ok` says whether it trapped.
@@ -60,9 +46,9 @@ static uint32_t CoCall(wasm_exec_env_t env, const char *name, uint32_t argc = 0,
 	if (called)
 		return argv[0];
 
-	const char *ex = f ? wasm_runtime_get_exception(inst) : "missing export";
-	MF_PrintSrvConsole("[amxts] %s: %s (in %s)\n", PluginName(PluginOf(inst)), ex ? ex : "call failed", name);
-	wasm_runtime_clear_exception(inst);
+	int index = PluginOf(inst);
+	std::string context = std::string(" (in ") + name + ")";
+	PrintFailure(index, TakeFailure(index, inst, f ? wasm_runtime_get_exception(inst) : "missing export"), context.c_str());
 	return 0;
 }
 
@@ -111,18 +97,15 @@ static int RunCoroutine(int index, wasm_exec_env_t env, int32_t id, bool rewind)
 	g_plugins[index].entering = false;
 
 	if (!called) {
-		const char *ex = wasm_runtime_get_exception(inst);
-		std::string what = ex ? ex : "call failed";
-		wasm_runtime_clear_exception(inst);
+		Failure failure = TakeFailure(index, inst, wasm_runtime_get_exception(inst));
 		uint32_t state = CoCall(env, "asyncify_get_state");
 		if (state == 1) {
 			MF_PrintSrvConsole("[amxts] %s: an async function needs more than %d bytes to wait in (%s); it was dropped\n",
-			                   PluginName(index), CO_BUFFER, what.c_str());
+			                   PluginName(index), CO_BUFFER, failure.message.c_str());
 			CoCall(env, "asyncify_stop_unwind");
 		}
 		else {
-			MF_PrintSrvConsole("[amxts] %s: %s - in an async function, which was dropped; the plugin runs on\n",
-			                   PluginName(index), what.c_str());
+			PrintFailure(index, failure, " - in an async function, which was dropped; the plugin runs on");
 			if (state == 2)
 				CoCall(env, "asyncify_stop_rewind");
 		}

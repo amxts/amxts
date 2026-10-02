@@ -190,8 +190,9 @@ const START_TIMEOUT = 90_000;
 const SUITE_TIMEOUT = 20_000;
 const BOT_TIMEOUT = 30_000;
 
-// Console lines that mean a plugin did not load or something crashed.
-const ERROR_LINE = /failed to load|resolve symbol|exception|\[amxts\] abort:|run time error|plugin file open error|bad load|unhandled promise rejection|assertion failed|did not compile|cannot create exec env|init failed/i;
+// Console lines that mean a plugin did not load or something crashed - a
+// failed call says "[amxts] <plugin>: <SomeError>: ...".
+const ERROR_LINE = /failed to load|resolve symbol|exception|\[amxts\] [^:\s]+: \w*Error:|run time error|plugin file open error|bad load|unhandled promise rejection|assertion failed|did not compile|cannot create exec env|init failed/i;
 
 interface Suite {
 	/** The tag its lines carry: [cvar], [config-core]. */
