@@ -122,7 +122,9 @@ export async function startTestSftp(hostname = '127.0.0.1', host = '127.0.0.1'):
 		hostKey,
 		privateKey: user.privateKey,
 		stop: async () => {
-			await new Promise(resolve => server.close(resolve));
+			// Not waiting for close(): it waits for every client, and a client
+			// such as curl keeps an idle connection open.
+			server.close();
 			rmSync(root, { recursive: true, force: true });
 		},
 	};
