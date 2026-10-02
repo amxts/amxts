@@ -29,8 +29,9 @@ function reached(entries: string[]) {
 	return [...seen];
 }
 
+/** Whether npm packs the file: what "files" lists, and package.json, which every package carries. */
 function packed(file: string) {
-	return (pkg.files as string[]).some(entry => entry.includes('*')
+	return file === 'package.json' || (pkg.files as string[]).some(entry => entry.includes('*')
 		? new RegExp(`^${entry.replace(/\./g, '\\.').replace(/\*/g, '[^/]*')}$`).test(file)
 		: file === entry || file.startsWith(`${entry}/`));
 }
