@@ -290,7 +290,7 @@ export function upgradeNames(file: string, text: string): { text: string; change
 	const leave = (node: ts.Node, why: string) => left.push({ file, line: lineOf(node), why });
 
 	const bare = (node: ts.Expression): ts.Expression => ts.isParenthesizedExpression(node) || ts.isNonNullExpression(node) ? bare(node.expression) : node;
-	const isPlayerAll = (node: ts.Node): node is ts.PropertyAccessExpression =>
+	const isPlayerAll = (node: ts.Node): boolean =>
 		ts.isPropertyAccessExpression(node) && node.name.text === 'all' && ts.isIdentifier(node.expression) && node.expression.text === 'Player';
 	const method = (node: ts.Expression) => ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) ? node.expression : undefined;
 

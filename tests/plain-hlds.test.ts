@@ -156,7 +156,7 @@ test('with reapi a player\'s event is reapi\'s chain', async () => {
 	expect(server.log).not.toContain('needs ReAPI');
 });
 
-test.each([['with reapi', {}], ['without', PLAIN]])('fields read where the game keeps them, %s', async (_, options) => {
+test.each([['with reapi', {}], ['without', PLAIN]])('fields read where the game keeps them, %s', async (_: string, options: typeof PLAIN | object) => {
 	const server = await loadPlugin(PLUGIN, options);
 	const alice = server.join('Alice');
 	alice.origin = [1, 2, 64];

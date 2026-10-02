@@ -62,7 +62,8 @@ async function run(ftp: string, sftp: string, hostKey: string) {
 	check.expect(`${outcome(keyed)} ${keyed.text().trim()}`, "SFTP: a key with its passphrase, the host key checked").toBe("0 [] 0 hello.txt");
 	check.expect(outcome(await request(`${sftp}/srv/hello.txt`, { user, keyFile, keyPassphrase: "key secret", hostKey: "AAAA" })), "SFTP: another host key").toBe("-1 [tls] 0");
 	check.expect(outcome(await request(`${sftp}/nope.txt`, { user, password })), "SFTP: no such file, status 2").toBe("-1 [notFound] 2");
-	check.expect(outcome(await request(`${sftp}/srv/`, { user, password, timeout: 1 })), "a timeout").toBe("-1 [timeout] 0");
+	// A user of its own, so curl opens a connection: one it reuses can answer within the millisecond.
+	check.expect(outcome(await request(`${sftp}/srv/`, { user: "slow", password, timeout: 1 })), "a timeout").toBe("-1 [timeout] 0");
 
 	const controller = new AbortController();
 	const aborted = request(`${sftp}/srv/`, { user, password, signal: controller.signal });
