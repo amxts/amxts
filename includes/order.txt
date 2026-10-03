@@ -14,6 +14,7 @@ cstrike
 engine
 fakemeta
 nvault
+geoip
 resemiclip
 universal_config
 menu_core
@@ -29,28 +30,18 @@ menu_core
 # universal_config and menu_core are not modules: their natives come from
 # universal_config.amxx and menu_core.amxx, which plugins.ini loads ahead of
 # amxts_host.amxx. AMX Mod X resolves plugin-registered natives after every
-# plugin has run plugin_natives(), so the host links against them fine - but a
-# server without those two plugins must put a `-` back in front of them.
+# plugin has run plugin_natives(), so the host links against them fine, and a
+# server without those two plugins loads it too (below).
 
 # A line starting with `-` is a deny marker: the include is still resolved and
-# parsed (amxxpc needs the file on disk to compile reapi.inc, which #includes
-# it unconditionally), but its natives are never pulled into the host's native
-# table. A #include costs nothing; a reference in __pull_natives() does — it
-# makes AMX Mod X refuse to load the plugin on a server that doesn't have the
-# native, taking the whole runtime down with it. None of these three are safe
-# to assume: vtc and rechecker are optional reapi add-ons, and reunion natives
-# are only registered when reapi detects Reunion at runtime, so even a server
-# that loads the Reunion metamod plugin cannot be assumed to expose them.
-# A server that wants one of these removes its `-`.
-# geoip is in modules.ini and its DLL is there, and it still cannot be pulled:
-# the module disables its own natives when it cannot find the GeoIP2 databases,
-# which it announces at startup and which this server does. A module being
-# loaded is not the same as its natives existing, and the difference is only
-# visible by starting the server - the host plugin refused to load with
-# "unknown function (name geoip_continent_name)" and took the whole runtime
-# with it. A server with the databases in place removes this marker.
--geoip
-
--reapi_vtc
--reapi_reunion
--reapi_rechecker
+# parsed (amxxpc needs the file on disk to compile an include that #includes
+# it), but its natives are never pulled into the host's native table. None is
+# needed today.
+#
+# A native the server does not have does not keep the host from loading: the
+# host's native filter lets it load without the native, and a call to it
+# answers 0 and says so once. So the includes whose natives a server may lack
+# are pulled like any other: reapi's add-ons - Reunion's natives exist only
+# when reapi finds Reunion, VTC's and ReChecker's only with those plugins - and
+# geoip, whose module turns its natives off when the GeoIP2 databases are not
+# there. The facade asks before it calls one (has_reunion).

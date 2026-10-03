@@ -171,15 +171,13 @@ function callbackSlot(i: number): string {
  * from the set of files: reapi.inc already pulls in reapi_engine and
  * reapi_gamedll, whose natives we need but must not include a second time.
  *
- * A line starting with `-` is a deny marker, not an include: reapi.inc
- * unconditionally `#include`s reapi_vtc, reapi_reunion and reapi_rechecker, so
- * they must be on disk for amxxpc to compile it, but their natives belong to
- * optional reapi add-ons a given server may not have loaded. A `#include`
- * costs nothing; a native *reference* in `__pull_natives()` does — it is the
- * one thing that makes AMX Mod X refuse to load the plugin, taking the whole
- * runtime down with it. So denied names still take part in the transitive
- * walk (their constants and forwards resolve normally); only the native pull
- * is filtered. See scripts/includes.ts's parseOrder for the parsing itself.
+ * A line starting with `-` is a deny marker, not an include: the file is
+ * still parsed - an include that #includes it needs it on disk, and its
+ * constants and forwards resolve normally - but its natives are kept out of
+ * `__pull_natives()`. A native the server lacks does not stop the host
+ * loading (the native filter below), so no include needs one today; the
+ * marker stays for one whose natives the host must not name at all. See
+ * scripts/includes.ts's parseOrder for the parsing itself.
  */
 function readOrderFile(): { includes: string[]; denied: Set<string> } {
 	const orderFile = join(includesDir, 'order.txt');
