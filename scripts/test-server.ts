@@ -23,7 +23,9 @@
 // server's console must show while that suite runs, as it is - how a check
 // sees what reached the console, and how an error line a suite causes on
 // purpose is told from a real one. A line `// @log-dev <text>` is one for a
-// --quick run alone: what only a dev build's stack frames show.
+// --quick run alone: what only a dev build's stack frames show. A plugin
+// with a line `// @unlisted` lies in plugins/ but not in the plugin list, for
+// a suite to start with amxts_load.
 //
 // --only <suite>[,<suite>...] builds, loads and checks only the files that
 // hold those suites, beside the plugins every run loads and the files that
@@ -467,11 +469,12 @@ async function until<T>(ms: number, ready: () => T | null | Promise<T | null>, a
 // ---------------------------------------------------------------- suites
 
 /** The suites to run and the files to build: with --only, those holding its suites and the ones holding none. */
-function discoverSuites(): { suites: Suite[]; plugins: string[]; pawn: string[]; unknown: string[] } {
+function discoverSuites(): { suites: Suite[]; plugins: string[]; pawn: string[]; unlisted: string[]; unknown: string[] } {
 	const files = readdirSync(suitesDir).filter(f => f.endsWith('.ts') || f.endsWith('.sma')).sort();
 	const suites: Suite[] = [];
 	const chosen: string[] = [];
 	const names: string[] = [];
+	const unlisted: string[] = [];
 
 	for (const file of files) {
 		const source = readFileSync(join(suitesDir, file), 'utf-8');
@@ -481,6 +484,7 @@ function discoverSuites(): { suites: Suite[]; plugins: string[]; pawn: string[];
 			.map(([, tail]) => ({ name: tail.replace(/_/g, '-'), command: `amxts_test_${tail}`, expectedLog }));
 		const wanted = own.filter(suite => ONLY.length === 0 || ONLY.includes(suite.name));
 		if (own.length === 0 || wanted.length > 0) chosen.push(join(suitesDir, file));
+		if (/^\/\/ @unlisted$/m.test(source)) unlisted.push(file.replace(/\.ts$/, '.aot'));
 		suites.push(...wanted);
 		names.push(...own.map(suite => suite.name));
 	}
@@ -489,6 +493,7 @@ function discoverSuites(): { suites: Suite[]; plugins: string[]; pawn: string[];
 		suites,
 		plugins: chosen.filter(f => f.endsWith('.ts')),
 		pawn: chosen.filter(f => f.endsWith('.sma')),
+		unlisted,
 		unknown: ONLY.filter(name => !names.includes(name)),
 	};
 }
@@ -636,7 +641,7 @@ function refusedCopies(built: string[]): Refused[] {
 	});
 }
 
-function stage(built: string[], refused: Refused[], pawn: string[], password: string): void {
+function stage(built: string[], refused: Refused[], unlisted: string[], pawn: string[], password: string): void {
 	if (linux) {
 		freshDir(rootDir);
 		mkdirSync(testDir, { recursive: true });
@@ -645,10 +650,11 @@ function stage(built: string[], refused: Refused[], pawn: string[], password: st
 		freshDir(rootDir);
 	}
 
-	// amxts: the list and the plugins, the refused ones first.
-	const listed = [...refused.map(copy => copy.file), ...built];
+	// amxts: the plugins, the refused ones first, and the list of all but the unlisted.
+	const files = [...refused.map(copy => copy.file), ...built];
 	mkdirSync(join(testDir, 'plugins'));
-	for (const file of listed) copyFileSync(join(buildDir, file), join(testDir, 'plugins', file));
+	for (const file of files) copyFileSync(join(buildDir, file), join(testDir, 'plugins', file));
+	const listed = files.filter(file => !unlisted.includes(file));
 	writeFileSync(join(testDir, 'plugins.ini'), `${listed.join('\n')}\n`);
 
 	// AMX Mod X: the Pawn suites, the modules with the amxts module under
@@ -844,7 +850,7 @@ async function main(): Promise<number> {
 	}
 
 	const started = performance.now();
-	const { suites, plugins, pawn, unknown } = discoverSuites();
+	const { suites, plugins, pawn, unlisted, unknown } = discoverSuites();
 	if (unknown.length) {
 		fail(`--only: no suite ${unknown.join(', ')} in ${suitesDir}`);
 		return 1;
@@ -856,7 +862,7 @@ async function main(): Promise<number> {
 
 	const password = `amxts-${Math.random().toString(36).slice(2, 12)}`;
 	const refused = refusedCopies(built);
-	stage(built, refused, pawn.map(file => basename(file).replace(/\.sma$/, '.amxx')), password);
+	stage(built, refused, unlisted, pawn.map(file => basename(file).replace(/\.sma$/, '.amxx')), password);
 
 	// In the container hlds listens on 27015 of its own network, which Docker
 	// publishes as 127.0.0.1:PORT; its console is the container's output.
@@ -931,7 +937,7 @@ async function main(): Promise<number> {
 			return report(results, problems);
 		}
 
-		for (const file of built) {
+		for (const file of built.filter(file => !unlisted.includes(file))) {
 			if (!consoleLines().some(line => line.includes(`[amxts] loaded ${file}`))) problems.push(`${file} did not load`);
 		}
 		for (const copy of refused) {
