@@ -162,6 +162,14 @@ this one.
 The API's tooltips come from `scripts/docs/`, in both languages; every new
 public element gets an entry in both.
 
+## Branches
+
+`main` is the next version. Each released minor version has its branch,
+`0.N.x` (the latest is what [amxts.github.io](https://amxts.github.io/docs)
+shows; `main` is at `/docs/next`). A fix the released version needs too -
+in the code or the docs - goes into the latest `0.N.x`, which is then merged
+into `main`; everything else goes into `main`.
+
 ## Commits
 
 [Conventional Commits](https://www.conventionalcommits.org), in English:
