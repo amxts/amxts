@@ -40,9 +40,11 @@ plugin.
   reloads the running server - no map change, nobody disconnected.
 - **Tests without a server.** Your plugin runs on a fake server under
   `bun test`, driven as players would drive it.
-- **Faster than Pawn.** Plugins are machine code by the time the server loads
-  them; on the hot path of a real plugin that is about three times faster
-  than the same logic in Pawn.
+- **Machine code.** Plugins are compiled before the server loads them: their
+  own work - loops, arrays, maps, text - runs as machine code, and math with
+  fractions runs about twenty times faster than in Pawn. A call into the game
+  costs more than it does from Pawn; the numbers are on the
+  [performance](docs/en/2.core/05.performance.md) page.
 - **Modules, one per server.** `amxts.config.ts` lists them, `amxts module add`
   installs them, and each runs once per server for every plugin that
   uses it; a module no plugin uses is not built.
