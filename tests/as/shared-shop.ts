@@ -6,14 +6,14 @@
 let chosen = "";
 
 server.addEventListener("init", () => {
-	menus.addAction("GREET", (player, target, name) => {
+	menus.addAction("GREET", ({ player, name }) => {
 		chosen = `${name} ${player.name}`;
 	});
-	menus.addPlaceholder("hp", player => `${player.health}`);
+	menus.addPlaceholder("hp", ({ player }) => `${player.health}`);
 
 	const shop = menus.create("SHARED_SHOP", { title: "Shop" });
-	shop.addItem("Hello (%hp%)", { enabled: [{ when: player => player.name == "Alice" }], action: "GREET" });
-	shop.addItem("Knife", { onSelect: takeKnife });
+	shop.addItem({ title: "Hello (%hp%)", enabled: [{ when: ({ player }) => player.name == "Alice" }], action: "GREET" });
+	shop.addItem({ title: "Knife", onSelect: ({ player }) => takeKnife(player) });
 
 	configs.setBaseDir("shared");
 	const made = configs.read("made");

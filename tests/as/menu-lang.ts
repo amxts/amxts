@@ -4,8 +4,8 @@
 
 lang.load("myplugin");
 
-const modes = menus.create("MODES", { title: player => lang.translate(player, "MYPLUGIN_TITLE") });
-modes.addItem(player => `DM ${lang.translate(player, "MYPLUGIN_ON")}`);
+const modes = menus.create("MODES", { title: ({ player }) => lang.translate(player, "MYPLUGIN_TITLE") });
+modes.addItem({ title: ({ player }) => `DM ${lang.translate(player, "MYPLUGIN_ON")}` });
 
 /** Opens the menu for the player. */
 export function menu_lang_open(id: number) {

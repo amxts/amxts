@@ -2,8 +2,8 @@
  * `string | (...) => string` - text that is fixed, or that depends on who
  * reads it (code-style rule 31):
  *
- *   shop.addItem("Close", ...);
- *   shop.addItem((player) => `Heal (${player.health} HP)`, ...);
+ *   shop.addItem({ title: "Close", ... });
+ *   shop.addItem({ title: ({ player }) => `Heal (${player.health} HP)`, ... });
  *
  * The type is held as the function; a string given where it is declared - an
  * argument, an object literal's field, an assignment - becomes a function

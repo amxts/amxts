@@ -663,8 +663,8 @@ test('27: a colour tag is only where the text shows it', () => {
 	const plugin = [
 		'print(player, "!gHi !wthere");',
 		'print(player, `${!won ? "a" : "b"} !dgrey`);',
-		'shop.addItem("!gGreen", { enabled: (player) => !player.isAlive, message: "!y(full)" });',
-		'shop.addItem("x", { onSelect: (player) => { player.name = "!g"; } });',
+		'shop.addItem({ title: "!gGreen", enabled: ({ player }) => !player.isAlive, message: "!y(full)" });',
+		'shop.addItem({ title: "x", onSelect: ({ player }) => { player.name = "!g"; } });',
 		'menus.create("SHOP", { title: "!tTeam" });',
 	].join('\n');
 

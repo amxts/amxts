@@ -2,9 +2,9 @@
  * A named function goes where a function type with more parameters is
  * expected, as TypeScript allows:
  *
- *   type ListSource = (viewer: Player, menu: string) => ListRow[] | null;
- *   function adminRows(viewer: Player) { ... return rows; }   // ListRow[]
- *   menus.setListSource("ADMIN", adminRows);
+ *   type Source = (viewer: Player, menu: string) => Row[] | null;
+ *   function adminRows(viewer: Player) { ... return rows; }   // Row[]
+ *   setSource("ADMIN", adminRows);
  *
  * call_indirect needs the exact signature, so the table gets an adapter with
  * the full one that calls the function with the leading arguments. The

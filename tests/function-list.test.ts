@@ -2,8 +2,8 @@
  * `((...) => R) | T[]` - one test, or a list of objects that each carry one
  * with more beside it:
  *
- *   shop.addItem("Buy", { enabled: (player) => player.money > 100 });
- *   shop.addItem("Buy", { enabled: [{ when: (player) => player.money > 100, message: "No money" }] });
+ *   shop.addItem({ title: "Buy", enabled: ({ player }) => player.money > 100 });
+ *   shop.addItem({ title: "Buy", enabled: [{ when: ({ player }) => player.money > 100, message: "No money" }] });
  *
  * The type is held as the list; a function given where it is declared - an
  * argument, an object literal's field, an assignment - becomes a list of one

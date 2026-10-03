@@ -5,19 +5,20 @@
 let healed = 0;
 let lastChoice = "";
 
-menus.addAction("PICK", (player, target, name) => {
+menus.addAction("PICK", ({ player, name }) => {
 	lastChoice = `${player.name}:${name}`;
 });
 
-const shop = menus.create("SHOP", { title: player => `Shop for ${player.name}` });
-shop.addItem(player => `Heal (${player.health} HP)`, {
-	enabled: player => player.health < 100,
-	message: player => `healthy: ${player.health}`,
-	onSelect: heal,
+const shop = menus.create("SHOP", { title: ({ player }) => `Shop for ${player.name}` });
+shop.addItem({
+	title: ({ player }) => `Heal (${player.health} HP)`,
+	enabled: ({ player }) => player.health < 100,
+	message: ({ player }) => `healthy: ${player.health}`,
+	onSelect: ({ player }) => heal(player),
 });
-shop.addItem("Wounded only", { visible: player => player.health < 100 });
-shop.addItem("Choose", { action: "PICK" });
-shop.addItem("Leave", { action: "CLOSE_MENU", spaceBefore: 1 });
+shop.addItem({ title: "Wounded only", visible: ({ player }) => player.health < 100 });
+shop.addItem({ title: "Choose", action: "PICK" });
+shop.addItem({ title: "Leave", action: "CLOSE_MENU", spaceBefore: 1 });
 
 function heal(player: Player) {
 	player.health = 100;

@@ -24,9 +24,10 @@ export function shared_menu() {
 export function shared_add(text: string) {
 	const menu = menus.find("SHARED_SHOP");
 	if (menu == null) return false;
-	menu.addItem(player => `${text} for ${player.name}`, {
-		visible: player => player.name != "Bob",
-		onSelect: (player) => {
+	menu.addItem({
+		title: ({ player }) => `${text} for ${player.name}`,
+		visible: ({ player }) => player.name != "Bob",
+		onSelect: ({ player }) => {
 			picked = `${text} ${player.name}`;
 		},
 	});
