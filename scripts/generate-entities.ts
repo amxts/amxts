@@ -562,6 +562,7 @@ function enumMembers(type: string): { name: string; value: number }[] {
 }
 
 const lowerFirst = (text: string) => text[0].toLowerCase() + text.slice(1);
+const upperFirst = (text: string) => text[0].toUpperCase() + text.slice(1);
 
 // A qboolean that holds more than two values: m_bMapHasVIPSafetyZone is 0
 // until the map is looked at, then 1 or 2 - a VipSafetyZone.
@@ -705,6 +706,14 @@ function docOf(f: Field) {
 		engine = member === f.reapi ? `\`${f.owner}::${member}\`` : `\`${f.owner}::${member}\` (reapi \`${f.reapi}\`)`;
 	}
 	return [...words, `Pawn: ${engine}${own ? `, ${own}` : ''}`].join('\n\n');
+}
+
+/** The tooltip of a vector field's get<Field>(target). */
+function intoDoc(name: string) {
+	const example = ['```ts', `const ${name} = new Vector();`, `player.get${upperFirst(name)}(${name});`, '```'].join('\n');
+	return DOCS_LANG === 'ru'
+		? `\`${name}\`, записанный в \`target\`, который и возвращается: новый \`Vector\` не создаётся — для кода, который работает каждый кадр.\n\n${example}`
+		: `\`${name}\`, written into \`target\`, which is returned: no new \`Vector\` is made - for code that runs every frame.\n\n${example}`;
 }
 
 /** The tooltip of a member written by hand below, from ENTITY_METHODS. */
@@ -914,6 +923,10 @@ function accessor(f: Field, kind: 'entvar' | 'member' | 'game') {
 			const place = kind === 'entvar' ? `this.id, ${offsetOf(f.reapi)}` : `this.id, ${memberAt(f.reapi, f.owner)}`;
 			const what = kind === 'entvar' ? 'Entvar' : 'Member';
 			lines.push(`\tget ${f.name}(): Vector { return ${lowerFirst(what)}Vector(${place}); }`);
+			// The same into a Vector the plugin keeps, as three.js's
+			// getWorldPosition(target): a getter gives a fresh Vector, and
+			// making one is most of what a read costs.
+			lines.push(`\t${renderDoc(intoDoc(f.name), '\t')}`, `\tget${upperFirst(f.name)}(target: Vector): Vector { return ${lowerFirst(what)}VectorInto(${place}, target); }`);
 			// Moving an entity is the engine's SET_ORIGIN, not a field write:
 			// only it relinks the entity, and until then absmin/absmax - what
 			// collisions and find_ent_in_sphere look at - stay where it was.
@@ -1162,7 +1175,15 @@ function setEntvarEntity(id: number, offset: i32, index: i32): void {
 }
 
 function entvarVector(id: number, offset: i32): Vector {
-	return new Vector(cellFloat(_entGet(<i32>id, offset)), cellFloat(_entGet(<i32>id, offset + 4)), cellFloat(_entGet(<i32>id, offset + 8)));
+	return entvarVectorInto(id, offset, new Vector());
+}
+
+/** A vector entvar written into a Vector the plugin keeps: get<Field>(target). */
+function entvarVectorInto(id: number, offset: i32, target: Vector): Vector {
+	target.x = cellFloat(_entGet(<i32>id, offset));
+	target.y = cellFloat(_entGet(<i32>id, offset + 4));
+	target.z = cellFloat(_entGet(<i32>id, offset + 8));
+	return target;
 }
 
 function setEntvarVector(id: number, offset: i32, value: number[]): void {
@@ -1180,8 +1201,15 @@ function setMemberCell(id: number, at: i32, cell: i32, element: i32 = 0): void {
 
 // A vector member's elements are its three components.
 function memberVector(id: number, at: i32): Vector {
+	return memberVectorInto(id, at, new Vector());
+}
+
+function memberVectorInto(id: number, at: i32, target: Vector): Vector {
 	const slot = slotOf(at);
-	return new Vector(cellFloat(_memberGet(<i32>id, slot, 0)), cellFloat(_memberGet(<i32>id, slot, 1)), cellFloat(_memberGet(<i32>id, slot, 2)));
+	target.x = cellFloat(_memberGet(<i32>id, slot, 0));
+	target.y = cellFloat(_memberGet(<i32>id, slot, 1));
+	target.z = cellFloat(_memberGet(<i32>id, slot, 2));
+	return target;
 }
 
 function setMemberVector(id: number, at: i32, value: number[]): void {

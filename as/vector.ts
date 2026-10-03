@@ -8,24 +8,27 @@
 
 /** Three numbers, x y z, with the math a plugin needs on them. */
 export class Vector extends Array<number> {
+	// x, y and z read and write their element without the index's check: a
+	// Vector is made with room for three, which a shorter length leaves in
+	// place, and the check was a call - most of what reading one cost.
 	constructor(x: number = 0.0, y: number = 0.0, z: number = 0.0) {
 		super(3);
-		this[0] = x;
-		this[1] = y;
-		this[2] = z;
+		unchecked(this[0] = x);
+		unchecked(this[1] = y);
+		unchecked(this[2] = z);
 	}
 
 	/** The x coordinate, `vector[0]`. */
-	get x() { return this[0]; }
-	set x(value: number) { this[0] = value; }
+	get x() { return unchecked(this[0]); }
+	set x(value: number) { unchecked(this[0] = value); }
 
 	/** The y coordinate, `vector[1]`. */
-	get y() { return this[1]; }
-	set y(value: number) { this[1] = value; }
+	get y() { return unchecked(this[1]); }
+	set y(value: number) { unchecked(this[1] = value); }
 
 	/** The z coordinate, `vector[2]`. */
-	get z() { return this[2]; }
-	set z(value: number) { this[2] = value; }
+	get z() { return unchecked(this[2]); }
+	set z(value: number) { unchecked(this[2] = value); }
 
 	/** A new vector: this one plus `other`, number by number. */
 	add(other: number[]) {
