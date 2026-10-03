@@ -14,7 +14,7 @@ import {
 
 let bot: Player | null = null;
 
-server.addEventListener("putinserver", ({ player }) => console.log(`putinserver ${player.name} bot ${player.isBot}`));
+server.addEventListener("putInServer", ({ player }) => console.log(`putinserver ${player.name} bot ${player.isBot}`));
 server.addEventListener("disconnected", ({ player }) => console.log(`disconnected ${player.name}`));
 
 server.addServerCommand("bot_add <name>", ({ name }) => {

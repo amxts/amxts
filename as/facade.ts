@@ -221,7 +221,7 @@ export function ret(value: number): void {
  * unique within the plugin. `fallback` is the answer when the handler returns
  * nothing: `0` for most natives, `1` where the native expects the event handled.
  *
- * Register from the `"cfg"` event, not at the top of the file: a console
+ * Register from the `"pluginsLoaded"` event, not at the top of the file: a console
  * command registered that early (`register_concmd`, `register_srvcmd`) crashes
  * the server when typed.
  */
@@ -1307,12 +1307,12 @@ export interface MoveOptions {
 // plugin's. The build turns each into a getter and a setter over the module's
 // store and adds them here (scripts/player-fields.ts).
 /**
- * A connecting player, in `"connect"`, `"authorized"` and `"putinserver"`: name,
+ * A connecting player, in `"connect"`, `"authorized"` and `"putInServer"`: name,
  * address, SteamID and team, but no health or weapons yet. Every Player is a
  * Client too.
  *
  * ```ts
- * server.addEventListener("putinserver", (event) => {
+ * server.addEventListener("putInServer", (event) => {
  * 	print(event.player, `Welcome, ${event.player.name}!`);
  * });
  * ```
@@ -2865,7 +2865,7 @@ function messageFired(channel: MessageChannel, receiver: i32): void {
  * plugin, TypeScript or Pawn:
  *
  * ```ts
- * server.addEventListener("playerchange", (event) => {
+ * server.addEventListener("playerChange", (event) => {
  *   print(event.player, event.value ? "You are protected" : "Your spawn protection is over");
  * }, { field: "spawnProtected" });
  * ```
@@ -2900,14 +2900,14 @@ export class PlayerChangeEvent<F extends string = string> {
 /** The third argument of `server.addEventListener`. */
 export interface ServerListenerOptions {
 	/**
-	 * For `"playerchange"`: the field listened for, e.g. `"spawnProtected"`, or
+	 * For `"playerChange"`: the field listened for, e.g. `"spawnProtected"`, or
 	 * an object field's member, `"glow.enabled"`; an object field's name
 	 * hears each of its members. Left out, every field.
 	 */
 	field?: string;
 }
 
-// This plugin's playerchange listeners. The module wakes the plugin only for
+// This plugin's playerChange listeners. The module wakes the plugin only for
 // the fields they are for (player_change_listen), and the trampoline hands a
 // change to the ones it concerns, each as its own event class - the field's
 // typed one, which the build makes (scripts/player-fields.ts).
@@ -3150,7 +3150,7 @@ export class Cvar {
  * the folders AMX Mod X keeps. Used through `server`:
  *
  * ```ts
- * server.addEventListener("putinserver", (event) => {
+ * server.addEventListener("putInServer", (event) => {
  *   print(event.player, "Welcome!");      // event is a PutinserverEvent
  * });
  * server.map;                             // "de_dust2"
@@ -3165,7 +3165,7 @@ export class Cvar {
 export class Server {
 	/**
 	 * Calls `listener` every time the server raises the event `type`.
-	 * `"playerchange"` takes the field it is for: `{ field: "spawnProtected" }`.
+	 * `"playerChange"` takes the field it is for: `{ field: "spawnProtected" }`.
 	 */
 	addEventListener<K extends keyof ServerEventMap>(type: K, listener: (event: ServerEventMap[K]) => void, options: ServerListenerOptions = {}): void {
 		// @ts-ignore: a field's change is told apart by its field, at compile time
@@ -3248,7 +3248,7 @@ export class Server {
 	/**
 	 * Adds a bot under `name`: a player the server runs, with no game behind
 	 * it and no mind of its own - it stands where it spawns until a plugin
-	 * moves it with `bot.move()`. `null` when no slot is free. `"putinserver"`
+	 * moves it with `bot.move()`. `null` when no slot is free. `"putInServer"`
 	 * fires for it as for anyone, `bot.isBot` is `true` and `bot.kick()`
 	 * removes it.
 	 *

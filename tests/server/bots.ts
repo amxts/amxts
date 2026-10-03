@@ -11,7 +11,7 @@ let left = "";
 /** The bot the frame moves forward, while it is set. */
 let walking: Player | null = null;
 
-server.addEventListener("putinserver", ({ player }) => {
+server.addEventListener("putInServer", ({ player }) => {
 	arrived = player.name;
 });
 server.addEventListener("disconnected", ({ player }) => {

@@ -80,8 +80,8 @@ export const EVENTS: Record<string, EventDoc> = {
 	},
 	client_connect: {
 		summary: {
-			en: `A player started connecting. The player is not in the game yet: show him anything after \`"putinserver"\`.`,
-			ru: `Игрок начал подключаться. В игре его ещё нет: показывать ему что-то можно после \`"putinserver"\`.`,
+			en: `A player started connecting. The player is not in the game yet: show him anything after \`"putInServer"\`.`,
+			ru: `Игрок начал подключаться. В игре его ещё нет: показывать ему что-то можно после \`"putInServer"\`.`,
 		},
 		fields: { player },
 	},
@@ -102,8 +102,8 @@ export const EVENTS: Record<string, EventDoc> = {
 	},
 	client_authorized: {
 		summary: {
-			en: `A player's SteamID is known. May come before or after \`"putinserver"\`.`,
-			ru: `Стал известен SteamID игрока. Может прийти до или после \`"putinserver"\`.`,
+			en: `A player's SteamID is known. May come before or after \`"putInServer"\`.`,
+			ru: `Стал известен SteamID игрока. Может прийти до или после \`"putInServer"\`.`,
 		},
 		notes: [{ en: `A bot's SteamID is \`"BOT"\`.`, ru: `SteamID бота — \`"BOT"\`.` }],
 		fields: {
@@ -117,7 +117,7 @@ export const EVENTS: Record<string, EventDoc> = {
 			ru: `Игрок зашёл и уже в игре: момент поприветствовать его.`,
 		},
 		fields: { player },
-		example: `server.addEventListener("putinserver", (event) => {\n\tprint(event.player, "Welcome!");\n});`,
+		example: `server.addEventListener("putInServer", (event) => {\n\tprint(event.player, "Welcome!");\n});`,
 	},
 	client_disconnected: {
 		summary: {
@@ -140,13 +140,6 @@ export const EVENTS: Record<string, EventDoc> = {
 			},
 		},
 		example: `server.addEventListener("disconnected", (event) => {\n\tconsole.log(\`\${event.player.name} left: \${event.reason}\`);\n});`,
-	},
-	client_disconnect: {
-		summary: {
-			en: `Old form of \`"disconnected"\` that misses some cases: use \`"disconnected"\`.`,
-			ru: `Старая форма \`"disconnected"\`, которая пропускает часть случаев: используйте \`"disconnected"\`.`,
-		},
-		fields: { player },
 	},
 	client_remove: {
 		summary: {
@@ -196,22 +189,18 @@ export const EVENTS: Record<string, EventDoc> = {
 			ru: `Кадр сервера, сотни раз в секунду. Обработчик должен быть очень лёгким, иначе используйте \`setInterval\`.`,
 		},
 	},
-	pfn_touch: {
-		summary: {
-			en: `Two entities touched.`,
-			ru: `Две сущности коснулись друг друга.`,
-		},
-		fields: {
-			toucher: { en: `The entity that moved into the other.`, ru: `Сущность, которая налетела на другую.` },
-			touched: { en: `The entity that was touched.`, ru: `Сущность, которой коснулись.` },
-		},
-	},
 	pfn_think: {
-		summary: { en: `An entity thinks: its scheduled update has come.`, ru: `Сущность «думает»: пришло её запланированное обновление.` },
+		summary: {
+			en: `An entity thinks: its scheduled update has come. Any entity's; one class's is \`game.addEventListener("think", listener, { classname })\`.`,
+			ru: `Сущность «думает»: пришло её запланированное обновление. Любой сущности; одного класса — \`game.addEventListener("think", listener, { classname })\`.`,
+		},
 		fields: { entity: { en: `The entity that thinks.`, ru: `Сущность, которая «думает».` } },
 	},
 	pfn_spawn: {
-		summary: { en: `An entity is being spawned on the map.`, ru: `На карте появляется сущность.` },
+		summary: {
+			en: `An entity is being spawned on the map, the map's own too as it loads. A player's spawn is \`game.addEventListener("spawn", listener)\`.`,
+			ru: `На карте появляется сущность, в том числе сущности самой карты, пока она загружается. Появление игрока — \`game.addEventListener("spawn", listener)\`.`,
+		},
 		fields: { entity: { en: `The entity being spawned.`, ru: `Сущность, которая появляется.` } },
 	},
 	pfn_playbackevent: {
@@ -222,7 +211,7 @@ export const EVENTS: Record<string, EventDoc> = {
 		fields: {
 			flags: { en: `The event's flags, how the engine sends it.`, ru: `Флаги события — как движок его отправляет.` },
 			entity: { en: `The entity the event plays on, usually the player who fired.`, ru: `Сущность, на которой играет событие, — обычно игрок, который выстрелил.` },
-			eventid: { en: `The event's index in the precached events.`, ru: `Номер события среди загруженных заранее событий.` },
+			eventIndex: { en: `The event's index in the precached events.`, ru: `Номер события среди загруженных заранее событий.` },
 			delay: { en: `The seconds before the event plays.`, ru: `Секунды до того, как событие проиграется.` },
 			origin: { en: `The point the event plays from.`, ru: `Точка, откуда проигрывается событие.` },
 			angles: { en: `The angles the event plays with.`, ru: `Углы, с которыми проигрывается событие.` },
@@ -236,7 +225,7 @@ export const EVENTS: Record<string, EventDoc> = {
 	},
 };
 
-/** `"playerchange"`: an event of the core's, not a forward - its class and fields are the facade's. */
+/** `"playerChange"`: an event of the core's, not a forward - its class and fields are the facade's. */
 export const PLAYER_CHANGE: EventDoc = {
 	summary: {
 		en: `A field plugins added to \`Player\` changed on a player; \`{ field: "spawnProtected" }\` hears one field.`,

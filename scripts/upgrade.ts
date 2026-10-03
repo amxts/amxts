@@ -37,7 +37,7 @@ import { MESSAGE_NAMES } from './client-messages';
 import { CORE_ENTRIES, CORE_PLUGINS, loadProject } from './project';
 import { c, log } from './ui';
 import { upgradeMenus } from './upgrade-menus';
-import { COMMON, EVENTS, FLAG_NAMES, HIDDEN, HIDDEN_EVENTS, RENAMED } from './upgrade-names';
+import { COMMON, EVENTS, FLAG_NAMES, GAME_EVENT_FIELDS, HIDDEN, HIDDEN_EVENTS, RENAMED, SERVER_EVENT_CLASSES, SERVER_EVENT_FIELDS, SERVER_EVENTS, SERVER_EVENTS_BY_HAND, SERVER_FIELD_CLASSES, SERVER_GAME_EVENTS } from './upgrade-names';
 
 /** The old spelling of a specifier and the new one. */
 export type Renames = Map<string, string>;
@@ -444,6 +444,126 @@ export function upgradeNames(file: string, text: string): { text: string; change
 	return { ...applyEdits(file, text, source, edits), left };
 }
 
+const mapOf = (record: Record<string, string>) => new Map(Object.entries(record));
+const SERVER_RENAMED = mapOf(SERVER_EVENTS);
+const SERVER_TO_GAME = mapOf(SERVER_GAME_EVENTS);
+const SERVER_BY_HAND = mapOf(SERVER_EVENTS_BY_HAND);
+const CLASSES_RENAMED = mapOf(SERVER_EVENT_CLASSES);
+/** Each event's fields by their old names, by its source and its name: `game:buyAmmo`. */
+const EVENT_FIELDS = new Map<string, Map<string, string>>([
+	...Object.entries(GAME_EVENT_FIELDS).map(([event, fields]) => [`game:${event}`, mapOf(fields)] as const),
+	...Object.entries(SERVER_EVENT_FIELDS).map(([event, fields]) => [`server:${event}`, mapOf(fields)] as const),
+]);
+/** The same by the event's class, which an annotation names. */
+const CLASS_FIELDS = new Map([
+	...Object.keys(GAME_EVENT_FIELDS).map(event => [eventClass(event), EVENT_FIELDS.get(`game:${event}`)!] as const),
+	...Object.entries(SERVER_FIELD_CLASSES).map(([name, event]) => [name, EVENT_FIELDS.get(`server:${event}`)!] as const),
+]);
+/** An old name a file may hold: a server event's, its class, or an event's field. */
+const OLD_EVENT_WORDS = new RegExp(`\\b(?:${[
+	...SERVER_RENAMED.keys(),
+	...SERVER_TO_GAME.keys(),
+	...SERVER_BY_HAND.keys(),
+	...CLASSES_RENAMED.keys(),
+	...[...EVENT_FIELDS.values()].flatMap(fields => [...fields.keys()]),
+].join('|')})\\b`);
+
+/**
+ * A file's events by their names in the author's words. A server event's
+ * name in `server.addEventListener` is the new one (`"putinserver"` is
+ * `"putInServer"`), one that is a game event is heard through `game`
+ * (`server.addEventListener("PreThink", ...)` is
+ * `game.addEventListener("preThink", ...)`), and cstrike's buying is listed.
+ * An event's field named after reapi's or Pawn's parameter is the new one
+ * (`event.weapon_entity` is `event.weapon`) where the code says which event
+ * it is: a listener given to `addEventListener` by its name - written in
+ * place, or a function of the file - or a parameter annotated with the
+ * event's class. A field destructured keeps its local name:
+ * `({ weapon_entity })` is `({ weapon: weapon_entity })`.
+ */
+export function upgradeEvents(file: string, text: string): { text: string; changes: Change[]; left: Left[] } {
+	if (!OLD_EVENT_WORDS.test(text)) return { text, changes: [], left: [] };
+	const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+	const declaration = declarationOf(source);
+	const edits: Edit[] = [];
+	const left: Left[] = [];
+	const replace = (node: ts.Node, to: string) => edits.push({ start: node.getStart(source), end: node.getEnd(), with: to, from: node.getText(source) });
+	const inQuotes = (node: ts.StringLiteralLike, to: string) => edits.push({ start: node.getStart(source) + 1, end: node.getEnd() - 1, with: to, from: node.text });
+	const leave = (node: ts.Node, why: string) => left.push({ file, line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1, why });
+	/** The fields renamed for each listener: the function, or the parameter annotated with its class. */
+	const listeners = new Map<ts.Node, Map<string, string>>();
+
+	/** The function a listener argument is: written in place, or a function of the file by its name. */
+	const functionOf = (node: ts.Expression): ts.SignatureDeclaration | undefined => {
+		if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return node;
+		const declared = ts.isIdentifier(node) ? declaration(node) : undefined;
+		if (declared && ts.isFunctionDeclaration(declared)) return declared;
+		const initializer = declared && ts.isVariableDeclaration(declared) ? declared.initializer : undefined;
+		return initializer && (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) ? initializer : undefined;
+	};
+
+	const upgradeListener = (call: ts.CallExpression, receiver: string) => {
+		const [name, listener] = call.arguments;
+		if (!name || !ts.isStringLiteralLike(name)) return;
+		let event = name.text;
+		if (receiver === 'server') {
+			const game = SERVER_TO_GAME.get(event);
+			const renamed = SERVER_RENAMED.get(event);
+			if (game) {
+				replace((call.expression as ts.PropertyAccessExpression).expression, 'game');
+				inQuotes(name, game);
+				event = game;
+				receiver = 'game';
+				if (game === 'touch') leave(name, 'a touch hands toucher and touched as entities: the number of one is its .id');
+			} else if (renamed) {
+				event = renamed;
+				inQuotes(name, event);
+			} else if (SERVER_BY_HAND.has(event)) {
+				leave(name, `"${event}" is not a server event: ${SERVER_BY_HAND.get(event)}`);
+			}
+		}
+		const fields = EVENT_FIELDS.get(`${receiver}:${event}`);
+		const fn = listener && functionOf(listener);
+		if (fields && fn) listeners.set(fn, fields);
+	};
+
+	const findListeners = (node: ts.Node) => {
+		ts.forEachChild(node, findListeners);
+		if (ts.isIdentifier(node) && CLASSES_RENAMED.has(node.text)) replace(node, CLASSES_RENAMED.get(node.text)!);
+		if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression) || !/^(?:add|remove)EventListener$/.test(node.expression.name.text)) return;
+		const receiver = node.expression.expression;
+		if (ts.isIdentifier(receiver) && (receiver.text === 'server' || receiver.text === 'game')) upgradeListener(node, receiver.text);
+	};
+	findListeners(source);
+
+	/** The fields renamed for what a parameter holds: its annotation's event class, or the listener it is the first of. */
+	const fieldsOf = (parameter: ts.ParameterDeclaration): Map<string, string> | undefined => {
+		if (parameter.type) return CLASS_FIELDS.get(parameter.type.getText(source));
+		return parameter.parent.parameters[0] === parameter ? listeners.get(parameter.parent) : undefined;
+	};
+
+	const renameFields = (node: ts.Node) => {
+		ts.forEachChild(node, renameFields);
+		if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+			const declared = declaration(node.expression);
+			const to = declared && ts.isParameter(declared) ? fieldsOf(declared)?.get(node.name.text) : undefined;
+			if (to) replace(node.name, to);
+		} else if (ts.isParameter(node) && ts.isObjectBindingPattern(node.name)) {
+			const fields = fieldsOf(node);
+			for (const element of node.name.elements) {
+				const key = element.propertyName ?? element.name;
+				const to = ts.isIdentifier(key) ? fields?.get(key.text) : undefined;
+				const local = element.name.getText(source);
+				// `{ tracehandle: trace }` is `{ trace }`, not `{ trace: trace }`.
+				if (to && element.propertyName && to === local) edits.push({ start: key.getStart(source), end: element.name.getEnd(), with: to, from: element.getText(source) });
+				else if (to) replace(key, element.propertyName ? to : `${to}: ${local}`);
+			}
+		}
+	};
+	renameFields(source);
+	return { ...applyEdits(file, text, source, edits), left };
+}
+
 /** The methods a message was listened to with, and the ones it is now. */
 const MESSAGE_METHODS: Record<string, string> = { addEventListener: 'addMessageListener', removeEventListener: 'removeMessageListener' };
 
@@ -642,13 +762,14 @@ export function upgradeProject(dir: string, { write = true } = {}): { changes: C
 		const imports = http.text.includes('~/') ? upgradeText(name, http.text, renames) : { text: http.text, changes: [] };
 		const handlers = upgradeHandlers(name, imports.text);
 		const names = upgradeNames(name, handlers.text);
-		const messages = upgradeMessages(name, names.text);
+		const events = upgradeEvents(name, names.text);
+		const messages = upgradeMessages(name, events.text);
 		const menus = upgradeMenus(name, messages.text);
 		const flags = upgradeFlags(name, menus.text);
-		left.push(...http.left, ...handlers.left, ...names.left, ...messages.left, ...menus.left, ...flags.left);
+		left.push(...http.left, ...handlers.left, ...names.left, ...events.left, ...messages.left, ...menus.left, ...flags.left);
 		if (flags.text === text) continue;
 		if (write) writeFileSync(file, flags.text);
-		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...names.changes, ...messages.changes, ...menus.changes, ...flags.changes);
+		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...names.changes, ...events.changes, ...messages.changes, ...menus.changes, ...flags.changes);
 	}
 	return { changes, left };
 }

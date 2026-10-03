@@ -32,10 +32,10 @@ test('fall damage returns a float result', () => {
 	expect(classBody('FallDamageEvent')).toContain('get result(): number { return cellFloat(this.__resultCell(ATYPE_FLOAT)); }');
 });
 
-test('start_sound: the sample is a string that can be rewritten', () => {
+test('start_sound: the sound is a string that can be rewritten', () => {
 	const body = classBody('StartSoundEvent');
-	expect(body).toContain('get sample(): string { return this.__text(3); }');
-	expect(body).toContain('set sample(value: string) { this.__setText(3, value); }');
+	expect(body).toContain('get sound(): string { return this.__text(3); }');
+	expect(body).toContain('set sound(value: string) { this.__setText(3, value); }');
 });
 
 test('a keyword never becomes a field name', () => {
@@ -93,7 +93,7 @@ test('a Pawn enum argument is a union of names, from the include', () => {
 	expect(classBody('ItemRestrictedEvent')).toContain('get restriction(): ItemRestriction');
 	expect(classBody('ItemRestrictedEvent')).toContain('get item(): ItemKind');
 	expect(classBody('PainEvent')).toContain('get lastHitGroup(): HitGroup');
-	expect(classBody('SetAnimationEvent')).toContain('get playerAnim(): PlayerAnimation');
+	expect(classBody('SetAnimationEvent')).toContain('get animation(): PlayerAnimation');
 	expect(classBody('AddResourceEvent')).toContain('get resourceType(): ResourceType');
 	expect(classBody('AddResourceEvent')).toContain('get resourceIndex(): number');
 	expect(classBody('GameEventEvent')).toContain('get gameEvent(): BotEvent');
@@ -102,6 +102,15 @@ test('a Pawn enum argument is a union of names, from the include', () => {
 	expect(classBody('SendDeathMessageEvent')).toContain('get rarity(): KillRarity[]');
 	expect(classBody('ThrowGrenadeEvent')).toContain('get velocity(): Vector');
 	expect(classBody('HintMessageEvent')).toContain('get displayIfHintsOff(): boolean');
+	// reapi's raw parameters in the author's words: tracehandle, infobuffer, weapon_entity, `bool bReverse`.
+	expect(classBody('TraceAttackEvent')).toContain('get trace(): number');
+	expect(classBody('TraceAttackEvent')).toContain('get direction(): Vector');
+	expect(classBody('UserInfoChangeEvent')).toContain('get info(): string');
+	expect(classBody('BuyAmmoEvent')).toContain('get weapon(): Weapon');
+	expect(classBody('PrecacheModelEvent')).toContain('get file(): string');
+	expect(classBody('RecoilEvent')).toContain('get upMax(): number');
+	expect(classBody('SpectateNextEvent')).toContain('get reverse(): boolean');
+	expect(hooks).not.toMatch(/\tget [a-z]+_\w*\(|\tget arg\d+\(/);
 
 	// The values are the include's: ROUND_TARGET_SAVED is 12, VGUI_Menu_Class_CT 27, t_eventscript 5.
 	expect(hooks).toContain('case 12: return "targetSaved";');

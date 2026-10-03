@@ -31,7 +31,7 @@ const greeted = new Forward<string, number>("showcase_on_greeted");
 // Anyone may listen to the forward, the plugin itself included.
 greeted.subscribe((name, count) => console.log(`${name} came back for visit ${count}`));
 
-server.addEventListener("putinserver", (event) => {
+server.addEventListener("putInServer", (event) => {
 	const player = event.player;
 	if (player.isBot) return;
 

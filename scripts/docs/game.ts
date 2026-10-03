@@ -84,7 +84,7 @@ export const GAME: Record<string, GameDoc> = {
 			ru: `Выстрел или нож попал в игрока, ещё до урона. \`preventDefault()\` — и попадания не было.`,
 		},
 		fields: {
-			dir: { en: `The shot's direction, a Vector.`, ru: `Направление выстрела, Vector.` },
+			direction: { en: `The shot's direction, a Vector.`, ru: `Направление выстрела, Vector.` },
 		},
 	},
 	throwSmokeGrenade: {
@@ -309,7 +309,7 @@ export const GAME: Record<string, GameDoc> = {
 		},
 		fields: {
 			player,
-			playerAnim: {
+			animation: {
 				en: `The animation, e.g. \`"jump"\`, \`"attack1"\`, \`"reload"\`.`,
 				ru: `Анимация, например \`"jump"\`, \`"attack1"\`, \`"reload"\`.`,
 			},
@@ -377,8 +377,8 @@ export const GAME: Record<string, GameDoc> = {
 		},
 		fields: {
 			player: { en: `The player who wrote the message.`, ru: `Игрок, который написал сообщение.` },
-			cmd: { en: `The command the message came with, \`"say"\` or \`"say_team"\`.`, ru: `Команда, с которой пришло сообщение, \`"say"\` или \`"say_team"\`.` },
-			teamonly: { en: `\`true\` when only the player's team gets the message.`, ru: `\`true\`, когда сообщение получает только команда игрока.` },
+			command: { en: `The command the message came with, \`"say"\` or \`"say_team"\`.`, ru: `Команда, с которой пришло сообщение, \`"say"\` или \`"say_team"\`.` },
+			teamOnly: { en: `\`true\` when only the player's team gets the message.`, ru: `\`true\`, когда сообщение получает только команда игрока.` },
 			text: { en: `The message as the player wrote it. Assign to change it.`, ru: `Сообщение, как его написал игрок. Присвойте, чтобы изменить.` },
 			format: {
 				en: `The chat's format that puts the name, the place and the message together, e.g. \`"#Cstrike_Chat_All"\`.`,
@@ -392,14 +392,14 @@ export const GAME: Record<string, GameDoc> = {
 	},
 	takeDamageImpulse: {
 		summary: {
-			en: `A hurt player is pushed back and slowed down by the hit, after the damage. Assign \`event.knockbackForce\` or \`event.velModifier\` to change how much, or call \`preventDefault()\` for neither.`,
-			ru: `Раненого игрока отбрасывает и замедляет от удара, уже после урона. Чтобы изменить насколько, присвойте \`event.knockbackForce\` или \`event.velModifier\`; чтобы не было ни того ни другого, вызовите \`preventDefault()\`.`,
+			en: `A hurt player is pushed back and slowed down by the hit, after the damage. Assign \`event.knockbackForce\` or \`event.velocityModifier\` to change how much, or call \`preventDefault()\` for neither.`,
+			ru: `Раненого игрока отбрасывает и замедляет от удара, уже после урона. Чтобы изменить насколько, присвойте \`event.knockbackForce\` или \`event.velocityModifier\`; чтобы не было ни того ни другого, вызовите \`preventDefault()\`.`,
 		},
 		fields: {
 			player: { en: `The player who is hurt.`, ru: `Игрок, которого ранили.` },
 			attacker: { en: `The player who did the damage.`, ru: `Игрок, который нанёс урон.` },
 			knockbackForce: { en: `The force that pushes the player away from the attacker. Assign to change it.`, ru: `Сила, которая отталкивает игрока от атакующего. Присвойте, чтобы изменить.` },
-			velModifier: {
+			velocityModifier: {
 				en: `The share of speed the player keeps while slowed by the hit, e.g. \`0.5\` for half. Assign to change it.`,
 				ru: `Доля скорости, которая остаётся у игрока, пока его замедляет удар, например \`0.5\` — половина. Присвойте, чтобы изменить.`,
 			},

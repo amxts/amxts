@@ -11,11 +11,11 @@ let before = "";
 let after = "";
 
 game.addEventListener("traceAttack", (event) => {
-	before = `${event.dir.x} ${event.dir.y} ${event.dir.z}`;
-	event.dir = new Vector(0, 0, 1);
+	before = `${event.direction.x} ${event.direction.y} ${event.direction.z}`;
+	event.direction = new Vector(0, 0, 1);
 });
 game.addEventListener("traceAttack", (event) => {
-	after = `${event.dir.x} ${event.dir.y} ${event.dir.z}`;
+	after = `${event.direction.x} ${event.direction.y} ${event.direction.z}`;
 }, true);
 
 server.addServerCommand("amxts_test_hook_vector", () => {

@@ -27,7 +27,7 @@ Mod X рядом с Pawn-плагинами. Они вызывают друг д
 - **Игроки и сущности — объекты.** `player.health = 100`,
   `player.team == "CT"`, `player.hideHud.push("money")`,
   `entity.renderMode = "additive"`.
-- **События как в DOM.** `server.addEventListener("putinserver", ...)`,
+- **События как в DOM.** `server.addEventListener("putInServer", ...)`,
   `game.addEventListener("takeDamage", ...)` для событий игры (хукчейнов
   reapi и функций Ham Sandwich), с
   `event.preventDefault()` и ответом через `return`.
@@ -90,7 +90,7 @@ npx amxts test             # the tests, on a fake server
 plugin({ name: "Hello", version: "1.0.0", author: "you", description: "An example" });
 
 server.addCommand("/hp", ({ player }) => sayHp(player));
-server.addEventListener("putinserver", (event) => {
+server.addEventListener("putInServer", (event) => {
 	print(0, `${event.player.name} joined`);
 });
 

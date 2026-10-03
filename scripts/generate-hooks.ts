@@ -227,7 +227,57 @@ const RENAMED: Record<string, string> = {
 	// ReGameDLL: `if (bOverride || m_bShowHints)` - shown even to a player who turned hints off.
 	'RG_CBasePlayer_HintMessageEx:bOverride': 'displayIfHintsOff',
 	'RH_SV_AddResource:index': 'resourceIndex',
+	'RH_SV_DropClient:fmt': 'reason',
+	'RH_PF_precache_generic_I:string': 'file',
+	'RH_PF_precache_model_I:string': 'file',
+	'RH_PF_precache_sound_I:string': 'file',
+	'RG_CBasePlayer_Radio:msg_id': 'sound',
+	'RG_CBasePlayer_Radio:msg_verbose': 'text',
+	// ReGameDLL's KickBack(up_base, lateral_base, up_modifier, lateral_modifier, up_max, ...).
+	'RG_CBasePlayerWeapon_KickBack:p_max': 'upMax',
 };
+
+/**
+ * Words reapi's parameters are written in, by the name left once the
+ * Hungarian prefix is off, as the author says them: `tracehandle` is the
+ * `trace`, `infobuffer` the player's `info`, `vecSrc` where a shot `start`s.
+ * A snake_case name not here is put in camelCase (`lateral_base` is
+ * `lateralBase`).
+ */
+const WORDS: Record<string, string> = {
+	accel: 'acceleration',
+	adr: 'address',
+	anim: 'animation',
+	animExt: 'animationExtension',
+	cmd: 'command',
+	curTeam_id: 'currentTeam',
+	dir: 'direction',
+	dirShooting: 'direction',
+	filename: 'file',
+	fvol: 'volume',
+	infobuffer: 'info',
+	newTeam_id: 'newTeam',
+	playerAnim: 'animation',
+	sample: 'sound',
+	shared_rand: 'randomSeed',
+	skiplocal: 'skipLocal',
+	spot: 'end',
+	startAnim: 'startAnimation',
+	src: 'start',
+	string: 'text',
+	team_id: 'team',
+	teamonly: 'teamOnly',
+	tracehandle: 'trace',
+	usEvent: 'eventIndex',
+	velModifier: 'velocityModifier',
+	weapon_entity: 'weapon',
+	weaponent: 'weapon',
+	wishdir: 'direction',
+	wishspeed: 'speed',
+};
+
+/** A parameter's name in the author's words: WORDS, or a snake_case one in camelCase. */
+const wordOf = (name: string) => WORDS[name] ?? name.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 
 const ENUMS = GAME_ENUMS;
 
@@ -423,7 +473,7 @@ function ownerName(constant: string) {
 
 // An argument that is an entity - read, but not rewritten: reapi wants the
 // chain's own type for it (a class pointer, an entvars) and a number is not one.
-const ENTITY = /^(?:pev|pent|this$|index$|id$|attacker|victim|killer|inflictor|player|entity|ent$|other|owner|item$|weapon$|target|listener|sender|receiver)/i;
+const ENTITY = /^(?:pev|pent|this$|index$|id$|attacker|victim|killer|inflictor|player|entity|ent$|other|owner|item$|weapon$|weapon_entity$|weaponent$|target|listener|sender|receiver)/i;
 // pAttacker, pItem: a pointer by its Hungarian `p` and a capital after it.
 // Apart from ENTITY because that one ignores case, and then `pitch` was an
 // entity too.
@@ -438,7 +488,8 @@ function paramsOf(hook: string, constant: string, raw: string) {
 	const used = new Set<string>();
 
 	list.forEach((text, index) => {
-		const bare = text.replace(/^const\s+/, '').replace(/^&/, '');
+		// reapi writes one tag without its colon: `bool bReverse`.
+		const bare = text.replace(/^const\s+/, '').replace(/^&/, '').replace(/^(\w+)\s+\b/, '$1:');
 		const tag = (bare.match(/^(\w+):/) ?? [])[1] ?? '';
 		const nameWithArray = bare.replace(/^\w+:/, '');
 		const isArray = /\[/.test(nameWithArray);
@@ -465,7 +516,7 @@ function paramsOf(hook: string, constant: string, raw: string) {
 		const named = !isArray ? namedOf(tag, hook) : null;
 		let name = RENAMED[`${constant}:${rawName}`]
 			?? named?.field
-			?? (rawName === 'this' ? ownerName(constant) : playerIndex ? 'player' : camelCase(rawName.replace(HUNGARIAN, '')));
+			?? (rawName === 'this' ? ownerName(constant) : playerIndex ? 'player' : wordOf(camelCase(rawName.replace(HUNGARIAN, ''))));
 		if (!name || !/^[a-z_]\w*$/i.test(name)) name = `arg${index + 1}`;
 		if (TAKEN.has(name)) name = `${name}Value`;
 		while (used.has(name)) name += '_';

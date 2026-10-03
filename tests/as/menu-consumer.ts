@@ -5,7 +5,7 @@ import { mc_add_menu_item, mc_create_menu, mc_register_action, mc_register_place
 
 let chosen = "";
 
-server.addEventListener("cfg", () => {
+server.addEventListener("pluginsLoaded", () => {
 	mc_create_menu("TS_MENU", "TS menu");
 	mc_add_menu_item("TS_MENU", "Value:", "%ts_value%", "", "TS_ACTION");
 	mc_register_placeholder("ts_value", publicFor(tsValue, "ts:value"));

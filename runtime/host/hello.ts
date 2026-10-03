@@ -27,7 +27,7 @@ server.addCommand("/menu", ({ player }) => hello.show(player), { description: "O
 
 // The event's type comes from its name: `event.player` is a Player. A listener
 // is a closure, as in JavaScript: it may use the variables around it.
-server.addEventListener("putinserver", (event) => {
+server.addEventListener("putInServer", (event) => {
 	const player = event.player;
 
 	console.log(`${player.name} connected`);

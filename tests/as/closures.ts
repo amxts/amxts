@@ -3,7 +3,7 @@
 
 const greeting = "Welcome";
 
-server.addEventListener("putinserver", (event) => {
+server.addEventListener("putInServer", (event) => {
 	const player = event.player;
 	setTimeout(() => print(player, `${greeting}, ${player.name}!`), 2000);
 });

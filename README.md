@@ -27,7 +27,7 @@ plugin.
 - **Players and entities are objects.** `player.health = 100`,
   `player.team == "CT"`, `player.hideHud.push("money")`,
   `entity.renderMode = "additive"`.
-- **Events as in the DOM.** `server.addEventListener("putinserver", ...)`,
+- **Events as in the DOM.** `server.addEventListener("putInServer", ...)`,
   `game.addEventListener("takeDamage", ...)` for the game's events (reapi's
   hookchains and Ham Sandwich's functions), with
   `event.preventDefault()` and an answer by `return`.
@@ -89,7 +89,7 @@ npx amxts test             # the tests, on a fake server
 plugin({ name: "Hello", version: "1.0.0", author: "you", description: "An example" });
 
 server.addCommand("/hp", ({ player }) => sayHp(player));
-server.addEventListener("putinserver", (event) => {
+server.addEventListener("putInServer", (event) => {
 	print(0, `${event.player.name} joined`);
 });
 

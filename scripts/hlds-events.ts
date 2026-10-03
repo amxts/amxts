@@ -53,8 +53,8 @@ function thrown(en: string, ru: string): Text {
 }
 
 const precached: Text = {
-	en: '`preventDefault()` skips the precache, which answers 0; returning an answer or changing `string` does nothing',
-	ru: '`preventDefault()` пропускает прекэш, и он отвечает 0; ответ и запись `string` ничего не делают',
+	en: '`preventDefault()` skips the precache, which answers 0; returning an answer or changing `file` does nothing',
+	ru: '`preventDefault()` пропускает прекэш, и он отвечает 0; ответ и запись `file` ничего не делают',
 };
 
 export const HEARD: Record<string, HeardEvent> = {
@@ -126,7 +126,7 @@ export const HEARD: Record<string, HeardEvent> = {
 	explodeBomb: {
 		class: 'B',
 		backend: 'logevent Team "TERRORIST" triggered "Target_Bombed"',
-		gaps: afterAnd('`tracehandle` and `damageType` read as 0', '`tracehandle` и `damageType` читаются как 0'),
+		gaps: afterAnd('`trace` and `damageType` read as 0', '`trace` и `damageType` читаются как 0'),
 	},
 
 	// Money and buying.
@@ -140,7 +140,7 @@ export const HEARD: Record<string, HeardEvent> = {
 	},
 	buyWeapon: { class: 'B', backend: 'cstrike CS_OnBuy, a weapon', gaps: buy('`event.result` reads as `null`', '`event.result` читается как `null`') },
 	buyItem: { class: 'B', backend: 'cstrike CS_OnBuy, the equipment', gaps: buy('heard for the equipment menu\'s items', 'слышно для предметов меню снаряжения') },
-	buyAmmo: { class: 'B', backend: 'cstrike CS_OnBuy, ammo', gaps: buy('`weapon_entity` reads as 0, `blinkMoney` as `true`', '`weapon_entity` читается как 0, `blinkMoney` — как `true`') },
+	buyAmmo: { class: 'B', backend: 'cstrike CS_OnBuy, ammo', gaps: buy('`weapon` reads as the world, `blinkMoney` as `true`', '`weapon` читается как мир, `blinkMoney` — как `true`') },
 	itemRestricted: {
 		class: 'B',
 		backend: 'cstrike CS_OnBuyAttempt',
@@ -190,13 +190,13 @@ export const HEARD: Record<string, HeardEvent> = {
 	disconnectClient: {
 		class: 'B',
 		backend: 'client_disconnected',
-		gaps: afterAnd('`crash` reads as `false`, and `fmt` is the reason AMX Mod X was told', '`crash` читается как `false`, а `fmt` — причина, которую узнал AMX Mod X'),
+		gaps: afterAnd('`crash` reads as `false`, and `reason` is the one AMX Mod X was told', '`crash` читается как `false`, а `reason` — причина, которую узнал AMX Mod X'),
 	},
-	userInfoChange: { class: 'B', backend: 'client_infochanged', gaps: afterAnd('`infobuffer` reads as `""`', '`infobuffer` читается как `""`') },
+	userInfoChange: { class: 'B', backend: 'client_infochanged', gaps: afterAnd('`info` reads as `""`', '`info` читается как `""`') },
 	changeName: {
 		class: 'B',
 		backend: 'client_infochanged, when the name in the info differs from the player\'s',
-		gaps: noAnswer(afterAnd('`infobuffer` reads as `""`', '`infobuffer` читается как `""`').en, afterAnd('`infobuffer` reads as `""`', '`infobuffer` читается как `""`').ru),
+		gaps: noAnswer(afterAnd('`info` reads as `""`', '`info` читается как `""`').en, afterAnd('`info` reads as `""`', '`info` читается как `""`').ru),
 	},
 
 	// Items, sounds, effects.
@@ -214,10 +214,10 @@ export const HEARD: Record<string, HeardEvent> = {
 			ru: 'спрашивается, когда игра сообщает движку, кто кого слышит, — и при включённом `sv_alltalk`, и для игрока, заглушившего другого: ответ перекрывает и то и другое',
 		},
 	},
-	throwHeGrenade: { class: 'B', backend: 'FM_SetModel w_hegrenade.mdl', gaps: thrown(', and `usEvent` reads as 0', ', а `usEvent` читается как 0') },
+	throwHeGrenade: { class: 'B', backend: 'FM_SetModel w_hegrenade.mdl', gaps: thrown(', and `eventIndex` reads as 0', ', а `eventIndex` читается как 0') },
 	throwFlashbang: { class: 'B', backend: 'FM_SetModel w_flashbang.mdl', gaps: thrown('', '') },
-	throwSmokeGrenade: { class: 'B', backend: 'FM_SetModel w_smokegrenade.mdl', gaps: thrown(', and `usEvent` reads as 0', ', а `usEvent` читается как 0') },
-	throwGrenade: { class: 'B', backend: 'FM_SetModel of a thrown grenade', gaps: thrown(', and `usEvent` reads as 0', ', а `usEvent` читается как 0') },
+	throwSmokeGrenade: { class: 'B', backend: 'FM_SetModel w_smokegrenade.mdl', gaps: thrown(', and `eventIndex` reads as 0', ', а `eventIndex` читается как 0') },
+	throwGrenade: { class: 'B', backend: 'FM_SetModel of a thrown grenade', gaps: thrown(', and `eventIndex` reads as 0', ', а `eventIndex` читается как 0') },
 	setModel: {
 		class: 'B',
 		backend: 'FM_SetModel on a weaponbox',

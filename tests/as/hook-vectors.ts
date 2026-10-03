@@ -2,7 +2,7 @@
 // read and written back - a shot's direction turned around.
 
 game.addEventListener("traceAttack", (event) => {
-	console.log(`dir ${event.dir.x} ${event.dir.y} ${event.dir.z}`);
-	event.dir = new Vector(-event.dir.x, -event.dir.y, event.dir.z);
-	console.log(`now ${event.dir.x} ${event.dir.y} ${event.dir.z}`);
+	console.log(`dir ${event.direction.x} ${event.direction.y} ${event.direction.z}`);
+	event.direction = new Vector(-event.direction.x, -event.direction.y, event.direction.z);
+	console.log(`now ${event.direction.x} ${event.direction.y} ${event.direction.z}`);
 });

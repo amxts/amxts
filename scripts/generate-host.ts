@@ -233,46 +233,80 @@ const arrayDecls = Array.from(fixedArrays, ([name, size]) => `\tnew ${name}[${si
 // what decides which forwards are relayed at all - a name absent from
 // order.txt's includes is absent there too.
 
-/**
- * `client_putinserver` is the event `putinserver`.
- *
- * A core forward loses its `plugin_`/`client_`/`server_` prefix, which says
- * nothing a plugin author needs - the TypeScript API did the same, and this is
- * the name people already know. A forward from another include keeps the
- * module in its name so two of them cannot claim one key, and anything that
- * would still collide keeps its full name rather than quietly shadowing.
- */
 function camelOf(text: string): string {
 	return text.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
 }
 
-function eventName(forward: ForwardDeclaration, taken: Map<string, string>): string {
-	const bare = camelOf(forward.name.replace(/^(plugin|client|server)_/, ''));
-	const full = camelOf(forward.name);
+/**
+ * Each forward's event by the name a plugin author says - lowerCamelCase,
+ * what happened rather than the forward's prefix or its module:
+ * `client_putinserver` is `putInServer`, `OnConfigsExecuted`
+ * `configsExecuted`, `client_kill` `suicide` (the game's `kill` is an item
+ * taken away). The forward's own name stays the tooltip's `Pawn:` line, and
+ * `amxts upgrade` rewrites the old names (scripts/upgrade-names.ts).
+ */
+const EVENT_NAMES: Record<string, string> = {
+	plugin_init: 'init',
+	plugin_precache: 'precache',
+	plugin_cfg: 'pluginsLoaded',
+	plugin_end: 'end',
+	plugin_pause: 'pause',
+	plugin_unpause: 'unpause',
+	plugin_log: 'log',
+	plugin_modules: 'modules',
+	server_changelevel: 'changeLevel',
+	server_frame: 'frame',
+	OnConfigsExecuted: 'configsExecuted',
+	OnAutoConfigsBuffered: 'configsQueued',
+	client_connect: 'connect',
+	client_connectex: 'connectAttempt',
+	client_authorized: 'authorized',
+	client_putinserver: 'putInServer',
+	client_disconnected: 'disconnected',
+	client_remove: 'remove',
+	client_command: 'command',
+	client_kill: 'suicide',
+	client_impulse: 'impulse',
+	client_cmdStart: 'cmdStart',
+	inconsistent_file: 'inconsistentFile',
+	CS_InternalCommand: 'internalCommand',
+	pfn_spawn: 'entitySpawn',
+	pfn_think: 'entityThink',
+	pfn_keyvalue: 'keyValue',
+	pfn_playbackevent: 'playbackEvent',
+};
 
-	const clash = taken.get(bare);
-	if (clash !== undefined && clash !== forward.name) return full;
+/**
+ * Forwards that are a game event, so one thing has one name: cstrike's
+ * buying is `buyWeapon`, `buyItem`, `buyAmmo` and `itemRestricted`, a
+ * changed info `userInfoChange`. The hood still listens to them - plain HLDS
+ * hears those game events through them (as/hlds.ts) - but ServerEventMap
+ * leaves them out.
+ */
+const HOOD_ONLY = new Set(['CS_OnBuy', 'CS_OnBuyAttempt', 'client_infochanged']);
 
-	taken.set(bare, forward.name);
-	return bare;
-}
-
-const eventNames = new Map<string, string>();
+/**
+ * Forwards no event is made of: the game's events say the same
+ * (`preThink`, `postThink`, `touch`), or the forward is an old form of
+ * another (`client_disconnect` of `client_disconnected`).
+ */
+const LEFT_OUT = new Set(['client_PreThink', 'client_PostThink', 'pfn_touch', 'client_disconnect']);
 
 /**
  * One event per forward the host relays, and plugin_init, which the module
- * fires itself: `server.addEventListener("putinserver", (event) => ...)`.
+ * fires itself: `server.addEventListener("putInServer", (event) => ...)`.
  *
  * What a listener gets is an object with the forward's arguments as typed
  * fields - `event.player` a Player rather than an index, a string read out of
  * the plugin's memory, a bool a boolean - the way a DOM listener gets an
- * Event. Both spellings of a forward are keys of ServerEventMap: the short
- * name (`putinserver`) and the Pawn one (`client_putinserver`).
+ * Event.
  */
 interface ServerEvent {
 	forward: string;
-	/** The key an editor completes: `putinserver`. */
+	/** The key an editor completes, `putInServer`; for one only the hood listens to, the forward in camelCase. */
 	short: string;
+	/** Whether ServerEventMap has it: not when only the hood listens to it. */
+	listed: boolean;
 	className: string;
 	/** Carried arguments, in order, as the module hands them over. */
 	fields: EventField[];
@@ -290,13 +324,14 @@ interface EventField {
 // Hungarian prefixes the includes put on argument names: iMode, szId, bActive.
 const EVENT_HUNGARIAN = /^(sz|fl|[bif])(?=[A-Z])/;
 
-// Names that read better said out: `event.dropped`, `event.reason`.
+// Names that read better said out: `event.dropped`, `event.reason`, `event.command`.
 const EVENT_RENAMES: Record<string, string> = {
 	drop: 'dropped',
 	message: 'reason',
 	entid: 'entity',
-	ptr: 'toucher',
-	ptd: 'touched',
+	cmd: 'command',
+	filename: 'file',
+	eventid: 'eventIndex',
 };
 
 /** The event's field for the parameter at `i`, read from the call's arguments (the facade's __native* helpers). */
@@ -340,10 +375,15 @@ function fixName(name: string): string {
 /** Forwards of a player not in the game yet: their event hands a Client. */
 const NOT_IN_GAME = new Set(['client_connect', 'client_connectex', 'client_authorized', 'client_putinserver']);
 
+const relayed = forwards.filter(f => stockForwards.has(f.name) && !LEFT_OUT.has(f.name));
+const unnamedForwards = relayed.filter(f => !EVENT_NAMES[f.name] && !HOOD_ONLY.has(f.name)).map(f => f.name);
+if (unnamedForwards.length > 0) throw new Error(`forwards without an event name in EVENT_NAMES (or in HOOD_ONLY, LEFT_OUT): ${unnamedForwards.join(', ')}`);
+
 const serverEvents: ServerEvent[] = [
-	{ forward: 'plugin_init', short: 'init', className: 'PluginInitEvent', fields: [] },
-	...forwards.filter(f => stockForwards.has(f.name)).map((f) => {
-		const short = eventName(f, eventNames);
+	{ forward: 'plugin_init', short: 'init', listed: true, className: 'PluginInitEvent', fields: [] },
+	...relayed.map((f) => {
+		const listed = !HOOD_ONLY.has(f.name);
+		const short = EVENT_NAMES[f.name] ?? camelOf(f.name);
 		const seen = new Set<string>();
 		const fields = f.params.map((p, i) => {
 			const field = eventField(p, i);
@@ -358,8 +398,8 @@ const serverEvents: ServerEvent[] = [
 		// Player made for him implements.
 		if (NOT_IN_GAME.has(f.name) && fields[0]?.type === 'Player') fields[0].type = 'Client';
 		// Named after the whole forward - ClientPutinserverEvent - so none meets a
-		// hookchain's event of the same short name (reapi has its own PreThink).
-		return { forward: f.name, short, className: `${upperFirst(camelOf(f.name))}Event`, fields };
+		// hookchain's event of the same short name (reapi has its own changeLevel).
+		return { forward: f.name, short, listed, className: `${upperFirst(camelOf(f.name))}Event`, fields };
 	}),
 ];
 
@@ -650,7 +690,7 @@ writeFileSync('./as/events.ts', `// GENERATED by scripts/generate-host.ts — do
 //
 // The events a server raises, one per forward the host plugin relays:
 //
-//   server.addEventListener("putinserver", (event) => print(event.player, "Welcome!"));
+//   server.addEventListener("putInServer", (event) => print(event.player, "Welcome!"));
 //
 // ServerEventMap is what an editor reads - the event's name to its type, as
 // the DOM's HTMLElementEventMap - and the compiler reads the same map through
@@ -707,17 +747,14 @@ ${VGUI_MENUS.map(m => `\tif (name == "${m.name}") return ${m.value};`).join('\n'
 
 ${messageNames.filter(m => m.fields).map(messageClass).join('\n\n')}
 
-/** Every event a server raises, by name: the short one and the Pawn one. */
+/** Every event a server raises, by name. */
 export interface ServerEventMap {
-${serverEvents.flatMap((e) => {
-	const keys = [e.short];
-	if (e.forward !== e.short) keys.push(e.forward);
+${serverEvents.filter(e => e.listed).flatMap((e) => {
 	const summary = eventSummary(e.forward);
-	const lead = [`\t${renderDoc(`${summary ? `${docText(summary)}\n\n` : ''}Pawn: \`${e.forward}\``, '\t')}`];
-	return keys.flatMap(k => [...lead, `\t${k}: ${e.className};`]);
+	return [`\t${renderDoc(`${summary ? `${docText(summary)}\n\n` : ''}Pawn: \`${e.forward}\``, '\t')}`, `\t${e.short}: ${e.className};`];
 }).join('\n')}
 \t${renderDoc(docText(pick(PLAYER_CHANGE.summary, DOCS_LANG)), '\t')}
-\tplayerchange: PlayerChangeEvent;
+\tplayerChange: PlayerChangeEvent;
 }
 
 /** Every message the server sends its clients, by the name server.addMessageListener takes. */

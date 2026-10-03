@@ -102,7 +102,7 @@ export default {
 			unique within the plugin. \`fallback\` is the answer when the handler returns
 			nothing: \`0\` for most natives, \`1\` where the native expects the event handled.
 
-			Register from the \`"cfg"\` event, not at the top of the file: a console
+			Register from the \`"pluginsLoaded"\` event, not at the top of the file: a console
 			command registered that early (\`register_concmd\`, \`register_srvcmd\`) crashes
 			the server when typed.
 		`,
@@ -121,7 +121,7 @@ export default {
 			имя, уникальное в пределах плагина. \`fallback\` — ответ, если обработчик
 			ничего не вернул: \`0\` почти везде, \`1\` там, где натив ждёт обработанное событие.
 
-			Регистрируйте из события \`"cfg"\`, а не с верхнего уровня файла: консольная
+			Регистрируйте из события \`"pluginsLoaded"\`, а не с верхнего уровня файла: консольная
 			команда, зарегистрированная так рано (\`register_concmd\`, \`register_srvcmd\`),
 			роняет сервер, когда её вводят.
 		`,
@@ -596,23 +596,23 @@ export default {
 	},
 	'Client': {
 		en: `
-			A connecting player, in \`"connect"\`, \`"authorized"\` and \`"putinserver"\`: name,
+			A connecting player, in \`"connect"\`, \`"authorized"\` and \`"putInServer"\`: name,
 			address, SteamID and team, but no health or weapons yet. Every Player is a
 			Client too.
 
 			\`\`\`ts
-			server.addEventListener("putinserver", (event) => {
+			server.addEventListener("putInServer", (event) => {
 				print(event.player, \`Welcome, \${event.player.name}!\`);
 			});
 			\`\`\`
 		`,
 		ru: `
-			Подключающийся игрок — в \`"connect"\`, \`"authorized"\` и \`"putinserver"\`: имя,
+			Подключающийся игрок — в \`"connect"\`, \`"authorized"\` и \`"putInServer"\`: имя,
 			адрес, SteamID и команда, но ещё без здоровья и оружия. Любой Player — тоже
 			Client.
 
 			\`\`\`ts
-			server.addEventListener("putinserver", (event) => {
+			server.addEventListener("putInServer", (event) => {
 				print(event.player, \`Welcome, \${event.player.name}!\`);
 			});
 			\`\`\`
@@ -1743,7 +1743,7 @@ export default {
 			plugin, TypeScript or Pawn:
 
 			\`\`\`ts
-			server.addEventListener("playerchange", (event) => {
+			server.addEventListener("playerChange", (event) => {
 			  print(event.player, event.value ? "You are protected" : "Your spawn protection is over");
 			}, { field: "spawnProtected" });
 			\`\`\`
@@ -1757,7 +1757,7 @@ export default {
 			записал любой плагин, на TypeScript или Pawn:
 
 			\`\`\`ts
-			server.addEventListener("playerchange", (event) => {
+			server.addEventListener("playerChange", (event) => {
 			  print(event.player, event.value ? "You are protected" : "Your spawn protection is over");
 			}, { field: "spawnProtected" });
 			\`\`\`
@@ -1781,12 +1781,12 @@ export default {
 	},
 	'ServerListenerOptions.field': {
 		en: `
-			For \`"playerchange"\`: the field listened for, e.g. \`"spawnProtected"\`, or
+			For \`"playerChange"\`: the field listened for, e.g. \`"spawnProtected"\`, or
 			an object field's member, \`"glow.enabled"\`; an object field's name
 			hears each of its members. Left out, every field.
 		`,
 		ru: `
-			Для \`"playerchange"\`: поле, которое слушают, например \`"spawnProtected"\`,
+			Для \`"playerChange"\`: поле, которое слушают, например \`"spawnProtected"\`,
 			или член поля-объекта, \`"glow.enabled"\`; имя поля-объекта слышит
 			каждый его член. Без него — любое поле.
 		`,
@@ -1905,7 +1905,7 @@ export default {
 			the folders AMX Mod X keeps. Used through \`server\`:
 
 			\`\`\`ts
-			server.addEventListener("putinserver", (event) => {
+			server.addEventListener("putInServer", (event) => {
 			  print(event.player, "Welcome!");      // event is a PutinserverEvent
 			});
 			server.map;                             // "de_dust2"
@@ -1922,7 +1922,7 @@ export default {
 			AMX Mod X. Используется через \`server\`:
 
 			\`\`\`ts
-			server.addEventListener("putinserver", (event) => {
+			server.addEventListener("putInServer", (event) => {
 			  print(event.player, "Welcome!");      // event — это PutinserverEvent
 			});
 			server.map;                             // "de_dust2"
@@ -1938,11 +1938,11 @@ export default {
 	'Server.addEventListener': {
 		en: `
 			Calls \`listener\` every time the server raises the event \`type\`.
-			\`"playerchange"\` takes the field it is for: \`{ field: "spawnProtected" }\`.
+			\`"playerChange"\` takes the field it is for: \`{ field: "spawnProtected" }\`.
 		`,
 		ru: `
 			Вызывает \`listener\` каждый раз, когда сервер поднимает событие \`type\`.
-			\`"playerchange"\` принимает поле, для которого он: \`{ field: "spawnProtected" }\`.
+			\`"playerChange"\` принимает поле, для которого он: \`{ field: "spawnProtected" }\`.
 		`,
 	},
 	'Server.removeEventListener': {
@@ -2043,7 +2043,7 @@ export default {
 		en: `
 			Adds a bot under \`name\`: a player the server runs, with no game behind
 			it and no mind of its own - it stands where it spawns until a plugin
-			moves it with \`bot.move()\`. \`null\` when no slot is free. \`"putinserver"\`
+			moves it with \`bot.move()\`. \`null\` when no slot is free. \`"putInServer"\`
 			fires for it as for anyone, \`bot.isBot\` is \`true\` and \`bot.kick()\`
 			removes it.
 
@@ -2057,7 +2057,7 @@ export default {
 		ru: `
 			Добавляет бота с именем \`name\`: игрока, которого ведёт сервер, — без игры за
 			ним и без своего разума: он стоит, где появился, пока плагин не двинет его
-			через \`bot.move()\`. \`null\`, если свободного слота нет. \`"putinserver"\`
+			через \`bot.move()\`. \`null\`, если свободного слота нет. \`"putInServer"\`
 			срабатывает для него, как для любого, \`bot.isBot\` равно \`true\`, а
 			\`bot.kick()\` убирает его.
 

@@ -5,7 +5,7 @@ import { publicFor, setArgText } from "@amxts/core";
 import { mc_register_placeholder, set_user_info } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
-server.addEventListener("cfg", () => {
+server.addEventListener("pluginsLoaded", () => {
 	lang.load("common");
 	mc_register_placeholder("xt_ts", publicFor(tsValue, "xt:ts"));
 });

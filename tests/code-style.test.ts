@@ -950,7 +950,7 @@ async function readCoreTexts(): Promise<{ where: string; text: string }[]> {
 	const placed: Placed[] = [
 		...tables.flatMap(({ file, table }) => keyed(file, table)),
 		...keyed('scripts/docs/entities.ts', ENTITY_FIELDS),
-		...eventTexts('scripts/docs/events.ts', { ...EVENTS, playerchange: PLAYER_CHANGE }),
+		...eventTexts('scripts/docs/events.ts', { ...EVENTS, playerChange: PLAYER_CHANGE }),
 		...eventTexts('scripts/docs/game.ts', GAME),
 		...eventTexts('scripts/docs/messages.ts', MESSAGES),
 	];

@@ -1,6 +1,6 @@
 // Player fields on the server, step 4: the bot is kicked, another comes into its
 // slot - and the fields are default again. Pawn (data-3-pawn) wrote the testTag string.
-// From the very start this plugin listens to playerchange: it hears what
+// From the very start this plugin listens to playerChange: it hears what
 // another TS plugin (data-1-write) and Pawn (data-3-pawn) wrote, and does not hear the bot leave.
 import { get_user_userid } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
@@ -18,10 +18,10 @@ const heard: string[] = [];
 /** Every change of any field: the slot and the field. */
 const changes: string[] = [];
 
-server.addEventListener("playerchange", event => heard.push(`ghost ${event.previous} -> ${event.value}`), { field: "ghost" });
-server.addEventListener("playerchange", event => heard.push(`enabled ${event.previous} -> ${event.value}`), { field: "glow.enabled" });
-server.addEventListener("playerchange", event => heard.push(`testTag "${event.previous}" -> "${event.value}"`), { field: "testTag" });
-server.addEventListener("playerchange", event => changes.push(`${event.player.id}:${event.field}`));
+server.addEventListener("playerChange", event => heard.push(`ghost ${event.previous} -> ${event.value}`), { field: "ghost" });
+server.addEventListener("playerChange", event => heard.push(`enabled ${event.previous} -> ${event.value}`), { field: "glow.enabled" });
+server.addEventListener("playerChange", event => heard.push(`testTag "${event.previous}" -> "${event.value}"`), { field: "testTag" });
+server.addEventListener("playerChange", event => changes.push(`${event.player.id}:${event.field}`));
 
 server.addServerCommand("amxts_test_data_reset", () => {
 	run();

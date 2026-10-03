@@ -33,10 +33,10 @@ let joins = 0;
 const onJoin = () => {
 	joins++;
 };
-server.addEventListener("putinserver", onJoin);
+server.addEventListener("putInServer", onJoin);
 
 export function stop_counting() {
-	server.removeEventListener("putinserver", onJoin);
+	server.removeEventListener("putInServer", onJoin);
 }
 
 export function joins_now() {

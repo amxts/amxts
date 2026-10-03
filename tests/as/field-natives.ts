@@ -6,8 +6,8 @@ import { m_rgAmmo, m_szTeamName, var_classname, var_gravity, var_origin } from "
 
 server.addCommand("fields", ({ player }) => readAndWrite(player));
 
-server.addEventListener("pfnPlaybackevent", (event) => {
-	console.log(`played ${event.eventid} at ${event.origin.x},${event.origin.y},${event.origin.z} delay ${event.delay} last ${event.bparam2}`);
+server.addEventListener("playbackEvent", (event) => {
+	console.log(`played ${event.eventIndex} at ${event.origin.x},${event.origin.y},${event.origin.z} delay ${event.delay} last ${event.bparam2}`);
 });
 
 function readAndWrite(player: Player) {

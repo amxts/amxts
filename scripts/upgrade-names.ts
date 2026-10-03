@@ -229,5 +229,150 @@ export const HIDDEN: Record<Kind, Record<string, string>> = {
  */
 export const COMMON = new Set(['menu', 'weapon', 'memory', 'conditions', 'activity', 'train', 'tank', 'sneaking', 'onTarget', 'lastFire', 'teamName']);
 
+/**
+ * Server events by their old names - the Pawn forward's and the short one
+ * before it - each by the name in the author's words
+ * (scripts/generate-host.ts's EVENT_NAMES).
+ */
+export const SERVER_EVENTS: Record<string, string> = {
+	plugin_init: 'init',
+	plugin_precache: 'precache',
+	cfg: 'pluginsLoaded',
+	plugin_cfg: 'pluginsLoaded',
+	plugin_end: 'end',
+	plugin_pause: 'pause',
+	plugin_unpause: 'unpause',
+	plugin_log: 'log',
+	plugin_modules: 'modules',
+	changelevel: 'changeLevel',
+	server_changelevel: 'changeLevel',
+	server_frame: 'frame',
+	OnConfigsExecuted: 'configsExecuted',
+	OnAutoConfigsBuffered: 'configsQueued',
+	client_connect: 'connect',
+	connectex: 'connectAttempt',
+	client_connectex: 'connectAttempt',
+	client_authorized: 'authorized',
+	putinserver: 'putInServer',
+	client_putinserver: 'putInServer',
+	disconnect: 'disconnected',
+	client_disconnect: 'disconnected',
+	client_disconnected: 'disconnected',
+	client_remove: 'remove',
+	client_command: 'command',
+	kill: 'suicide',
+	client_kill: 'suicide',
+	client_impulse: 'impulse',
+	client_cmdStart: 'cmdStart',
+	inconsistent_file: 'inconsistentFile',
+	CS_InternalCommand: 'internalCommand',
+	pfnSpawn: 'entitySpawn',
+	pfn_spawn: 'entitySpawn',
+	pfnThink: 'entityThink',
+	pfn_think: 'entityThink',
+	pfnKeyvalue: 'keyValue',
+	pfn_keyvalue: 'keyValue',
+	pfnPlaybackevent: 'playbackEvent',
+	pfn_playbackevent: 'playbackEvent',
+	playerchange: 'playerChange',
+};
+
+/** Server events that are a game event: `game.addEventListener` by this name. */
+export const SERVER_GAME_EVENTS: Record<string, string> = {
+	PreThink: 'preThink',
+	client_PreThink: 'preThink',
+	PostThink: 'postThink',
+	client_PostThink: 'postThink',
+	pfnTouch: 'touch',
+	pfn_touch: 'touch',
+	infochanged: 'userInfoChange',
+	client_infochanged: 'userInfoChange',
+};
+
+/** Server events whose game events ask it otherwise: listed, with what to write. */
+export const SERVER_EVENTS_BY_HAND: Record<string, string> = {
+	CS_OnBuy: 'a purchase is game.addEventListener("buyWeapon" | "buyItem" | "buyAmmo", ...), one per kind of thing bought, with what is bought by its name',
+	CS_OnBuyAttempt: 'whether a purchase is allowed is game.addEventListener("itemRestricted", ...) where event.restriction == "buying": return true to forbid it',
+};
+
+/** Server events' classes by their old names, where the event is another's now. */
+export const SERVER_EVENT_CLASSES: Record<string, string> = {
+	Client_PreThinkEvent: 'PreThinkEvent',
+	Client_PostThinkEvent: 'PostThinkEvent',
+	PfnTouchEvent: 'TouchEvent',
+	ClientInfochangedEvent: 'UserInfoChangeEvent',
+	ClientDisconnectEvent: 'ClientDisconnectedEvent',
+};
+
+/** A server event's fields by their old names, for each event by its name. */
+export const SERVER_EVENT_FIELDS: Record<string, Record<string, string>> = {
+	internalCommand: { cmd: 'command' },
+	inconsistentFile: { filename: 'file' },
+	playbackEvent: { eventid: 'eventIndex' },
+};
+
+/** The server events whose fields are renamed, by the class an annotation names them with. */
+export const SERVER_FIELD_CLASSES: Record<string, string> = {
+	CS_InternalCommandEvent: 'internalCommand',
+	InconsistentFileEvent: 'inconsistentFile',
+	PfnPlaybackeventEvent: 'playbackEvent',
+};
+
+const TRACE = { tracehandle: 'trace' };
+const SHOT = { src: 'start', dirShooting: 'direction' };
+
+/** A game event's fields by their old names - reapi's parameters as they were - for each event (scripts/generate-hooks.ts's WORDS). */
+export const GAME_EVENT_FIELDS: Record<string, Record<string, string>> = {
+	addResource: { filename: 'file' },
+	airAccelerate: { wishdir: 'direction', wishspeed: 'speed', accel: 'acceleration' },
+	buyAmmo: { weapon_entity: 'weapon' },
+	canShootThrough: { src: 'start' },
+	changeModel: { infobuffer: 'info' },
+	changeName: { infobuffer: 'info' },
+	chatMessage: { cmd: 'command', teamonly: 'teamOnly' },
+	checkUserInfo: { adr: 'address' },
+	consoleMessage: { string: 'text' },
+	createWeaponBox: { weaponent: 'weapon' },
+	defaultDeploy: { anim: 'animation', animExt: 'animationExtension', skiplocal: 'skipLocal' },
+	defaultReload: { anim: 'animation' },
+	defaultShotgunReload: { anim: 'animation', startAnim: 'startAnimation' },
+	disconnectClient: { fmt: 'reason' },
+	explodeBomb: TRACE,
+	explodeFlashbang: TRACE,
+	explodeHeGrenade: TRACE,
+	fireBullets: SHOT,
+	playStepSound: { fvol: 'volume' },
+	precacheFile: { string: 'file' },
+	precacheModel: { string: 'file' },
+	precacheSound: { string: 'file' },
+	printf: { string: 'text' },
+	radio: { msg_id: 'sound', msg_verbose: 'text' },
+	recoil: {
+		up_base: 'upBase',
+		lateral_base: 'lateralBase',
+		up_modifier: 'upModifier',
+		lateral_modifier: 'lateralModifier',
+		p_max: 'upMax',
+		lateral_max: 'lateralMax',
+		direction_change: 'directionChange',
+	},
+	sendWeaponAnim: { anim: 'animation', skiplocal: 'skipLocal' },
+	serverCommand: { cmd: 'command' },
+	setAnimation: { playerAnim: 'animation' },
+	shoot: { ...SHOT, shared_rand: 'randomSeed' },
+	shootBuckshot: SHOT,
+	spectateNext: { arg2: 'reverse' },
+	startSound: { sample: 'sound' },
+	takeDamageImpulse: { velModifier: 'velocityModifier' },
+	teamFull: { team_id: 'team' },
+	teamStacked: { newTeam_id: 'newTeam', curTeam_id: 'currentTeam' },
+	throwGrenade: { src: 'start', usEvent: 'eventIndex' },
+	throwHeGrenade: { usEvent: 'eventIndex' },
+	throwSmokeGrenade: { usEvent: 'eventIndex' },
+	traceAttack: { dir: 'direction', ...TRACE },
+	traceLine: { src: 'start', spot: 'end', ...TRACE },
+	userInfoChange: { infobuffer: 'info' },
+};
+
 /** Flag names that are more than the old one in lowerCamelCase: KillRarity's `"ThruSmoke"` is `"throughSmoke"`. */
 export const FLAG_NAMES: Record<string, string> = { ThruSmoke: 'throughSmoke' };

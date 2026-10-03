@@ -155,7 +155,7 @@ describe('an object field', () => {
 	});
 });
 
-describe('playerchange', () => {
+describe('playerChange', () => {
 	const WATCHED = ['tests/as/data-writer.ts', 'tests/as/object-fields.ts', 'tests/as/data-watcher.ts'];
 
 	/** What the plugins logged since the last call. */
@@ -230,22 +230,22 @@ describe('playerchange', () => {
 	});
 });
 
-test('a field a playerchange listener names is one the plugin imports, written out', async () => {
-	const listen = (options: string) => compileProbe({ 'plugin.ts': plugin('').replace('server.addEventListener("infochanged"', `server.addEventListener("playerchange", (event) => console.log(event.field), ${options});\nserver.addEventListener("infochanged"`) });
+test('a field a playerChange listener names is one the plugin imports, written out', async () => {
+	const listen = (options: string) => compileProbe({ 'plugin.ts': plugin('').replace('server.addEventListener("command"', `server.addEventListener("playerChange", (event) => console.log(event.field), ${options});\nserver.addEventListener("command"`) });
 	expect(await listen('{ field: "ghost" }')).toBeNull();
 	expect(await listen('{ field: "glow.enabled" }')).toBeNull();
-	expect(await listen('{ field: "gost" }')).toContain('playerchange - "gost" is not a field of Player in what this plugin imports ("ghost", "glow", "glow.enabled"');
+	expect(await listen('{ field: "gost" }')).toContain('playerChange - "gost" is not a field of Player in what this plugin imports ("ghost", "glow", "glow.enabled"');
 	expect(await listen('{ field: "kills" }')).toContain('"kills" is not a field of Player');
 
 	const named = await compileProbe({ 'plugin.ts': `${plugin('')}\nfunction onGhost(event: PlayerChangeEvent<"gohst">) {\n\tconsole.log(event.field);\n}\n` });
 	expect(named).toContain('"gohst" is not a field of Player');
 
-	const held = await compileProbe({ 'plugin.ts': `${plugin('')}\nconst field = "ghost";\nserver.addEventListener("playerchange", (event) => console.log(event.field), { field });\n` });
-	expect(held).toContain('playerchange - the field is written out, as the event\'s name is: { field: "spawnProtected" }');
+	const held = await compileProbe({ 'plugin.ts': `${plugin('')}\nconst field = "ghost";\nserver.addEventListener("playerChange", (event) => console.log(event.field), { field });\n` });
+	expect(held).toContain('playerChange - the field is written out, as the event\'s name is: { field: "spawnProtected" }');
 });
 
 test('a listener\'s event has the field\'s type: a value of another type does not compile', async () => {
-	const typed = (body: string) => compileProbe({ 'plugin.ts': `${plugin('')}\nserver.addEventListener("playerchange", (event) => {\n\t${body}\n}, { field: "ghost" });\n` });
+	const typed = (body: string) => compileProbe({ 'plugin.ts': `${plugin('')}\nserver.addEventListener("playerChange", (event) => {\n\t${body}\n}, { field: "ghost" });\n` });
 	expect(await typed('const on: boolean = event.value;')).toBeNull();
 	expect(await typed('console.log(event.previous.toUpperCase());')).toContain('Property \'toUpperCase\' does not exist on type \'~lib/number/Bool\'');
 });
@@ -276,7 +276,7 @@ function plugin(body: string) {
 		'import { server } from "@amxts/core";',
 		'import "./player-state";',
 		'',
-		'server.addEventListener("infochanged", (event) => {',
+		'server.addEventListener("command", (event) => {',
 		'\tconst player = event.player;',
 		`\t${body}`,
 		'});',
@@ -393,7 +393,7 @@ test('a change event a field: value and previous of its type, under the name its
 	expect(source).toContain('get value(): bool { return this.__number != 0; }');
 	expect(source).toContain('get previous(): string { return __amxts_pf_choose(this.__previousText, "default"); }');
 	expect(source).toContain('value.enabled = this.field == "glow.enabled" ? __amxts_pf_choose(t, "default") : __amxts_pf_choose(__amxts_pf_text(this.__slot, "glow.enabled"), "default");');
-	expect(source).toContain('"playerchange:ghost": __PlayerChange$ghost;');
-	expect(source).toContain('"playerchange:glow": __PlayerChange$glow;');
-	expect(source).toContain('"playerchange:glow.enabled": __PlayerChange$glow$enabled;');
+	expect(source).toContain('"playerChange:ghost": __PlayerChange$ghost;');
+	expect(source).toContain('"playerChange:glow": __PlayerChange$glow;');
+	expect(source).toContain('"playerChange:glow.enabled": __PlayerChange$glow$enabled;');
 });

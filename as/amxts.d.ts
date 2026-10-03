@@ -158,10 +158,10 @@ declare module "./facade" {
 		 * and `event.previous` have the field's type.
 		 */
 		// oxlint-disable-next-line typescript/method-signature-style -- an overload, merged into the class's method
-		addEventListener<F extends PlayerFieldName>(type: "playerchange", listener: (event: PlayerChangeEvent<F>) => void, options: { field: F }): void;
+		addEventListener<F extends PlayerFieldName>(type: "playerChange", listener: (event: PlayerChangeEvent<F>) => void, options: { field: F }): void;
 		/** Stops calling a listener added with `addEventListener` - the same function and the same field. */
 		// oxlint-disable-next-line typescript/method-signature-style -- an overload, merged into the class's method
-		removeEventListener<F extends PlayerFieldName>(type: "playerchange", listener: (event: PlayerChangeEvent<F>) => void, options: { field: F }): void;
+		removeEventListener<F extends PlayerFieldName>(type: "playerChange", listener: (event: PlayerChangeEvent<F>) => void, options: { field: F }): void;
 		/**
 		 * Adds a command players type, by its usage: the name, then the
 		 * arguments, `<name>` required and `[name]` optional. Their types are an

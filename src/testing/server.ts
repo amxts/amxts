@@ -732,7 +732,7 @@ export class FakeServer {
 	/** Which of those texts are lists of player ids ("3,5"), by `slot:key`: a player who leaves goes from them. */
 	readonly playerLists = new Set<string>();
 	/**
-	 * The playerchange listeners, as the module keeps them: per plugin, the
+	 * The playerChange listeners, as the module keeps them: per plugin, the
 	 * fields it hears ("" for every one) and the trampoline that hands a change
 	 * to its listeners.
 	 */
@@ -2247,7 +2247,7 @@ export class FakeServer {
 			this.setPlayerData(id, plugin.memory.string(key), plugin.memory.string(value), true);
 		},
 
-		// playerchange: the module wakes a plugin for the fields it listens for.
+		// playerChange: the module wakes a plugin for the fields it listens for.
 		player_change_listen(this: FakeServer, plugin: PluginInstance, field: number, fn: number) {
 			const name = plugin.memory.string(field);
 			const known = this.fieldListeners.find(one => one.plugin === plugin);

@@ -57,13 +57,13 @@
 // A field whose name Player already has - `solid` is Entity's var_solid - is
 // refused: it would silently replace the engine's property.
 //
-// A change is an event, `"playerchange"`, which the module raises on every
+// A change is an event, `"playerChange"`, which the module raises on every
 // write that changes a value (runtime/src/module.cpp). With
 // `{ field: "spawnProtected" }` its listener gets the field's own event class, whose `value` and `previous`
 // have the field's type - one per field, per object member and per object
 // field, made here. The compiler binds an event's type to the name in the
 // call (`K extends keyof ServerEventMap`), and the field is in the options, so
-// the call's name becomes `"playerchange:spawnProtected"` and ServerEventMap is given
+// the call's name becomes `"playerChange:spawnProtected"` and ServerEventMap is given
 // that key; `PlayerChangeEvent<"spawnProtected">` written as a type becomes the class.
 
 // @ts-ignore - shipped as JavaScript, with types beside it we do not need here
@@ -108,10 +108,10 @@ const HOLDER = '__AmxtsPlayerFields';
 const PLAYER_LIST = '__AmxtsPlayerList';
 
 /** The event a field's change is, and the facade's class for it. */
-const CHANGE_EVENT = 'playerchange';
+const CHANGE_EVENT = 'playerChange';
 const CHANGE_CLASS = 'PlayerChangeEvent';
 
-/** The interface in that file whose members - `"playerchange:spawnProtected": ...` - go into ServerEventMap. */
+/** The interface in that file whose members - `"playerChange:spawnProtected": ...` - go into ServerEventMap. */
 const CHANGES = '__AmxtsPlayerChanges';
 
 const DECLARE_MODULE = /\bdeclare\s+module\s*(["'])~\/facade\1\s*\{/g;
@@ -478,9 +478,9 @@ function changeEvents(fields: PlayerField[]): ChangeEvent[] {
 }
 
 /**
- * A `"playerchange"` listener's `{ field: "spawnProtected" }` and a
+ * A `"playerChange"` listener's `{ field: "spawnProtected" }` and a
  * `PlayerChangeEvent<"spawnProtected">` written as a type, turned into the field's own
- * event class: the call's name becomes `"playerchange:spawnProtected"`, the key
+ * event class: the call's name becomes `"playerChange:spawnProtected"`, the key
  * ServerEventMap is given for it, and the type the class. A field the compile
  * has no declaration of is a problem, and so is one not written out.
  */
@@ -490,7 +490,7 @@ function typeChangeListeners(parser: any, classes: Map<string, string>): string[
 	const known = (field: string, node: any) => {
 		if (classes.has(field)) return true;
 		const names = [...classes.keys()].map(name => `"${name}"`).join(', ');
-		problems.push(`${where(node)}: playerchange - "${field}" is not a field of Player in what this plugin imports (${names || 'it imports none'})`);
+		problems.push(`${where(node)}: playerChange - "${field}" is not a field of Player in what this plugin imports (${names || 'it imports none'})`);
 		return false;
 	};
 
@@ -499,7 +499,7 @@ function typeChangeListeners(parser: any, classes: Map<string, string>): string[
 		walk(source.statements, (node) => {
 			if (node.kind === asc.NodeKind.Call) {
 				const field = listenedField(node);
-				if (field === null) problems.push(`${where(node)}: playerchange - the field is written out, as the event's name is: { field: "spawnProtected" }`);
+				if (field === null) problems.push(`${where(node)}: playerChange - the field is written out, as the event's name is: { field: "spawnProtected" }`);
 				else if (field !== undefined && known(field, node)) node.args[0].value = `${CHANGE_EVENT}:${field}`;
 				return;
 			}
@@ -516,7 +516,7 @@ function isStringLiteral(node: any): boolean {
 	return node?.kind === asc.NodeKind.Literal && node.literalKind === asc.LiteralKind.String;
 }
 
-/** The field a `"playerchange"` listener names in its options; undefined for any other call, null when not written out. */
+/** The field a `"playerChange"` listener names in its options; undefined for any other call, null when not written out. */
 function listenedField(call: any): string | null | undefined {
 	const method = call.expression.kind === asc.NodeKind.PropertyAccess ? call.expression.property.text : '';
 	const [type, , options] = call.args;

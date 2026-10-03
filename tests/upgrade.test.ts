@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 // @ts-ignore - bun:test types not available during type checking
 import { afterEach, expect, test } from 'bun:test';
 import { setProjectDir } from '../scripts/project';
-import { dropHttpImports, renamesFor, upgradeFlags, upgradeHandlers, upgradeMessages, upgradeNames, upgradeProject, upgradeText } from '../scripts/upgrade';
+import { dropHttpImports, renamesFor, upgradeEvents, upgradeFlags, upgradeHandlers, upgradeMessages, upgradeNames, upgradeProject, upgradeText } from '../scripts/upgrade';
 import { upgradeMenus } from '../scripts/upgrade-menus';
 
 const HERE = process.cwd();
@@ -287,6 +287,80 @@ test('a game message is heard through addMessageListener, by its name in the pla
 	expect(left.map(each => each.line)).toEqual([8]);
 	expect(left[0].why).toContain('"message:MyModMsg" is not a message the game has');
 	expect(upgradeMessages('plugins/a.ts', text)).toEqual({ text, changes: [], left });
+});
+
+test('a server event is named in the author\'s words; one that is a game event is heard through game; cstrike\'s buying is listed', () => {
+	const source = [
+		'server.addEventListener("putinserver", (event) => print(event.player, "hi"));',
+		'server.addEventListener("client_putinserver", greet);',
+		'server.addEventListener("cfg", () => {});',
+		'server.addEventListener("PreThink", ({ player }) => player.health++);',
+		'server.removeEventListener("infochanged", onInfo);',
+		'function onInfo(event: ClientInfochangedEvent) {}',
+		'server.addEventListener("pfn_touch", (event) => {});',
+		'server.addEventListener("CS_OnBuy", (event) => {});',
+		'server.addEventListener("kill", (event) => {});',
+		'game.addEventListener("kill", (event) => {});',
+		'server.addEventListener("playerchange", (event) => {}, { field: "ghost" });',
+		'other.addEventListener("putinserver", () => {});',
+		'',
+	].join('\n');
+	const { text, changes, left } = upgradeEvents('plugins/a.ts', source);
+
+	expect(text.split('\n')).toEqual([
+		'server.addEventListener("putInServer", (event) => print(event.player, "hi"));',
+		'server.addEventListener("putInServer", greet);',
+		'server.addEventListener("pluginsLoaded", () => {});',
+		'game.addEventListener("preThink", ({ player }) => player.health++);',
+		'game.removeEventListener("userInfoChange", onInfo);',
+		'function onInfo(event: UserInfoChangeEvent) {}',
+		'game.addEventListener("touch", (event) => {});',
+		'server.addEventListener("CS_OnBuy", (event) => {});',
+		'server.addEventListener("suicide", (event) => {});',
+		'game.addEventListener("kill", (event) => {});',
+		'server.addEventListener("playerChange", (event) => {}, { field: "ghost" });',
+		'other.addEventListener("putinserver", () => {});',
+		'',
+	]);
+	expect(changes).toHaveLength(12);
+	expect(left.map(each => `${each.line} ${each.why.slice(0, 40)}`)).toEqual([
+		'7 a touch hands toucher and touched as ent',
+		'8 "CS_OnBuy" is not a server event: a purc',
+	]);
+	expect(upgradeEvents('plugins/a.ts', text)).toEqual({ text, changes: [], left: [left[1]] });
+});
+
+test('an event\'s field in Pawn\'s words is the author\'s where the code says which event it is', () => {
+	const source = [
+		'game.addEventListener("buyAmmo", (event) => console.log(`${event.weapon_entity}`));',
+		'game.addEventListener("traceAttack", ({ dir, tracehandle: trace }) => console.log(`${dir.x} ${trace}`));',
+		'game.addEventListener("precacheModel", onModel);',
+		'const onModel = (event) => console.log(event.string);',
+		'function shot(event: ShootEvent) { return event.src; }',
+		'server.addEventListener("CS_InternalCommand", (event) => console.log(event.cmd));',
+		'game.addEventListener("spawn", (event) => console.log(event.string));',
+		'const event = { dir: 1, string: "" };',
+		'console.log(event.dir, event.string.length);',
+		'function count(total: number) { return total.toString(); }',
+		'',
+	].join('\n');
+	const { text, left } = upgradeEvents('plugins/a.ts', source);
+
+	expect(text.split('\n')).toEqual([
+		'game.addEventListener("buyAmmo", (event) => console.log(`${event.weapon}`));',
+		'game.addEventListener("traceAttack", ({ direction: dir, trace }) => console.log(`${dir.x} ${trace}`));',
+		'game.addEventListener("precacheModel", onModel);',
+		'const onModel = (event) => console.log(event.file);',
+		'function shot(event: ShootEvent) { return event.start; }',
+		'server.addEventListener("internalCommand", (event) => console.log(event.command));',
+		'game.addEventListener("spawn", (event) => console.log(event.string));',
+		'const event = { dir: 1, string: "" };',
+		'console.log(event.dir, event.string.length);',
+		'function count(total: number) { return total.toString(); }',
+		'',
+	]);
+	expect(left).toEqual([]);
+	expect(upgradeEvents('plugins/a.ts', text).changes).toEqual([]);
 });
 
 test('the game\'s look-alike messages are upgraded to the one name that hears them all', () => {

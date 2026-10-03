@@ -48,7 +48,7 @@ import {
 	ROUND_TERRORISTS_WIN, ROUND_VIP_ASSASSINATED, ROUND_VIP_ESCAPED, ROUND_VIP_NOT_ESCAPED, WINSTATUS_CTS,
 	PLUGIN_HANDLED, WINSTATUS_DRAW, WINSTATUS_NONE, WINSTATUS_TERRORISTS
 } from "./constants";
-import { TextMsgMessage, SendAudioMessage, MoneyMessage, DeathMsgMessage, VGUIMenuMessage } from "./events";
+import { TextMsgMessage, SendAudioMessage, MoneyMessage, DeathMsgMessage, VGUIMenuMessage, CS_OnBuyEvent, CS_OnBuyAttemptEvent, ClientInfochangedEvent, addServerListener } from "./events";
 
 /** The listeners of one event, phase by phase: as/hooks.ts's `<event>FireHlds`. */
 type Fire<E> = (event: E, post: bool) => void;
@@ -363,7 +363,7 @@ export function intermissionHlds(fire: Fire<IntermissionEvent>): void {
 
 /** The game changes the map: AMX Mod X's server_changelevel. */
 export function changeLevelHlds(fire: Fire<ChangeLevelEvent>): void {
-	server.addEventListener("changelevel", (): void => hear(fire, new ChangeLevelEvent(), "changeLevel"));
+	server.addEventListener("changeLevel", (): void => hear(fire, new ChangeLevelEvent(), "changeLevel"));
 }
 
 // ---------------------------------------------------------------- spawning and dying
@@ -548,7 +548,7 @@ const moneySent: i32[] = new Array<i32>(33).fill(-1);
 export function addMoneyHlds(fire: Fire<AddMoneyEvent>): void {
 	// A bot is put in the server before the game has made him: his money is
 	// not there yet, and the first message he is sent is what counts from.
-	server.addEventListener("putinserver", (event): void => {
+	server.addEventListener("putInServer", (event): void => {
 		const id = <i32>event.player.id;
 		moneySent[id] = pev_valid(id) == 2 ? <i32>cs_get_user_money(id) : -1;
 	});
@@ -574,7 +574,7 @@ export function addMoneyHlds(fire: Fire<AddMoneyEvent>): void {
 
 /** What cstrike's CS_OnBuy hears, by the item it buys - each event takes its own. */
 function onBuy(handler: (id: i32, item: i32) => void): void {
-	server.addEventListener("CS_OnBuy", (event): void => handler(<i32>event.player.id, <i32>event.item));
+	addServerListener<CS_OnBuyEvent>((event: CS_OnBuyEvent): void => handler(<i32>event.player.id, <i32>event.item));
 }
 
 const EQUIPMENT: i32[] = [CSI_VEST, CSI_VESTHELM, CSI_FLASHBANG, CSI_HEGRENADE, CSI_SMOKEGRENADE, CSI_NVGS, CSI_DEFUSER, CSI_SHIELD];
@@ -616,7 +616,7 @@ export function buyAmmoHlds(fire: Fire<BuyAmmoEvent>): void {
 
 /** Whether an item is forbidden to buy: cstrike's CS_OnBuyAttempt, answered `true` to forbid. */
 export function itemRestrictedHlds(fire: Fire<ItemRestrictedEvent>): void {
-	server.addEventListener("CS_OnBuyAttempt", (attempt): void => {
+	addServerListener<CS_OnBuyAttemptEvent>((attempt: CS_OnBuyAttemptEvent): void => {
 		const item = itemOf(<i32>attempt.item);
 		if (item < ITEM_SHIELDGUN) return;
 		const event = new ItemRestrictedEvent();
@@ -721,7 +721,7 @@ export function disconnectClientHlds(fire: Fire<DisconnectClientEvent>): void {
 }
 
 export function userInfoChangeHlds(fire: Fire<UserInfoChangeEvent>): void {
-	server.addEventListener("infochanged", (changed): void => {
+	addServerListener<ClientInfochangedEvent>((changed: ClientInfochangedEvent): void => {
 		const event = new UserInfoChangeEvent();
 		event.__give(0, <i32>changed.player.id);
 		hear(fire, event, "userInfoChange");
@@ -730,7 +730,7 @@ export function userInfoChangeHlds(fire: Fire<UserInfoChangeEvent>): void {
 
 /** A new name asked for: the info's name is not the one the player has. */
 export function changeNameHlds(fire: Fire<ChangeNameEvent>): void {
-	server.addEventListener("infochanged", (changed): void => {
+	addServerListener<ClientInfochangedEvent>((changed: ClientInfochangedEvent): void => {
 		const id = changed.player.id;
 		const wanted = get_user_info(id, "name");
 		if (wanted == get_user_name(id)) return;
