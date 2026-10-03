@@ -189,6 +189,8 @@ export interface ServerOptions {
 	platform?: 'win32' | 'linux';
 	/** The server's time zone, what Date's local getters read: "Asia/Yerevan". This machine's unless said. */
 	timeZone?: string;
+	/** Whether reapi finds Reunion, so a player's `authType`, `protocol` and `authKey` are his own. Not unless said. */
+	reunion?: boolean;
 }
 
 export type TeamName = 'UNASSIGNED' | 'TERRORIST' | 'CT' | 'SPECTATOR';
@@ -203,6 +205,12 @@ export interface JoinOptions {
 	bot?: boolean;
 	authid?: string;
 	ip?: string;
+	/** How Reunion says his game proved who he is, by its name in the player's API: "steam" unless said. */
+	authType?: string;
+	/** His game's protocol, as Reunion says: 48 unless said. */
+	protocol?: number;
+	/** The key Reunion read from his game: "" unless said. */
+	authKey?: string;
 	/** Admin flags as users.ini writes them: "abcdefghijklmnopqrstu". "z" - a plain user - unless said. */
 	flags?: string;
 	origin?: number[];
@@ -307,6 +315,9 @@ export class FakePlayer extends FakeEntity {
 	readonly bot: boolean;
 	readonly authid: string;
 	readonly ip: string;
+	readonly authType: string;
+	readonly protocol: number;
+	readonly authKey: string;
 	/** Admin flags as bits: ADMIN_* . */
 	flags: number;
 	/** SPEAK_* flags: `muted` is SPEAK_MUTED. */
@@ -330,6 +341,9 @@ export class FakePlayer extends FakeEntity {
 		this.bot = options.bot ?? false;
 		this.authid = options.authid ?? (this.bot ? 'BOT' : `STEAM_0:0:${id}`);
 		this.ip = options.ip ?? `127.0.0.${id}:27005`;
+		this.authType = options.authType ?? 'steam';
+		this.protocol = options.protocol ?? 48;
+		this.authKey = options.authKey ?? '';
 		this.flags = flagBits(options.flags ?? 'z');
 		this.userid = server.nextUserid();
 		this.team = options.team ?? 'CT';
@@ -577,6 +591,8 @@ export class FakeServer {
 	readonly map: string;
 	readonly maxPlayers: number;
 	readonly modules: Set<string>;
+	/** Whether reapi finds Reunion (has_reunion). */
+	readonly reunion: boolean;
 	/** Milliseconds since the map started; advance() moves it. */
 	time = 0;
 	/** Date.now() when the map started. */
@@ -740,6 +756,7 @@ export class FakeServer {
 		this.map = options.map ?? 'de_dust2';
 		this.maxPlayers = options.maxPlayers ?? 32;
 		this.modules = new Set(options.modules ?? ['reapi', 'cstrike', 'fun', 'hamsandwich', 'engine', 'fakemeta', 'nvault', 'resemiclip']);
+		this.reunion = options.reunion ?? false;
 		this.entityIds = this.maxPlayers + 1;
 		this.timeZone = options.timeZone;
 		// AMX Mod X's own, which a test may set: the languages.

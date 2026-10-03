@@ -3,6 +3,7 @@
 
 server.addCommand("pl_ammo", ({ player }) => ammo(player));
 server.addCommand("pl_lang", ({ player }) => language(player));
+server.addCommand("pl_auth", ({ player }) => print(player, `${player.authType} ${player.protocol} ${player.authKey}`, "console"));
 server.addCommand("pl_voice [routes]", ({ player, routes }) => voice(player, (routes ?? "").split(" ")));
 server.addCommand<JoinArgs>("pl_join <team>", ({ player, team }) => join(player, team));
 server.addCommand("pl_sound", ({ player }) => sound(player));

@@ -297,6 +297,9 @@ function sendText(call: NativeCall, id: number, variant: 'chat' | 'center' | 'co
 
 const PRINT_VARIANTS = ['', 'notify', 'console', 'chat', 'center'] as const;
 
+// Reunion's client_auth_type by its number, as the player's API names each.
+const AUTH_TYPES = ['unknown', 'dproto', 'steam', 'steamEmu', 'revEmu', 'oldRevEmu', 'hltv', 'sc2009', 'avsmp', 'sxei', 'revEmu2013', 'sse3'];
+
 /** A Pawn string of UTF-8 bytes - a path, a line of a file - as text. */
 function bytesText(call: NativeCall, pointer: number): string {
 	return call.memory.text(pointer, 65536);
@@ -533,6 +536,11 @@ export const NATIVES: Record<string, Native> = {
 	is_user_alive: (c, [id]) => +!!player(c, id)?.alive,
 	is_user_bot: (c, [id]) => +!!player(c, id)?.bot,
 	is_user_hltv: () => 0,
+	// reapi's Reunion natives: they are there only when reapi finds Reunion.
+	has_reunion: c => +(c.server.modules.has('reapi') && c.server.reunion),
+	REU_GetAuthtype: (c, [id]) => Math.max(0, AUTH_TYPES.indexOf(player(c, id)?.authType ?? '')),
+	REU_GetProtocol: (c, [id]) => player(c, id)?.protocol ?? 0,
+	REU_GetAuthKey: (c, [id, buffer, length]) => c.memory.setText(buffer, length, player(c, id)?.authKey ?? ''),
 	get_user_name: (c, [id, buffer, length]) => c.memory.setText(buffer, length, id === 0 ? 'Console' : player(c, id)?.name ?? ''),
 	get_user_authid: (c, [id, buffer, length]) => c.memory.setText(buffer, length, player(c, id)?.authid ?? ''),
 	get_user_ip: (c, [id, buffer, length, withoutPort]) => {

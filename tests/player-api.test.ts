@@ -37,6 +37,21 @@ test('language: his setinfo lang, else the server\'s - as lang.translate picks i
 	expect([none, own, notALanguage, serverWide]).toEqual(['de', 'ru', 'de', 'de']);
 });
 
+test('authType, protocol and authKey: what Reunion says, and "unknown", 0 and "" without it or without reapi', async () => {
+	const lines: string[] = [];
+	for (const options of [{ reunion: true }, {}, { reunion: true, modules: ['cstrike', 'fun', 'hamsandwich', 'engine', 'fakemeta'] }]) {
+		const server = await loadPlugin(PLUGIN, options);
+		const alice = server.join('Alice', { authType: 'revEmu2013', protocol: 47, authKey: 'a1b2c3' });
+		const bob = server.join('Bob');
+
+		alice.command('pl_auth');
+		bob.command('pl_auth');
+		lines.push(alice.console, bob.console);
+	}
+
+	expect(lines).toEqual(['revEmu2013 47 a1b2c3', 'steam 48 ', 'unknown 0 ', 'unknown 0 ', 'unknown 0 ', 'unknown 0 ']);
+});
+
 test('voice: muted, heard by everyone and hears everyone are set_speak\'s three bits, each kept apart', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');

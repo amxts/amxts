@@ -522,6 +522,10 @@ export default {
 		en: `A Counter-Strike team, by the name the game gives it: one of \`"TERRORIST"\`, \`"CT"\`, \`"SPECTATOR"\`, \`"UNASSIGNED"\`.`,
 		ru: `Команда Counter-Strike под именем, которое даёт ей игра: одно из \`"TERRORIST"\`, \`"CT"\`, \`"SPECTATOR"\`, \`"UNASSIGNED"\`.`,
 	},
+	'AuthType': {
+		en: `The way a player's game proves who he is, as Reunion tells it, e.g. \`"steam"\` or \`"revEmu"\`; \`"unknown"\` on a server without Reunion.`,
+		ru: `Способ, которым игра игрока подтверждает, кто он, по словам Reunion, например \`"steam"\` или \`"revEmu"\`; \`"unknown"\` на сервере без Reunion.`,
+	},
 	'WeaponName': {
 		en: `A weapon a player can hold, by its class name, e.g. \`"weapon_ak47"\` or \`"weapon_knife"\`.`,
 		ru: `Оружие, которое может держать игрок, по имени класса, например \`"weapon_ak47"\` или \`"weapon_knife"\`.`,
@@ -629,6 +633,18 @@ export default {
 	'Client.authid': {
 		en: `The player's SteamID, e.g. \`"STEAM_0:1:12345"\`. A bot has \`"BOT"\`, HLTV has \`"HLTV"\`; until Steam confirms the player it is \`"STEAM_ID_PENDING"\` (wait for the \`"authorized"\` event), and on a LAN server \`"STEAM_ID_LAN"\`.`,
 		ru: `SteamID игрока, например \`"STEAM_0:1:12345"\`. У бота — \`"BOT"\`, у HLTV — \`"HLTV"\`; пока Steam не подтвердил игрока — \`"STEAM_ID_PENDING"\` (дождитесь события \`"authorized"\`), на LAN-сервере — \`"STEAM_ID_LAN"\`.`,
+	},
+	'Client.authType': {
+		en: `The way the player's game proved who he is, as Reunion tells it: one of \`"steam"\` (a Steam game), \`"steamEmu"\`, \`"revEmu"\`, \`"revEmu2013"\`, \`"oldRevEmu"\`, \`"sc2009"\`, \`"avsmp"\`, \`"sxei"\`, \`"sse3"\` (a game without Steam, by the emulator it proved itself with), \`"dproto"\`, \`"hltv"\`, or \`"unknown"\` on a server without Reunion.`,
+		ru: `Способ, которым игра игрока подтвердила, кто он, по словам Reunion: одно из \`"steam"\` (игра из Steam), \`"steamEmu"\`, \`"revEmu"\`, \`"revEmu2013"\`, \`"oldRevEmu"\`, \`"sc2009"\`, \`"avsmp"\`, \`"sxei"\`, \`"sse3"\` (игра без Steam — по эмулятору, которым она подтвердила себя), \`"dproto"\`, \`"hltv"\` или \`"unknown"\` на сервере без Reunion.`,
+	},
+	'Client.protocol': {
+		en: `The network protocol of the player's game: \`48\` for today's game, \`47\` for an old one Reunion lets in. \`0\` on a server without Reunion.`,
+		ru: `Сетевой протокол игры игрока: \`48\` у нынешней игры, \`47\` у старой, которую пускает Reunion. \`0\` на сервере без Reunion.`,
+	},
+	'Client.authKey': {
+		en: `The key the player's game proved itself with, as Reunion read it: what his SteamID is made from. \`""\` on a server without Reunion.`,
+		ru: `Ключ, которым игра игрока подтвердила себя, как его прочитал Reunion: из него сделан SteamID игрока. \`""\` на сервере без Reunion.`,
 	},
 	'Client.isBot': {
 		en: `\`true\` for a bot.`,
@@ -791,6 +807,42 @@ export default {
 			SteamID игрока, например \`"STEAM_0:1:12345"\`. У бота — \`"BOT"\`, у HLTV — \`"HLTV"\`; пока Steam не подтвердил игрока — \`"STEAM_ID_PENDING"\` (дождитесь события \`"authorized"\`), на LAN-сервере — \`"STEAM_ID_LAN"\`.
 
 			Pawn: \`get_user_authid\`
+		`,
+	},
+	'Player.authType': {
+		en: `
+			The way the player's game proved who he is, as Reunion tells it: one of \`"steam"\` (a Steam game), \`"steamEmu"\`, \`"revEmu"\`, \`"revEmu2013"\`, \`"oldRevEmu"\`, \`"sc2009"\`, \`"avsmp"\`, \`"sxei"\`, \`"sse3"\` (a game without Steam, by the emulator it proved itself with), \`"dproto"\`, \`"hltv"\`, or \`"unknown"\` on a server without Reunion.
+
+			Pawn: \`REU_GetAuthtype\`
+		`,
+		ru: `
+			Способ, которым игра игрока подтвердила, кто он, по словам Reunion: одно из \`"steam"\` (игра из Steam), \`"steamEmu"\`, \`"revEmu"\`, \`"revEmu2013"\`, \`"oldRevEmu"\`, \`"sc2009"\`, \`"avsmp"\`, \`"sxei"\`, \`"sse3"\` (игра без Steam — по эмулятору, которым она подтвердила себя), \`"dproto"\`, \`"hltv"\` или \`"unknown"\` на сервере без Reunion.
+
+			Pawn: \`REU_GetAuthtype\`
+		`,
+	},
+	'Player.protocol': {
+		en: `
+			The network protocol of the player's game: \`48\` for today's game, \`47\` for an old one Reunion lets in. \`0\` on a server without Reunion.
+
+			Pawn: \`REU_GetProtocol\`
+		`,
+		ru: `
+			Сетевой протокол игры игрока: \`48\` у нынешней игры, \`47\` у старой, которую пускает Reunion. \`0\` на сервере без Reunion.
+
+			Pawn: \`REU_GetProtocol\`
+		`,
+	},
+	'Player.authKey': {
+		en: `
+			The key the player's game proved itself with, as Reunion read it: what his SteamID is made from. \`""\` on a server without Reunion.
+
+			Pawn: \`REU_GetAuthKey\`
+		`,
+		ru: `
+			Ключ, которым игра игрока подтвердила себя, как его прочитал Reunion: из него сделан SteamID игрока. \`""\` на сервере без Reunion.
+
+			Pawn: \`REU_GetAuthKey\`
 		`,
 	},
 	'Player.isAlive': {

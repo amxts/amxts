@@ -33,7 +33,8 @@ import {
 	precache_model, precache_sound, precache_generic, query_client_cvar, register_touch,
 	register_message, get_msg_args, get_msg_argtype, get_msg_arg_int, get_msg_arg_float, get_msg_arg_string,
 	set_msg_arg_int, set_msg_arg_float, set_msg_arg_string, get_user_userid,
-	emessage_begin, ewrite_byte, ewrite_short, ewrite_string, emessage_end, elog_message
+	emessage_begin, ewrite_byte, ewrite_short, ewrite_string, emessage_end, elog_message,
+	has_reunion, REU_GetAuthtype, REU_GetProtocol, REU_GetAuthKey
 } from "./natives";
 // Promise, async/await and AbortSignal, as the globals they are in JavaScript.
 import "./promise";
@@ -1148,6 +1149,25 @@ export type Team = "TERRORIST" | "CT" | "SPECTATOR" | "UNASSIGNED";
 
 const TEAM_NAMES: Team[] = ["UNASSIGNED", "TERRORIST", "CT", "SPECTATOR"];
 
+/** The way a player's game proves who he is, as Reunion tells it, e.g. `"steam"` or `"revEmu"`; `"unknown"` on a server without Reunion. */
+export type AuthType =
+	| "unknown" | "steam" | "steamEmu" | "revEmu" | "revEmu2013" | "oldRevEmu"
+	| "sc2009" | "avsmp" | "sxei" | "sse3" | "dproto" | "hltv";
+
+// Reunion's client_auth_type, by its number: CA_TYPE_NONE is "unknown".
+const AUTH_TYPES: AuthType[] = [
+	"unknown", "dproto", "steam", "steamEmu", "revEmu", "oldRevEmu",
+	"hltv", "sc2009", "avsmp", "sxei", "revEmu2013", "sse3",
+];
+
+// Reunion's natives exist only when reapi finds Reunion: asked once, as reapi is.
+let reunionHere: i32 = -1;
+
+function hasReunion(): bool {
+	if (reunionHere < 0) reunionHere = __hasReapi() && has_reunion() ? 1 : 0;
+	return reunionHere == 1;
+}
+
 /** A weapon a player can hold, by its class name, e.g. `"weapon_ak47"` or `"weapon_knife"`. */
 export type WeaponName =
 	| "weapon_p228" | "weapon_scout" | "weapon_hegrenade" | "weapon_xm1014" | "weapon_c4"
@@ -1306,6 +1326,12 @@ export interface Client {
 	readonly ip: string;
 	/** The player's SteamID, e.g. `"STEAM_0:1:12345"`. A bot has `"BOT"`, HLTV has `"HLTV"`; until Steam confirms the player it is `"STEAM_ID_PENDING"` (wait for the `"authorized"` event), and on a LAN server `"STEAM_ID_LAN"`. */
 	readonly authid: string;
+	/** The way the player's game proved who he is, as Reunion tells it: one of `"steam"` (a Steam game), `"steamEmu"`, `"revEmu"`, `"revEmu2013"`, `"oldRevEmu"`, `"sc2009"`, `"avsmp"`, `"sxei"`, `"sse3"` (a game without Steam, by the emulator it proved itself with), `"dproto"`, `"hltv"`, or `"unknown"` on a server without Reunion. */
+	readonly authType: AuthType;
+	/** The network protocol of the player's game: `48` for today's game, `47` for an old one Reunion lets in. `0` on a server without Reunion. */
+	readonly protocol: number;
+	/** The key the player's game proved itself with, as Reunion read it: what his SteamID is made from. `""` on a server without Reunion. */
+	readonly authKey: string;
 	/** `true` for a bot. */
 	readonly isBot: boolean;
 	/** `true` while the player is on the server. */
@@ -1471,6 +1497,34 @@ export class Player extends PlayerFields implements Client {
 	 */
 	get authid(): string {
 		return get_user_authid(this.id);
+	}
+
+	/**
+	 * The way the player's game proved who he is, as Reunion tells it: one of `"steam"` (a Steam game), `"steamEmu"`, `"revEmu"`, `"revEmu2013"`, `"oldRevEmu"`, `"sc2009"`, `"avsmp"`, `"sxei"`, `"sse3"` (a game without Steam, by the emulator it proved itself with), `"dproto"`, `"hltv"`, or `"unknown"` on a server without Reunion.
+	 *
+	 * Pawn: `REU_GetAuthtype`
+	 */
+	get authType(): AuthType {
+		const type = hasReunion() ? REU_GetAuthtype(this.id) : 0;
+		return type > 0 && type < AUTH_TYPES.length ? AUTH_TYPES[type] : "unknown";
+	}
+
+	/**
+	 * The network protocol of the player's game: `48` for today's game, `47` for an old one Reunion lets in. `0` on a server without Reunion.
+	 *
+	 * Pawn: `REU_GetProtocol`
+	 */
+	get protocol(): number {
+		return hasReunion() ? REU_GetProtocol(this.id) : 0;
+	}
+
+	/**
+	 * The key the player's game proved itself with, as Reunion read it: what his SteamID is made from. `""` on a server without Reunion.
+	 *
+	 * Pawn: `REU_GetAuthKey`
+	 */
+	get authKey(): string {
+		return hasReunion() ? REU_GetAuthKey(this.id) : "";
 	}
 
 	/**

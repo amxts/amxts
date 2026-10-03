@@ -14,6 +14,7 @@ import {
 	get_member,
 	get_speak,
 	get_user_info,
+	has_reunion,
 	set_speak,
 	set_user_info,
 } from "@amxts/core/natives";
@@ -60,6 +61,7 @@ async function run() {
 	memberFields(check, bot);
 	ammo(check, bot);
 	language(check, bot);
+	reunion(check, bot);
 	voice(check, bot);
 	observer(check, bot);
 	fieldOfView(check, bot);
@@ -118,6 +120,16 @@ function language(check: Checks, bot: Player) {
 	set_user_info(bot.id, "lang", "");
 	check.expect(bot.language, "without setinfo lang it is the server's language").toBe(get_cvar_string("amx_language"));
 	set_user_info(bot.id, "lang", own);
+}
+
+/** What Reunion says of the player's game; on a server without it "unknown", 0 and "". */
+function reunion(check: Checks, bot: Player) {
+	const said = `${bot.authType} ${bot.protocol} "${bot.authKey}"`;
+	if (hasModule("reapi") && has_reunion()) {
+		check.expect(bot.protocol <= 48, `with Reunion the bot reads ${said}`).toBe(true);
+		return;
+	}
+	check.expect(said, "without Reunion the auth type, protocol and key are unknown, 0 and empty").toBe("unknown 0 \"\"");
 }
 
 /** Voice: each property is its own bit of set_speak, the others are left alone. */
