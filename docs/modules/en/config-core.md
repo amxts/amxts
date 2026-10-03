@@ -243,8 +243,8 @@ The config-core plugin gives Pawn plugins the 28 natives of
 the rest — with their signatures, so compiled `.amxx` plugins work against it
 unchanged. Pawn plugins write `#include <universal_config>`.
 
-config-core takes the place of `universal_config.amxx`: comment that one out
-in `plugins.ini`, since two plugins cannot give the same natives.
+Only one plugin on a server can give these natives: if another Pawn plugin in
+`plugins.ini` registers `cfg_*` natives too, comment it out.
 
 ## How the natives behave
 

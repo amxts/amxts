@@ -425,9 +425,10 @@ plugin uses is otherwise left out of the build
 
 The menu-core plugin gives Pawn plugins the 30 natives of `menu_core.inc` —
 `mc_register_action`, `mc_show_menu`, `mc_add_menu_item` and the rest — with
-their signatures, so compiled `.amxx` plugins work against it unchanged. It
-takes the place of `menu_core.amxx`: comment that one out in `plugins.ini`.
-It reads its menus through
+their signatures, so compiled `.amxx` plugins work against it unchanged; a
+Pawn plugin writes `#include <menu_core>`. Only one plugin on a server can
+give these natives: if another Pawn plugin in `plugins.ini` registers `mc_*`
+natives too, comment it out. It reads its menus through
 `@amxts/config-core`, so config-core comes before it in the amxts
 `plugins.ini` — the build puts it there.
 
