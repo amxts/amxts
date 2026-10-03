@@ -3,9 +3,13 @@
  * aborts with "ReferenceError: x is not initialized", as JavaScript throws, rather
  * than reading 0. Only a variable a read can reach early pays for the check.
  */
+import { loadPlugin } from '@amxts/core/test-utils';
 // @ts-ignore - bun:test types not available during type checking
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { compileSources } from '../src/testing/compile';
+import { pluginProbe } from './probe';
+
+setDefaultTimeout(180_000);
 
 declare const WebAssembly: any;
 
@@ -101,8 +105,60 @@ export function run(): f64 { return <f64>saved!() * 10 + readLate(); }
 `, optimize);
 			expect(module.call('run')).toBe('22');
 		});
+
+		test('a list of functions a function above it calls', async () => {
+			const module = await compile(`
+let hits = 0;
+let saved: () => void = () => {};
+function keep(fn: () => void): void { saved = fn; }
+keep(() => step(0));
+function first(): void { hits += 1; }
+const STEPS = [first, (): void => { hits += 10; }];
+function step(i: i32): void { STEPS[i](); }
+const ARROWS: (() => void)[] = [(): void => { hits += 100; }];
+export function run(): i32 { saved(); step(1); ARROWS[0](); return hits; }
+`, optimize);
+			expect(module.call('run')).toBe('111');
+		});
+
+		test('a list of functions declared above the function that calls it', async () => {
+			const module = await compile(`
+let hits = 0;
+function first(): void { hits += 1; }
+const STEPS = [first, (): void => { hits += 10; }];
+function step(i: i32): void { STEPS[i](); }
+step(0);
+export function run(): i32 { step(1); return hits; }
+`, optimize);
+			expect(module.call('run')).toBe('11');
+		});
 	});
 }
+
+test('a list of functions called from the top level above its declaration', async () => {
+	const module = await compile(`
+step(0);
+function first(): void {}
+const STEPS = [first];
+function step(i: i32): void { STEPS[i](); }
+`, false, ['--exportStart', 'start']);
+	expect(module.call('start')).toBe('ReferenceError: STEPS is not initialized (probe.ts:5)');
+});
+
+test('a command of a plugin calls a list of functions declared below it', async () => {
+	const log = await pluginProbe('tdz', `
+import { server } from "@amxts/core";
+server.addServerCommand("probe_step", () => step(0));
+function first() { console.log("first"); }
+const STEPS = [first, () => console.log("second")];
+function step(i: number) { STEPS[i](); STEPS[i + 1](); }
+`, '', async (file) => {
+		const server = await loadPlugin(file);
+		server.serverCommand('probe_step');
+		return server.log;
+	});
+	expect(log).toContain('first\nsecond');
+});
 
 test('a top-level variable read above its declaration while the file runs', async () => {
 	const module = await compile(`
