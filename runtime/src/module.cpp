@@ -75,11 +75,15 @@ static AMX *g_host = NULL;      // host plugin's AMX: natives are resolved from 
 #include "coroutine.h"
 
 // What a plugin of the list is now (amxts_plugins): running; unloaded by
-// amxts_unload, until amxts_load or the map changes; or refused - it did not
-// compile or load, and Plugin.reason says why.
+// amxts_unload, until amxts_load or the map changes; refused - it did not
+// compile or load, and Plugin.reason says why; waiting - a new entry nothing
+// has loaded yet; or loading - LoadEntry is on it, and its top level or
+// init() may be running.
 #define PLUGIN_RUNNING  0
 #define PLUGIN_UNLOADED 1
 #define PLUGIN_REFUSED  2
+#define PLUGIN_WAITING  3
+#define PLUGIN_LOADING  4
 
 struct Plugin {
 	// The plugins.ini line - "shop.ts" - or what amxts_load was given.
@@ -95,7 +99,7 @@ struct Plugin {
 	time_t               stamp = 0;
 	// Named in plugins.ini, rather than loaded by hand with amxts_load.
 	bool                 listed = true;
-	int                  state = PLUGIN_REFUSED;
+	int                  state = PLUGIN_WAITING;
 	std::string          reason;
 	unsigned char       *file = NULL;
 	wasm_module_t        module = NULL;
@@ -144,6 +148,10 @@ struct Plugin {
  * stack (ReloadPlugins).
  */
 static std::deque<Plugin> g_plugins;
+
+// LoadScripts is loading every plugin: one that amxts_load starts meanwhile
+// hears plugin_init with the rest, not on its own (StartPlugins).
+static bool g_loadingAll = false;
 
 // Which plugin a host native is running on behalf of. wasm_exec_env_t carries
 // the module instance, so this is only needed where a native has to hand a
@@ -3819,6 +3827,9 @@ static void InitPlugin(int index)
 		return;
 	}
 
+	// A plugin whose top level or handler loaded this one, with amxts_load run
+	// by server_exec, goes on registering after it.
+	int previous = g_currentPlugin;
 	g_currentPlugin = index;
 
 	p.depth++;
@@ -3829,7 +3840,7 @@ static void InitPlugin(int index)
 	}
 	p.depth--;
 
-	g_currentPlugin = -1;
+	g_currentPlugin = previous;
 	DrainJobs(index);
 }
 
@@ -3841,6 +3852,7 @@ static void InitPlugin(int index)
 static bool LoadEntry(int index)
 {
 	Plugin &p = g_plugins[index];
+	p.state = PLUGIN_LOADING;
 	g_refusal = "";
 
 	// Built from an older source, or by an amxts of another ABI: compiled again.
@@ -3943,6 +3955,13 @@ static std::vector<std::string> ReadList()
  * Loads the plugins of the list, in its order, then those amxts_load added.
  * `before` is the entries a reload of every plugin let go, whose commands it
  * keeps: a plugin unloaded stays unloaded, one loaded by hand comes back.
+ *
+ * Meanwhile a plugin's top level or init() can run amxts_load with
+ * server_exec (in a reload: at a map's start the command is not registered
+ * yet). That loads the plugin there and then, and this walk passes over it:
+ * it loads an entry only while the entry is waiting, and an entry amxts_load
+ * adds lies past the end it took. plugin_init comes to every plugin together
+ * once they are all loaded (g_loadingAll).
  */
 static void LoadScripts(const std::deque<Plugin> &before = std::deque<Plugin>())
 {
@@ -3954,13 +3973,17 @@ static void LoadScripts(const std::deque<Plugin> &before = std::deque<Plugin>())
 		if (!before[i].listed && Named(g_plugins, before[i].name) < 0)
 			AddPlugin(before[i].name, false);
 
-	for (size_t i = 0; i < g_plugins.size(); i++) {
+	g_loadingAll = true;
+	for (size_t i = 0, count = g_plugins.size(); i < count; i++) {
+		if (g_plugins[i].state != PLUGIN_WAITING)
+			continue;
 		int was = Named(before, g_plugins[i].name);
 		if (was >= 0 && before[was].state == PLUGIN_UNLOADED)
 			g_plugins[i].state = PLUGIN_UNLOADED;
 		else
 			LoadEntry((int)i);
 	}
+	g_loadingAll = false;
 }
 
 /**
@@ -4161,11 +4184,16 @@ static int PluginFor(const std::string &wanted)
 	return index;
 }
 
-/** Loads these plugins in place, then tells them the server is up. */
+/**
+ * Loads these plugins in place, then tells them the server is up - unless
+ * LoadScripts is loading every plugin: they hear it with the rest then.
+ */
 static void StartPlugins(const std::vector<int> &plugins)
 {
 	for (size_t i = 0; i < plugins.size(); i++)
 		LoadEntry(plugins[i]);
+	if (g_loadingAll)
+		return;
 	for (size_t i = 0; i < plugins.size(); i++)
 		if (g_plugins[plugins[i]].state == PLUGIN_RUNNING)
 			FireInit(plugins[i]);
@@ -4221,12 +4249,19 @@ static int AddByHand(const std::string &wanted)
 	return -1;
 }
 
-/** amxts_load <plugin>: one unloaded or refused, or a file of plugins/ the list does not name. */
+/**
+ * amxts_load <plugin>: one unloaded, refused or not loaded yet, or a file of
+ * plugins/ the list does not name.
+ */
 static void LoadOne(const std::string &wanted)
 {
 	int index = FindPlugin(wanted);
 	if (index >= 0 && g_plugins[index].state == PLUGIN_RUNNING) {
 		MF_PrintSrvConsole("[amxts] %s is running - amxts_reload %s starts it over\n", g_plugins[index].name.c_str(), wanted.c_str());
+		return;
+	}
+	if (index >= 0 && g_plugins[index].state == PLUGIN_LOADING) {
+		MF_PrintSrvConsole("[amxts] %s is loading\n", g_plugins[index].name.c_str());
 		return;
 	}
 
@@ -4340,14 +4375,14 @@ static void WatchPlugins()
 
 static void ListPlugins()
 {
-	static const char *const STATES[] = { "running", "unloaded", "refused" };
+	static const char *const STATES[] = { "running", "unloaded", "refused", "waiting", "loading" };
 
 	int used = 0;
 	for (int i = 0; i < g_slotCount; i++)
 		if (g_slots[i].used)
 			used++;
 
-	int counts[3] = { 0, 0, 0 };
+	int counts[5] = { 0, 0, 0, 0, 0 };
 	int width = 0;
 	for (size_t i = 0; i < g_plugins.size(); i++) {
 		counts[g_plugins[i].state]++;

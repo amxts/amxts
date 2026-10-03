@@ -1,7 +1,8 @@
 // amxts_load of a plugin the list does not name, run from a handler: the new
-// plugin joins the module's list while the handler is still on the stack. The
-// handler awaits after it, and must resume - an async function that never
-// wakes up again leaves this suite to time out.
+// plugin joins the module's list while the handler is still on the stack, and
+// its init() runs there. The handler awaits after it - the timer it registers
+// then is its own - and must resume: an async function that never wakes up
+// again leaves this suite to time out.
 // @log [amxts] loaded load-target.aot
 import { server_exec } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
