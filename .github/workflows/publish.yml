@@ -1,9 +1,12 @@
 # A release, published: the draft GitHub Release taken off once it is whole -
 # both systems' files, of the tag's version and one commit
 # (scripts/release-check.ts) - then, side by side, the core's npm packages
-# and the server image. CI starts it on a tag once the files are attached;
-# run by hand with the tag, it does the same, and what is published already
-# is left as it is - so it also finishes a release that stopped half way.
+# and the server image. A new minor version also gets its release line,
+# the branch 0.N.x at the tag (scripts/release-line.ts), and once npm has the
+# packages the site is built again (site.yml). CI starts it on a tag once the
+# files are attached; run by hand with the tag, it does the same, and what is
+# published already is left as it is - so it also finishes a release that
+# stopped half way.
 #
 # npm takes @amxts/wamrc-win32-x64, @amxts/wamrc-linux-x64 and @amxts/core
 # from this file of amxts/amxts, their trusted publisher, without a token
@@ -96,3 +99,10 @@ jobs:
             org.opencontainers.image.created=${{ steps.image.outputs.created }}
           cache-from: type=gha,scope=amxts-server
           cache-to: type=gha,mode=max,scope=amxts-server
+
+  # The site built again with the release: its docs are the newest release
+  # line's (cut by the release job), its modules' READMEs theirs.
+  site:
+    needs: [release, npm]
+    uses: ./.github/workflows/site.yml
+    secrets: inherit

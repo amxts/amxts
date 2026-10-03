@@ -16,7 +16,9 @@
 // and attaches both from one (`upload`), so the draft is made once. `publish`
 // reads both manifests back from the release and refuses while a system is
 // missing, a file is not attached or differs in size, or the versions, tags
-// or commits disagree (scripts/release-check.ts); then it takes the draft off.
+// or commits disagree (scripts/release-check.ts); then it takes the draft off
+// and, for a new minor version, cuts its release line's branch 0.N.x at the
+// tag (scripts/release-line.ts).
 //
 // The tag is --tag, else GITHUB_REF_NAME in CI, else the tag at HEAD, and must
 // be v<package.json's version>. The repository is AMXTS_RELEASE_REPO, else
@@ -38,6 +40,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { releaseNotes } from './changelog';
 import { manifestName, releaseProblems } from './release-check';
+import { cutLine } from './release-line';
 import { executable, HOST_SYSTEM, MODULE_FILE, modulePath, SYSTEM_NAME, wamrcPath } from './system';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -310,14 +313,18 @@ function publish(tag: string): void {
 	for (const manifest of manifests) console.log(`  ${SYSTEM_NAME[manifest.system].padEnd(8)} ${manifest.version} ${manifest.commit.slice(0, 10)}, ${manifest.files.length} files, built ${manifest.built}`);
 	const problems = releaseProblems(tag, manifests, assets);
 	if (problems.length) throw new ReleaseError(`not published:\n${problems.map(problem => `  - ${problem}`).join('\n')}`);
-	if (!isDraft) {
-		console.log(`${tag} is published already`);
-		return;
-	}
-	console.log('  both systems are there, of one version and one commit');
+	console.log(isDraft ? '  both systems are there, of one version and one commit' : `${tag} is published already`);
 	if (local) return;
-	gh(['release', 'edit', tag, '--repo', REPO, '--draft=false']);
-	if (!dryRun) console.log(`✅ ${tag} published`);
+	if (isDraft) {
+		gh(['release', 'edit', tag, '--repo', REPO, '--draft=false']);
+		if (!dryRun) console.log(`✅ ${tag} published`);
+	}
+	// A new minor version starts its release line: 0.N.x at the tag.
+	try {
+		console.log(`  ${cutLine(tag, REPO, dryRun)}`);
+	} catch (error) {
+		throw new ReleaseError((error as Error).message);
+	}
 }
 
 // ---------------------------------------------------------------- main
