@@ -18,45 +18,57 @@ menu-core ещё доделывается. В игре его пробовали
 
 Меню — объект: `create()` его делает, методы наполняют и открывают, а что
 пишет пункт, что он делает, когда он виден и когда его можно выбрать, —
-функции прямо у пункта.
+прямо у пункта, функциями там, где это зависит от того, кто смотрит.
 
 ```ts
-const shop = menus.create("SHOP", { title: player => `Магазин для ${player.name}` });
+const shop = menus.create("SHOP", { title: ({ player }) => `Магазин для ${player.name}` });
 
-shop.addItem(player => `Лечение (${player.health} HP)`, {
-	visible: player => player.health < 100,
-	onSelect: (player) => {
+shop.addItem({
+	title: ({ player }) => `Лечение (${player.health} HP)`,
+	visible: ({ player }) => player.health < 100,
+	onSelect: ({ player }) => {
 		player.health = 100;
 	},
 });
-shop.addItem("Броня", {
-	enabled: player => player.armor < 100,
-	message: player => `(уже ${player.armor})`,
-	onSelect: (player) => {
+shop.addItem({
+	title: "Броня",
+	enabled: ({ player }) => player.armor < 100,
+	message: ({ player }) => `(уже ${player.armor})`,
+	onSelect: ({ player }) => {
 		player.armor = 100;
 	},
 });
 // Серый, пока одно отвечает «нет»: первое такое даёт своё сообщение.
-shop.addItem("Купить AWP", {
+shop.addItem({
+	title: "Купить AWP",
 	enabled: [
-		{ when: player => player.isAlive, message: "Только живым" },
-		{ when: player => player.money >= 4750, message: player => `Не хватает $${4750 - player.money}` },
+		{ when: ({ player }) => player.isAlive, message: "Только живым" },
+		{ when: ({ player }) => player.money >= 4750, message: ({ player }) => `Не хватает $${4750 - player.money}` },
 	],
-	onSelect: (player) => {
+	onSelect: ({ player }) => {
 		player.money = player.money - 4750;
 		player.give("weapon_awp");
 	},
 });
-shop.addItem("Закрыть", { action: "CLOSE_MENU", spaceBefore: 1 });
+shop.addItem({ title: "Закрыть", action: "CLOSE_MENU", spaceBefore: 1 });
 
 server.addCommand("/shop", ({ player }) => shop.show(player));
 ```
 
+Каждая функция меню получает один объект — контекст меню:
+
+- `player` — игрок, которому показано меню: тот, кто его смотрит и
+  выбирает;
+- `target` — игрок, о котором меню: игрок строки в меню-списке, иначе тот,
+  кого передали `show(player, { target })`, а если такого нет — сам `player`;
+- `row` — номер строки в меню-списке, как его дал `menus.listRow()`:
+  сущность, индекс в своём списке — или `id` игрока в списке игроков; в меню
+  пунктов — `id` цели, `0`, если её нет;
+- `menu` — само меню.
+
 Текст — заголовок, пункт, `message` погашенного пункта — это сам текст или
-функция, которая даёт его для игрока, который смотрит:
-`(player, target) => string`, где `target` — цель строки в меню-списке, а
-иначе `target` меню. Он читается при каждой отрисовке. Обычная строка, если
-это ключ словаря, переводится для игрока.
+функция, которая даёт его по контексту. Он читается при каждой отрисовке.
+Обычная строка, если это ключ словаря, переводится для игрока.
 
 Пункт говорит, когда он показан и когда его можно выбрать:
 
@@ -80,14 +92,17 @@ server.addCommand("/shop", ({ player }) => shop.show(player));
   существующее. Имя на `LIST_` даёт меню-список. Настройки: `title`, `time`,
   `hideBack`, `hideExit`, `locked` и `activeWhen` — меню открывается, только
   пока она отвечает «да».
-- `menu.addItem(text, options)` / `menu.addFixedItem(slot, text, options)` —
-  `onSelect` выполняется при выборе пункта; `visible`, пока отвечает «нет»,
+- `menu.addItem(item)` / `menu.addFixedItem(slot, item)` — `title` — текст
+  пункта; `onSelect` выполняется при выборе пункта, и после него меню
+  перерисовывается, если осталось открытым; `visible`, пока отвечает «нет»,
   убирает пункт (слот он не занимает); `enabled` — проверка или список
   `{ when, message }` — гасит его, и рядом показывается `message`. Ещё
   `spaceBefore`, `spaceAfter`, `at`, а для меню, которое называет
   зарегистрированное плагинами, — `action` и `placeholder`.
 - `menu.show(player, options)` — false, если меню не открылось; настройки:
-  `time`, `target`, `resetHistory`, `force`, `skipHistory`.
+  `time`, `target` (игрок), `resetHistory`, `force`, `skipHistory`.
+- `menu.runActions(player, line, target?)` — выполняет строку действий,
+  `"GIVE_HP CLOSE_MENU"`, как её выполняет выбор в меню.
 - `menu.refresh()`, `menu.close()` — у всех, кто его смотрит;
   `menu.setTimer(seconds)`, `menu.cancelTimer()` — общий отсчёт;
   `menu.clearItems()`.
@@ -98,28 +113,33 @@ server.addCommand("/shop", ({ player }) => shop.show(player));
   `sharedTimer`, `countdown` и имена из menu.ini `activeOn` и `onTimeout`.
 
 В меню-списке строка на каждого игрока, нарисованная по первому пункту: его
-текст и `onSelect` получают игрока строки как цель.
+функции получают игрока строки как `target`.
 
 ```ts
-const players = menus.create("LIST_PLAYERS", { title: "Кого поприветствовать" });
-players.addFilter((row, viewer) => row.id != viewer.id && row.isAlive, "Некого приветствовать");
-players.addItem(rowText, { onSelect: greet });
-
-function rowText(player: Player, target: number) {
-	const row = new Player(target);
-	return `${row.name} (${row.health} HP)`;
-}
-
-function greet(player: Player, target: number) {
-	const greeted = new Player(target);
-	print(greeted, `${player.name} передаёт привет`);
-}
+const kick = menus.create("LIST_KICK", { title: "Кикнуть игрока" });
+kick.addFilter(({ player, target }) => target.id != player.id, "Кикать некого");
+kick.addItem({
+	title: ({ target }) => `${target.name} (${target.health} HP)`,
+	onSelect: ({ player, target }) => target.kick(`Кикнул ${player.name}`),
+});
 ```
 
 `menu.addFilter(test, message)` пропускает строки, на которые `test`
 отвечает «нет»; если не осталось ни одной, меню не открывается, а игрок
 получает `message`. `menu.setListSource(rows)` даёт свои строки вместо
-игроков: `menus.listRow(target, text)`, `menus.textRow(text)`.
+игроков: `menus.listRow(row, text)` и `menus.textRow(text)`. Строку того, что
+не игрок, — карты, товара — узнают по её номеру, `row`:
+
+```ts
+const maps = ["de_dust2", "de_inferno", "de_nuke"];
+
+const vote = menus.create("LIST_MAPS", { title: "Следующая карта" });
+vote.setListSource(() => maps.map((map, index) => menus.listRow(index, map)));
+vote.addItem({
+	title: ({ row }) => maps[row],
+	onSelect: ({ player, row }) => print(0, `${player.name} голосует за ${maps[row]}`),
+});
+```
 
 Для игрока, какое бы меню он ни смотрел: `menus.close(player)`,
 `menus.activeMenu(player)`, `menus.lock(player)`, `menus.show(player, name)` —
@@ -135,19 +155,24 @@ function greet(player: Player, target: number) {
 отвечает на эти имена функциями:
 
 ```ts
-menus.addCondition("IS_ALIVE", player => player.isAlive);
-menus.addAction("RESET_SCORE", resetScore);
-menus.addPlaceholder("hp", player => `${player.health}`);   // %hp% в файле меню
-menus.addRestriction("VIP", player => player.access.includes("reservation"), "только VIP");
+menus.addCondition("IS_ALIVE", (player) => player.isAlive);
+menus.addAction("RESET_SCORE", ({ player }) => resetScore(player));
+menus.addPlaceholder("hp", ({ player }) => `${player.health}`);   // %hp% в файле меню
+menus.addRestriction("VIP", ({ player }) => player.access.includes("reservation"), "только VIP");
 menus.setListSource("LIST_FPS_CHECK", rows);        // меню-список из файла, по имени
 menus.conditionChanged("IS_ALIVE");                  // перерисовать меню, которые его используют
 ```
 
+Действие, плейсхолдер и ограничение получают контекст меню и имя `name`, по
+которому их спросили, — у ограничения целиком `"NAME:param"`. Условие — факт
+об игроке, `(player, viewer, name)`: в меню-списке его спрашивают об игроке
+строки, а `viewer` — тот, кто смотрит.
+
 Сообщение ограничения пишется рядом с пунктом, который оно гасит, если у
 пункта или требования нет своего. Ещё `menu.addPlaceholder(name, value)` — `%name%` одного меню,
-`addActionCheck`, `addConditionFilter`, `menus.addEventListener` на события
-всех меню, `refresh("A B")`, `runActions(player, line)`. В коде текст — функция,
-а не плейсхолдер.
+`addActionCheck` (его проверка получает контекст, а действие пункта — как
+`name`), `addConditionFilter`, `menus.addEventListener` на события всех меню,
+`refresh("A B")`. В коде текст — функция, а не плейсхолдер.
 
 ## Из любого плагина: один menu-core на сервер
 
@@ -161,8 +186,8 @@ menus.conditionChanged("IS_ALIVE");                  // перерисовать
 ```ts
 menus.register("MAIN_MENU");
 menus.addCondition("IS_ALIVE", (player) => player.isAlive);
-menus.addAction("RESET_SCORE", resetScore);
-menus.setListSource("LIST_FPS_CHECK", rows);   // rows(viewer) возвращает строки menus.listRow(target, text)
+menus.addAction("RESET_SCORE", ({ player }) => resetScore(player));
+menus.setListSource("LIST_FPS_CHECK", rows);   // rows({ player }) возвращает строки menus.listRow(row, text)
 menus.show(player, "MAIN_MENU", { resetHistory: true });
 ```
 

@@ -18,45 +18,59 @@ times, and its behaviour may still change.
 
 A menu is an object: `create()` makes one, its methods fill it and open it,
 and what an item says, what it does, when it is shown and when it can be
-chosen are functions right on the item.
+chosen are right on the item, as functions where they depend on who looks.
 
 ```ts
-const shop = menus.create("SHOP", { title: player => `Shop for ${player.name}` });
+const shop = menus.create("SHOP", { title: ({ player }) => `Shop for ${player.name}` });
 
-shop.addItem(player => `Heal (${player.health} HP)`, {
-	visible: player => player.health < 100,
-	onSelect: (player) => {
+shop.addItem({
+	title: ({ player }) => `Heal (${player.health} HP)`,
+	visible: ({ player }) => player.health < 100,
+	onSelect: ({ player }) => {
 		player.health = 100;
 	},
 });
-shop.addItem("Armor", {
-	enabled: player => player.armor < 100,
-	message: player => `(${player.armor} already)`,
-	onSelect: (player) => {
+shop.addItem({
+	title: "Armor",
+	enabled: ({ player }) => player.armor < 100,
+	message: ({ player }) => `(${player.armor} already)`,
+	onSelect: ({ player }) => {
 		player.armor = 100;
 	},
 });
 // Greyed out while one says no: the first that does gives its message.
-shop.addItem("Buy AWP", {
+shop.addItem({
+	title: "Buy AWP",
 	enabled: [
-		{ when: player => player.isAlive, message: "Only while alive" },
-		{ when: player => player.money >= 4750, message: player => `Need $${4750 - player.money} more` },
+		{ when: ({ player }) => player.isAlive, message: "Only while alive" },
+		{ when: ({ player }) => player.money >= 4750, message: ({ player }) => `Need $${4750 - player.money} more` },
 	],
-	onSelect: (player) => {
+	onSelect: ({ player }) => {
 		player.money = player.money - 4750;
 		player.give("weapon_awp");
 	},
 });
-shop.addItem("Close", { action: "CLOSE_MENU", spaceBefore: 1 });
+shop.addItem({ title: "Close", action: "CLOSE_MENU", spaceBefore: 1 });
 
 server.addCommand("/shop", ({ player }) => shop.show(player));
 ```
 
+Every function of a menu gets one object, the menu's context:
+
+- `player` — the player the menu is shown to: who looks at it, and who
+  chooses;
+- `target` — the player the menu is about: the row's in a list menu, the one
+  `show(player, { target })` was given otherwise, and `player` himself when
+  there is none;
+- `row` — the row's number in a list menu, as `menus.listRow()` gave it: an
+  entity, an index of a list of your own — or a player's `id` in a list of
+  players; in a menu of items, the target's `id`, `0` without one;
+- `menu` — the menu.
+
 Text — the title, an item, the `message` of a greyed-out item — is the text
-itself, or a function that gives it for the player who looks:
-`(player, target) => string`, where `target` is the row's in a list menu and
-the menu's `target` otherwise. It is read each time the menu is drawn. A plain
-string that is a lang key is translated for the player.
+itself, or a function that gives it for the context. It is read each time the
+menu is drawn. A plain string that is a lang key is translated for the
+player.
 
 An item says when it is shown and when it can be chosen:
 
@@ -80,14 +94,17 @@ menu.
   the name is taken. A name starting with `LIST_` makes a list menu. Options:
   `title`, `time`, `hideBack`, `hideExit`, `locked`, and `activeWhen` — the
   menu opens only while it says yes.
-- `menu.addItem(text, options)` / `menu.addFixedItem(slot, text, options)` —
-  `onSelect` runs when the item is chosen; `visible` leaves the item out (it
-  takes no slot) while it says no; `enabled` — a test, or a list of
+- `menu.addItem(item)` / `menu.addFixedItem(slot, item)` — `title` is the
+  item's text; `onSelect` runs when the item is chosen, and the menu is drawn
+  again after it while it stays open; `visible` leaves the item out (it takes
+  no slot) while it says no; `enabled` — a test, or a list of
   `{ when, message }` — greys it out, with `message` beside it. Also
   `spaceBefore`, `spaceAfter`, `at`, and for a menu that names what plugins
   register, `action` and `placeholder`.
 - `menu.show(player, options)` — false when it does not open; options:
-  `time`, `target`, `resetHistory`, `force`, `skipHistory`.
+  `time`, `target` (a player), `resetHistory`, `force`, `skipHistory`.
+- `menu.runActions(player, line, target?)` — runs an action line,
+  `"GIVE_HP CLOSE_MENU"`, as a choice in the menu does.
 - `menu.refresh()`, `menu.close()` — for whoever looks at it;
   `menu.setTimer(seconds)`, `menu.cancelTimer()` — the shared countdown;
   `menu.clearItems()`.
@@ -98,29 +115,35 @@ menu.
   `sharedTimer`, `countdown`, and the menu.ini names `activeOn` and
   `onTimeout`.
 
-A list menu has a row per player, drawn with its first item: its text and
-`onSelect` get the row's player as their target.
+A list menu has a row per player, drawn with its first item: its functions
+get the row's player as `target`.
 
 ```ts
-const players = menus.create("LIST_PLAYERS", { title: "Who to greet" });
-players.addFilter((row, viewer) => row.id != viewer.id && row.isAlive, "Nobody to greet");
-players.addItem(rowText, { onSelect: greet });
-
-function rowText(player: Player, target: number) {
-	const row = new Player(target);
-	return `${row.name} (${row.health} HP)`;
-}
-
-function greet(player: Player, target: number) {
-	const greeted = new Player(target);
-	print(greeted, `${player.name} says hello`);
-}
+const kick = menus.create("LIST_KICK", { title: "Kick a player" });
+kick.addFilter(({ player, target }) => target.id != player.id, "Nobody to kick");
+kick.addItem({
+	title: ({ target }) => `${target.name} (${target.health} HP)`,
+	onSelect: ({ player, target }) => target.kick(`Kicked by ${player.name}`),
+});
 ```
 
 `menu.addFilter(test, message)` leaves out the rows `test` says no to, and
 with none left the menu does not open and the player gets `message`.
 `menu.setListSource(rows)` gives rows of its own instead of the players:
-`menus.listRow(target, text)`, `menus.textRow(text)`.
+`menus.listRow(row, text)` and `menus.textRow(text)`. A row of something
+that is not a player — a map, an item of a shop — is told by its number,
+`row`:
+
+```ts
+const maps = ["de_dust2", "de_inferno", "de_nuke"];
+
+const vote = menus.create("LIST_MAPS", { title: "Next map" });
+vote.setListSource(() => maps.map((map, index) => menus.listRow(index, map)));
+vote.addItem({
+	title: ({ row }) => maps[row],
+	onSelect: ({ player, row }) => print(0, `${player.name} votes for ${maps[row]}`),
+});
+```
 
 For the player, whatever menu he looks at: `menus.close(player)`,
 `menus.activeMenu(player)`, `menus.lock(player)`, `menus.show(player, name)`
@@ -136,19 +159,25 @@ restriction, and `%name%` in their text for a placeholder — and a TypeScript
 plugin answers those names with functions:
 
 ```ts
-menus.addCondition("IS_ALIVE", player => player.isAlive);
-menus.addAction("RESET_SCORE", resetScore);
-menus.addPlaceholder("hp", player => `${player.health}`);   // %hp% in a menu file
-menus.addRestriction("VIP", player => player.access.includes("reservation"), "VIP only");
+menus.addCondition("IS_ALIVE", (player) => player.isAlive);
+menus.addAction("RESET_SCORE", ({ player }) => resetScore(player));
+menus.addPlaceholder("hp", ({ player }) => `${player.health}`);   // %hp% in a menu file
+menus.addRestriction("VIP", ({ player }) => player.access.includes("reservation"), "VIP only");
 menus.setListSource("LIST_FPS_CHECK", rows);        // a list menu of the file, by name
 menus.conditionChanged("IS_ALIVE");                  // draw again the menus that use it
 ```
 
+An action, a placeholder and a restriction get the menu's context, and the
+`name` they are asked by — a restriction's whole `"NAME:param"`. A condition
+is a fact about a player, `(player, viewer, name)`: in a list menu it is asked
+of the row's player, with `viewer` the one who looks.
+
 A restriction's message is said beside an item it greys out, unless the item
 or the requirement has its own. Also `menu.addPlaceholder(name, value)` for one menu's `%name%`,
-`addActionCheck`, `addConditionFilter`, `menus.addEventListener` for every
-menu's events, `refresh("A B")`, `runActions(player, line)`. In code, text is a
-function instead of a placeholder.
+`addActionCheck` (its test gets the context, with the item's action as
+`name`), `addConditionFilter`, `menus.addEventListener` for every menu's
+events, `refresh("A B")`. In code, text is a function instead of a
+placeholder.
 
 ## From any plugin: one menu-core for the server
 
@@ -162,8 +191,8 @@ whoever opened it.
 ```ts
 menus.register("MAIN_MENU");
 menus.addCondition("IS_ALIVE", (player) => player.isAlive);
-menus.addAction("RESET_SCORE", resetScore);
-menus.setListSource("LIST_FPS_CHECK", rows);   // rows(viewer) returns menus.listRow(target, text) rows
+menus.addAction("RESET_SCORE", ({ player }) => resetScore(player));
+menus.setListSource("LIST_FPS_CHECK", rows);   // rows({ player }) returns menus.listRow(row, text) rows
 menus.show(player, "MAIN_MENU", { resetHistory: true });
 ```
 
