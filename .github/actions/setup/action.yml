@@ -9,17 +9,38 @@ description: The core's neighbours, toolchain, dependencies and generated API
 runs:
   using: composite
   steps:
+    # The neighbours of the core's release line: on a line's branch (0.N.x),
+    # a tag of it (v0.N.M) or a pull request into it, each neighbour at its
+    # own branch of that line when it has one; at its default branch
+    # otherwise - main, the next version, as the core's main.
+    - name: The neighbours' branches
+      id: line
+      shell: bash
+      env:
+        OWNER: ${{ github.repository_owner }}
+      run: |
+        line=$(git -C amxts branch --show-current)
+        [ -n "$line" ] || line=$(git -C amxts describe --tags --exact-match 2>/dev/null | sed -nE 's/^v([0-9]+\.[0-9]+)\.[0-9]+$/\1.x/p')
+        [ -n "$line" ] || line=$GITHUB_BASE_REF
+        for repo in amxts-cli config-core menu-core; do
+          ref=
+          if [[ "$line" =~ ^[0-9]+\.[0-9]+\.x$ ]] && git ls-remote --exit-code --heads "https://github.com/$OWNER/$repo" "$line" >/dev/null; then ref=$line; fi
+          echo "$repo=$ref" >> "$GITHUB_OUTPUT"
+        done
     - uses: actions/checkout@v4
       with:
         repository: ${{ github.repository_owner }}/amxts-cli
+        ref: ${{ steps.line.outputs.amxts-cli }}
         path: amxts-cli
     - uses: actions/checkout@v4
       with:
         repository: ${{ github.repository_owner }}/config-core
+        ref: ${{ steps.line.outputs.config-core }}
         path: amxts-modules/config-core
     - uses: actions/checkout@v4
       with:
         repository: ${{ github.repository_owner }}/menu-core
+        ref: ${{ steps.line.outputs.menu-core }}
         path: amxts-modules/menu-core
 
     - uses: actions/setup-node@v4
