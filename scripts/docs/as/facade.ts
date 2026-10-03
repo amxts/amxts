@@ -3043,6 +3043,62 @@ export default {
 			задаёт \`amxts.config.ts\`. Глобальная; \`import { defineModule } from "@amxts/core"\` тоже работает.
 		`,
 	},
+	'callingPlugin': {
+		en: `
+			The plugin whose call the module runs now, as a number: what the module
+			keeps for that plugin - a menu it made, a function it gave - is marked with
+			it, and dropped when \`onPluginStop()\` gives the same number. \`0\` when no
+			other plugin's call runs: the module's own plugin, its natives for Pawn
+			plugins, its events and timers.
+
+			\`\`\`ts
+			export function addRule(test: Rule) {
+				rules.push({ test, from: callingPlugin() });
+			}
+			\`\`\`
+		`,
+		ru: `
+			Плагин, чей вызов модуль выполняет сейчас, — числом: то, что модуль хранит
+			для этого плагина, — созданное им меню, переданную им функцию, — помечается
+			этим числом и убирается, когда \`onPluginStop()\` даёт то же число. \`0\`, когда
+			вызова другого плагина нет: собственный плагин модуля, его нативы для
+			Pawn-плагинов, его события и таймеры.
+
+			\`\`\`ts
+			export function addRule(test: Rule) {
+				rules.push({ test, from: callingPlugin() });
+			}
+			\`\`\`
+		`,
+	},
+	'onPluginStop': {
+		en: `
+			Calls \`listener\` when a plugin that called the module stops - unloaded,
+			reloaded, or its load failed - with the number \`callingPlugin()\` gave
+			during its calls. The module drops what that plugin gave it: a reloaded
+			plugin is a new one, which gives everything again, and a function of the
+			one that stopped answers nothing.
+
+			\`\`\`ts
+			onPluginStop((plugin) => {
+				rules = rules.filter(rule => rule.from != plugin);
+			});
+			\`\`\`
+		`,
+		ru: `
+			Вызывает \`listener\`, когда останавливается плагин, вызывавший модуль, —
+			выгружен, перезагружен или не загрузился, — с числом, которое давал
+			\`callingPlugin()\` во время его вызовов. Модуль убирает то, что этот плагин
+			ему дал: перезагруженный плагин — новый, он даёт всё заново, а функция
+			остановленного ничего не отвечает.
+
+			\`\`\`ts
+			onPluginStop((plugin) => {
+				rules = rules.filter(rule => rule.from != plugin);
+			});
+			\`\`\`
+		`,
+	},
 	'ForwardStop': {
 		en: `
 			The forward's stopping rule, one of: \`"never"\` - every plugin hears it, whatever it

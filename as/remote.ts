@@ -15,6 +15,7 @@
 // __co_bindEnv, which makes a stand-in, is as/promise.ts's; __env, where the
 // stand-in finds its place, the compiler library's.
 import "./promise";
+import { __callFrom, __pluginStopped } from "./facade";
 
 // @ts-ignore: decorator
 @external("env", "amxts_serve") declare function _serve(name: string, hash: i32): void;
@@ -29,8 +30,12 @@ import "./promise";
 // @ts-ignore: decorator
 @external("env", "amxts_rpc_result") declare function _result(to: usize): void;
 
+// What a request is: its first four bytes. KIND_GONE is RPC_GONE in
+// runtime/src/module.cpp, which sends it to an owner when a plugin that called
+// it stops.
 const KIND_MODULE: i32 = 0;
 const KIND_CALLBACK: i32 = 1;
+const KIND_GONE: i32 = 2;
 
 /** What a call carries: its arguments, or its answer, as bytes. */
 export class Writer {
@@ -75,7 +80,7 @@ export class Writer {
 export class Reader {
 	at: i32 = 0;
 
-	/** `from`: the plugin that wrote it - where a function it carries lives. */
+	/** `from`: the run of the plugin that wrote it - where a function it carries lives. */
 	constructor(public data: ArrayBuffer, public from: i32) {}
 
 	private take(bytes: i32): usize {
@@ -156,7 +161,7 @@ export class Service {
 	}
 }
 
-/** The answer from `service`, or from `plugin` when service is -1; null when there is none. */
+/** The answer from `service`, or from the run `plugin` when service is -1; null when there is none. */
 function send(service: i32, plugin: i32, w: Writer): Reader | null {
 	const length = _rpc(service, plugin, changetype<usize>(w.data), w.length);
 	if (length < 4) return null;
@@ -194,12 +199,16 @@ export function sendFunction(fn: usize, sig: i32, invoke: Invoke): i32 {
 	return id;
 }
 
-/** Where a stand-in calls: the plugin a function lives in, and its number there. */
+/** Where a stand-in calls: the run of the plugin a function lives in, and its number there. */
 class Remote {
 	constructor(public plugin: i32, public id: i32) {}
 }
 
-const standIns = new Map<string, usize>();
+/**
+ * The stand-ins made, by "<run>:<id>". Held here: a stand-in is only ever
+ * reached through what it was given to. A run's go when it stops.
+ */
+const standIns = new Map<string, Object>();
 
 /**
  * A stand-in for function `id` of the plugin that wrote `r`: a copy of
@@ -211,16 +220,21 @@ export function receiveFunction(r: Reader, stub: usize): usize {
 	const id = r.i32();
 	if (id == 0) return 0;
 	const key = `${r.from}:${id}`;
-	if (standIns.has(key)) return standIns.get(key);
+	if (standIns.has(key)) return changetype<usize>(standIns.get(key));
 	// @ts-ignore: as/promise.ts's, global to the compiler and unknown to the editor
 	const bound: usize = __co_bindEnv(stub, new Remote(r.from, id));
-	standIns.set(key, bound);
-	// Held here: the stand-in is only ever reached through what it was given to.
-	kept.push(changetype<Object>(bound));
+	standIns.set(key, changetype<Object>(bound));
 	return bound;
 }
 
-const kept: Object[] = [];
+/** The run `run` stopped: its stand-ins call nothing any more, and the module drops what it gave. */
+function stopped(run: i32): void {
+	const prefix = `${run}:`;
+	for (const key of standIns.keys()) {
+		if (key.startsWith(prefix)) standIns.delete(key);
+	}
+	__pluginStopped(run);
+}
 
 /** The first thing a stub does: where it calls. Before any other call, which would change __env. */
 export function remoteTarget(): Remote {
@@ -273,7 +287,7 @@ export class Handles {
 	}
 }
 
-/** @hidden What the module calls: a request of `length` bytes from plugin `from`. */
+/** @hidden What the module calls: a request of `length` bytes from the run `from` of a plugin. */
 export function __amxts_rpc(length: i32, from: i32): void {
 	const data = new ArrayBuffer(length);
 	_take(changetype<usize>(data));
@@ -284,10 +298,14 @@ export function __amxts_rpc(length: i32, from: i32): void {
 
 	if (kind == KIND_MODULE) {
 		const dispatch = served;
+		const outer = __callFrom(from);
 		if (dispatch != null) dispatch(id, r, w);
+		__callFrom(outer);
 	} else if (kind == KIND_CALLBACK && id > 0 && id <= callbacks.length) {
 		const callback = callbacks[id - 1];
 		callback.invoke(changetype<usize>(callback.fn), callback.sig, r, w);
+	} else if (kind == KIND_GONE) {
+		stopped(from);
 	}
 
 	_reply(changetype<usize>(w.data), w.length);

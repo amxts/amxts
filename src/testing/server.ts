@@ -229,6 +229,8 @@ const SHAPE_NARROW = 0;
 const SHAPE_WIDE = 1;
 /** A slot taken back after a reload: SLOT_REUSED in module.cpp. */
 const SLOT_REUSED = 0x10000;
+/** A request that tells an owner a plugin which called it stopped: RPC_GONE in module.cpp, KIND_GONE in as/remote.ts. */
+const RPC_GONE = 2;
 const PLUGIN_HANDLED = 1;
 const HC_SUPERCEDE = 1;
 const HC_BREAK = 2;
@@ -534,6 +536,9 @@ export function splitLog(line: string): string[] {
 }
 
 /** A loaded plugin: its instance and its memory. */
+/** The runs handed out so far: each plugin loaded is a new one. */
+let runs = 0;
+
 export class PluginInstance {
 	instance: any;
 	memory!: Memory;
@@ -541,6 +546,12 @@ export class PluginInstance {
 	info = { name: '', version: '', author: '', description: '' };
 	/** Taken off the server (FakeServer.unload): its slots answer nothing until the same file takes them back. */
 	unloaded = false;
+	/** This run of the plugin, as module.cpp's Plugin.run: what the other side of a shared module's call knows it by. */
+	readonly run = ++runs;
+	/** The shared modules it calls (Plugin.uses): their owners hear when it is unloaded. */
+	readonly uses: string[] = [];
+	/** It called back a function of a plugin unloaded since, and was told so: once. */
+	toldGone = false;
 
 	/** The coroutine scheduler, for a plugin that awaits; null for one that does not. */
 	readonly coroutines: Coroutines | null;
@@ -1500,7 +1511,9 @@ export class FakeServer {
 
 	/** Fire in module.cpp: one handler, its outcome, and the state put back. @internal */
 	call(handler: Handler, args: number[], fallback: number): number {
-		if (handler.plugin.unloaded || (handler as Slot).off) return fallback;
+		// An orphan answers PLUGIN_CONTINUE, as in n_callback: a command passes on to the plugin loaded since.
+		if (handler.plugin.unloaded) return 0;
+		if ((handler as Slot).off) return fallback;
 		const fn = handler.plugin.table.get(handler.fn);
 		const cells = handler.shape === SHAPE_WIDE ? [0, 1, 2, 3].map(i => args[i] ?? 0) : [args[0] ?? 0];
 		if (handler.tag) cells.unshift(handler.tag);
@@ -1601,6 +1614,12 @@ export class FakeServer {
 		for (let i = this.tasks.length - 1; i >= 0; i--) {
 			if (this.tasks[i].slot.plugin === plugin) this.tasks.splice(i, 1);
 		}
+
+		// The modules it served answer nothing; the owners of those it called drop what it gave them (TellOwners).
+		for (const service of this.services.filter(each => each.plugin === plugin)) service.plugin = null;
+		const owners = this.services.filter(each => plugin.uses.includes(each.name) && each.plugin && each.plugin !== plugin);
+		const gone = new Uint8Array(new Int32Array([RPC_GONE, 0]).buffer);
+		for (const owner of owners) this.request(owner.plugin!, plugin.run, gone);
 	}
 
 	/** A menu by its id, or the error AMX Mod X gives for another number. @internal */
@@ -1860,10 +1879,20 @@ export class FakeServer {
 	}
 
 	/** Modules a plugin runs for the others (module.cpp's g_services), and the bytes of the call in flight. @internal */
-	private services: { name: string; hash: number; plugin: number }[] = [];
+	private services: { name: string; hash: number; plugin: PluginInstance | null }[] = [];
 	private rpcRequest = new Uint8Array(0);
 	private rpcReply = new Uint8Array(0);
 	private rpcResult = new Uint8Array(0);
+
+	/** Runs a request in `callee`'s __amxts_rpc, from the run `from` (module.cpp's RunRequest): its answer, or null. */
+	private request(callee: PluginInstance, from: number, request: Uint8Array<ArrayBuffer>): Uint8Array | null {
+		const rpc = callee.instance.exports.__amxts_rpc;
+		if (!rpc) return null;
+		this.rpcRequest = request;
+		this.rpcReply = new Uint8Array(0);
+		this.within(callee, () => rpc(this.rpcRequest.length, from));
+		return this.rpcReply;
+	}
 
 	/**
 	 * The externals the facade declares, as module.cpp registers
@@ -1874,30 +1903,32 @@ export class FakeServer {
 		// Shared modules: module.cpp's w_serve, w_owner, w_rpc and the three that move the bytes.
 		amxts_serve(this: FakeServer, plugin: PluginInstance, name: number, hash: number) {
 			const wanted = plugin.memory.string(name);
-			const index = this.plugins.indexOf(plugin);
 			const known = this.services.find(s => s.name === wanted);
-			if (known) Object.assign(known, { hash, plugin: index });
-			else this.services.push({ name: wanted, hash, plugin: index });
+			if (known) Object.assign(known, { hash, plugin });
+			else this.services.push({ name: wanted, hash, plugin });
 		},
 
 		amxts_owner(this: FakeServer, plugin: PluginInstance, name: number, hash: number) {
 			const wanted = plugin.memory.string(name);
+			if (!plugin.uses.includes(wanted)) plugin.uses.push(wanted);
 			const index = this.services.findIndex(s => s.name === wanted);
-			if (index < 0 || this.services[index].plugin < 0) return -1;
+			if (index < 0 || !this.services[index].plugin) return -1;
 			return this.services[index].hash === hash ? index : -2;
 		},
 
 		amxts_rpc(this: FakeServer, plugin: PluginInstance, service: number, target: number, data: number, length: number) {
-			const index = service >= 0 ? (this.services[service]?.plugin ?? -1) : target;
-			const callee = this.plugins[index];
-			const rpc = callee?.instance.exports.__amxts_rpc;
-			if (!rpc) return -1;
-			this.rpcRequest = new Uint8Array(plugin.instance.exports.memory.buffer, data, length).slice();
-			this.rpcReply = new Uint8Array(0);
-			this.within(callee, () => rpc(length, this.plugins.indexOf(plugin)));
-			const answer = new Uint8Array(4 + this.rpcReply.length);
-			new DataView(answer.buffer).setInt32(0, index, true);
-			answer.set(this.rpcReply, 4);
+			const callee = service >= 0 ? this.services[service]?.plugin : this.plugins.find(one => one.run === target);
+
+			if (service < 0 && !callee && !plugin.toldGone) {
+				plugin.toldGone = true;
+				this.logLines.push(`[amxts] ${plugin.source} called back a function of a plugin that was unloaded or reloaded since - the call answers nothing`);
+			}
+
+			const reply = callee ? this.request(callee, plugin.run, new Uint8Array(plugin.instance.exports.memory.buffer, data, length).slice()) : null;
+			if (!callee || !reply) return -1;
+			const answer = new Uint8Array(4 + reply.length);
+			new DataView(answer.buffer).setInt32(0, callee.run, true);
+			answer.set(reply, 4);
 			this.rpcResult = answer;
 			return answer.length;
 		},

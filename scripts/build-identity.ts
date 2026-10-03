@@ -76,9 +76,10 @@ export function buildDefines(build: string, abi: string): string[] {
 /**
  * Raised by hand when the module and the facade change how they talk without
  * an import changing its name or its types: what a cell of an event means,
- * an export the module calls.
+ * an export the module calls, what names a plugin in a shared module's call
+ * (2: its run, not its index).
  */
-const ABI_REVISION = 1;
+const ABI_REVISION = 2;
 
 /** The custom section of a plugin that holds its ABI: wamrc copies it into the .aot. */
 export const ABI_SECTION = 'amxts.abi';

@@ -118,7 +118,15 @@ struct Plugin {
 	std::string          description;
 	// The shared modules this plugin calls another plugin for (w_owner): the
 	// plugins that go with an owner when it is reloaded, and keep it loaded.
+	// Their owners hear when it stops (TellOwners).
 	std::vector<std::string> uses;
+	// This run of the plugin: a number no other load has had, 0 while none
+	// runs. A function it hands another plugin is called back by it (w_rpc),
+	// so a call to a run that has ended is refused rather than reaching
+	// whatever runs at its index now.
+	int32_t              run = 0;
+	// It called a function of a run that has ended, and was told so: once a run.
+	bool                 toldGone = false;
 	// Coroutines - async functions parked at an await; see "coroutines" below.
 	// A plugin that never makes a Promise has none of this in use.
 	int                  depth = 0;          // this plugin's wasm calls on the native stack
@@ -2603,11 +2611,17 @@ static const char *PluginName(int index)
  * hands its request to amxts_rpc, which calls the target's __amxts_rpc(length,
  * from); the target takes the request with amxts_rpc_take, and gives its answer
  * with amxts_rpc_reply before it returns. The caller then copies the answer out
- * with amxts_rpc_result, the target's plugin index in front - a function in the
- * answer is called back there. A call inside a call - a condition the owner
+ * with amxts_rpc_result, the target's run (Plugin.run) in front - a function in
+ * the answer is called back there. A call inside a call - a condition the owner
  * asks the caller about while showing a menu - is a call like any other: the
  * request is taken before anything else runs, and the answer is kept on the
  * native stack until the outer call has its own.
+ *
+ * A plugin is named to the other side by its run, not its index: an owner
+ * keeps the functions a plugin gave it, and once that plugin is unloaded or
+ * reloaded, its index names another run, in which the same function number is
+ * another function or none. A call to a run that has ended is refused, and the
+ * owners hear that the run ended (TellOwners) to drop what it gave them.
  */
 struct Service {
 	std::string name;
@@ -2656,25 +2670,64 @@ static int32_t w_owner(wasm_exec_env_t env, int32_t name, int32_t hash)
 	return -1;
 }
 
-/** Runs a request in `service`'s owner, or in `plugin` when service is -1. The answer's length, or -1. */
+// What a request is, its first four bytes - as/remote.ts's KIND_*.
+#define RPC_GONE 2
+
+/** The plugin running `run`; -1 when that run has ended. */
+static int PluginOfRun(int32_t run)
+{
+	for (size_t i = 0; i < g_plugins.size(); i++)
+		if (run > 0 && g_plugins[i].run == run)
+			return (int)i;
+	return -1;
+}
+
+/** The run of the plugin `index`; 0 for none - the module itself. */
+static int32_t RunOf(int index)
+{
+	return index >= 0 && (size_t)index < g_plugins.size() ? g_plugins[index].run : 0;
+}
+
+/**
+ * Runs the request in g_rpcRequest in `target`'s __amxts_rpc, as asked by the
+ * run `from`; the answer is in g_rpcReply. false when the target has no
+ * __amxts_rpc or the call failed.
+ */
+static bool RunRequest(int target, int32_t from)
+{
+	Plugin &p = g_plugins[target];
+	wasm_function_inst_t fn = wasm_runtime_lookup_function(p.inst, "__amxts_rpc");
+	if (!fn) return false;
+
+	g_rpcReply.clear();
+	int prev = g_currentPlugin;
+	g_currentPlugin = target;
+	bool saidBefore = g_outcomeSaid;
+	cell before = g_outcome;
+	g_outcomeSaid = false;
+
+	p.depth++;
+	uint32_t argv[2] = { (uint32_t)g_rpcRequest.size(), (uint32_t)from };
+	bool called = wasm_runtime_call_wasm(p.env, fn, 2, argv);
+	p.depth--;
+	if (!called)
+		Failed(target, p.inst);
+
+	g_outcomeSaid = saidBefore;
+	g_outcome = before;
+	g_currentPlugin = prev;
+
+	if (p.depth == 0 && p.wake)
+		DrainJobs(target);
+	return called;
+}
+
+/** Runs a request in `service`'s owner, or in the run `plugin` when service is -1. The answer's length, or -1. */
 static int32_t w_rpc(wasm_exec_env_t env, int32_t service, int32_t plugin, int32_t data, int32_t length)
 {
 	wasm_module_inst_t inst = Inst(env);
 	if (length < 0 || !wasm_runtime_validate_app_addr(inst, (uint64_t)data, (uint64_t)length))
 		return -1;
-
-	int target = service >= 0
-		? ((size_t)service < g_services.size() ? g_services[service].plugin : -1)
-		: plugin;
-	if (target < 0 || (size_t)target >= g_plugins.size() || !g_plugins[target].inst)
-		return -1;
-
-	wasm_function_inst_t fn = wasm_runtime_lookup_function(g_plugins[target].inst, "__amxts_rpc");
-	if (!fn) return -1;
-
-	const uint8_t *bytes = (const uint8_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)data);
-	g_rpcRequest.assign(bytes, bytes + length);
-	g_rpcReply.clear();
 
 	// Who is asking - by instance rather than g_currentPlugin, which a
 	// coroutine's resumption does not always set; while a plugin's top level
@@ -2682,37 +2735,47 @@ static int32_t w_rpc(wasm_exec_env_t env, int32_t service, int32_t plugin, int32
 	// A function passed in the request is called back there.
 	int from = PluginOf(inst);
 
-	int prev = g_currentPlugin;
-	g_currentPlugin = target;
-	bool saidBefore = g_outcomeSaid;
-	cell before = g_outcome;
-	g_outcomeSaid = false;
-
-	Plugin &p = g_plugins[target];
-	p.depth++;
-	uint32_t argv[2] = { (uint32_t)length, (uint32_t)from };
-	bool called = wasm_runtime_call_wasm(p.env, fn, 2, argv);
-	p.depth--;
-
-	std::vector<uint8_t> answer;
-	if (called) {
-		answer.resize(4 + g_rpcReply.size());
-		memcpy(answer.data(), &target, 4);
-		if (!g_rpcReply.empty()) memcpy(answer.data() + 4, g_rpcReply.data(), g_rpcReply.size());
-	} else {
-		Failed(target, p.inst);
+	int target = service >= 0
+		? ((size_t)service < g_services.size() ? g_services[service].plugin : -1)
+		: PluginOfRun(plugin);
+	if (service < 0 && target < 0 && from >= 0 && !g_plugins[from].toldGone) {
+		g_plugins[from].toldGone = true;
+		MF_PrintSrvConsole("[amxts] %s called back a function of a plugin that was unloaded or reloaded since - the call answers nothing\n",
+		                   g_plugins[from].name.c_str());
 	}
+	if (target < 0 || (size_t)target >= g_plugins.size() || !g_plugins[target].inst)
+		return -1;
 
-	g_outcomeSaid = saidBefore;
-	g_outcome = before;
-	g_currentPlugin = prev;
+	const uint8_t *bytes = (const uint8_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)data);
+	g_rpcRequest.assign(bytes, bytes + length);
+	if (!RunRequest(target, RunOf(from)))
+		return -1;
 
-	if (g_plugins[target].depth == 0 && g_plugins[target].wake)
-		DrainJobs(target);
-
-	if (!called) return -1;
+	int32_t run = g_plugins[target].run;
+	std::vector<uint8_t> answer(4 + g_rpcReply.size());
+	memcpy(answer.data(), &run, 4);
+	if (!g_rpcReply.empty()) memcpy(answer.data() + 4, g_rpcReply.data(), g_rpcReply.size());
 	g_rpcResult.swap(answer);
 	return (int32_t)g_rpcResult.size();
+}
+
+/**
+ * The plugin at `index` has stopped - unloaded, reloaded, or its load failed:
+ * the owners of the modules it called (`uses`) hear that its run ended, and
+ * drop what it gave them - a menu it made, the functions it handed over.
+ */
+static void TellOwners(int index, const std::vector<std::string> &uses, int32_t run)
+{
+	for (size_t u = 0; u < uses.size(); u++) {
+		for (size_t i = 0; i < g_services.size(); i++) {
+			int owner = g_services[i].plugin;
+			if (g_services[i].name != uses[u] || owner < 0 || owner == index || !g_plugins[owner].inst)
+				continue;
+			int32_t request[2] = { RPC_GONE, 0 };
+			g_rpcRequest.assign((const uint8_t *)request, (const uint8_t *)request + sizeof(request));
+			RunRequest(owner, run);
+		}
+	}
 }
 
 static void w_rpcTake(wasm_exec_env_t env, int32_t to)
@@ -3212,11 +3275,16 @@ static void RemoveHost()
  * back - a command the new code no longer adds - stays spent, one of the
  * MAX_CALLBACK_SLOTS, until the map changes. Its listeners, its subscriptions
  * and its requests go; its natives and the modules it serves stay registered,
- * answering nothing until a plugin claims them again.
+ * answering nothing until a plugin claims them again. The owners of the
+ * modules it called hear that its run ended (TellOwners), once it is gone.
  */
 static void ReleasePlugin(int index)
 {
 	Plugin &p = g_plugins[index];
+	std::vector<std::string> uses;
+	uses.swap(p.uses);
+	int32_t run = p.run;
+	p.run = 0;
 	if (p.inst)
 		NetForget(p.inst);
 	// Their timers and requests come back to orphaned slots, which do nothing.
@@ -3234,7 +3302,6 @@ static void ReleasePlugin(int index)
 	p.env = NULL;
 	p.hasTable = false;
 	p.title = p.version = p.author = p.description = "";
-	p.uses.clear();
 	p.depth = 0;
 	p.wake = false;
 	p.entering = false;
@@ -3272,6 +3339,8 @@ static void ReleasePlugin(int index)
 	for (size_t i = 0; i < g_exported.size(); i++)
 		if (g_exported[i].plugin == index)
 			g_exported[i].plugin = SLOT_ORPHANED;
+
+	TellOwners(index, uses, run);
 }
 
 /**
@@ -3761,6 +3830,10 @@ static bool LoadPlugin(int index)
 	// belongs to, and the index is what says so.
 	int previous = g_currentPlugin;
 	g_currentPlugin = index;
+	// A run of its own, before its top level hands any function over.
+	static int32_t runs = 0;
+	g_plugins[index].run = ++runs;
+	g_plugins[index].toldGone = false;
 
 	// 64 KB of stack, and no app heap at all.
 	//

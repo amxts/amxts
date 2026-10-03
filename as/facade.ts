@@ -4563,6 +4563,58 @@ export interface ModuleOptions {}
 	return definition;
 }
 
+// A shared module's side of the calls other plugins make to it: as/remote.ts
+// sets the plugin whose call runs and tells of a plugin that stopped. Here,
+// not there, so that the kit's words reach the editor.
+let callingRun: i32 = 0;
+const stopListeners: ((plugin: number) => void)[] = [];
+
+/**
+ * The plugin whose call the module runs now, as a number: what the module
+ * keeps for that plugin - a menu it made, a function it gave - is marked with
+ * it, and dropped when `onPluginStop()` gives the same number. `0` when no
+ * other plugin's call runs: the module's own plugin, its natives for Pawn
+ * plugins, its events and timers.
+ *
+ * ```ts
+ * export function addRule(test: Rule) {
+ * 	rules.push({ test, from: callingPlugin() });
+ * }
+ * ```
+ */
+export function callingPlugin(): number {
+	return callingRun;
+}
+
+/**
+ * Calls `listener` when a plugin that called the module stops - unloaded,
+ * reloaded, or its load failed - with the number `callingPlugin()` gave
+ * during its calls. The module drops what that plugin gave it: a reloaded
+ * plugin is a new one, which gives everything again, and a function of the
+ * one that stopped answers nothing.
+ *
+ * ```ts
+ * onPluginStop((plugin) => {
+ * 	rules = rules.filter(rule => rule.from != plugin);
+ * });
+ * ```
+ */
+export function onPluginStop(listener: (plugin: number) => void): void {
+	stopListeners.push(listener);
+}
+
+/** @hidden as/remote.ts: a call of the run `from` starts; the run whose call ran before it, to give back. */
+export function __callFrom(from: i32): i32 {
+	const outer = callingRun;
+	callingRun = from;
+	return outer;
+}
+
+/** @hidden as/remote.ts: the plugin of the run `run` stopped. */
+export function __pluginStopped(run: i32): void {
+	for (const listener of stopListeners) listener(run);
+}
+
 // ---------------------------------------------------------------- forwards
 
 // @ts-ignore: decorator

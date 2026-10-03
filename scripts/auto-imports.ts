@@ -70,7 +70,7 @@ export const HOOD = new Set([
 	// Cells and raw handlers.
 	'Call CellArray CellBuffer Handler WideHandler NoArgument arg argc argString argText cell cellFloat cells cellsToString cmd cmdWide floatCell handled hook hostIndex nativeFn noOrigin out paint playerIds publicFor putCell readText ret setArg setArgText stringToCells swapTeam text TEXT_MAX',
 	// The kit's.
-	'caller cellArrayRows cellsText colorTags createCellArray defineModule destroyCellArray menuColors PawnCall PawnFunction pushCellArrayRow request RequestErrorKind RequestOptions RequestResult showMenu textCells',
+	'caller callingPlugin cellArrayRows cellsText colorTags createCellArray defineModule destroyCellArray menuColors onPluginStop PawnCall PawnFunction pushCellArrayRow request RequestErrorKind RequestOptions RequestResult showMenu textCells',
 	// The generated listener and flag tables.
 	'addGameListener addServerListener removeGameListener removeServerListener GameAnswerMap GameEventMap ServerEventMap ServerMessageMap protocolMessageNames HookEntry HookEvent EntvarFlags FlagFamily FlagList flagList FlagStore MemberFlags ACCESS BUTTON DAMAGE EFFECT ENTITY_FLAG HIDE_HUD PHYSICS_FLAG WEAPON_STATE',
 ].flatMap(group => group.split(' ')));
