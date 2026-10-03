@@ -2287,6 +2287,12 @@ export interface ShakeOptions {
 	frequency?: number;
 }
 
+/** The options of `player.screen.progressBar`. */
+export interface ProgressBarOptions {
+	/** The bar's fill at the start, in percent; `0`, empty, by default. */
+	startPercent?: number;
+}
+
 /** A status icon's state, one of `"hide"`, `"show"` (lit) or `"flash"`. */
 export type StatusIconState = "hide" | "show" | "flash";
 
@@ -2305,15 +2311,17 @@ function fixed(value: number, units: number): i32 {
  * player.screen.statusIcon("dmg_cold", "show", [0, 160, 255]);
  * ```
  *
- * Times are in seconds.
+ * Times are in seconds. A message listener hears what the screen sends, as
+ * it hears the game's: `"progressBar"` hears `progressBar(seconds)`.
  *
  * Pawn: `ScreenFade`, `ScreenShake`, `StatusIcon`, ...
  */
 export class Screen {
 	constructor(private id: i32) {}
 
+	// Through the engine (emessage_*): AMX Mod X's message hooks do not see a plugin's message_begin.
 	private begin(name: string, reliable: bool = true): void {
-		message_begin(reliable ? MSG_ONE : MSG_ONE_UNRELIABLE, get_user_msgid(name), [0, 0, 0], this.id);
+		emessage_begin(reliable ? MSG_ONE : MSG_ONE_UNRELIABLE, get_user_msgid(name), [0, 0, 0], this.id);
 	}
 
 	/**
@@ -2328,11 +2336,11 @@ export class Screen {
 		if (options.stay) flags |= FFADE_STAYOUT;
 
 		this.begin("ScreenFade");
-		write_short(fixed(options.duration ?? 1.0, 4096.0));
-		write_short(fixed(options.hold ?? 0.0, 4096.0));
-		write_short(flags);
-		for (let i = 0; i < 4; i++) write_byte(i < color.length ? <i32>color[i] : 255);
-		message_end();
+		ewrite_short(fixed(options.duration ?? 1.0, 4096.0));
+		ewrite_short(fixed(options.hold ?? 0.0, 4096.0));
+		ewrite_short(flags);
+		for (let i = 0; i < 4; i++) ewrite_byte(i < color.length ? <i32>color[i] : 255);
+		emessage_end();
 	}
 
 	/**
@@ -2342,10 +2350,10 @@ export class Screen {
 	 */
 	shake(options: ShakeOptions = {}): void {
 		this.begin("ScreenShake");
-		write_short(fixed(options.amplitude ?? 4.0, 4096.0));
-		write_short(fixed(options.duration ?? 1.0, 4096.0));
-		write_short(fixed(options.frequency ?? 5.0, 256.0));
-		message_end();
+		ewrite_short(fixed(options.amplitude ?? 4.0, 4096.0));
+		ewrite_short(fixed(options.duration ?? 1.0, 4096.0));
+		ewrite_short(fixed(options.frequency ?? 5.0, 256.0));
+		emessage_end();
 	}
 
 	/**
@@ -2357,12 +2365,12 @@ export class Screen {
 	statusIcon(sprite: string, state: StatusIconState, color: number[] = [0, 160, 0]): void {
 		const status = state == "show" ? 1 : state == "flash" ? 2 : 0;
 		this.begin("StatusIcon");
-		write_byte(status);
-		write_string(sprite);
+		ewrite_byte(status);
+		ewrite_string(sprite);
 		if (status != 0) {
-			for (let i = 0; i < 3; i++) write_byte(i < color.length ? <i32>color[i] : 0);
+			for (let i = 0; i < 3; i++) ewrite_byte(i < color.length ? <i32>color[i] : 0);
 		}
-		message_end();
+		emessage_end();
 	}
 
 	/**
@@ -2374,8 +2382,8 @@ export class Screen {
 	 */
 	roundTime(seconds: number): void {
 		this.begin("RoundTime", false);
-		write_short(<i32>seconds);
-		message_end();
+		ewrite_short(<i32>seconds);
+		emessage_end();
 	}
 
 	/**
@@ -2386,8 +2394,8 @@ export class Screen {
 	 */
 	hideHud(parts: HideHud[]): void {
 		this.begin("HideWeapon");
-		write_byte(HIDE_HUD.maskOf(parts));
-		message_end();
+		ewrite_byte(HIDE_HUD.maskOf(parts));
+		emessage_end();
 	}
 
 	/**
@@ -2397,8 +2405,8 @@ export class Screen {
 	 */
 	crosshair(shown: boolean): void {
 		this.begin("Crosshair");
-		write_byte(shown ? 1 : 0);
-		message_end();
+		ewrite_byte(shown ? 1 : 0);
+		emessage_end();
 	}
 
 	/**
@@ -2409,21 +2417,28 @@ export class Screen {
 	 */
 	flashlight(on: boolean, battery: number = 100): void {
 		this.begin("Flashlight");
-		write_byte(on ? 1 : 0);
-		write_byte(<i32>battery);
-		message_end();
+		ewrite_byte(on ? 1 : 0);
+		ewrite_byte(<i32>battery);
+		emessage_end();
 	}
 
 	/**
 	 * Shows the progress bar in the middle of the player's screen, filling up
-	 * over `seconds`; `0` hides it.
+	 * over `seconds`; `0` hides it. With `startPercent` it starts part of the
+	 * way full and fills the rest of `seconds`:
 	 *
-	 * Pawn: `BarTime`, `rg_send_bartime`
+	 * ```ts
+	 * player.screen.progressBar(4, { startPercent: 50 });   // half full, full in 2 seconds
+	 * ```
+	 *
+	 * Pawn: `BarTime`, `BarTime2`, `rg_send_bartime`, `rg_send_bartime2`
 	 */
-	progressBar(seconds: number): void {
-		this.begin("BarTime");
-		write_short(fixed(seconds, 1.0));
-		message_end();
+	progressBar(seconds: number, options: ProgressBarOptions = {}): void {
+		const startPercent = options.startPercent ?? 0;
+		this.begin(startPercent == 0 ? "BarTime" : "BarTime2");
+		ewrite_short(fixed(seconds, 1.0));
+		if (startPercent != 0) ewrite_short(fixed(startPercent, 1.0));
+		emessage_end();
 	}
 }
 

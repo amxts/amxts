@@ -3,7 +3,9 @@
 // DeathMsg, ScoreInfo and ScoreAttrib when he dies - is heard by name with
 // its fields typed, a field written is what the next listener reads, and the
 // listener hears only its own message's name. AMX Mod X's message hooks do
-// not see a message a plugin sends itself, so the game's is waited for.
+// not see a message a plugin sends with message_begin, so the game's is
+// waited for; player.screen sends through the engine, and progressBar's
+// BarTime2 is heard by the name that hears BarTime too.
 import { cs_get_user_money } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
@@ -22,6 +24,8 @@ let headshot = true;
 const scored: string[] = [];
 let restarts = 0;
 let deadOnBoard = "";
+/** The progress bar heard for the bot: its game's name and start percent. */
+let bar = "";
 
 server.addMessageListener("hideWeapon", (event) => {
 	if (event.player?.id == watched) seen = event.flags;
@@ -44,6 +48,10 @@ server.addMessageListener("score", (event) => {
 });
 server.addMessageListener("scoreAttribute", (event) => {
 	if (event.flags.includes("Dead")) deadOnBoard = event.target?.name ?? "";
+});
+
+server.addMessageListener("progressBar", (event) => {
+	if (event.player?.id == watched) bar = `${event.name} ${event.seconds} ${event.startPercent}`;
 });
 
 game.addEventListener("newRound", () => {
@@ -71,6 +79,11 @@ async function run() {
 	check.expect(rewritten.includes("Crosshair"), "a field written is what the next listener reads").toBe(true);
 	check.expect(others, "only HideWeapon reaches these listeners").toBe(0);
 	bot.hideHud = [];
+
+	bot.screen.progressBar(3, { startPercent: 50 });
+	check.expect(bar, "progressBar hears the screen's bar with a start percent, BarTime2").toBe("BarTime2 3 50");
+	bot.screen.progressBar(0);
+	check.expect(bar, "and the bar hidden, BarTime").toBe("BarTime 0 0");
 
 	// The game resets everyone's money as it restarts, ReAPI or not, a
 	// second after it reads sv_restart. A plugin's own message

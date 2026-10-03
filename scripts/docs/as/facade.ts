@@ -1523,6 +1523,14 @@ export default {
 		en: `The shake's frequency, in jolts a second; \`5\` by default.`,
 		ru: `Частота тряски — толчков в секунду; по умолчанию \`5\`.`,
 	},
+	'ProgressBarOptions': {
+		en: `The options of \`player.screen.progressBar\`.`,
+		ru: `Параметры \`player.screen.progressBar\`.`,
+	},
+	'ProgressBarOptions.startPercent': {
+		en: `The bar's fill at the start, in percent; \`0\`, empty, by default.`,
+		ru: `Заполненность полосы в начале, в процентах; по умолчанию \`0\` — пустая.`,
+	},
 	'StatusIconState': {
 		en: `A status icon's state, one of \`"hide"\`, \`"show"\` (lit) or \`"flash"\`.`,
 		ru: `Состояние иконки статуса, одно из: \`"hide"\` — убрана, \`"show"\` — горит, \`"flash"\` — мигает.`,
@@ -1538,7 +1546,8 @@ export default {
 			player.screen.statusIcon("dmg_cold", "show", [0, 160, 255]);
 			\`\`\`
 
-			Times are in seconds.
+			Times are in seconds. A message listener hears what the screen sends, as
+			it hears the game's: \`"progressBar"\` hears \`progressBar(seconds)\`.
 
 			Pawn: \`ScreenFade\`, \`ScreenShake\`, \`StatusIcon\`, ...
 		`,
@@ -1552,7 +1561,8 @@ export default {
 			player.screen.statusIcon("dmg_cold", "show", [0, 160, 255]);
 			\`\`\`
 
-			Время — в секундах.
+			Время — в секундах. Обработчик сообщений слышит то, что шлёт экран, как
+			слышит сообщения игры: \`"progressBar"\` слышит \`progressBar(seconds)\`.
 
 			Pawn: \`ScreenFade\`, \`ScreenShake\`, \`StatusIcon\`, ...
 		`,
@@ -1654,15 +1664,25 @@ export default {
 	'Screen.progressBar': {
 		en: `
 			Shows the progress bar in the middle of the player's screen, filling up
-			over \`seconds\`; \`0\` hides it.
+			over \`seconds\`; \`0\` hides it. With \`startPercent\` it starts part of the
+			way full and fills the rest of \`seconds\`:
 
-			Pawn: \`BarTime\`, \`rg_send_bartime\`
+			\`\`\`ts
+			player.screen.progressBar(4, { startPercent: 50 });   // half full, full in 2 seconds
+			\`\`\`
+
+			Pawn: \`BarTime\`, \`BarTime2\`, \`rg_send_bartime\`, \`rg_send_bartime2\`
 		`,
 		ru: `
 			Показывает полосу прогресса посреди экрана игрока, которая заполняется за
-			\`seconds\` секунд; \`0\` её убирает.
+			\`seconds\` секунд; \`0\` её убирает. С \`startPercent\` она начинается уже
+			частично заполненной и заполняет остаток \`seconds\`:
 
-			Pawn: \`BarTime\`, \`rg_send_bartime\`
+			\`\`\`ts
+			player.screen.progressBar(4, { startPercent: 50 });   // наполовину полна, заполнится за 2 секунды
+			\`\`\`
+
+			Pawn: \`BarTime\`, \`BarTime2\`, \`rg_send_bartime\`, \`rg_send_bartime2\`
 		`,
 	},
 	'PlayerChangeEvent': {

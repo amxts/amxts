@@ -130,6 +130,15 @@ test('one name hears both of its messages: BarTime\'s startPercent reads as 0 an
 	expect(server.log).toContain('spectated SpecHealth2 70 Alice');
 });
 
+test('a listener hears the screen\'s own progress bar, as it hears the game\'s', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	alice.command('msg_bar');
+
+	expect(server.log).toContain('bar BarTime2 3 50');
+	expect(server.userMessages).toEqual([{ name: 'BarTime2', player: alice.id, args: [3, 25] }]);
+});
+
 test('a message whose layout is not known is read by its arguments', async () => {
 	const server = await loadPlugin(PLUGIN);
 

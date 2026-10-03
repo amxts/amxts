@@ -34,4 +34,6 @@ function hud(player: Player) {
 function bar(player: Player) {
 	player.screen.progressBar(4.6);
 	player.screen.progressBar(0);
+	player.screen.progressBar(6, { startPercent: 50 });
+	player.screen.progressBar(6, { startPercent: 0 });
 }

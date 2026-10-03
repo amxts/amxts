@@ -48,6 +48,9 @@ server.addMessageListener("progressBar", (event) => {
 	if (event.seconds == 9) event.preventDefault();
 	event.startPercent = 25;
 });
+server.addCommand("msg_bar", ({ player }) => {
+	player.screen.progressBar(3, { startPercent: 50 });
+});
 server.addMessageListener("spectatedHealth", (event) => {
 	console.log(`spectated ${event.name} ${event.health} ${event.target?.name}`);
 });

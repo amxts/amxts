@@ -44,6 +44,7 @@ const SCREEN_MESSAGES: Record<string, string> = {
 	Crosshair: 'crosshair',
 	Flashlight: 'flashlight',
 	BarTime: 'progressBar',
+	BarTime2: 'progressBar',
 };
 
 /** The temporary effects `effects` sends, by the TE_ constant each one is. */
@@ -170,6 +171,7 @@ const FACADE_EQUIVALENTS: Record<string, string> = {
 	register_dictionary: 'lang.load',
 	LookupLangKey: 'lang.translate',
 	rg_send_bartime: 'player.screen.progressBar',
+	rg_send_bartime2: 'player.screen.progressBar(seconds, { startPercent })',
 	is_entity: 'entity.exists',
 	is_valid_ent: 'entity.exists',
 	set_speak: 'player.muted, heardByEveryone, hearsEveryone',

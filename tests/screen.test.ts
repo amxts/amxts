@@ -53,7 +53,7 @@ test('the HUD the game draws: round clock, hidden parts, crosshair, flashlight',
 	]);
 });
 
-test('progressBar: whole seconds, and 0 hides it', async () => {
+test('progressBar: whole seconds, 0 hides it, and a start percent is BarTime2', async () => {
 	const server = await loadPlugin('tests/as/screen.ts');
 	const alice = server.join('Alice');
 	alice.command('scr_bar');
@@ -61,5 +61,7 @@ test('progressBar: whole seconds, and 0 hides it', async () => {
 	expect(server.userMessages).toEqual([
 		{ name: 'BarTime', player: alice.id, args: [5] },
 		{ name: 'BarTime', player: alice.id, args: [0] },
+		{ name: 'BarTime2', player: alice.id, args: [6, 50] },
+		{ name: 'BarTime', player: alice.id, args: [6] },
 	]);
 });
