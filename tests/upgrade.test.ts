@@ -231,6 +231,30 @@ test('Player.all is server.players and a filter; a player\'s account is his mone
 	expect(upgradeNames('plugins/a.ts', text).changes).toEqual([]);
 });
 
+test('Player.all\'s filter takes a name that hides none the code has: player, other, p', () => {
+	const source = [
+		'const alive = Player.all({ alive: true });',
+		'server.addCommand("/alive", ({ player }) => print(player, `${Player.all({ alive: true }).length}`));',
+		'server.addCommand("/cts", (player) => {',
+		'\tconst other = player;',
+		'\treturn Player.all({ team: "CT" }).filter(one => one !== other);',
+		'});',
+		'',
+	].join('\n');
+	const { text } = upgradeNames('plugins/a.ts', source);
+
+	expect(text.split('\n')).toEqual([
+		'const alive = server.players.filter(player => player.isAlive);',
+		'server.addCommand("/alive", ({ player }) => print(player, `${server.players.filter(other => other.isAlive).length}`));',
+		'server.addCommand("/cts", (player) => {',
+		'\tconst other = player;',
+		'\treturn server.players.filter(p => p.team === "CT").filter(one => one !== other);',
+		'});',
+		'',
+	]);
+	expect(upgradeNames('plugins/a.ts', text).changes).toEqual([]);
+});
+
 test('fields, methods and events in the engine\'s words are the player\'s; one out of the API is listed with its native', () => {
 	const source = [
 		'game.addEventListener("flPlayerFallDamage", (event: FlPlayerFallDamageEvent) => event.result / 2, true);',

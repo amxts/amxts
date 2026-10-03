@@ -244,12 +244,25 @@ const EVENT_CLASSES = new Map(Object.entries(EVENTS).map(([from, to]) => [eventC
 const HIDDEN_CLASSES = new Map(Object.entries(HIDDEN_EVENTS).map(([name, native]) => [eventClass(name), native]));
 
 /** `Player.all`'s options, each as the test of a player it was, for the value `true`; `false` narrowed nothing. */
-const PLAYER_TESTS: Record<string, string> = {
-	alive: 'player.isAlive',
-	dead: '!player.isAlive',
-	bots: 'player.isBot',
-	humans: '!player.isBot',
+const PLAYER_TESTS: Record<string, (player: string) => string> = {
+	alive: player => `${player}.isAlive`,
+	dead: player => `!${player}.isAlive`,
+	bots: player => `${player}.isBot`,
+	humans: player => `!${player}.isBot`,
 };
+
+/**
+ * The name of the player a `filter` written for `Player.all` takes: `player`,
+ * else - where the code has a `player` already, a command's handler - `other`,
+ * `p`, `p2`..., the first that hides nothing.
+ */
+function playerName(taken: Set<string>): string {
+	const name = ['player', 'other', 'p'].find(each => !taken.has(each));
+	if (name) return name;
+	let number = 2;
+	while (taken.has(`p${number}`)) number++;
+	return `p${number}`;
+}
 
 /** The array methods whose callback takes the array's element first. */
 const ELEMENT_CALLBACKS = new Set(['filter', 'find', 'findLast', 'forEach', 'map', 'some', 'every', 'flatMap']);
@@ -267,15 +280,20 @@ const ONE_TYPE = /^(Player|Client|Weapon|Entity)(?:\s*\|\s*(?:null|undefined))*$
 const LIST_TYPE = /^(?:(Player|Client|Weapon|Entity)\[\]|Array<(Player|Client|Weapon|Entity)>)$/;
 
 /**
- * A file's declarations by name, as TypeScript binds them: one file alone,
- * no library - enough to tell which `player` a name is, not to type it.
+ * A file's names as TypeScript binds them: one file alone, no library -
+ * enough to tell which `player` a name is, not to type it. `declaration` is
+ * where a name is declared, `namesAt` every name the code sees at a place.
  */
-function declarationOf(source: ts.SourceFile): (name: ts.Identifier) => ts.Declaration | undefined {
+function bindingsOf(source: ts.SourceFile) {
 	const options: ts.CompilerOptions = { noLib: true, noResolve: true, types: [] };
 	const host = ts.createCompilerHost(options);
 	host.getSourceFile = name => name === source.fileName ? source : undefined;
 	const checker = ts.createProgram([source.fileName], options, host).getTypeChecker();
-	return name => (ts.isShorthandPropertyAssignment(name.parent) ? checker.getShorthandAssignmentValueSymbol(name.parent) : checker.getSymbolAtLocation(name))?.declarations?.[0];
+	return {
+		declaration: (name: ts.Identifier): ts.Declaration | undefined =>
+			(ts.isShorthandPropertyAssignment(name.parent) ? checker.getShorthandAssignmentValueSymbol(name.parent) : checker.getSymbolAtLocation(name))?.declarations?.[0],
+		namesAt: (node: ts.Node) => new Set(checker.getSymbolsInScope(node, ts.SymbolFlags.Value | ts.SymbolFlags.Alias).map(symbol => symbol.name)),
+	};
 }
 
 /** The old names of fields and methods, renamed or out of the API. */
@@ -306,7 +324,7 @@ const OLD_NAMES = new RegExp(`\\b(?:Player\\.all|${[
 export function upgradeNames(file: string, text: string): { text: string; changes: Change[]; left: Left[] } {
 	if (!OLD_NAMES.test(text)) return { text, changes: [], left: [] };
 	const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-	const declaration = declarationOf(source);
+	const { declaration, namesAt } = bindingsOf(source);
 	const edits: Edit[] = [];
 	const left: Left[] = [];
 	const lineOf = (node: ts.Node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
@@ -375,16 +393,17 @@ export function upgradeNames(file: string, text: string): { text: string; change
 		const options = call.arguments[0];
 		if (!options) return 'server.players';
 		if (call.arguments.length > 1 || !ts.isObjectLiteralExpression(options)) return null;
+		const player = playerName(namesAt(call));
 		const tests: string[] = [];
 		for (const option of options.properties) {
 			if (!ts.isPropertyAssignment(option) || !ts.isIdentifier(option.name)) return null;
 			const name = option.name.text;
 			const value = option.initializer;
-			if (name === 'team' && ts.isStringLiteral(value)) tests.push(`player.team === ${value.getText(source)}`);
-			else if (PLAYER_TESTS[name] && value.kind === ts.SyntaxKind.TrueKeyword) tests.push(PLAYER_TESTS[name]);
+			if (name === 'team' && ts.isStringLiteral(value)) tests.push(`${player}.team === ${value.getText(source)}`);
+			else if (PLAYER_TESTS[name] && value.kind === ts.SyntaxKind.TrueKeyword) tests.push(PLAYER_TESTS[name](player));
 			else if (!PLAYER_TESTS[name] || value.kind !== ts.SyntaxKind.FalseKeyword) return null;
 		}
-		return tests.length ? `server.players.filter(player => ${tests.join(' && ')})` : 'server.players';
+		return tests.length ? `server.players.filter(${player} => ${tests.join(' && ')})` : 'server.players';
 	};
 
 	/** A field or a method by an old name: the new one where the value is known, else a line for the author. */
@@ -500,7 +519,7 @@ const OLD_EVENT_WORDS = new RegExp(`\\b(?:${[
 export function upgradeEvents(file: string, text: string): { text: string; changes: Change[]; left: Left[] } {
 	if (!OLD_EVENT_WORDS.test(text)) return { text, changes: [], left: [] };
 	const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-	const declaration = declarationOf(source);
+	const { declaration } = bindingsOf(source);
 	const edits: Edit[] = [];
 	const left: Left[] = [];
 	const replace = (node: ts.Node, to: string) => edits.push({ start: node.getStart(source), end: node.getEnd(), with: to, from: node.getText(source) });
@@ -658,7 +677,7 @@ function flagName(old: string, constant: boolean): string | null {
 export function upgradeFlags(file: string, text: string): { text: string; changes: Change[]; left: Left[] } {
 	if (!FLAG_WORDS.test(text)) return { text, changes: [], left: [] };
 	const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-	const declaration = declarationOf(source);
+	const { declaration } = bindingsOf(source);
 	const edits: Edit[] = [];
 	const left: Left[] = [];
 	const followed = new Set<ts.Node>();
