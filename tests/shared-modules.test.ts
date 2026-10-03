@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FakeServer } from '@amxts/core/test-utils';
+import { FakeServer, setup } from '@amxts/core/test-utils';
 import { installMenus } from '@amxts/menu-core/testing';
 // Modules with one instance on the server (scripts/shared-modules.ts): two
 // plugins write the plain import, and what one of them sets up in
@@ -10,6 +10,7 @@ import { installMenus } from '@amxts/menu-core/testing';
 // both call the instance the owner plugin runs.
 // @ts-ignore - bun:test types not available during type checking
 import { describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { setProjectDir } from '../scripts/project';
 import { analyzeModule, proxySource, serveSource } from '../scripts/shared-modules';
 
 setDefaultTimeout(240_000);
@@ -87,6 +88,120 @@ describe('one instance, two plugins', () => {
 		expect(server.native('shared_show', alice.id)).toBe(false);
 		expect(server.native('shared_menu')).toBe('no menu');
 		expect(server.log).toContain('menu-core: no plugin runs it - is menu-core.aot in plugins.ini?');
+	});
+});
+
+describe('a plugin that stops', () => {
+	const HELLO = 'tests/as/shared-hello.ts';
+
+	test('its menu goes, closed for whoever looks at it; loaded again, it makes the menu once and is called back itself', async () => {
+		const { server, menus } = await boot([...OWNERS, HELLO]);
+		const alice = server.join('Alice', { health: 81 });
+
+		expect(server.native('shared_hello_show', alice.id)).toBe(true);
+		expect(menus.screen(alice)!.text).toContain('Wave');
+		server.unload(server.plugins.find(plugin => plugin.source === HELLO)!);
+		expect(menus.screen(alice)).toBe(null);
+
+		await server.load(HELLO);
+		expect(server.native('shared_hello_show', alice.id)).toBe(true);
+		const text = menus.screen(alice)!.text;
+		expect(text).toContain('\\y[1]\\w Wave');
+		expect(text).toContain('\\y[2]\\w Heal (81 HP)');
+		expect(text).not.toContain('[3]');
+		expect(text.split('Wave').length).toBe(2);
+
+		menus.press(alice, 1);
+		expect(server.native('shared_hello_waves')).toBe(1);
+		expect(server.log).not.toContain('called back a function of a plugin that was unloaded');
+	});
+
+	test('what it added to another plugin\'s menu goes, and that menu stays', async () => {
+		const { server, menus } = await boot(BOTH);
+		expect(server.native('shared_add', 'Shield')).toBe(true);
+		const alice = server.join('Alice');
+		expect(server.native('shared_open', alice.id)).toBe(true);
+		expect(menus.screen(alice)!.text).toContain('Shield for Alice');
+
+		server.unload(server.plugins.find(plugin => plugin.source === 'tests/as/shared-viewer.ts')!);
+		const text = menus.screen(alice)!.text;
+		expect(text).toContain('Knife');
+		expect(text).not.toContain('Shield');
+	});
+
+	test('a module that keeps its function hears it stop; the function answers nothing, said once in the log', async () => {
+		const root = join(tmpdir(), 'amxts-shared-stop');
+		rmSync(root, { recursive: true, force: true });
+		const files: Record<string, string> = {
+			'package.json': JSON.stringify({ name: 'stop-project', private: true }),
+			'amxts.config.ts': 'export default defineConfig({ modules: ["@test/keeper"] });\n',
+			'modules/keeper/package.json': JSON.stringify({ name: '@test/keeper', version: '1.0.0', amxts: { module: 'src/index.ts' } }),
+			'modules/keeper/src/index.ts': [
+				'import { callingPlugin, onPluginStop } from "@amxts/core/kit";',
+				'',
+				'export default defineModule({ meta: { name: "keeper" }, imports: [{ from: "@test/keeper", as: "keeper" }], setup() {',
+				'\tonPluginStop((plugin) => stops.push(plugin));',
+				'} });',
+				'',
+				'let kept: (() => number) | null = null;',
+				'let keptFrom = 0;',
+				'const stops: number[] = [];',
+				'',
+				'export function keep(fn: () => number) {',
+				'\tkept = fn;',
+				'\tkeptFrom = callingPlugin();',
+				'}',
+				'',
+				'export function ask() {',
+				'\tconst fn = kept;',
+				'\treturn fn != null ? fn() : -1;',
+				'}',
+				'',
+				'export function giver() {',
+				'\treturn keptFrom;',
+				'}',
+				'',
+				'export function stopped() {',
+				'\treturn stops.join(",");',
+				'}',
+				'',
+			].join('\n'),
+			'plugins/giver.ts': 'keeper.keep(() => 7);\n',
+			'plugins/asker.ts': [
+				'export function test_ask() {',
+				'\treturn keeper.ask();',
+				'}',
+				'',
+				'export function test_giver() {',
+				'\treturn keeper.giver();',
+				'}',
+				'',
+				'export function test_stopped() {',
+				'\treturn keeper.stopped();',
+				'}',
+				'',
+			].join('\n'),
+		};
+		for (const [path, text] of Object.entries(files)) {
+			mkdirSync(join(root, path, '..'), { recursive: true });
+			writeFileSync(join(root, path), text);
+		}
+
+		try {
+			const server = await setup({ rootDir: root });
+			expect(server.native('test_ask')).toBe(7);
+			const giver = server.plugins.find(plugin => plugin.source.endsWith('giver.ts'))!;
+			expect(server.native('test_giver')).toBe(giver.run);
+
+			server.unload(giver);
+			expect(server.native('test_stopped')).toBe(`${giver.run}`);
+			expect(server.native('test_ask')).toBe(0);
+			expect(server.native('test_ask')).toBe(0);
+			expect(server.log.split('\n').filter(line => line.includes('called back a function of a plugin that was unloaded or reloaded since'))).toHaveLength(1);
+		} finally {
+			setProjectDir(process.cwd());
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 });
 
