@@ -442,7 +442,10 @@ async function deployAndReload(built: string[], names: string): Promise<string> 
 		return `deployed ${names} - the module reloads them on its own`;
 	}
 
-	const reply = await ask(`rcon ${challenge} "${password}" ${RELOAD_COMMAND}`, 5000);
+	// Only what changed starts over; a new plugin needs the list read again,
+	// which only a reload of them all does.
+	const reload = added.length > 0 ? RELOAD_COMMAND : built.map(file => `${RELOAD_COMMAND} ${file.replace(/\.aot$/, '')}`).join('; ');
+	const reply = await ask(`rcon ${challenge} "${password}" ${reload}`, 5000);
 
 	if (reply === null || /bad rcon_password/i.test(reply)) {
 		// Nothing reloaded them, so let the module's watcher see the new files.
