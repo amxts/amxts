@@ -102,7 +102,7 @@ function showPlayer(player: Player) {
 	const living = server.players.filter(player => player.isAlive && !player.isBot);
 	print(player, `${living.length} living people, ${server.players.filter(player => player.team === "CT").length} counter-terrorists`);
 
-	if (player.access.includes("Cvar")) print(player, "You may change the server's settings.");
+	if (player.access.includes("cvar")) print(player, "You may change the server's settings.");
 }
 
 /** An entity's fields with their types. */
@@ -137,15 +137,15 @@ function showWeapon(player: Player) {
 
 /** Flags are arrays of names. */
 function showFlags(player: Player) {
-	player.hideHud.push("Money");
+	player.hideHud.push("money");
 	setTimeout(() => showMoney(player), 3000);
 
-	const onGround = player.flags.includes("OnGround");
+	const onGround = player.flags.includes("onGround");
 	print(player, onGround ? "Your money is hidden for three seconds." : "Land first - you are in the air.");
 }
 
 function showMoney(player: Player) {
-	player.hideHud = player.hideHud.filter(part => part != "Money");
+	player.hideHud = player.hideHud.filter(part => part != "money");
 }
 
 /** The server itself. */

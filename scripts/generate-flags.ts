@@ -4,12 +4,13 @@
 //
 // A Pawn plugin sets a HUD element hidden with `flags |= HIDEHUD_MONEY` and
 // asks whether a button is held with `(buttons & IN_JUMP) != 0`. A plugin here
-// writes `player.hideHud = ["Money", "Timer"]` and
-// `player.buttons.includes("Jump")`.
+// writes `player.hideHud = ["money", "timer"]` and
+// `player.buttons.includes("jump")`.
 //
 // Each family is a union of string literals, which is what a TypeScript
-// developer writes for a closed set of names: the editor completes them and
-// `bun run check` refuses a misspelled one. AssemblyScript reads the union as
+// developer writes for a closed set of names, lowerCamelCase like every
+// other union value of the API: the editor completes them and `bun run check`
+// refuses a misspelled one. AssemblyScript reads the union as
 // `string` (a compiler patch, see runtime/patches), and the list below turns
 // the names into bits.
 //
@@ -39,33 +40,33 @@ const FAMILIES: { prefix: string; name: string; about: string; names?: Record<st
 		prefix: 'SCORE_STATUS_',
 		name: 'ScoreStatus',
 		about: 'What the scoreboard shows beside a player - the ScoreAttrib message: dead, the bomb, the VIP, a defuse kit.',
-		names: { SCORE_STATUS_DEFKIT: 'DefuseKit' },
+		names: { SCORE_STATUS_DEFKIT: 'defuseKit' },
 	},
 	{
 		prefix: 'WPNSTATE_',
 		name: 'WeaponState',
 		about: 'Modes a weapon is in - m_iWeaponState: a silencer on, burst fire, the shield drawn.',
 		names: {
-			WPNSTATE_USP_SILENCED: 'UspSilenced',
-			WPNSTATE_GLOCK18_BURST_MODE: 'Glock18Burst',
-			WPNSTATE_M4A1_SILENCED: 'M4a1Silenced',
-			WPNSTATE_ELITE_LEFT: 'EliteLeft',
-			WPNSTATE_FAMAS_BURST_MODE: 'FamasBurst',
-			WPNSTATE_SHIELD_DRAWN: 'ShieldDrawn',
+			WPNSTATE_USP_SILENCED: 'uspSilenced',
+			WPNSTATE_GLOCK18_BURST_MODE: 'glock18Burst',
+			WPNSTATE_M4A1_SILENCED: 'm4a1Silenced',
+			WPNSTATE_ELITE_LEFT: 'eliteLeft',
+			WPNSTATE_FAMAS_BURST_MODE: 'famasBurst',
+			WPNSTATE_SHIELD_DRAWN: 'shieldDrawn',
 		},
 	},
 	{
 		prefix: 'PFLAG_',
 		name: 'PhysicsFlag',
 		about: 'The physics state of a player - m_afPhysicsFlags: on a ladder, on a train, ducking.',
-		names: { PFLAG_ONLADDER: 'OnLadder', PFLAG_ONTRAIN: 'OnTrain', PFLAG_ONBARNACLE: 'OnBarnacle' },
+		names: { PFLAG_ONLADDER: 'onLadder', PFLAG_ONTRAIN: 'onTrain', PFLAG_ONBARNACLE: 'onBarnacle' },
 		skip: ['PFLAG_ONSWING'],
 	},
 ];
 
 /**
- * Words the suffixes are made of, so FL_ONGROUND is `OnGround` rather than
- * `Onground`. A suffix that cannot be split into these is kept as one word.
+ * Words the suffixes are made of, so FL_ONGROUND is `onGround` rather than
+ * `onground`. A suffix that cannot be split into these is kept as one word.
  */
 const WORDS = new Set(`
 	on ground partial water jump fake client always think base velocity monster clip train world
@@ -94,9 +95,10 @@ function words(part: string): string[] | null {
 
 const capital = (word: string) => word[0].toUpperCase() + word.slice(1).toLowerCase();
 
-/** HIDEHUD_OBSERVER_CROSSHAIR -> ObserverCrosshair, IN_ATTACK2 -> Attack2. */
+/** HIDEHUD_OBSERVER_CROSSHAIR -> observerCrosshair, IN_ATTACK2 -> attack2. */
 function memberName(suffix: string): string {
-	return suffix.split('_').filter(Boolean).map(part => (words(part) ?? [part]).map(capital).join('')).join('');
+	const name = suffix.split('_').filter(Boolean).map(part => (words(part) ?? [part]).map(capital).join('')).join('');
+	return name[0].toLowerCase() + name.slice(1);
 }
 
 const isSingleBit = (value: number) => value !== 0 && (value & (value - 1)) === 0;
@@ -211,7 +213,7 @@ export class MemberFlags extends FlagStore {
  * The flags a mask holds, as an array of names.
  *
  * \`push\` sets the bit where the mask lives as well, so
- * \`player.hideHud.push("Money")\` hides the money. Everything else is a plain
+ * \`player.hideHud.push("money")\` hides the money. Everything else is a plain
  * array: \`includes\`, \`filter\`, \`length\`, a for loop. To take flags away,
  * assign the array back - \`player.hideHud = player.hideHud.filter(...)\`.
  */

@@ -175,7 +175,7 @@ declare module "./facade" {
 		 *
 		 * server.addCommand<KickArgs>("/kick <target> [reason]", ({ player, target, reason }) => {
 		 *   target.kick(reason ?? `Kicked by ${player.name}`);
-		 * }, { access: "Kick" });
+		 * }, { access: "kick" });
 		 * server.addCommand("/hp", ({ player }) => print(player, `${player.health} HP`));
 		 * ```
 		 *

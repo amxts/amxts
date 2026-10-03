@@ -6,7 +6,7 @@
 // An editor reads plugins through node_modules/assemblyscript/std, the
 // typings asc ships. There `bool` is `boolean | number`, so every
 // `.includes()` - which returns bool - refused to go into a boolean:
-// `reloadHeld[id] = player.buttons.includes("Reload")` was red in the editor
+// `reloadHeld[id] = player.buttons.includes("reload")` was red in the editor
 // and compiled fine. The compiler does not read these typings at all, so
 // narrowing the alias changes what the editor says and nothing else.
 //

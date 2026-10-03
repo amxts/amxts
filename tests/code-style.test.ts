@@ -1217,3 +1217,11 @@ test('37: plugin and module code passes a generic its type by name', () => {
 	];
 	expect(plugins.flatMap(file => typeLiteralArguments(file, readFileSync(file, 'utf8'))).map(f => `${f.where}  ${f.rule}`)).toEqual([]);
 });
+
+test('7: a flag\'s name is lowerCamelCase, like every union value of the API', () => {
+	// The generated families (as/flags.ts) and a command's admin flag (as/constants.ts).
+	const flagName = readFileSync('as/constants.ts', 'utf8').match(/^export type FlagName =\n((?:\t\| "[^"]+"\n?)+)/m)?.[1] ?? '';
+	const names = [...`${readFileSync('as/flags.ts', 'utf8')}\n${flagName}`.matchAll(/^\t\| "([^"]+)"/gm)].map(m => m[1]);
+	expect(names.length).toBeGreaterThan(100);
+	expect(names.filter(name => !/^[a-z][a-zA-Z0-9]*$/.test(name))).toEqual([]);
+});

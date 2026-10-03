@@ -46,7 +46,7 @@ export const GAME: Record<string, GameDoc> = {
 			inflictor: { en: `The source of the damage: a weapon, a grenade, the world.`, ru: `Источник урона: оружие, граната, мир.` },
 			attacker: { en: `The player who does the damage.`, ru: `Игрок, который наносит урон.` },
 			damage: { en: `The damage, before armour. Assign to change it.`, ru: `Урон до брони. Присвойте, чтобы изменить.` },
-			damageType: { en: `The kinds of damage, e.g. \`"Fall"\`, \`"Bullet"\`, \`"Burn"\`.`, ru: `Виды урона, например \`"Fall"\`, \`"Bullet"\`, \`"Burn"\`.` },
+			damageType: { en: `The kinds of damage, e.g. \`"fall"\`, \`"bullet"\`, \`"burn"\`.`, ru: `Виды урона, например \`"fall"\`, \`"bullet"\`, \`"burn"\`.` },
 		},
 	},
 	fallDamage: {

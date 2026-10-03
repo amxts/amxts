@@ -25,7 +25,7 @@ let heard = "";
 
 server.addCommand<KickArgs>("/kick <target> [reason]", ({ player, target, reason }) => {
 	heard = `${player.name} kicks ${target.name}: ${reason ?? "-"}`;
-}, { access: "Kick", description: "Kick a player" });
+}, { access: "kick", description: "Kick a player" });
 
 server.addCommand<GiveArgs>("give <amount> [what]", ({ player, amount, what }) => {
 	heard = `${player.name} gives ${amount} ${what ?? "health"}`;

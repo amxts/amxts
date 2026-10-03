@@ -25,7 +25,7 @@ plugin.
   classes, interfaces with optional fields, closures, `async`/`await` with
   `AbortSignal`.
 - **Players and entities are objects.** `player.health = 100`,
-  `player.team == "CT"`, `player.hideHud.push("Money")`,
+  `player.team == "CT"`, `player.hideHud.push("money")`,
   `entity.renderMode = "additive"`.
 - **Events as in the DOM.** `server.addEventListener("putinserver", ...)`,
   `game.addEventListener("takeDamage", ...)` for the game's events (reapi's

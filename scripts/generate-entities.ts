@@ -653,7 +653,7 @@ for (const [name, id] of constantValues) {
 	if (/^WEAPON_[A-Z0-9]+$/.test(name) && id >= 0) weaponKinds.push({ name: name.slice('WEAPON_'.length).toLowerCase(), id });
 }
 
-// A bit-mask field is an array of names: `player.hideHud = ["Money", "Timer"]`.
+// A bit-mask field is an array of names: `player.hideHud = ["money", "timer"]`.
 // The enums and the list come from scripts/generate-flags.ts (as/flags.ts).
 // `keep`: the setter leaves the bits the family does not name as they are -
 // var_weapons' top bit is the suit, without which the HUD is gone, and it is

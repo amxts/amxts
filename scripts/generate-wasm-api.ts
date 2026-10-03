@@ -1319,8 +1319,8 @@ for (const [name, value] of known) {
 
 	const short = name.slice(6).toLowerCase().replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
 	flagLines.push(`\texport const ${short}: i32 = ${value};`);
-	flagNames.push(`\t| "${name.slice(6)}"`);
-	flagCases.push(`\t\tcase "${name.slice(6)}": return ${value};`);
+	flagNames.push(`\t| "${short}"`);
+	flagCases.push(`\t\tcase "${short}": return ${value};`);
 }
 
 writeFileSync(

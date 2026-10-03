@@ -27,18 +27,18 @@ function member(family: string, name: string): number {
 }
 
 test.each([
-	['HideHud', 'Money', 'HIDEHUD_MONEY'],
-	['HideHud', 'ObserverCrosshair', 'HIDEHUD_OBSERVER_CROSSHAIR'],
-	['Button', 'Jump', 'IN_JUMP'],
-	['Button', 'Attack2', 'IN_ATTACK2'],
-	['EntityFlag', 'OnGround', 'FL_ONGROUND'],
-	['EntityFlag', 'Dormant', 'FL_DORMANT'],
-	['Effect', 'NoDraw', 'EF_NODRAW'],
-	['Damage', 'Fall', 'DMG_FALL'],
-	['WeaponState', 'M4a1Silenced', 'WPNSTATE_M4A1_SILENCED'],
-	['WeaponState', 'ShieldDrawn', 'WPNSTATE_SHIELD_DRAWN'],
-	['PhysicsFlag', 'OnLadder', 'PFLAG_ONLADDER'],
-	['PhysicsFlag', 'Observer', 'PFLAG_OBSERVER'],
+	['HideHud', 'money', 'HIDEHUD_MONEY'],
+	['HideHud', 'observerCrosshair', 'HIDEHUD_OBSERVER_CROSSHAIR'],
+	['Button', 'jump', 'IN_JUMP'],
+	['Button', 'attack2', 'IN_ATTACK2'],
+	['EntityFlag', 'onGround', 'FL_ONGROUND'],
+	['EntityFlag', 'dormant', 'FL_DORMANT'],
+	['Effect', 'noDraw', 'EF_NODRAW'],
+	['Damage', 'fall', 'DMG_FALL'],
+	['WeaponState', 'm4a1Silenced', 'WPNSTATE_M4A1_SILENCED'],
+	['WeaponState', 'shieldDrawn', 'WPNSTATE_SHIELD_DRAWN'],
+	['PhysicsFlag', 'onLadder', 'PFLAG_ONLADDER'],
+	['PhysicsFlag', 'observer', 'PFLAG_OBSERVER'],
 ])('%s.%s is %s', (family: string, name: string, pawn: string) => {
 	expect(member(family, name)).toBe(constant(pawn));
 });
@@ -50,5 +50,5 @@ test('a value of several bits is not a member', () => {
 
 test('an alias of another bit is not a second name', () => {
 	// PFLAG_ONSWING is PFLAG_ONLADDER's bit.
-	expect(flags).not.toContain('"OnSwing"');
+	expect(flags).not.toContain('"onSwing"');
 });

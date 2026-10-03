@@ -26,7 +26,7 @@ function icon(player: Player) {
 
 function hud(player: Player) {
 	player.screen.roundTime(90);
-	player.screen.hideHud(["Money", "Timer"]);
+	player.screen.hideHud(["money", "timer"]);
 	player.screen.crosshair(false);
 	player.screen.flashlight(false);
 }

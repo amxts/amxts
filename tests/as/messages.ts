@@ -34,7 +34,7 @@ server.addMessageListener("statusIcon", (event) => {
 });
 server.addMessageListener("scoreAttribute", (event) => {
 	console.log(`attrib ${event.target?.name} ${event.flags.join(",")}`);
-	event.flags = event.flags.filter(flag => flag != "Bomb");
+	event.flags = event.flags.filter(flag => flag != "bomb");
 });
 server.addMessageListener("vguiMenu", (event) => {
 	if (event.menu == "team") event.preventDefault();
@@ -66,5 +66,5 @@ function onText(event: TextMsgMessage) {
 }
 
 function onHideWeapon(event: HideWeaponMessage) {
-	event.flags = event.flags.concat(["Money"]);
+	event.flags = event.flags.concat(["money"]);
 }

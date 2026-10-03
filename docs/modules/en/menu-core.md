@@ -139,7 +139,7 @@ plugin answers those names with functions:
 menus.addCondition("IS_ALIVE", player => player.isAlive);
 menus.addAction("RESET_SCORE", resetScore);
 menus.addPlaceholder("hp", player => `${player.health}`);   // %hp% in a menu file
-menus.addRestriction("VIP", player => player.access.includes("Reservation"), "VIP only");
+menus.addRestriction("VIP", player => player.access.includes("reservation"), "VIP only");
 menus.setListSource("LIST_FPS_CHECK", rows);        // a list menu of the file, by name
 menus.conditionChanged("IS_ALIVE");                  // draw again the menus that use it
 ```

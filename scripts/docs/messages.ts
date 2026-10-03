@@ -116,7 +116,7 @@ export const MESSAGES: Record<string, EventDoc> = {
 		fields: {
 			armor: { en: `The armour he lost.`, ru: `Потерянная броня.` },
 			damage: { en: `The health he lost.`, ru: `Потерянное здоровье.` },
-			damageType: { en: `The kinds of damage, e.g. \`"Fall"\`, \`"Bullet"\`.`, ru: `Виды урона, например \`"Fall"\`, \`"Bullet"\`.` },
+			damageType: { en: `The kinds of damage, e.g. \`"fall"\`, \`"bullet"\`.`, ru: `Виды урона, например \`"fall"\`, \`"bullet"\`.` },
 			origin: { en: `The point the damage came from: the marks point to it.`, ru: `Точка, откуда пришёл урон: метки указывают на неё.` },
 		},
 	},
@@ -162,7 +162,7 @@ export const MESSAGES: Record<string, EventDoc> = {
 	},
 	HideWeapon: {
 		summary: { en: `The parts of a player's HUD that are hidden change.`, ru: `Меняются скрытые части HUD игрока.` },
-		fields: { flags: { en: `The hidden parts, e.g. \`"Money"\`, \`"Timer"\`. Assign to change them.`, ru: `Скрытые части, например \`"Money"\`, \`"Timer"\`. Присвойте, чтобы изменить.` } },
+		fields: { flags: { en: `The hidden parts, e.g. \`"money"\`, \`"timer"\`. Assign to change them.`, ru: `Скрытые части, например \`"money"\`, \`"timer"\`. Присвойте, чтобы изменить.` } },
 	},
 	HLTV: {
 		summary: { en: `A note to the HLTV proxies, such as a new round's start.`, ru: `Заметка для прокси HLTV, например о начале нового раунда.` },
@@ -264,7 +264,7 @@ export const MESSAGES: Record<string, EventDoc> = {
 		summary: { en: `The marks the scoreboard shows beside a player: dead, the bomb, the VIP.`, ru: `Отметки, которые таблица счёта показывает рядом с игроком: погиб, бомба, VIP.` },
 		fields: {
 			target: { en: `The player whose row it is.`, ru: `Игрок, чья это строка.` },
-			flags: { en: `The marks on the row, e.g. \`"Dead"\`, \`"Bomb"\`, \`"Vip"\`.`, ru: `Отметки в строке, например \`"Dead"\`, \`"Bomb"\`, \`"Vip"\`.` },
+			flags: { en: `The marks on the row, e.g. \`"dead"\`, \`"bomb"\`, \`"vip"\`.`, ru: `Отметки в строке, например \`"dead"\`, \`"bomb"\`, \`"vip"\`.` },
 		},
 	},
 	ScoreInfo: {

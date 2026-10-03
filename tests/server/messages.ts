@@ -29,7 +29,7 @@ let bar = "";
 
 server.addMessageListener("hideWeapon", (event) => {
 	if (event.player?.id == watched) seen = event.flags;
-	event.flags = event.flags.concat(["Crosshair"]);
+	event.flags = event.flags.concat(["crosshair"]);
 });
 server.addMessageListener("hideWeapon", (event) => {
 	rewritten = event.flags;
@@ -47,7 +47,7 @@ server.addMessageListener("score", (event) => {
 	scored.push(event.target?.name ?? "");
 });
 server.addMessageListener("scoreAttribute", (event) => {
-	if (event.flags.includes("Dead")) deadOnBoard = event.target?.name ?? "";
+	if (event.flags.includes("dead")) deadOnBoard = event.target?.name ?? "";
 });
 
 server.addMessageListener("progressBar", (event) => {
@@ -73,10 +73,10 @@ async function run() {
 	}
 
 	watched = bot.id;
-	bot.hideHud = ["Money", "Timer"];
+	bot.hideHud = ["money", "timer"];
 	await sleep(500);
-	check.expect(seen.includes("Money") && seen.includes("Timer"), `the game's HideWeapon is heard, its flags names (${seen.join(", ")})`).toBe(true);
-	check.expect(rewritten.includes("Crosshair"), "a field written is what the next listener reads").toBe(true);
+	check.expect(seen.includes("money") && seen.includes("timer"), `the game's HideWeapon is heard, its flags names (${seen.join(", ")})`).toBe(true);
+	check.expect(rewritten.includes("crosshair"), "a field written is what the next listener reads").toBe(true);
 	check.expect(others, "only HideWeapon reaches these listeners").toBe(0);
 	bot.hideHud = [];
 

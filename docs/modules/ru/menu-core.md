@@ -138,7 +138,7 @@ function greet(player: Player, target: number) {
 menus.addCondition("IS_ALIVE", player => player.isAlive);
 menus.addAction("RESET_SCORE", resetScore);
 menus.addPlaceholder("hp", player => `${player.health}`);   // %hp% в файле меню
-menus.addRestriction("VIP", player => player.access.includes("Reservation"), "только VIP");
+menus.addRestriction("VIP", player => player.access.includes("reservation"), "только VIP");
 menus.setListSource("LIST_FPS_CHECK", rows);        // меню-список из файла, по имени
 menus.conditionChanged("IS_ALIVE");                  // перерисовать меню, которые его используют
 ```

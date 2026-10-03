@@ -23,7 +23,7 @@ server.addServerCommand("bot_add <name>", ({ name }) => {
 });
 
 server.addServerCommand("bot_move", () => {
-	bot?.move({ forward: 250, buttons: ["Jump", "Duck"], angles: [0, 90, 0] });
+	bot?.move({ forward: 250, buttons: ["jump", "duck"], angles: [0, 90, 0] });
 	bot?.move({ forward: 100, angles: new Vector(0, 0, 0), msec: 50 });
 });
 

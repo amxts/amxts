@@ -36,7 +36,7 @@ function writeUnknown(player: Player) {
 function masks(player: Player) {
 	console.log(`weapons ${player.weapons.join(",")}`);
 	player.weapons = ["knife", "usp"];
-	player.physicsFlags = ["OnLadder", "Ducking"];
-	player.physicsFlags.push("Using");
+	player.physicsFlags = ["onLadder", "ducking"];
+	player.physicsFlags.push("using");
 	console.log(`physics ${player.physicsFlags.join(",")}`);
 }

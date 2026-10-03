@@ -25,7 +25,7 @@ Mod X рядом с Pawn-плагинами. Они вызывают друг д
   интерфейсы с необязательными полями, замыкания, `async`/`await` с
   `AbortSignal`.
 - **Игроки и сущности — объекты.** `player.health = 100`,
-  `player.team == "CT"`, `player.hideHud.push("Money")`,
+  `player.team == "CT"`, `player.hideHud.push("money")`,
   `entity.renderMode = "additive"`.
 - **События как в DOM.** `server.addEventListener("putinserver", ...)`,
   `game.addEventListener("takeDamage", ...)` для событий игры (хукчейнов

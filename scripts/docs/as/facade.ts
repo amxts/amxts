@@ -579,8 +579,8 @@ export default {
 		ru: `Вверх, или вниз, если число отрицательное: в воде и на лестнице.`,
 	},
 	'MoveOptions.buttons': {
-		en: `The buttons held during the move: \`["Jump", "Duck"]\`.`,
-		ru: `Кнопки, зажатые на время шага: \`["Jump", "Duck"]\`.`,
+		en: `The buttons held during the move: \`["jump", "duck"]\`.`,
+		ru: `Кнопки, зажатые на время шага: \`["jump", "duck"]\`.`,
 	},
 	'MoveOptions.angles': {
 		en: `The direction the bot looks in, \`[pitch, yaw, roll]\` or a Vector; where it looks now when left out.`,
@@ -639,8 +639,8 @@ export default {
 		ru: `\`true\`, пока игрок на сервере.`,
 	},
 	'Client.access': {
-		en: `The player's admin rights, from the letters in \`users.ini\`: \`client.access.includes("Cvar")\`.`,
-		ru: `Права админа у игрока — по буквам из \`users.ini\`: \`client.access.includes("Cvar")\`.`,
+		en: `The player's admin rights, from the letters in \`users.ini\`: \`client.access.includes("cvar")\`.`,
+		ru: `Права админа у игрока — по буквам из \`users.ini\`: \`client.access.includes("cvar")\`.`,
 	},
 	'Client.team': {
 		en: `The player's team, one of \`"TERRORIST"\`, \`"CT"\`, \`"SPECTATOR"\` or \`"UNASSIGNED"\` (until the player joins a team). Setting it moves the player, as \`player.team\` does.`,
@@ -1073,13 +1073,13 @@ export default {
 	'Player.access': {
 		en: `
 			The player's admin rights, from the letters in \`users.ini\`:
-			\`player.access.includes("Cvar")\`.
+			\`player.access.includes("cvar")\`.
 
 			Pawn: \`get_user_flags\`
 		`,
 		ru: `
 			Права админа у игрока — по буквам из \`users.ini\`:
-			\`player.access.includes("Cvar")\`.
+			\`player.access.includes("cvar")\`.
 
 			Pawn: \`get_user_flags\`
 		`,
@@ -1175,13 +1175,13 @@ export default {
 	'accessOf': {
 		en: `
 			Converts \`users.ini\` letters to rights: \`accessOf("abc")\` is
-			[\`"Immunity"\`, \`"Reservation"\`, \`"Kick"\`]. An unknown letter is skipped.
+			[\`"immunity"\`, \`"reservation"\`, \`"kick"\`]. An unknown letter is skipped.
 
 			Pawn: \`read_flags\`
 		`,
 		ru: `
 			Переводит буквы из \`users.ini\` в права: \`accessOf("abc")\` —
-			[\`"Immunity"\`, \`"Reservation"\`, \`"Kick"\`]. Неизвестные буквы пропускаются.
+			[\`"immunity"\`, \`"reservation"\`, \`"kick"\`]. Неизвестные буквы пропускаются.
 
 			Pawn: \`read_flags\`
 		`,
@@ -3628,7 +3628,7 @@ export default {
 	'Player.move': {
 		en: `
 			Moves a bot \`server.addBot\` made, as a player's keys and mouse would for
-			one frame: \`bot.move({ forward: 250, buttons: ["Jump"] })\`. A bot does
+			one frame: \`bot.move({ forward: 250, buttons: ["jump"] })\`. A bot does
 			nothing by itself, so it is moved every frame - in the \`"frame"\` event -
 			or it stands still. A player who is not a bot is refused with an error.
 
@@ -3636,7 +3636,7 @@ export default {
 		`,
 		ru: `
 			Двигает бота, созданного \`server.addBot\`, как клавиши и мышь игрока за один
-			кадр: \`bot.move({ forward: 250, buttons: ["Jump"] })\`. Сам бот ничего не
+			кадр: \`bot.move({ forward: 250, buttons: ["jump"] })\`. Сам бот ничего не
 			делает, поэтому его двигают каждый кадр — в событии \`"frame"\`, — иначе он
 			стоит на месте. Игрока, который не бот, метод отклоняет с ошибкой.
 

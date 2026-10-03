@@ -226,8 +226,8 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		ru: `Группы тела модели: какие подмодели рисуются, одним числом.`,
 	},
 	var_effects: {
-		en: `The entity's visual effects, for example: \`"NoDraw"\` hides it, \`"DimLight"\` and \`"BrightLight"\` light up around it, \`"MuzzleFlash"\` flashes once.`,
-		ru: `Визуальные эффекты сущности, например: \`"NoDraw"\` прячет её, \`"DimLight"\` и \`"BrightLight"\` освещают вокруг, \`"MuzzleFlash"\` — одна вспышка.`,
+		en: `The entity's visual effects, for example: \`"noDraw"\` hides it, \`"dimLight"\` and \`"brightLight"\` light up around it, \`"muzzleFlash"\` flashes once.`,
+		ru: `Визуальные эффекты сущности, например: \`"noDraw"\` прячет её, \`"dimLight"\` и \`"brightLight"\` освещают вокруг, \`"muzzleFlash"\` — одна вспышка.`,
 	},
 	var_gravity: {
 		en: `The entity's gravity multiplier: \`1\` is normal, \`0.5\` is half. \`0\` also counts as normal.`,
@@ -330,8 +330,8 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		ru: `Положение глаз игрока относительно \`origin\`: \`(0, 0, 17)\` стоя, \`(0, 0, 12)\` присев.`,
 	},
 	var_button: {
-		en: `The buttons the player holds this frame, e.g. \`"Attack"\`, \`"Jump"\`, \`"Duck"\`, \`"Use"\`.`,
-		ru: `Кнопки, которые игрок держит в этом кадре, например \`"Attack"\`, \`"Jump"\`, \`"Duck"\`, \`"Use"\`.`,
+		en: `The buttons the player holds this frame, e.g. \`"attack"\`, \`"jump"\`, \`"duck"\`, \`"use"\`.`,
+		ru: `Кнопки, которые игрок держит в этом кадре, например \`"attack"\`, \`"jump"\`, \`"duck"\`, \`"use"\`.`,
 	},
 	var_impulse: {
 		en: `The player's impulse command: \`100\` is the flashlight, \`201\` the spray. The game clears it once it has handled it.`,
@@ -366,8 +366,8 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		ru: `Флаги появления сущности — биты, которые маппер отметил на карте; значение каждого зависит от classname.`,
 	},
 	var_flags: {
-		en: `The entity's state flags, for example \`"OnGround"\`, \`"Ducking"\`, \`"InWater"\`, \`"Frozen"\`, \`"FakeClient"\` for a bot, \`"KillMe"\` to be removed.`,
-		ru: `Флаги состояния сущности, например \`"OnGround"\`, \`"Ducking"\`, \`"InWater"\`, \`"Frozen"\`, \`"FakeClient"\` у бота, \`"KillMe"\` — на удаление.`,
+		en: `The entity's state flags, for example \`"onGround"\`, \`"ducking"\`, \`"inWater"\`, \`"frozen"\`, \`"fakeClient"\` for a bot, \`"killMe"\` to be removed.`,
+		ru: `Флаги состояния сущности, например \`"onGround"\`, \`"ducking"\`, \`"inWater"\`, \`"frozen"\`, \`"fakeClient"\` у бота, \`"killMe"\` — на удаление.`,
 	},
 	var_colormap: {
 		en: `The player's Half-Life colours, top in the low byte and bottom in the high one; for a player the engine sets it to his index.`,
@@ -655,8 +655,8 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		`,
 	},
 	m_bitsDamageType: {
-		en: `The kinds of damage the player took since the HUD was last told, e.g. \`"Fall"\`, \`"Bullet"\`, \`"Burn"\`; the game clears all but the lasting ones after the damage indicator is sent.`,
-		ru: `Виды урона, полученного игроком с последнего обновления HUD, например \`"Fall"\`, \`"Bullet"\`, \`"Burn"\`; отправив индикатор урона, игра оставляет только длительные.`,
+		en: `The kinds of damage the player took since the HUD was last told, e.g. \`"fall"\`, \`"bullet"\`, \`"burn"\`; the game clears all but the lasting ones after the damage indicator is sent.`,
+		ru: `Виды урона, полученного игроком с последнего обновления HUD, например \`"fall"\`, \`"bullet"\`, \`"burn"\`; отправив индикатор урона, игра оставляет только длительные.`,
 	},
 	m_flNextAttack: {
 		en: `The player's delay before any weapon can be used, in seconds; it counts down to \`0\` by itself. The game sets it while he switches weapons or reloads.`,
@@ -1062,16 +1062,16 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		ru: `Заряд фонарика игрока, от \`0\` до \`100\`. Запись сразу показывает новый заряд на его HUD.`,
 	},
 	m_afButtonLast: {
-		en: `The buttons the player held the frame before: \`["Jump"]\`.`,
-		ru: `Кнопки, которые игрок держал в прошлом кадре: \`["Jump"]\`.`,
+		en: `The buttons the player held the frame before: \`["jump"]\`.`,
+		ru: `Кнопки, которые игрок держал в прошлом кадре: \`["jump"]\`.`,
 	},
 	m_afButtonPressed: {
-		en: `The buttons the player pressed this frame: \`["Jump"]\`.`,
-		ru: `Кнопки, которые игрок нажал в этом кадре: \`["Jump"]\`.`,
+		en: `The buttons the player pressed this frame: \`["jump"]\`.`,
+		ru: `Кнопки, которые игрок нажал в этом кадре: \`["jump"]\`.`,
 	},
 	m_afButtonReleased: {
-		en: `The buttons the player let go this frame: \`["Jump"]\`.`,
-		ru: `Кнопки, которые игрок отпустил в этом кадре: \`["Jump"]\`.`,
+		en: `The buttons the player let go this frame: \`["jump"]\`.`,
+		ru: `Кнопки, которые игрок отпустил в этом кадре: \`["jump"]\`.`,
 	},
 	m_pentSndLast: {
 		en: `The sound area (\`env_sound\`) whose room effect is on the player.`,
@@ -1088,12 +1088,12 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 	m_fNewAmmo: unused(`The player's “new ammo to send” flag from Half-Life.`, `Флаг игрока «есть новые патроны для отправки» из Half-Life.`),
 	m_afPhysicsFlags: {
 		en: `
-			The player's physics state, a list of any of: \`"OnLadder"\`, \`"OnTrain"\`, \`"OnBarnacle"\`, \`"Ducking"\` - crouching down right now, \`"Using"\` - holding an object's use key, \`"Observer"\` - a spectator locked in place.
+			The player's physics state, a list of any of: \`"onLadder"\`, \`"onTrain"\`, \`"onBarnacle"\`, \`"ducking"\` - crouching down right now, \`"using"\` - holding an object's use key, \`"observer"\` - a spectator locked in place.
 
 			Pawn: \`PFLAG_*\`
 		`,
 		ru: `
-			Физическое состояние игрока, список, любые из: \`"OnLadder"\` — на лестнице, \`"OnTrain"\` — на поезде, \`"OnBarnacle"\` — схвачен барнаклом, \`"Ducking"\` — приседает прямо сейчас, \`"Using"\` — держит клавишу использования на объекте, \`"Observer"\` — закреплённый наблюдатель.
+			Физическое состояние игрока, список, любые из: \`"onLadder"\` — на лестнице, \`"onTrain"\` — на поезде, \`"onBarnacle"\` — схвачен барнаклом, \`"ducking"\` — приседает прямо сейчас, \`"using"\` — держит клавишу использования на объекте, \`"observer"\` — закреплённый наблюдатель.
 
 			Pawn: \`PFLAG_*\`
 		`,
@@ -1213,8 +1213,8 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		ru: `Броня, последней отправленная в HUD игрока; \`-1\` — игра отправит её заново.`,
 	},
 	m_iHideHUD: {
-		en: `The parts of the player's HUD that are hidden: \`["Money", "Timer"]\`; the game sends the change itself.`,
-		ru: `Скрытые части HUD игрока: \`["Money", "Timer"]\`; изменение игра отправляет сама.`,
+		en: `The parts of the player's HUD that are hidden: \`["money", "timer"]\`; the game sends the change itself.`,
+		ru: `Скрытые части HUD игрока: \`["money", "timer"]\`; изменение игра отправляет сама.`,
 	},
 	m_iClientHideHUD: {
 		en: `The hidden HUD parts last sent to the player; when they differ from \`hideHud\`, the game sends \`hideHud\`.`,
@@ -1522,12 +1522,12 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 	},
 	m_Weapon_iWeaponState: {
 		en: `
-			The weapon's modes, a list of any of: \`"UspSilenced"\` - the USP's silencer is on, \`"Glock18Burst"\` - the Glock fires bursts, \`"M4a1Silenced"\` - the M4A1's silencer is on, \`"EliteLeft"\` - the Elites fire the left gun next, \`"FamasBurst"\` - the FAMAS fires bursts, \`"ShieldDrawn"\` - the shield is up.
+			The weapon's modes, a list of any of: \`"uspSilenced"\` - the USP's silencer is on, \`"glock18Burst"\` - the Glock fires bursts, \`"m4a1Silenced"\` - the M4A1's silencer is on, \`"eliteLeft"\` - the Elites fire the left gun next, \`"famasBurst"\` - the FAMAS fires bursts, \`"shieldDrawn"\` - the shield is up.
 
 			Pawn: \`WPNSTATE_*\`
 		`,
 		ru: `
-			Режимы оружия, список, любые из: \`"UspSilenced"\` — глушитель на USP, \`"Glock18Burst"\` — Glock стреляет очередями, \`"M4a1Silenced"\` — глушитель на M4A1, \`"EliteLeft"\` — Elites следующим стреляют из левого, \`"FamasBurst"\` — FAMAS стреляет очередями, \`"ShieldDrawn"\` — щит поднят.
+			Режимы оружия, список, любые из: \`"uspSilenced"\` — глушитель на USP, \`"glock18Burst"\` — Glock стреляет очередями, \`"m4a1Silenced"\` — глушитель на M4A1, \`"eliteLeft"\` — Elites следующим стреляют из левого, \`"famasBurst"\` — FAMAS стреляет очередями, \`"shieldDrawn"\` — щит поднят.
 
 			Pawn: \`WPNSTATE_*\`
 		`,
