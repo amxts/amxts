@@ -107,13 +107,28 @@ const WAKE_IMPORT = 'env.co_wake';
 /**
  * What wamrc keeps for a failed call's stack (scripts/source-map.ts): each
  * function's frame with its index and the offset of the call it is in, or of
- * the trap - a store at each call, a push and a pop at each function, about
- * what a stack check costs. No values: with them WAMR's frames are no longer
- * the small ones. The map goes into the .aot with them, and so does the ABI
- * the plugin is compiled against, which the module checks before it loads it
+ * the trap - a store at each call, a push and a pop at each function. No
+ * values: with them WAMR's frames are no longer the small ones. A dev build's
+ * alone (`amxts dev`, a quick build): measured, the frames took a fifth to a
+ * third of a call-heavy plugin's time, so a full build keeps none, and an
+ * error there says its message - and a throw or an abort its place.
+ */
+const STACK_FLAGS = ['--enable-dump-call-stack', '--call-stack-features=bounds-checks,ip,func-idx,trap-ip'];
+
+/**
+ * The map goes into the .aot either way, and so does the ABI the plugin is
+ * compiled against, which the module checks before it loads it
  * (scripts/build-identity.ts).
  */
-const STACK_FLAGS = ['--enable-dump-call-stack', '--call-stack-features=bounds-checks,ip,func-idx,trap-ip', `--emit-custom-sections=${MAP_SECTION},${ABI_SECTION}`];
+const SECTIONS = `--emit-custom-sections=${MAP_SECTION},${ABI_SECTION}`;
+
+/**
+ * The CPU the machine code is for: a Pentium 4's, SSE2. LLVM's i386 left
+ * alone does fractions on the x87, where a number made whole - every `%`,
+ * every number given where a cell goes - costs several times as much. Every
+ * CPU a game server runs on has SSE2.
+ */
+const CPU = '--cpu=pentium4';
 
 /**
  * Where compilePlugin writes the Pawn include for a plugin's natives: beside
@@ -153,7 +168,9 @@ export function compileToMachineCode(plugin: Plugin, wasm: string, natives: Plug
 		'--target=i386',
 		`--target-abi=${TARGET_ABI[plugin.system ?? HOST_SYSTEM]}`,
 		`--native-signatures=${plugin.signatures}`,
-		...STACK_FLAGS,
+		...(plugin.quick ? STACK_FLAGS : []),
+		SECTIONS,
+		CPU,
 		...level,
 		'-o',
 		part,

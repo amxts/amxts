@@ -321,7 +321,12 @@ static Failure TakeFailure(int index, wasm_module_inst_t inst, const char *ex)
 
 	if (index >= 0 && (size_t)index < g_plugins.size())
 		failure.lines = StackLines(g_plugins[index], frames.empty() ? NULL : &frames[0], (uint32_t)frames.size());
-	if (aborted && failure.lines.empty())
+	// A full build keeps no frames: its lines name the call the host made, if
+	// anything, and the abort's own place is where the error is.
+	bool placed = false;
+	for (size_t i = 0; i < failure.lines.size() && !placed; i++)
+		placed = failure.lines[i].find(" (") != std::string::npos;
+	if (aborted && !placed)
 		failure.message += " (" + g_abortWhere + ")";
 
 	if (inst)

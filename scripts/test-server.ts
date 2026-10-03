@@ -22,7 +22,8 @@
 // logs as [config-core]. A line `// @log <text>` in a suite is text the
 // server's console must show while that suite runs, as it is - how a check
 // sees what reached the console, and how an error line a suite causes on
-// purpose is told from a real one.
+// purpose is told from a real one. A line `// @log-dev <text>` is one for a
+// --quick run alone: what only a dev build's stack frames show.
 //
 // --only <suite>[,<suite>...] builds, loads and checks only the files that
 // hold those suites, beside the plugins every run loads and the files that
@@ -194,6 +195,8 @@ async function startFtp(suites: Suite[]): Promise<void> {
 // What a suite is given after its command.
 const SUITE_ARGS: Record<string, () => string> = {
 	'time': () => String(Date.now()),
+	// Whether the plugins keep their stack frames: a dev build's do.
+	'errors': () => (quick ? 'dev' : ''),
 	// Quoted: the engine's console splits a word at a colon.
 	'fetch': () => (web ? `"${web.http}" "${web.https}"` : ''),
 	'net-request': () => (ftpServers ? `"${ftpServers.ftp.url}" "${ftpServers.sftp.url}" "${ftpServers.sftp.hostKey}"` : ''),
@@ -472,7 +475,8 @@ function discoverSuites(): { suites: Suite[]; plugins: string[]; pawn: string[];
 
 	for (const file of files) {
 		const source = readFileSync(join(suitesDir, file), 'utf-8');
-		const expectedLog = [...source.matchAll(/^\/\/ @log (.+)$/gm)].map(m => m[1].trim());
+		// `@log-dev`: what a dev build's stack frames alone show (--quick).
+		const expectedLog = [...source.matchAll(/^\/\/ @log(-dev)? (.+)$/gm)].filter(m => quick || !m[1]).map(m => m[2].trim());
 		const own = [...source.matchAll(/(?:addServerCommand(?:<\w+>)?|register_srvcmd)\(\s*["']amxts_test_(\w+)[\s"']/g)]
 			.map(([, tail]) => ({ name: tail.replace(/_/g, '-'), command: `amxts_test_${tail}`, expectedLog }));
 		const wanted = own.filter(suite => ONLY.length === 0 || ONLY.includes(suite.name));
