@@ -59,5 +59,11 @@ for (const optimize of [false, true]) {
 				if (!Object.is(got, x % y)) throw new Error(`${x} % ${y}: ${got}, JavaScript says ${x % y}`);
 			}
 		});
+
+		test('n % d at the top level is the same', async () => {
+			const { error, exports } = await probe({ 'probe.ts': 'let x: number = -4;\nconst atTop = x % 2;\nexport function top(): number { return atTop; }' }, optimize ? ['-O3'] : []);
+			expect(error).toBe('');
+			expect(Object.is(exports.top(), -0)).toBe(true);
+		});
 	});
 }
