@@ -248,7 +248,7 @@ Only one plugin on a server can give these natives: if another Pawn plugin in
 
 ## How the natives behave
 
-No Pawn limits: a key or a value is as long as it is
+No length limits: a key or a value is as long as it is
 written, a section keeps every entry, blocks nest as deep as they are
 written, any number of files loads. A number reads as `parseFloat` reads it
 (`1e5` is 100000) and is written as the number it is (`2.5`, not

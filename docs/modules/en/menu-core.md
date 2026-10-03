@@ -9,11 +9,6 @@ TypeScript plugin uses as `menus`, without an import line
 ([auto-imports](../../en/2.core/01.plugin.md#auto-imports)), and it gives Pawn plugins the
 `mc_*` natives of `menu_core.inc`.
 
-::: warning In progress
-menu-core is still being finished. It has been tried in game only a few
-times, and its behaviour may still change.
-:::
-
 ## From TypeScript
 
 A menu is an object: `create()` makes one, its methods fill it and open it,
@@ -433,8 +428,8 @@ before the plugin is saved.
   files that use it.
 
 The menu file is the one `amxts.config.ts` names (`menus.file`, `"menu"` by
-default), or any file that looks like a menu file. The extension is not on
-the Marketplace yet: install its `.vsix` with
+default), or any file that looks like a menu file. The extension is
+installed from its `.vsix`, with
 `code --install-extension amxts-vscode-<version>.vsix`, or in VS Code under
 **Extensions** → `...` → **Install from VSIX**.
 
@@ -480,7 +475,7 @@ way.
 
 ## How the natives behave
 
-- No Pawn limits: names, titles and placeholders are as long as they are
+- No length limits: names, titles and placeholders are as long as they are
   written, a menu keeps every item, the way back is as long as it gets, and
   a menu longer than 500 bytes (Cyrillic reaches it quickly) is sent whole.
 - `mc_get_menu_property_string(idx, MP_SECTION)` gives the menu's section.
