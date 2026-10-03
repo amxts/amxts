@@ -146,6 +146,14 @@ two at once), says how many.
 `addons/amxts` folder. `tests/code-style.test.ts` checks how plugin code
 reads: every finding names the file, the line and the rule.
 
+The `perf` server suite is a speed check: it measures a native, fields,
+the HUD's money, a vector, an event, whole and fractional arithmetic and a
+plugin's hot path against the same in Pawn (`tests/server/perf-pawn.sma`),
+and fails when TypeScript's time over Pawn's passes its limit (`LIMITS` in
+`tests/server/perf.ts`): the failure names the ratio, both times and the
+limit. A change to a hot path comes with its before and after; a limit
+moves on purpose, in the commit that moves the number.
+
 ## Documentation
 
 The plugin author's documentation is `docs/`, raw Markdown published on
