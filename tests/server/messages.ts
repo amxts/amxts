@@ -11,6 +11,7 @@ import { Checks } from "@amxts/core/check";
 
 /** The bot whose hidden HUD the suite changes: other players' HideWeapon is not his. */
 let watched = 0;
+/** The first HideWeapon the watched bot got since the suite cleared it. */
 let seen: HideHud[] = [];
 let rewritten: HideHud[] = [];
 let others = 0;
@@ -28,7 +29,7 @@ let deadOnBoard = "";
 let bar = "";
 
 server.addMessageListener("hideWeapon", (event) => {
-	if (event.player?.id == watched) seen = event.flags;
+	if (event.player?.id == watched && seen.length == 0) seen = event.flags;
 	event.flags = event.flags.concat(["crosshair"]);
 });
 server.addMessageListener("hideWeapon", (event) => {
@@ -72,9 +73,17 @@ async function run() {
 		return;
 	}
 
+	// The first HideWeapon after the change is the one it caused: a round
+	// that starts meanwhile respawns the bot, and the game shows his money
+	// and timer again in one more. A respawn before the game sent it changes
+	// the HUD back first, so the suite asks again.
 	watched = bot.id;
-	bot.hideHud = ["money", "timer"];
-	await sleep(500);
+	for (let tries = 0; tries < 3 && !(seen.includes("money") && seen.includes("timer")); tries++) {
+		seen = [];
+		bot.hideHud = ["money", "timer"];
+		for (let waits = 0; waits < 10 && seen.length == 0; waits++) await sleep(50);
+	}
+
 	check.expect(seen.includes("money") && seen.includes("timer"), `the game's HideWeapon is heard, its flags names (${seen.join(", ")})`).toBe(true);
 	check.expect(rewritten.includes("crosshair"), "a field written is what the next listener reads").toBe(true);
 	check.expect(others, "only HideWeapon reaches these listeners").toBe(0);
