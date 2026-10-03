@@ -1,0 +1,33 @@
+# The site, amxts.github.io, built again. Its docs at /docs are the latest
+# release's, read from that release line's branch (0.N.x), and its next docs
+# at /docs/next are main's: a push to a release line's branch - a fix for the
+# released version - and a release (publish.yml calls this) start the site's
+# types workflow, which builds the version's hover types again when the
+# branch moved, then deploys the site. A push to main reaches the site with
+# its daily build.
+#
+# Starting a workflow of another repository needs a token: the SITE_TOKEN
+# secret, a fine-grained token for amxts/amxts.github.io with Actions: read
+# and write. Without it this says so and does nothing.
+name: Site
+
+on:
+  push:
+    branches: ["*.*.x"]
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  site:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Build the site again
+        env:
+          GH_TOKEN: ${{ secrets.SITE_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::No SITE_TOKEN secret: the site is not built again until its daily build"
+            exit 0
+          fi
+          gh workflow run types.yml --repo "${{ github.repository_owner }}/amxts.github.io" --ref main
