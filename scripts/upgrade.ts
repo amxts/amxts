@@ -20,7 +20,9 @@ import type { Kind } from './upgrade-names';
 // or a game event named in the engine's words has the player's
 // (scripts/upgrade-names.ts: `player.account` is `player.money`, the event
 // `restartRound` is `newRound`), and one left out of the API is listed, to be
-// read with the natives. A game message is heard through its own method, by
+// read with the natives. A flag's name is lowerCamelCase where the code
+// says it is one: `player.buttons.includes("Jump")` is `includes("jump")`.
+// A game message is heard through its own method, by
 // its name in the player's words: `server.addEventListener("message:DeathMsg",
 // ...)` is `server.addMessageListener("death", ...)`. What is rewritten no
 // longer matches, so a second run changes nothing.
@@ -267,7 +269,7 @@ function declarationOf(source: ts.SourceFile): (name: ts.Identifier) => ts.Decla
 	const host = ts.createCompilerHost(options);
 	host.getSourceFile = name => name === source.fileName ? source : undefined;
 	const checker = ts.createProgram([source.fileName], options, host).getTypeChecker();
-	return name => checker.getSymbolAtLocation(name)?.declarations?.[0];
+	return name => (ts.isShorthandPropertyAssignment(name.parent) ? checker.getShorthandAssignmentValueSymbol(name.parent) : checker.getSymbolAtLocation(name))?.declarations?.[0];
 }
 
 /** The old names of fields and methods, renamed or out of the API. */
@@ -471,6 +473,145 @@ export function upgradeMessages(file: string, text: string): { text: string; cha
 	return { ...applyEdits(file, text, source, edits), left };
 }
 
+/** The flag families: a value of one, or a list of them, is a flag's name. */
+const FLAG_FAMILIES = ['HideHud', 'Button', 'Effect', 'EntityFlag', 'Damage', 'Access', 'ScoreStatus', 'WeaponState', 'PhysicsFlag', 'FlagName'];
+/** The fields that hold flags: `player.hideHud`, `entity.flags`, `event.damageType`. */
+const FLAG_FIELDS = new Set(['access', 'buttons', 'oldButtons', 'buttonLast', 'buttonPressed', 'buttonReleased', 'hideHud', 'hideHudSent', 'damageType', 'effects', 'flags', 'physicsFlags', 'weaponState']);
+/** The options that take flags: `bot.move({ buttons })`, `server.addCommand(..., { access })`. */
+const FLAG_OPTIONS = new Set(['access', 'buttons']);
+/** The calls that take flags, by the argument's place: `screen.hideHud(["Money"])`, `cmd(name, handler, "KICK")`. */
+const FLAG_ARGUMENTS: Record<string, number> = { hideHud: 0, heal: 1, cmd: 2, cmdWide: 2 };
+/** The array methods that take an element or a list of them: `buttons.includes("Jump")`. */
+const ELEMENT_ARGUMENTS = new Set(['includes', 'indexOf', 'lastIndexOf', 'push', 'unshift', 'concat']);
+const FLAG_TYPE = new RegExp(`\\b(?:${FLAG_FAMILIES.join('|')})\\b`);
+const FLAG_WORDS = new RegExp(`\\b(?:${[...new Set([...FLAG_FAMILIES, ...FLAG_FIELDS, ...Object.keys(FLAG_ARGUMENTS)])].join('|')})\\b`);
+const COMPARISONS = new Set([
+	ts.SyntaxKind.EqualsEqualsToken,
+	ts.SyntaxKind.EqualsEqualsEqualsToken,
+	ts.SyntaxKind.ExclamationEqualsToken,
+	ts.SyntaxKind.ExclamationEqualsEqualsToken,
+]);
+
+/**
+ * A flag's name as the API writes it, lowerCamelCase like every union value:
+ * `"Jump"` is `"jump"`, a command's `"LEVEL_A"` is `"levelA"`; null for a
+ * name already written so.
+ */
+function flagName(old: string, constant: boolean): string | null {
+	if (constant) return /^[A-Z][A-Z0-9_]*$/.test(old) ? old.toLowerCase().replace(/_([a-z0-9])/g, (_, next: string) => next.toUpperCase()) : null;
+	return /^[A-Z][a-z0-9]\w*$/.test(old) ? old[0].toLowerCase() + old.slice(1) : null;
+}
+
+/**
+ * A file's flag names brought to lowerCamelCase: `player.buttons.includes("Jump")`
+ * is `includes("jump")`. A string is a flag's name where the code says so
+ * without a type checker: assigned to a flag field (`player.hideHud =
+ * ["Money"]`) or an option (`{ buttons: ["Jump"] }`, `{ access: "Kick" }`),
+ * given to `includes`, `push` or `concat` of one, to `screen.hideHud`,
+ * `heal` or `cmd`, compared with an element of one (`flag != "Bomb"` in its
+ * `filter`, a `for of` over it, a `switch`), or held by a name annotated with
+ * a family (`const parts: HideHud[] = ["Money"]`, a parameter `button:
+ * Button`, and what the file's own function takes there). A name given where a
+ * flag goes is followed to the literal it was declared with; one the file
+ * does not say - a parameter, an import, a function's result - is listed.
+ */
+export function upgradeFlags(file: string, text: string): { text: string; changes: Change[]; left: Left[] } {
+	if (!FLAG_WORDS.test(text)) return { text, changes: [], left: [] };
+	const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+	const declaration = declarationOf(source);
+	const edits: Edit[] = [];
+	const left: Left[] = [];
+	const followed = new Set<ts.Node>();
+	const lineOf = (node: ts.Node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+
+	const callee = (node: ts.CallExpression) => ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : ts.isIdentifier(node.expression) ? node.expression.text : '';
+
+	/** Whether a list holds flags: a flag field, `accessOf`'s rights, a name annotated or declared as one, the same list filtered. */
+	const isFlags = (node: ts.Node): boolean => {
+		if (ts.isPropertyAccessExpression(node)) return FLAG_FIELDS.has(node.name.text);
+		if (ts.isCallExpression(node)) return callee(node) === 'accessOf' || (ts.isPropertyAccessExpression(node.expression) && SAME_ELEMENTS.has(node.expression.name.text) && isFlags(node.expression.expression));
+		const declared = ts.isIdentifier(node) ? declaration(node) : undefined;
+		return holdsFlags(declared) || (!!declared && ts.isVariableDeclaration(declared) && !!declared.initializer && isFlags(declared.initializer));
+	};
+
+	/** Whether a name holds a flag or a list of them: annotated with a family, or an element of a flag field in its callback or its `for of`. */
+	const holdsFlags = (declared: ts.Node | undefined): boolean => {
+		if (!declared || !(ts.isParameter(declared) || ts.isVariableDeclaration(declared))) return false;
+		if (declared.type) return FLAG_TYPE.test(declared.type.getText(source));
+		const owner = declared.parent;
+		if (ts.isParameter(declared)) {
+			const call = owner.parent;
+			return ts.isFunctionLike(owner) && owner.parameters[0] === declared && ts.isCallExpression(call) && call.arguments[0] === owner
+				&& ts.isPropertyAccessExpression(call.expression) && ELEMENT_CALLBACKS.has(call.expression.name.text) && isFlags(call.expression.expression);
+		}
+		return ts.isVariableDeclarationList(owner) && ts.isForOfStatement(owner.parent) && isFlags(owner.parent.expression);
+	};
+	const isFlag = (node: ts.Expression) =>
+		(ts.isIdentifier(node) && holdsFlags(declaration(node))) || (ts.isElementAccessExpression(node) && isFlags(node.expression));
+
+	/** A value where flags go: its strings rewritten, a name followed to its literal, what the file does not say listed. */
+	const value = (node: ts.Expression, constant = false): void => {
+		if (followed.has(node)) return;
+		followed.add(node);
+		if (ts.isStringLiteralLike(node)) {
+			const to = flagName(node.text, constant);
+			if (to) edits.push({ start: node.getStart(source) + 1, end: node.getEnd() - 1, with: to, from: node.text });
+		} else if (ts.isArrayLiteralExpression(node)) {
+			for (const element of node.elements) value(element, constant);
+		} else if (ts.isSpreadElement(node) || ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isNonNullExpression(node)) {
+			value(node.expression, constant);
+		} else if (ts.isConditionalExpression(node)) {
+			value(node.whenTrue, constant);
+			value(node.whenFalse, constant);
+		} else if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && SAME_ELEMENTS.has(node.expression.name.text)) {
+			value(node.expression.expression, constant);
+			if (node.expression.name.text === 'concat') {
+				for (const list of node.arguments) value(list, constant);
+			}
+		} else if (ts.isIdentifier(node)) {
+			const declared = declaration(node);
+			if (holdsFlags(declared)) return;
+			if (declared && ts.isVariableDeclaration(declared) && declared.initializer) value(declared.initializer, constant);
+			else left.push({ file, line: lineOf(node), why: `flag names are lowerCamelCase ("jump", not "Jump"): write the ones \`${node.text}\` holds so` });
+		} else if (!isFlags(node) && !isFlag(node)) {
+			left.push({ file, line: lineOf(node), why: `flag names are lowerCamelCase ("jump", not "Jump"): write the ones \`${node.getText(source)}\` gives so` });
+		}
+	};
+
+	const visit = (node: ts.Node) => {
+		ts.forEachChild(node, visit);
+		if (ts.isBinaryExpression(node)) {
+			const operator = node.operatorToken.kind;
+			if (operator === ts.SyntaxKind.EqualsToken && (isFlags(node.left) || isFlag(node.left))) value(node.right);
+			if (!COMPARISONS.has(operator)) return;
+			if (isFlag(node.left) && ts.isStringLiteralLike(node.right)) value(node.right);
+			if (isFlag(node.right) && ts.isStringLiteralLike(node.left)) value(node.left);
+		} else if ((ts.isVariableDeclaration(node) || ts.isParameter(node)) && node.initializer && node.type && holdsFlags(node)) {
+			value(node.initializer);
+		} else if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name) && FLAG_OPTIONS.has(node.name.text)) {
+			value(node.initializer);
+		} else if (ts.isShorthandPropertyAssignment(node) && FLAG_OPTIONS.has(node.name.text)) {
+			value(node.name);
+		} else if (ts.isCaseClause(node) && isFlag(node.parent.parent.expression)) {
+			value(node.expression);
+		} else if (ts.isCallExpression(node)) {
+			const name = callee(node);
+			const at = FLAG_ARGUMENTS[name];
+			if (at !== undefined && node.arguments[at]) value(node.arguments[at], name.startsWith('cmd'));
+			if (ELEMENT_ARGUMENTS.has(name) && ts.isPropertyAccessExpression(node.expression) && isFlags(node.expression.expression) && node.arguments[0]) value(node.arguments[0]);
+			const own = ts.isIdentifier(node.expression) ? declaration(node.expression) : undefined;
+			const fn = own && ts.isVariableDeclaration(own) ? own.initializer : own;
+			if (fn && ts.isFunctionLike(fn)) {
+				node.arguments.forEach((argument, i) => {
+					if (fn.parameters[i]?.type && holdsFlags(fn.parameters[i])) value(argument);
+				});
+			}
+		}
+	};
+	visit(source);
+	return { ...applyEdits(file, text, source, edits), left };
+}
+
 /** Folders that are not the project's code: what is installed, built or generated. */
 const SKIP = new Set(['node_modules', 'dist', '.amxts', '.git']);
 
@@ -498,10 +639,11 @@ export function upgradeProject(dir: string): { changes: Change[]; left: Left[] }
 		const handlers = upgradeHandlers(name, imports.text);
 		const names = upgradeNames(name, handlers.text);
 		const messages = upgradeMessages(name, names.text);
-		left.push(...http.left, ...handlers.left, ...names.left, ...messages.left);
-		if (messages.text === text) continue;
-		writeFileSync(file, messages.text);
-		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...names.changes, ...messages.changes);
+		const flags = upgradeFlags(name, messages.text);
+		left.push(...http.left, ...handlers.left, ...names.left, ...messages.left, ...flags.left);
+		if (flags.text === text) continue;
+		writeFileSync(file, flags.text);
+		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...names.changes, ...messages.changes, ...flags.changes);
 	}
 	return { changes, left };
 }

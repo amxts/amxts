@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 // @ts-ignore - bun:test types not available during type checking
 import { afterEach, expect, test } from 'bun:test';
 import { setProjectDir } from '../scripts/project';
-import { dropHttpImports, renamesFor, upgradeHandlers, upgradeMessages, upgradeNames, upgradeProject, upgradeText } from '../scripts/upgrade';
+import { dropHttpImports, renamesFor, upgradeFlags, upgradeHandlers, upgradeMessages, upgradeNames, upgradeProject, upgradeText } from '../scripts/upgrade';
 
 const HERE = process.cwd();
 const made: string[] = [];
@@ -300,4 +300,72 @@ test('the game\'s look-alike messages are upgraded to the one name that hears th
 		'server.addMessageListener("hint", onHint);',
 		'server.addMessageListener("hint", onHint);',
 	]);
+});
+
+test('a flag\'s name is lowerCamelCase where the code says it is one; the rest stays, what is not said is listed', () => {
+	const source = [
+		'import { given } from "./parts";',
+		'player.hideHud = ["Money", "Timer"];',
+		'player.hideHud.push("Flashlight");',
+		'if (player.buttons.includes("Jump") && player.flags.includes("OnGround")) jump(player);',
+		'player.hideHud = player.hideHud.filter(part => part != "Money");',
+		'event.flags = event.flags.concat(["Bomb"]);',
+		'bot.move({ forward: 250, buttons: ["Jump", "Duck"] });',
+		'server.addCommand("/kick", kick, { access: "Kick" });',
+		'player.screen.hideHud(["Money"]);',
+		'if (player.access.includes("LevelA")) give(player);',
+		'for (const state of weapon.weaponState) if (state == "UspSilenced") silenced = true;',
+		'switch (player.buttons[0]) { case "Attack2": break; }',
+		'const parts: HideHud[] = ["Crosshair"];',
+		'const buttons = ["Use"];',
+		'bot.move({ buttons });',
+		'function press(player: Player, button: Button = "Reload") { return player.buttons.includes(button); }',
+		'press(player, "Score");',
+		'cmd("amxts_x", handler, "LEVEL_A");',
+		'player.hideHud = given;',
+		'const title = "Money";',
+		'if (player.name == "Admin") server.join("Admin", { flags: "abc" });',
+		'const access = player.access;',
+		'const admin = access.length > 0 && !access.includes("User");',
+	].join('\n');
+
+	const { text, changes, left } = upgradeFlags('plugins/flags.ts', source);
+	expect(text).toBe([
+		'import { given } from "./parts";',
+		'player.hideHud = ["money", "timer"];',
+		'player.hideHud.push("flashlight");',
+		'if (player.buttons.includes("jump") && player.flags.includes("onGround")) jump(player);',
+		'player.hideHud = player.hideHud.filter(part => part != "money");',
+		'event.flags = event.flags.concat(["bomb"]);',
+		'bot.move({ forward: 250, buttons: ["jump", "duck"] });',
+		'server.addCommand("/kick", kick, { access: "kick" });',
+		'player.screen.hideHud(["money"]);',
+		'if (player.access.includes("levelA")) give(player);',
+		'for (const state of weapon.weaponState) if (state == "uspSilenced") silenced = true;',
+		'switch (player.buttons[0]) { case "attack2": break; }',
+		'const parts: HideHud[] = ["crosshair"];',
+		'const buttons = ["use"];',
+		'bot.move({ buttons });',
+		'function press(player: Player, button: Button = "reload") { return player.buttons.includes(button); }',
+		'press(player, "score");',
+		'cmd("amxts_x", handler, "levelA");',
+		'player.hideHud = given;',
+		'const title = "Money";',
+		'if (player.name == "Admin") server.join("Admin", { flags: "abc" });',
+		'const access = player.access;',
+		'const admin = access.length > 0 && !access.includes("user");',
+	].join('\n'));
+	expect(changes).toHaveLength(20);
+	expect(changes[0]).toEqual({ file: 'plugins/flags.ts', line: 2, from: 'Money', to: 'money' });
+	expect(left.map(each => each.line)).toEqual([19]);
+	expect(left[0].why).toContain('`given`');
+
+	const again = upgradeFlags('plugins/flags.ts', text);
+	expect(again.text).toBe(text);
+	expect(again.changes).toEqual([]);
+});
+
+test('a file without flags is left as it is', () => {
+	const source = 'const title = "Money";\nprint(player, "Jump");';
+	expect(upgradeFlags('plugins/plain.ts', source)).toEqual({ text: source, changes: [], left: [] });
 });
