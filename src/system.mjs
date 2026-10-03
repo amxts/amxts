@@ -13,7 +13,7 @@
 //
 // Plain JavaScript: the build (scripts/system.ts) and the amxts command, through
 // cli-api, both read it.
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
@@ -37,6 +37,52 @@ export const TARGET_ABI = { windows: 'msvc', linux: 'gnu' };
 
 /** The amxts module's file, as AMX Mod X on that system looks it up for `amxts_amxx` in modules.ini. @type {Record<System, string>} */
 export const MODULE_FILE = { windows: 'amxts_amxx.dll', linux: 'amxts_amxx_i386.so' };
+
+/**
+ * The files of a system's GitHub Release that a server runs: the name each is
+ * attached under, and where it goes under the game folder (cstrike). A `tool`
+ * is the compiler for `.ts` plugins written on the server, which a server has
+ * only when its kit put it there.
+ * @param {System} system
+ * @returns {{ asset: string, path: string, tool: boolean }[]} the module first, then the tools
+ */
+export function serverFiles(system) {
+	const suffix = `${system}-x64`;
+	return [
+		{ asset: MODULE_FILE[system], path: `addons/amxmodx/modules/${MODULE_FILE[system]}`, tool: false },
+		{ asset: executable(`amxts-compile-${suffix}`, system), path: `addons/amxts/tools/${executable('amxts-compile', system)}`, tool: true },
+		{ asset: executable(`wamrc-${suffix}`, system), path: `addons/amxts/tools/${executable('wamrc', system)}`, tool: true },
+	];
+}
+
+/** A system's release manifest, attached beside its files: the version, and each file's size and sha256. */
+export function manifestName(system) {
+	return `amxts-${system}.json`;
+}
+
+/** The server image of a version. */
+export function serverImage(version) {
+	return `ghcr.io/amxts/server:${version}`;
+}
+
+// The ABI the module loads plugins of, which the module carries as a string
+// (AMXTS_ABI in the generated runtime/src/embedded.h): `0.2.0+abi.1a2b3c4d`.
+const MODULE_ABI = /(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\+abi\.[0-9a-f]{8}/;
+
+/**
+ * The amxts release a module file is of, read from the ABI string it
+ * carries - the file is read, not loaded, so a module a running server holds
+ * is read as well. Null when there is no file or no such string.
+ * @param {string} file
+ * @returns {string | null} the version: `0.2.0`
+ */
+export function moduleVersion(file) {
+	try {
+		return MODULE_ABI.exec(readFileSync(file, 'latin1'))?.[1] ?? null;
+	} catch {
+		return null;
+	}
+}
 
 /**
  * `windows`, `win32`, `linux`, any case; null for anything else.

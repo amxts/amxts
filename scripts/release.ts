@@ -41,7 +41,7 @@ import { fileURLToPath } from 'node:url';
 import { releaseNotes } from './changelog';
 import { manifestName, releaseProblems } from './release-check';
 import { cutLine } from './release-line';
-import { executable, HOST_SYSTEM, MODULE_FILE, modulePath, SYSTEM_NAME, wamrcPath } from './system';
+import { HOST_SYSTEM, modulePath, serverFiles, SYSTEM_NAME, wamrcPath } from './system';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const args = process.argv.slice(2);
@@ -176,12 +176,12 @@ function sha256(file: string): string {
 
 /** The files a system's release carries, by the name they are attached under. */
 function releaseFiles(system: System): Record<string, string> {
-	const suffix = `${system}-x64`;
 	const kitWamrc = system === HOST_SYSTEM ? wamrcPath() : join(CORE, 'runtime/build/linux/wamrc');
+	const [module, compile, wamrc] = serverFiles(system);
 	return {
-		[MODULE_FILE[system]]: modulePath(system),
-		[executable(`amxts-compile-${suffix}`, system)]: join(CORE, 'dist-server', system, 'addons/amxts/tools', executable('amxts-compile', system)),
-		[executable(`wamrc-${suffix}`, system)]: kitWamrc,
+		[module.asset]: modulePath(system),
+		[compile.asset]: join(CORE, 'dist-server', system, compile.path),
+		[wamrc.asset]: kitWamrc,
 	};
 }
 

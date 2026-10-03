@@ -2,8 +2,9 @@
 // `@amxts/core/cli-api`, resolved as a project resolves it, and the bin a
 // project's package manager links, which starts the command.
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 // @ts-ignore - bun:test types not available during type checking
@@ -19,7 +20,7 @@ async function cliApi() {
 test('the cli-api: the core\'s version, the contract\'s, where the core is', async () => {
 	const api = await cliApi();
 	expect(api.version).toBe(require('@amxts/core/package.json').version);
-	expect(api.cliApi).toBe(4);
+	expect(api.cliApi).toBe(5);
 	expect(api.coreDir).toBe(CORE);
 });
 
@@ -78,4 +79,33 @@ test('the server\'s system: what a build compiles for, as `amxts info` shows it'
 	const api = await cliApi();
 	expect(api.serverSystem(['--os', 'linux'], {})).toEqual({ system: 'linux', from: 'flag' });
 	expect(api.describeSystem(api.serverSystem(['--os', 'windows'], {}))).toBe('Windows (--os)');
+});
+
+test('the release a server takes: its files, where they go, and the image', async () => {
+	const api = await cliApi();
+	const release = api.release('windows');
+	expect(release.url).toBe(process.env.AMXTS_RELEASE_URL || `https://github.com/amxts/amxts/releases/download/v${api.version}/`);
+	expect(release.manifest).toBe('amxts-windows.json');
+	expect(release.image).toBe(`ghcr.io/amxts/server:${api.version}`);
+	expect(release.files).toEqual([
+		{ asset: 'amxts_amxx.dll', path: 'addons/amxmodx/modules/amxts_amxx.dll', tool: false },
+		{ asset: 'amxts-compile-windows-x64.exe', path: 'addons/amxts/tools/amxts-compile.exe', tool: true },
+		{ asset: 'wamrc-windows-x64.exe', path: 'addons/amxts/tools/wamrc.exe', tool: true },
+	]);
+	expect(api.release('linux').files.map((file: { asset: string }) => file.asset)).toEqual(['amxts_amxx_i386.so', 'amxts-compile-linux-x64', 'wamrc-linux-x64']);
+});
+
+test('the release a module is of, read from the ABI string it carries', async () => {
+	const api = await cliApi();
+	const dir = mkdtempSync(join(tmpdir(), 'amxts-module-'));
+	try {
+		const file = join(dir, 'amxts_amxx.dll');
+		writeFileSync(file, Buffer.concat([Buffer.from([0x4D, 0x5A, 0, 0xFF]), Buffer.from('0.1.0+1290ba0540\0'), Buffer.from('0.2.0-rc.1+abi.254ad446\0')]));
+		expect(api.moduleVersion(file)).toBe('0.2.0-rc.1');
+		writeFileSync(file, 'no amxts here');
+		expect(api.moduleVersion(file)).toBeNull();
+		expect(api.moduleVersion(join(dir, 'missing.dll'))).toBeNull();
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

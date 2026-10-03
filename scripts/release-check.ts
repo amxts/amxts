@@ -2,7 +2,7 @@
 // and one commit. scripts/release.ts refuses to publish until this finds
 // nothing; tests/release.test.ts checks it.
 import type { System } from './system';
-import { SYSTEMS } from './system';
+import { manifestName, SYSTEMS } from './system';
 
 /** One file of a release, as its manifest lists it. */
 export interface ReleaseFile {
@@ -30,10 +30,7 @@ export interface Asset {
 	size: number;
 }
 
-/** The manifest's own file name. */
-export function manifestName(system: System): string {
-	return `amxts-${system}.json`;
-}
+export { manifestName };
 
 /**
  * What stands between this release and publishing it; empty when nothing does.

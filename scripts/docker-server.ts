@@ -10,6 +10,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import process from 'node:process';
+import { serverImage } from './system';
 import { c } from './ui';
 
 /**
@@ -17,7 +18,7 @@ import { c } from './ui';
  * the same release's wamrc, so a project runs on the image of its own core;
  * `bun run server:image` builds it from a checkout under the same name.
  */
-export const SERVER_IMAGE = `ghcr.io/amxts/server:${JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version}`;
+export const SERVER_IMAGE = serverImage(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
 
 /** Where the image takes a project from. */
 const PROJECT_MOUNT = '/project';

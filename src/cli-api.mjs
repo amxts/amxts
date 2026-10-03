@@ -7,17 +7,19 @@
 // compiles runs on Bun, as a task the command starts.
 //
 //   const core = await import('@amxts/core/cli-api');
-//   core.cliApi              4 - the contract below; the command checks it
+//   core.cliApi              5 - the contract below; the command checks it
 //   core.task('build', ['--deploy'])   { runtime: 'bun', args: [...] }
 //   core.includeSources().reapi        the ReAPI release the API is built from
 //   core.bunBinary()                   the Bun the tasks run on, installed with the core
 //   core.serverSystem([], env)         { system: 'linux', from: 'server', reason: 'hlds_linux' }
+//   core.release('windows')            where this version's server files are, and where they go
+//   core.moduleVersion(file)           '0.2.0': the release a server's module is of
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { wamrcPath } from './system.mjs';
+import { manifestName, serverFiles, serverImage, wamrcPath } from './system.mjs';
 
 /** The core's folder: the package this file ships in. */
 export const coreDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -32,7 +34,7 @@ export const version = String(pkg.version);
  * returns changes in a way an older command would misread; the command says
  * which of the two to update when they differ.
  */
-export const cliApi = 4;
+export const cliApi = 5;
 
 /** Whether the core runs from a checkout (a .git folder beside it) rather than from npm. */
 export const fromSource = existsSync(join(coreDir, '.git'));
@@ -80,6 +82,8 @@ const SCRIPTS = {
  *   Linux only, its console shown);
  * - `check` checks a module package before it is published;
  * - `upgrade` rewrites the project's code to this core's API, listing each change;
+ *   `--dry-run` writes nothing, `--report <file>` writes `{ changes, left }` there as JSON
+ *   and leaves what is left to do by hand to the caller to print;
  * - `typecheck` runs TypeScript over the project, after `prepare`.
  *
  * A failure is printed by the task itself and ends it with a non-zero code.
@@ -151,6 +155,33 @@ export function bunBinary() {
  * `describeSystem` writes it as the build reports it: "Linux (hlds_linux)".
  */
 export { describeSystem, serverSystem } from './system.mjs';
+
+/**
+ * This version's GitHub Release, for a server of one system: `url` is where
+ * its files are (AMXTS_RELEASE_URL - a URL or a folder - takes another),
+ * `manifest` the file there that lists each one's sha256, `files` the ones a
+ * server runs and where they go under its game folder (cstrike), the module
+ * first; a `tool` only where the server has one. `image` is the server image
+ * of this version, for a server in Docker.
+ *
+ * @param {'windows' | 'linux'} system
+ */
+export function release(system) {
+	return {
+		version,
+		url: process.env.AMXTS_RELEASE_URL || `https://github.com/amxts/amxts/releases/download/v${version}/`,
+		manifest: manifestName(system),
+		files: serverFiles(system),
+		image: serverImage(version),
+	};
+}
+
+/**
+ * The release a module file is of - `0.2.0`, read from the ABI string the
+ * module carries, without loading it - or null when there is no file or it
+ * carries none.
+ */
+export { moduleVersion } from './system.mjs';
 
 /** The TypeScript the core builds with: the command reads amxts.config.ts with its parser. */
 export function typescript() {

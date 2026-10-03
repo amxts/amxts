@@ -94,6 +94,10 @@ test('a project is rewritten in place - plugins, tests, a local module - and a s
 		writeFileSync(join(dir, path), text);
 	}
 
+	// A dry run lists the same changes and writes nothing.
+	expect(upgradeProject(dir, { write: false }).changes).toHaveLength(3);
+	expect(readFileSync(join(dir, 'plugins/myplugin.ts'), 'utf8')).toBe(files['plugins/myplugin.ts']);
+
 	const { changes } = upgradeProject(dir);
 	expect(changes.map(change => `${change.file}:${change.line} ${change.to}`)).toEqual([
 		'plugins/modules/greeter.ts:1 @amxts/core/fs',

@@ -2,7 +2,8 @@ import type { Kind } from './upgrade-names';
 // `amxts upgrade`: a project's code brought to the API of the core it has
 // installed.
 //
-//   npx amxts upgrade        rewrites the files, and lists every change
+//   npx amxts upgrade             rewrites the files, and lists every change
+//   npx amxts upgrade --dry-run   lists them and writes nothing
 //
 // An import of the core's API by `~/` - `~/natives`, `~/fs`, `~/facade` -
 // becomes one by the package's name (`@amxts/core/natives`, `@amxts/core`),
@@ -627,8 +628,8 @@ function codeFiles(dir: string, skip: Set<string>): string[] {
 	});
 }
 
-/** Rewrites the project in `dir`: every change, in the order of the files, and what is left to do by hand. */
-export function upgradeProject(dir: string): { changes: Change[]; left: Left[] } {
+/** Rewrites the project in `dir`: every change, in the order of the files, and what is left to do by hand. `write: false` only lists them. */
+export function upgradeProject(dir: string, { write = true } = {}): { changes: Change[]; left: Left[] } {
 	const project = loadProject(dir);
 	const ownFolder = resolve(project.pluginsDir) !== resolve(CORE_PLUGINS);
 	const renames = renamesFor(project.modules, place => ownFolder && existsSync(join(project.pluginsDir, place)));
@@ -646,7 +647,7 @@ export function upgradeProject(dir: string): { changes: Change[]; left: Left[] }
 		const flags = upgradeFlags(name, menus.text);
 		left.push(...http.left, ...handlers.left, ...names.left, ...messages.left, ...menus.left, ...flags.left);
 		if (flags.text === text) continue;
-		writeFileSync(file, flags.text);
+		if (write) writeFileSync(file, flags.text);
 		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...names.changes, ...messages.changes, ...menus.changes, ...flags.changes);
 	}
 	return { changes, left };
@@ -654,10 +655,18 @@ export function upgradeProject(dir: string): { changes: Change[]; left: Left[] }
 
 // Run as a task (scripts/run.ts names it in argv) or by itself.
 if (import.meta.main || resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
-	const { changes, left } = upgradeProject(process.cwd());
+	// `--dry-run` writes nothing; `--report <file>` hands the lists to the
+	// amxts command as JSON, which prints what is left to do in its summary.
+	const args = process.argv.slice(2);
+	const report = args.includes('--report') ? args[args.indexOf('--report') + 1] : undefined;
+	const { changes, left } = upgradeProject(process.cwd(), { write: !args.includes('--dry-run') });
 	for (const change of changes) console.log(`  ${c.dim(`${change.file}:${change.line}`)}  ${change.from} ${c.dim('→')} ${change.to}`);
-	const files = new Set(changes.map(change => change.file)).size;
-	if (changes.length) log.success(`upgraded ${changes.length} place(s) in ${files} file(s)`);
-	else if (!left.length) log.success('nothing to upgrade: the code already uses this core\'s API');
-	for (const each of left) log.warn(`${each.file}:${each.line}  ${each.why}`);
+	if (report) {
+		writeFileSync(report, JSON.stringify({ changes, left }));
+	} else {
+		const files = new Set(changes.map(change => change.file)).size;
+		if (changes.length) log.success(`upgraded ${changes.length} place(s) in ${files} file(s)`);
+		else if (!left.length) log.success('nothing to upgrade: the code already uses this core\'s API');
+		for (const each of left) log.warn(`${each.file}:${each.line}  ${each.why}`);
+	}
 }
