@@ -110,6 +110,32 @@ test('a project is rewritten in place - plugins, tests, a local module - and a s
 	expect(upgradeProject(dir)).toEqual({ changes: [], left: [] });
 });
 
+test('a menu\'s function is rewritten before the names in its body: the player it took is a Player', () => {
+	const dir = join(tmpdir(), 'amxts-upgrade-menu-names');
+	rmSync(dir, { recursive: true, force: true });
+	made.push(dir);
+	const files: Record<string, string> = {
+		'package.json': '{ "name": "myserver", "private": true }\n',
+		'amxts.config.ts': 'export default defineConfig({ modules: [] });\n',
+		'plugins/shop.ts': [
+			'const shop = menus.create("SHOP", { title: (player) => `$${player.account}` });',
+			'shop.addItem((player) => `Money ${player.account}`, { enabled: (player) => player.account >= 100 });',
+			'',
+		].join('\n'),
+	};
+	for (const [path, text] of Object.entries(files)) {
+		mkdirSync(dirname(join(dir, path)), { recursive: true });
+		writeFileSync(join(dir, path), text);
+	}
+
+	expect(upgradeProject(dir).left).toEqual([]);
+	expect(readFileSync(join(dir, 'plugins/shop.ts'), 'utf8')).toBe([
+		'const shop = menus.create("SHOP", { title: ({ player }) => `$${player.money}` });',
+		'shop.addItem({ title: ({ player }) => `Money ${player.money}`, enabled: ({ player }) => player.money >= 100 });',
+		'',
+	].join('\n'));
+});
+
 test('a command handler takes one object: the player by name, a function by its name too; one that reads the words is left', () => {
 	const source = [
 		'server.addCommand("/hp", (player) => print(player, "hp"));',

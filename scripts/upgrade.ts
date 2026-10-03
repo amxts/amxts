@@ -777,15 +777,17 @@ export function upgradeProject(dir: string, { write = true } = {}): { changes: C
 		const http = dropHttpImports(name, text);
 		const imports = http.text.includes('~/') ? upgradeText(name, http.text, renames) : { text: http.text, changes: [] };
 		const handlers = upgradeHandlers(name, imports.text);
-		const names = upgradeNames(name, handlers.text);
+		// A menu's functions first: `({ player }) =>` says what `player` is, so
+		// the names in their bodies are rewritten rather than listed.
+		const menus = upgradeMenus(name, handlers.text);
+		const names = upgradeNames(name, menus.text);
 		const events = upgradeEvents(name, names.text);
 		const messages = upgradeMessages(name, events.text);
-		const menus = upgradeMenus(name, messages.text);
-		const flags = upgradeFlags(name, menus.text);
-		left.push(...http.left, ...handlers.left, ...names.left, ...events.left, ...messages.left, ...menus.left, ...flags.left);
+		const flags = upgradeFlags(name, messages.text);
+		left.push(...http.left, ...handlers.left, ...menus.left, ...names.left, ...events.left, ...messages.left, ...flags.left);
 		if (flags.text === text) continue;
 		if (write) writeFileSync(file, flags.text);
-		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...names.changes, ...events.changes, ...messages.changes, ...menus.changes, ...flags.changes);
+		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...menus.changes, ...names.changes, ...events.changes, ...messages.changes, ...flags.changes);
 	}
 	return { changes, left };
 }
