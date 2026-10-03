@@ -16,15 +16,26 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import pkg from '../package.json';
 import * as tracked from './tracked-fs';
+
+/**
+ * The version the core builds as: its package.json's, or AMXTS_AS_VERSION's.
+ * `bun run publish:local --as 0.2.0` stages the packages as another version
+ * than the checkout's; the modules it compiles for them, and a module built
+ * for a server that runs their plugins, are of that version only with it set.
+ */
+export function coreVersion(): string {
+	return process.env.AMXTS_AS_VERSION || pkg.version;
+}
 
 /** This checkout's build: the version, and the commit when git knows it. */
 export function buildIdentity(): string {
 	const git = spawnSync('git', ['rev-parse', '--short=10', 'HEAD'], { encoding: 'utf-8' });
 	const commit = git.status === 0 ? git.stdout.trim() : '';
-	return commit ? `${pkg.version}+${commit}` : pkg.version;
+	return commit ? `${coreVersion()}+${commit}` : coreVersion();
 }
 
 /** A string the generated module carries (`#define <name> "..."`), or null before `bun run generate`. */
@@ -99,5 +110,5 @@ export function abiIdentity(): string {
 	const imports = tracked.readdirSync(plugins).filter(file => file.endsWith('.ts')).flatMap(file => importsOf(tracked.readFileSync(join(plugins, file), 'utf8')));
 	const natives = tracked.readFileSync(join(CORE, 'runtime/natives.txt'), 'utf8').split(/\r?\n/).filter(Boolean);
 	const hash = createHash('sha256').update([`revision ${ABI_REVISION}`, ...imports.sort(), ...natives.sort()].join('\n')).digest('hex');
-	return `${pkg.version}+abi.${hash.slice(0, 8)}`;
+	return `${coreVersion()}+abi.${hash.slice(0, 8)}`;
 }

@@ -46,6 +46,18 @@ test('the ABI is the version and a hash, the same on every call', () => {
 	expect(abiIdentity()).toBe(abiIdentity());
 });
 
+test('AMXTS_AS_VERSION builds as another version: the same commit and the same hash', () => {
+	const build = buildIdentity();
+	const abi = abiIdentity();
+	process.env.AMXTS_AS_VERSION = '9.8.7';
+	try {
+		expect(buildIdentity()).toBe(build.replace(pkg.version, '9.8.7'));
+		expect(abiIdentity()).toBe(abi.replace(pkg.version, '9.8.7'));
+	} finally {
+		delete process.env.AMXTS_AS_VERSION;
+	}
+});
+
 test('an import is its name and its types: a parameter renamed is the same ABI', () => {
 	const code = [
 		'@external("env", "ent_get")         declare function _entGet(id: i32, offset: i32): i32;',

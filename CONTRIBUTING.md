@@ -135,6 +135,13 @@ its own, makes a project with `npx create-amxts`, builds and tests it and
 runs it on the server image in Docker; it needs both systems' release files
 in `dist-release/` (`bun run release:linux --no-upload --dry-run`, and
 `release:windows`'s), and CI runs it on a tag before the release.
+`bun run publish:local` publishes them to a local registry on
+`http://localhost:4873/` and leaves it running (`--reset` empties it,
+`--stop` stops it); `--as 0.2.0` stages them all as that version, the
+checkouts unchanged and the earlier releases copied from npm beside them,
+to try `amxts upgrade` before a release. A server runs
+their plugins with a module built as that version:
+`AMXTS_AS_VERSION=0.2.0 bun run generate`, then the module.
 
 The suites run with `--smol`; a full run takes about 1.2 GB of memory, and
 under 2 GB when it compiles everything, from an empty compile cache (CI);

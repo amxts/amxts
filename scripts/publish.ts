@@ -5,12 +5,23 @@
 //   bun run publish:npm [--otp <code>]  pack them and publish them to npm, in order
 //   bun run publish:npm --only <names>  pack them all, publish the ones named (comma-separated)
 //   bun run publish:local [--reset]     pack them and publish them to a local registry (Verdaccio)
+//   bun run publish:local --as 0.2.0    the same, every package staged as that version
 //   bun run publish:local --stop        stop the local registry
 //
 // The packages, in order: wamrc for each system, the core, the official
 // modules, the command and create-amxts. The core is this folder; the others
 // are checked out beside it: ../amxts-cli and ../amxts-modules/<name>. All of
 // them share the core's version.
+//
+// --as <version>, for the local registry only, stages them as another
+// version than the checkouts have - to try `amxts upgrade` from the release
+// before it, with nothing in the repositories changed: each package.json's
+// version, the links between them (`^<version>`), the command's CORE_RANGE,
+// and the modules' prebuilt plugins, compiled with AMXTS_AS_VERSION
+// (scripts/build-identity.ts) so they carry that version's ABI. A server
+// runs them with a module built with AMXTS_AS_VERSION too. The releases npm
+// has before it are copied into the local registry, where the @amxts
+// packages live alone: a project of the earlier release installs there.
 //
 // A package is packed from a copy in dist-npm/stage/: the files `npm pack`
 // takes from its folder, and its package.json with every `file:` link to one
@@ -86,7 +97,10 @@ const WINDOWS = process.platform === 'win32';
 /** A GitHub Actions job that may ask for an OIDC token: npm's trusted publishing. */
 const TRUSTED = Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
 
-const VERSION = String(readJson(join(CORE, 'package.json')).version);
+/** The checkouts' version, which every package has to have. */
+const SOURCE_VERSION = String(readJson(join(CORE, 'package.json')).version);
+/** The version the packages go out as: the checkouts', or --as's. */
+const VERSION = option(process.argv, '--as') ?? SOURCE_VERSION;
 
 interface Package {
 	name: string;
@@ -190,17 +204,21 @@ function warn(text: string) {
 /**
  * A package.json as it is published: every `file:` or `link:` spec of one of
  * these packages is `^<version>`, and every other spec of one of them must
- * already be that - the packages share one version.
+ * already be that - the packages share one version. With --as, the version
+ * and those specs are --as's.
  */
 function publishedManifest(manifest: any) {
 	const out = structuredClone(manifest);
-	if (out.version !== VERSION) throw new PublishError(`${out.name} is ${out.version}, the core is ${VERSION}: the packages share one version`);
+	if (out.version !== SOURCE_VERSION) throw new PublishError(`${out.name} is ${out.version}, the core is ${SOURCE_VERSION}: the packages share one version`);
+	out.version = VERSION;
 	for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
 		for (const [name, spec] of Object.entries<string>(out[field] ?? {})) {
-			const local = /^(?:file|link):/.test(spec);
-			if (local && !NAMES.has(name)) throw new PublishError(`${out.name}: ${field} ${name} is ${spec}, a folder that is not one of the packages`);
-			if (local) out[field][name] = `^${VERSION}`;
-			else if (NAMES.has(name) && spec !== `^${VERSION}`) throw new PublishError(`${out.name}: ${field} ${name} is ${spec}, not ^${VERSION}`);
+			if (!NAMES.has(name)) {
+				if (/^(?:file|link):/.test(spec)) throw new PublishError(`${out.name}: ${field} ${name} is ${spec}, a folder that is not one of the packages`);
+				continue;
+			}
+			if (!/^(?:file|link):/.test(spec) && spec !== `^${SOURCE_VERSION}`) throw new PublishError(`${out.name}: ${field} ${name} is ${spec}, not ^${SOURCE_VERSION}`);
+			out[field][name] = `^${VERSION}`;
 		}
 	}
 	return out;
@@ -219,7 +237,7 @@ function wamrcBinaries(folder: string, strict: boolean): Record<System, string> 
 		const listed = manifest.files.find(each => each.name === WAMRC_ASSET[system]);
 		if (!listed || listed.sha256 !== sha256(file)) throw new PublishError(`${file} is not the one ${manifestFile} lists`);
 		const problems = [
-			manifest.version !== VERSION && `it is from ${manifest.version}, the packages are ${VERSION}`,
+			manifest.version !== SOURCE_VERSION && `it is from ${manifest.version}, the packages are ${SOURCE_VERSION}`,
 			manifest.dirty && 'it was built from a working tree with uncommitted changes',
 		].filter(Boolean);
 		for (const problem of problems) {
@@ -329,6 +347,18 @@ interface Staged {
 	manifest: any;
 }
 
+/** Where the command says which cores it takes: CORE_RANGE, the version's own. */
+const CORE_RANGE_FILE = 'src/core.mjs';
+const coreRange = (code: string) => code.match(/CORE_RANGE = '([^']+)'/)?.[1];
+
+/** The command's addition: the cores of the version it goes out as - with --as, of that one. */
+function stageCli(stage: string) {
+	const file = join(stage, CORE_RANGE_FILE);
+	const code = readFileSync(file, 'utf8').replace(`CORE_RANGE = '^${SOURCE_VERSION}'`, `CORE_RANGE = '^${VERSION}'`);
+	if (coreRange(code) !== `^${VERSION}`) throw new PublishError(`the staged command's CORE_RANGE is ${coreRange(code)}, not ^${VERSION}`);
+	writeFileSync(file, code);
+}
+
 /** Copies one package into its stage, with what it gets besides its own files. */
 function stage(pkg: Package, wamrc: Record<System, string>): Staged {
 	const dir = join(STAGE, pkg.name.replace('/', '__'));
@@ -336,6 +366,7 @@ function stage(pkg: Package, wamrc: Record<System, string>): Staged {
 	if (pkg.name !== manifest.name) throw new PublishError(`${pkg.dir} is ${manifest.name}, not ${pkg.name}`);
 	if (pkg.wamrc) stageWamrc(dir, pkg.wamrc, wamrc[pkg.wamrc]);
 	if (pkg.dir === CORE) stageCore(dir, manifest);
+	if (pkg.name === '@amxts/cli') stageCli(dir);
 	writeJson(join(dir, 'package.json'), manifest);
 	return { name: pkg.name, dir, manifest };
 }
@@ -347,7 +378,7 @@ function stage(pkg: Package, wamrc: Record<System, string>): Staged {
  * them: one of its own in the system's temporary folder, outside the
  * checkouts, the staged modules in its node_modules, none of this machine's
  * AMXTS_ settings, and `wamrc` the release's. Either system's wamrc writes
- * either system's .aot.
+ * either system's .aot. The core compiles them as the version they go out as.
  */
 function prebuildModules(modules: Staged[], wamrc: string) {
 	const project = join(tmpdir(), 'amxts-prebuilt');
@@ -357,7 +388,7 @@ function prebuildModules(modules: Staged[], wamrc: string) {
 	writeJson(join(project, 'package.json'), { name: 'amxts-prebuilt', private: true });
 	writeFileSync(join(project, 'amxts.config.ts'), `export default defineConfig({ modules: ${JSON.stringify(modules.map(each => each.name))} });\n`);
 	const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('AMXTS_')));
-	run(process.execPath, [join(CORE, 'scripts/prebuilt.ts')], { cwd: project, env: { ...env, AMXTS_WAMRC: wamrc } });
+	run(process.execPath, [join(CORE, 'scripts/prebuilt.ts')], { cwd: project, env: { ...env, AMXTS_WAMRC: wamrc, AMXTS_AS_VERSION: VERSION } });
 	for (const each of modules) {
 		cpSync(join(project, 'node_modules', each.name, PREBUILT_DIR), join(each.dir, PREBUILT_DIR), { recursive: true });
 		each.manifest.files = [...each.manifest.files, PREBUILT_DIR];
@@ -407,8 +438,8 @@ function packAll(options: { strict: boolean; wamrcFolder?: string; skipGenerate:
 	}
 	// A project asks for the cores in the command's range: the version's own.
 	const cli = PACKAGES.find(pkg => pkg.name === '@amxts/cli')!;
-	const range = readFileSync(join(cli.dir, 'src/core.mjs'), 'utf8').match(/CORE_RANGE = '([^']+)'/)?.[1];
-	if (range !== `^${VERSION}`) throw new PublishError(`the command's CORE_RANGE is ${range}, not ^${VERSION}`);
+	const range = coreRange(readFileSync(join(cli.dir, CORE_RANGE_FILE), 'utf8'));
+	if (range !== `^${SOURCE_VERSION}`) throw new PublishError(`the command's CORE_RANGE is ${range}, not ^${SOURCE_VERSION}`);
 	const wamrc = wamrcFor(options.strict, options.wamrcFolder);
 	for (const system of SYSTEMS) console.log(`wamrc for ${system}: ${wamrc[system]}`);
 	prepareCore(options.skipGenerate);
@@ -433,10 +464,40 @@ function packAll(options: { strict: boolean; wamrcFolder?: string; skipGenerate:
 
 // --- where it goes ------------------------------------------------------
 
-/** Whether a registry has this package at this version. */
-function has(name: string, registry: string) {
-	const found = run('npm', ['view', `${name}@${VERSION}`, 'version', '--registry', registry], { quiet: true, allowFail: true });
-	return found.ok && found.stdout.trim() === VERSION;
+/** Whether a registry has a package at a version: --as's, or the one given. */
+function has(name: string, registry: string, version = VERSION) {
+	const found = run('npm', ['view', `${name}@${version}`, 'version', '--registry', registry], { quiet: true, allowFail: true });
+	return found.ok && found.stdout.trim() === version;
+}
+
+const NPM_REGISTRY = 'https://registry.npmjs.org/';
+
+/** Whether one version comes before another: `0.1.0` before `0.2.0`; a pre-release tag is left out. */
+function before(version: string, other: string) {
+	const [a, b] = [version, other].map(each => each.split('-')[0].split('.').map(Number));
+	return (a[0] - b[0] || a[1] - b[1] || a[2] - b[2]) < 0;
+}
+
+/**
+ * With --as, the releases npm has before that version, copied into the local
+ * registry: the @amxts packages live only there, so a project of the release
+ * on npm finds its own packages there too, and `amxts upgrade` moves it to
+ * --as's. They go under the tag `earlier`, which leaves `latest` --as's.
+ */
+function copyEarlierReleases(names: string[], extra: string[]) {
+	const dir = join(OUT, 'earlier');
+	rmSync(dir, { recursive: true, force: true });
+	mkdirSync(dir, { recursive: true });
+	for (const name of names) {
+		const listed = run('npm', ['view', name, 'versions', '--json', '--registry', NPM_REGISTRY], { quiet: true, allowFail: true });
+		if (!listed.ok) continue;
+		const versions = [JSON.parse(listed.stdout)].flat().filter((version: string) => before(version, VERSION) && !has(name, LOCAL_REGISTRY, version));
+		for (const version of versions) {
+			const packed = npmPack(dir, [`${name}@${version}`, '--pack-destination', dir, '--registry', NPM_REGISTRY]);
+			run('npm', ['publish', join(dir, packed.filename), '--tag', 'earlier', '--access', 'public', '--ignore-scripts', '--registry', LOCAL_REGISTRY, ...extra], { quiet: true });
+			console.log(`copied ${name}@${version} from npm`);
+		}
+	}
 }
 
 /** Publishes the packs in order; stops at the first failure and says what went out. */
@@ -595,8 +656,9 @@ async function publishLocal(options: { reset: boolean; wamrcFolder?: string; ski
 		clearNpxCache();
 	}
 	await startRegistry(options.reset);
-	const token = await localToken();
-	publishAll(packs, LOCAL_REGISTRY, [`--${LOCAL_REGISTRY.replace(/^http:/, '')}:_authToken=${token}`]);
+	const auth = [`--${LOCAL_REGISTRY.replace(/^http:/, '')}:_authToken=${await localToken()}`];
+	if (VERSION !== SOURCE_VERSION) copyEarlierReleases(packs.map(each => each.name), auth);
+	publishAll(packs, LOCAL_REGISTRY, auth);
 }
 
 /** The packages --only names, checked; null without it - all of them. */
@@ -615,6 +677,10 @@ function option(args: string[], name: string) {
 
 async function main(args: string[]) {
 	const [command] = args;
+	if (VERSION !== SOURCE_VERSION) {
+		if (command !== 'local') throw new PublishError('--as is for the local registry only: npm gets the version the checkouts have');
+		if (!/^\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?$/i.test(VERSION)) throw new PublishError(`--as ${VERSION}: a version, such as 0.2.0`);
+	}
 	const wamrcFolder = option(args, '--wamrc');
 	const skipGenerate = args.includes('--skip-generate');
 	if (command === 'npm' && args.includes('--dry-run')) {
@@ -625,12 +691,12 @@ async function main(args: string[]) {
 		const wanted = onlyNames(option(args, '--only'));
 		const packs = packAll({ strict: true, wamrcFolder, skipGenerate }).filter(pack => !wanted || wanted.includes(pack.name));
 		const otp = option(args, '--otp');
-		publishAll(packs, 'https://registry.npmjs.org/', TRUSTED ? ['--provenance'] : otp ? ['--otp', otp] : []);
+		publishAll(packs, NPM_REGISTRY, TRUSTED ? ['--provenance'] : otp ? ['--otp', otp] : []);
 	} else if (command === 'local' && args.includes('--stop')) {
 		console.log(stopRegistry() ? 'the local registry is stopped' : 'no local registry of this script is running');
 	} else if (command === 'local') {
 		await publishLocal({ reset: args.includes('--reset'), wamrcFolder, skipGenerate });
-		console.log([
+		const lines = [
 			'',
 			`The packages are in the local registry, ${LOCAL_REGISTRY}. Try them as a user, in a folder outside the repositories,`,
 			'with every install of that shell going to it:',
@@ -644,9 +710,17 @@ async function main(args: string[]) {
 			'',
 			'After --reset, clear npm\'s cache of the old packages too (Bun\'s is cleared): npm cache clean --force',
 			'Stop the registry: bun run publish:local --stop',
-		].join('\n'));
+		];
+		if (VERSION !== SOURCE_VERSION) {
+			lines.push(
+				'',
+				`The packages are ${VERSION}, the checkouts ${SOURCE_VERSION}: a server loads their plugins with a module built as ${VERSION} -`,
+				`AMXTS_AS_VERSION=${VERSION} bun run generate, then build the module; bun run generate and a build again take it back to ${SOURCE_VERSION}.`,
+			);
+		}
+		console.log(lines.join('\n'));
 	} else {
-		throw new PublishError('bun run publish:npm [--dry-run] [--otp <code>] [--only <names>] | bun run publish:local [--reset | --stop]; both take --wamrc <folder> and --skip-generate');
+		throw new PublishError('bun run publish:npm [--dry-run] [--otp <code>] [--only <names>] | bun run publish:local [--reset | --stop] [--as <version>]; both take --wamrc <folder> and --skip-generate');
 	}
 }
 

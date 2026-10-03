@@ -47,6 +47,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
+import { coreVersion } from './build-identity';
 import { compileToMachineCode, compileToWasm } from './compile';
 import { codeFiles } from './compile-cache';
 import { includeForward, nativesBeside } from './plugin-natives';
@@ -153,7 +154,7 @@ function coreHash(): string {
 /** The core or a module package the project has, by name, as a prebuilt module is checked against it. */
 function installed(name: string, sources: Sources): { version: string; dir: string; hash: () => string } | null {
 	if (name === CORE_NAME) {
-		return { version: String(JSON.parse(readFileSync(join(CORE_DIR, 'package.json'), 'utf8')).version), dir: CORE_DIR, hash: coreHash };
+		return { version: coreVersion(), dir: CORE_DIR, hash: coreHash };
 	}
 	const pkg = sources.project.packages.find(each => each.name === name);
 	return pkg ? { version: pkg.version, dir: pkg.dir, hash: () => packageHash(pkg) } : null;
