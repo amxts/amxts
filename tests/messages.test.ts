@@ -104,7 +104,7 @@ test('ScoreAttrib\'s flags, VGUIMenu\'s menu and Damage\'s origin by name and as
 
 	// SCORE_STATUS_DEAD | SCORE_STATUS_BOMB: the bomb is taken off.
 	expect(server.sendMessage('ScoreAttrib', [alice.id, 1 | 2]).args).toEqual([alice.id, 1]);
-	expect(server.log).toContain('attrib Alice Dead,Bomb');
+	expect(server.log).toContain('attrib Alice dead,bomb');
 	// VGUI_Menu_Team is 2, VGUI_Menu_Buy 28.
 	expect(server.sendMessage('VGUIMenu', [2, 0x3FF, -1, 0, ' '], { types: [BYTE, SHORT, BYTE, BYTE, STRING] }).prevented).toBe(true);
 	expect(server.sendMessage('VGUIMenu', [28, 0x3FF, -1, 0, ' '], { types: [BYTE, SHORT, BYTE, BYTE, STRING] }).prevented).toBe(false);

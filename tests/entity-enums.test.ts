@@ -69,5 +69,5 @@ test('masks are lists of names; weapons keep the suit bit', async () => {
 	expect(alice.get('var_weapons')).toBe((1 << 31) | (1 << 29) | (1 << 16));
 	// PFLAG_ONLADDER | PFLAG_DUCKING, then push writes PFLAG_USING.
 	expect(alice.get('m_afPhysicsFlags')).toBe(1 | 8 | 16);
-	expect(server.log).toContain('physics OnLadder,Ducking,Using');
+	expect(server.log).toContain('physics onLadder,ducking,using');
 });
