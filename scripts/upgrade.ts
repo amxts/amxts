@@ -24,8 +24,10 @@ import type { Kind } from './upgrade-names';
 // says it is one: `player.buttons.includes("Jump")` is `includes("jump")`.
 // A game message is heard through its own method, by
 // its name in the player's words: `server.addEventListener("message:DeathMsg",
-// ...)` is `server.addMessageListener("death", ...)`. What is rewritten no
-// longer matches, so a second run changes nothing.
+// ...)` is `server.addMessageListener("death", ...)`. A menu-core menu's
+// functions take one object, the menu's context, and an item is one object
+// with its title (scripts/upgrade-menus.ts). What is rewritten no longer
+// matches, so a second run changes nothing.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +35,7 @@ import ts from 'typescript';
 import { MESSAGE_NAMES } from './client-messages';
 import { CORE_ENTRIES, CORE_PLUGINS, loadProject } from './project';
 import { c, log } from './ui';
+import { upgradeMenus } from './upgrade-menus';
 import { COMMON, EVENTS, HIDDEN, HIDDEN_EVENTS, RENAMED } from './upgrade-names';
 
 /** The old spelling of a specifier and the new one. */
@@ -218,7 +221,7 @@ export function upgradeHandlers(file: string, text: string): { text: string; cha
 }
 
 /** A piece of a file's text to replace: where, with what, and what it was. */
-interface Edit {
+export interface Edit {
 	start: number;
 	end: number;
 	with: string;
@@ -226,7 +229,7 @@ interface Edit {
 }
 
 /** The text with its edits made - from the end, so every earlier position stays where it was - and each as a change. */
-function applyEdits(file: string, text: string, source: ts.SourceFile, edits: Edit[]): { text: string; changes: Change[] } {
+export function applyEdits(file: string, text: string, source: ts.SourceFile, edits: Edit[]): { text: string; changes: Change[] } {
 	let out = text;
 	for (const edit of [...edits].sort((a, b) => b.start - a.start)) out = out.slice(0, edit.start) + edit.with + out.slice(edit.end);
 	return {
@@ -639,11 +642,12 @@ export function upgradeProject(dir: string): { changes: Change[]; left: Left[] }
 		const handlers = upgradeHandlers(name, imports.text);
 		const names = upgradeNames(name, handlers.text);
 		const messages = upgradeMessages(name, names.text);
-		const flags = upgradeFlags(name, messages.text);
-		left.push(...http.left, ...handlers.left, ...names.left, ...messages.left, ...flags.left);
+		const menus = upgradeMenus(name, messages.text);
+		const flags = upgradeFlags(name, menus.text);
+		left.push(...http.left, ...handlers.left, ...names.left, ...messages.left, ...menus.left, ...flags.left);
 		if (flags.text === text) continue;
 		writeFileSync(file, flags.text);
-		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...names.changes, ...messages.changes, ...flags.changes);
+		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...names.changes, ...messages.changes, ...menus.changes, ...flags.changes);
 	}
 	return { changes, left };
 }

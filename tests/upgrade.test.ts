@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, expect, test } from 'bun:test';
 import { setProjectDir } from '../scripts/project';
 import { dropHttpImports, renamesFor, upgradeFlags, upgradeHandlers, upgradeMessages, upgradeNames, upgradeProject, upgradeText } from '../scripts/upgrade';
+import { upgradeMenus } from '../scripts/upgrade-menus';
 
 const HERE = process.cwd();
 const made: string[] = [];
@@ -300,6 +301,112 @@ test('the game\'s look-alike messages are upgraded to the one name that hears th
 		'server.addMessageListener("hint", onHint);',
 		'server.addMessageListener("hint", onHint);',
 	]);
+});
+
+test('a menu-core item is one object, and every function of a menu takes the menu\'s context', () => {
+	const source = [
+		'const shop = menus.create("SHOP", { title: (player) => `Shop, ${player.name}`, activeWhen: player => player.isAlive });',
+		'shop.addItem("Armor", { onSelect: buyArmor });',
+		'shop.addItem((player) => `Heal (${player.health} HP)`, { visible: (player, target) => player.isAlive, onSelect: (player, target) => heal(player) });',
+		'shop.addItem("Close", { action: "CLOSE_MENU" });',
+		'shop.addFixedItem(7, "Back");',
+		'shop.addItem("Helmet", {',
+		'\tenabled: [{ when: (player) => player.armor < 100, message: (player) => `${player.armor}` }],',
+		'\tonSelect: (player) => {',
+		'\t\tplayer.armor = 100;',
+		'\t},',
+		'});',
+		'shop.show(player, { target: bob.id });',
+		'const core = new Menu("Core");',
+		'core.addItem({ title: "Wave", onSelect: ({ player }) => heal(player) });',
+		'player.addItem(knife);',
+		'function buyArmor(player: Player) {}',
+		'function heal(player: Player) {}',
+	].join('\n');
+
+	const { text, changes, left } = upgradeMenus('plugins/shop.ts', source);
+	expect(text.split('\n')).toEqual([
+		'const shop = menus.create("SHOP", { title: ({ player }) => `Shop, ${player.name}`, activeWhen: ({ player }) => player.isAlive });',
+		'shop.addItem({ title: "Armor", onSelect: ({ player }) => buyArmor(player) });',
+		'shop.addItem({ title: ({ player }) => `Heal (${player.health} HP)`, visible: ({ player }) => player.isAlive, onSelect: ({ player }) => heal(player) });',
+		'shop.addItem({ title: "Close", action: "CLOSE_MENU" });',
+		'shop.addFixedItem(7, { title: "Back" });',
+		'shop.addItem({',
+		'\ttitle: "Helmet",',
+		'\tenabled: [{ when: ({ player }) => player.armor < 100, message: ({ player }) => `${player.armor}` }],',
+		'\tonSelect: ({ player }) => {',
+		'\t\tplayer.armor = 100;',
+		'\t},',
+		'});',
+		'shop.show(player, { target: bob });',
+		'const core = new Menu("Core");',
+		'core.addItem({ title: "Wave", onSelect: ({ player }) => heal(player) });',
+		'player.addItem(knife);',
+		'function buyArmor(player: Player) {}',
+		'function heal(player: Player) {}',
+	]);
+	expect(changes.length).toBe(14);
+	expect(left).toEqual([]);
+	expect(upgradeMenus('plugins/shop.ts', text)).toEqual({ text, changes: [], left: [] });
+});
+
+test('a target that was a number is the context\'s target where it was made a Player, its row where it was read as a number', () => {
+	const source = [
+		'const players = menus.create("LIST_PLAYERS", { title: "Who" });',
+		'players.addFilter((row, viewer) => row.id != viewer.id, "Nobody");',
+		'players.addItem(rowText, { onSelect: greet });',
+		'players.addItem("Greet", { onSelect: (player, target) => print(new Player(target), `${player.name} says hello`) });',
+		'players.addItem("Log", { onSelect: (player, target) => log(`${target}`) });',
+		'function rowText(player: Player, target: number) { return new Player(target).name; }',
+		'function greet(player: Player, target: number) {}',
+	].join('\n');
+
+	expect(upgradeMenus('plugins/players.ts', source).text.split('\n')).toEqual([
+		'const players = menus.create("LIST_PLAYERS", { title: "Who" });',
+		'players.addFilter(({ target: row, player: viewer }) => row.id != viewer.id, "Nobody");',
+		'players.addItem({ title: ({ player, row }) => rowText(player, row), onSelect: ({ player, row }) => greet(player, row) });',
+		'players.addItem({ title: "Greet", onSelect: ({ player, target }) => print(target, `${player.name} says hello`) });',
+		'players.addItem({ title: "Log", onSelect: ({ row: target }) => log(`${target}`) });',
+		'function rowText(player: Player, target: number) { return new Player(target).name; }',
+		'function greet(player: Player, target: number) {}',
+	]);
+});
+
+test('what menu files and Pawn plugins name takes the context too; a condition keeps its parameters; what upgrade cannot be sure of is listed', () => {
+	const source = [
+		'import * as m from "@amxts/menu-core";',
+		'm.addAction("PICK", (player, target, name) => {',
+		'\tchosen = `${player.name}:${name}`;',
+		'});',
+		'm.addPlaceholder("hp", player => `${player.health}`);',
+		'm.addRestriction("VIP", (player, name, target) => target > 0);',
+		'm.addActionCheck("SHOP", "", (player, menu, action) => menu == "SHOP");',
+		'm.addCondition("ALIVE", (player) => player.isAlive);',
+		'm.setListSource("LIST_X", rows);',
+		'm.addAction("ELSE", fromElsewhere);',
+		'm.runActions(player, "CLOSE_MENU");',
+		'function rows(viewer: Player) {',
+		'\treturn null;',
+		'}',
+	].join('\n');
+
+	const { text, left } = upgradeMenus('plugins/names.ts', source);
+	expect(text.split('\n').slice(1, 10)).toEqual([
+		'm.addAction("PICK", ({ player, name }) => {',
+		'\tchosen = `${player.name}:${name}`;',
+		'});',
+		'm.addPlaceholder("hp", ({ player }) => `${player.health}`);',
+		'm.addRestriction("VIP", ({ row: target }) => target > 0);',
+		'm.addActionCheck("SHOP", "", ({ menu }) => menu == "SHOP");',
+		'm.addCondition("ALIVE", (player) => player.isAlive);',
+		'm.setListSource("LIST_X", ({ player }) => rows(player));',
+		'm.addAction("ELSE", fromElsewhere);',
+	]);
+	expect(left.map(each => each.line)).toEqual([7, 10, 11]);
+	expect(left[0].why).toContain('read menu.name');
+	expect(left[1].why).toContain('fromElsewhere is declared elsewhere');
+	expect(left[2].why).toContain('menu.runActions');
+	expect(upgradeMenus('plugins/names.ts', text).text).toBe(text);
 });
 
 test('a flag\'s name is lowerCamelCase where the code says it is one; the rest stays, what is not said is listed', () => {
