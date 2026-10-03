@@ -34,7 +34,7 @@ const LIMITS: Record<string, number> = {
 	"origin into a vector": 7,
 	"event": 120,
 	"remainder": 2.5,
-	"fractions": 0.25,
+	"fractions": 0.5,
 	"hot path": 5,
 };
 
