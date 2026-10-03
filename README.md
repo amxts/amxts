@@ -55,9 +55,10 @@ On the server:
   `amxts_amxx_i386.so`, both tested on a real server. A plugin is compiled
   for its server's system, which the build reads off the server's folder
   (or `--os`).
-- **ReHLDS with ReGameDLL and reapi** - recommended, and what amxts is tested
-  on. Entity fields and the game events reapi delivers need it; plain HLDS
-  has not been tried.
+- **ReHLDS with ReGameDLL and reapi** - recommended. amxts is tested on it and
+  on plain HLDS, where entity fields and most game events work through AMX
+  Mod X's own modules, and some of ReGameDLL's events come with less or not at
+  all.
 - **AMX Mod X 1.9** or later.
 
 To write plugins: [Node.js](https://nodejs.org) 20.12+. The build runs on
