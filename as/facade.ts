@@ -977,7 +977,7 @@ export function stringToCells(text: string, cells: StaticArray<i32>): void {
 	__writeCellText(text, cells);
 }
 
-// The natives in ~/natives take addresses, because that is what Pawn pushes: a
+// The natives in @amxts/core/natives take addresses, because that is what Pawn pushes: a
 // string has to be in memory this plugin owns before its address means anything.
 /**
  * Passes a string to a raw native from `@amxts/core/natives` without declaring a
@@ -4032,7 +4032,7 @@ export function clearInterval(handle: number): void {
 @external("env", "call") declare function _call(id: i32, args: i32, mask: i32, argc: i32): i32;
 
 // WebAssembly fixes an import's arity, so a native with a `...` tail cannot be
-// declared in ~/natives at all - only its id is - and the module cannot infer
+// declared in @amxts/core/natives at all - only its id is - and the module cannot infer
 // the tail's types.
 /**
  * A call of a Pawn native with a `...` tail, built one argument at a time -
@@ -4303,7 +4303,7 @@ const TAIL_FLOAT_RESULT: i32 = 1 << 16;
 
 /**
  * @hidden A native's `...` tail of up to twelve arguments of any kind, onto
- * `call`, and the call run: what the generated wrappers of ~/natives call.
+ * `call`, and the call run: what the generated wrappers of @amxts/core/natives call.
  * `floats` is the native's float table for this call (bit `i`: the tail's
  * argument `i` is a Float; TAIL_FLOAT_RESULT: so is the result) - a
  * plugin's number cannot say whether it is one. What the native wrote into
@@ -4341,7 +4341,7 @@ export function __callTail<A, B, C, D, E, F, G, H, I, J, K, L>(call: Call, float
 // ---------------------------------------------------------------- field natives
 
 // What a field of reapi's field natives - get_entvar, get_member, get_pmove -
-// holds, as the generated __<native>_kind tables of ~/natives say
+// holds, as the generated __<native>_kind tables of @amxts/core/natives say
 // (scripts/generate-wasm-api.ts): a whole number, a Float, a vector or text,
 // and FIELD_ELEMENT on top for an array member.
 const FIELD_FLOAT: i32 = 1;
