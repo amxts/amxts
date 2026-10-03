@@ -5,7 +5,7 @@
 //
 // Included after the host has declared, as module.cpp does:
 //   struct Plugin { name, inst, env, depth, wake, entering, coroutines, running }
-//   std::vector<Plugin> g_plugins;  int g_currentPlugin;
+//   g_plugins, the Plugins by index;  int g_currentPlugin;
 //   cell g_outcome; bool g_outcomeSaid;  MF_PrintSrvConsole(fmt, ...);
 //   wasm_module_inst_t Inst(wasm_exec_env_t);
 #pragma once

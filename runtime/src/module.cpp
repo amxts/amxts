@@ -39,6 +39,7 @@
 #endif
 #include <string>
 #include <vector>
+#include <deque>
 #include <map>
 #include <algorithm>
 
@@ -132,8 +133,17 @@ struct Plugin {
  * too, because the watcher walks this list: without it, fixing the mistake in
  * the editor would do nothing at all until the next map change, which is the
  * moment an author is most likely to be watching for something to happen.
+ *
+ * A deque, so that an entry stays where it is in memory as well: Fire, w_rpc
+ * and InitPlugin hold their plugin's entry across its call, and the call can
+ * add an entry - amxts_load of a plugin the list does not name, run with
+ * server_exec. A vector would move every entry then, and the `depth--` after
+ * the call would land in freed memory, leaving the plugin's async functions
+ * asleep for good. Nothing takes one entry out; only a reload of every plugin
+ * replaces them all, and it is refused while any of them has a call on the
+ * stack (ReloadPlugins).
  */
-static std::vector<Plugin> g_plugins;
+static std::deque<Plugin> g_plugins;
 
 // Which plugin a host native is running on behalf of. wasm_exec_env_t carries
 // the module instance, so this is only needed where a native has to hand a
@@ -3261,12 +3271,12 @@ static void ReleasePlugin(int index)
  * for a reload of them all. The entries let go, for LoadScripts to keep what
  * the commands said.
  */
-static std::vector<Plugin> UnloadPlugins()
+static std::deque<Plugin> UnloadPlugins()
 {
 	for (size_t i = 0; i < g_plugins.size(); i++)
 		ReleasePlugin((int)i);
 
-	std::vector<Plugin> before;
+	std::deque<Plugin> before;
 	before.swap(g_plugins);
 	g_events.clear();
 	g_subscriptions.clear();
@@ -3863,7 +3873,7 @@ static std::string Stem(const std::string &name)
 }
 
 /** The entry of `list` whose line is `name`; -1 for none. */
-static int Named(const std::vector<Plugin> &list, const std::string &name)
+static int Named(const std::deque<Plugin> &list, const std::string &name)
 {
 	for (size_t i = 0; i < list.size(); i++)
 		if (list[i].name == name)
@@ -3934,7 +3944,7 @@ static std::vector<std::string> ReadList()
  * `before` is the entries a reload of every plugin let go, whose commands it
  * keeps: a plugin unloaded stays unloaded, one loaded by hand comes back.
  */
-static void LoadScripts(const std::vector<Plugin> &before = std::vector<Plugin>())
+static void LoadScripts(const std::deque<Plugin> &before = std::deque<Plugin>())
 {
 	std::vector<std::string> lines = ReadList();
 	for (size_t i = 0; i < lines.size(); i++)
@@ -4070,14 +4080,6 @@ static void FreeSwitchedOff()
 			g_slots[i].used = false;
 }
 
-static void ReloadPlugins()
-{
-	MF_PrintSrvConsole("[amxts] reloading\n");
-	LoadScripts(UnloadPlugins());
-	FireInit();
-	FreeSwitchedOff();
-}
-
 /** Whether `p` calls a module the plugin at `owner` serves. */
 static bool UsesModuleOf(const Plugin &p, int owner)
 {
@@ -4129,6 +4131,25 @@ static bool Busy(const std::vector<int> &plugins)
 		}
 	}
 	return false;
+}
+
+/**
+ * amxts_reload: every plugin starts over from disk. It replaces every entry
+ * of g_plugins, so it is refused while any of them has a call on the stack -
+ * the entry under the call would be gone when the call returns.
+ */
+static void ReloadPlugins()
+{
+	std::vector<int> all(g_plugins.size());
+	for (size_t i = 0; i < all.size(); i++)
+		all[i] = (int)i;
+	if (Busy(all))
+		return;
+
+	MF_PrintSrvConsole("[amxts] reloading\n");
+	LoadScripts(UnloadPlugins());
+	FireInit();
+	FreeSwitchedOff();
 }
 
 /** The entry a command names, or -1 with a line in the console. */
