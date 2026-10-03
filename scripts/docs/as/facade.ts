@@ -1890,7 +1890,9 @@ export default {
 			\`\`\`
 
 			The editor lists the names, each with the game's own one in its words:
-			\`death\` is the game's \`DeathMsg\`.
+			\`death\` is the game's \`DeathMsg\`. A name may hear a few of the game's
+			messages that are one thing: \`progressBar\` is \`BarTime\` and
+			\`BarTime2\`, and \`event.name\` says which one came.
 
 			Pawn: \`register_message\`
 		`,
@@ -1906,7 +1908,9 @@ export default {
 			\`\`\`
 
 			Редактор подсказывает имена, и в описании каждого — собственное имя у игры:
-			\`death\` — это \`DeathMsg\` игры.
+			\`death\` — это \`DeathMsg\` игры. Одно имя может слышать несколько
+			сообщений игры, которые означают одно и то же: \`progressBar\` — это
+			\`BarTime\` и \`BarTime2\`, а \`event.name\` говорит, какое из них пришло.
 
 			Pawn: \`register_message\`
 		`,

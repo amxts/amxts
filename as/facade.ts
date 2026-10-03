@@ -3123,17 +3123,21 @@ export class Server {
 	 * ```
 	 *
 	 * The editor lists the names, each with the game's own one in its words:
-	 * `death` is the game's `DeathMsg`.
+	 * `death` is the game's `DeathMsg`. A name may hear a few of the game's
+	 * messages that are one thing: `progressBar` is `BarTime` and
+	 * `BarTime2`, and `event.name` says which one came.
 	 *
 	 * Pawn: `register_message`
 	 */
 	addMessageListener<K extends keyof ServerMessageMap>(name: K, listener: (event: ServerMessageMap[K]) => void): void {
-		listenToMessage<ServerMessageMap[K]>(protocolMessageName(name), listener);
+		const messages = protocolMessageNames(name);
+		for (let i = 0; i < messages.length; i++) listenToMessage<ServerMessageMap[K]>(messages[i], listener);
 	}
 
 	/** Stops calling a listener added with `addMessageListener` - the same name and the same function. */
 	removeMessageListener<K extends keyof ServerMessageMap>(name: K, listener: (event: ServerMessageMap[K]) => void): void {
-		stopListeningToMessage<ServerMessageMap[K]>(protocolMessageName(name), listener);
+		const messages = protocolMessageNames(name);
+		for (let i = 0; i < messages.length; i++) stopListeningToMessage<ServerMessageMap[K]>(messages[i], listener);
 	}
 
 	/**
@@ -3629,7 +3633,7 @@ import {
 } from "./natives";
 import { ET_IGNORE, ET_STOP, FP_ARRAY, FP_CELL, FP_FLOAT, FP_STRING } from "./constants";
 import { ROUND_NONE, ROUND_CTS_WIN, ROUND_TERRORISTS_WIN, ROUND_END_DRAW, print_center } from "./constants";
-import { PluginInitEvent, PluginPrecacheEvent, ServerEventMap, ServerMessageMap, addServerListener, protocolMessageName, removeServerListener } from "./events";
+import { PluginInitEvent, PluginPrecacheEvent, ServerEventMap, ServerMessageMap, addServerListener, protocolMessageNames, removeServerListener } from "./events";
 
 function variantOf(variant: VariantName): number {
 	if (variant == Variant.center) return 4;

@@ -3,7 +3,8 @@
 // scripts/generate-host.ts writes them into as/events.ts as the tooltips an
 // editor shows on the name, the event and its fields: the summary, then the
 // game's name of the message, so a Pawn author who searches for `DeathMsg`
-// finds `death`.
+// finds `death`. A name that hears a few of the game's messages has its words
+// under the first of them, its fields' words those of every one.
 import type { EventDoc, Text } from './events';
 
 const receiver: Text = { en: `The player the message goes to.`, ru: `Игрок, которому идёт сообщение.` };
@@ -44,11 +45,7 @@ export const MESSAGES: Record<string, EventDoc> = {
 		fields: { helmet: { en: `\`true\` for a vest and a helmet.`, ru: `\`true\` — жилет со шлемом.` } },
 	},
 	BarTime: {
-		summary: { en: `The progress bar in the middle of a player's screen is shown or hidden.`, ru: `Полосу прогресса посреди экрана игрока показывают или прячут.` },
-		fields: { seconds },
-	},
-	BarTime2: {
-		summary: { en: `The progress bar in the middle of a player's screen, starting part of the way full.`, ru: `Полоса прогресса посреди экрана игрока, начатая не с нуля.` },
+		summary: { en: `The progress bar in the middle of a player's screen is shown or hidden, from empty or part of the way full.`, ru: `Полосу прогресса посреди экрана игрока показывают или прячут — пустой или заполненной не с нуля.` },
 		fields: {
 			seconds,
 			startPercent: { en: `The bar's fill at the start, in percent.`, ru: `Заполненность полосы в начале, в процентах.` },
@@ -183,15 +180,7 @@ export const MESSAGES: Record<string, EventDoc> = {
 	},
 	HudText: {
 		summary: { en: `A hint in the middle of a player's screen.`, ru: `Подсказка посреди экрана игрока.` },
-		fields: { text },
-	},
-	HudTextArgs: {
-		summary: { en: `A hint in the middle of a player's screen, from the game's own texts.`, ru: `Подсказка посреди экрана игрока из собственных текстов игры.` },
 		fields: { text, params },
-	},
-	HudTextPro: {
-		summary: { en: `A hint in the middle of a player's screen, for a player new to the game.`, ru: `Подсказка посреди экрана игрока — для новичка.` },
-		fields: { text },
 	},
 	InitHUD: {
 		summary: { en: `A player's HUD is set up, when he enters the game.`, ru: `HUD игрока готовится, когда он входит в игру.` },
@@ -337,10 +326,6 @@ export const MESSAGES: Record<string, EventDoc> = {
 	},
 	SpecHealth: {
 		summary: { en: `The health of the player a spectator watches.`, ru: `Здоровье игрока, за которым следит наблюдатель.` },
-		fields: { health },
-	},
-	SpecHealth2: {
-		summary: { en: `The health of the player a spectator watches, and who it is.`, ru: `Здоровье игрока, за которым следит наблюдатель, и кто это.` },
 		fields: {
 			health,
 			target: { en: `The player watched.`, ru: `Игрок, за которым следят.` },
@@ -450,9 +435,24 @@ export const MESSAGES: Record<string, EventDoc> = {
 	},
 };
 
-/** The line every message's words end with: the game's name of it. */
-export function gameName(name: string): Text {
-	return { en: `The game's \`${name}\` message.`, ru: `Сообщение игры \`${name}\`.` };
+/** Names in code, joined as a sentence lists them: `A`, `B` and `C`. */
+function listed(names: string[], and: string) {
+	const quoted = names.map(name => `\`${name}\``);
+	return quoted.length > 1 ? `${quoted.slice(0, -1).join(`, `)} ${and} ${quoted.at(-1)}` : quoted[0];
+}
+
+/** The line every message's words end with: the game's names of the messages it hears. */
+export function gameName(names: string[]): Text {
+	if (names.length === 1) return { en: `The game's \`${names[0]}\` message.`, ru: `Сообщение игры \`${names[0]}\`.` };
+	return { en: `The game's ${listed(names, `and`)} messages.`, ru: `Сообщения игры ${listed(names, `и`)}.` };
+}
+
+/** The words of a field only some of a name's messages carry: what it reads as on the others. */
+export function missingField(names: string[], value: string): Text {
+	return {
+		en: `${listed(names, `or`)} does not carry it: there it reads as \`${value}\`, and writing it does nothing.`,
+		ru: `В ${listed(names, `и`)} его нет: там он читается как \`${value}\`, а запись ничего не делает.`,
+	};
 }
 
 /** The words of a message without fields, and of the receiver every message has. */

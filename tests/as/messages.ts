@@ -1,6 +1,7 @@
 // A fixture for tests/messages.test.ts: the messages the server sends its
 // clients as events - typed fields read and written, a message stopped, one
-// whose layout the table does not know read by its arguments.
+// name hearing two of the game's messages, one whose layout the table does
+// not know read by its arguments.
 
 server.addMessageListener("text", onText);
 server.addMessageListener("roundTime", (event) => {
@@ -41,6 +42,14 @@ server.addMessageListener("vguiMenu", (event) => {
 server.addMessageListener("damage", (event) => {
 	console.log(`damage ${event.damage} ${event.origin.x} ${event.origin.y} ${event.origin.z}`);
 	event.origin = [1, 2, 3];
+});
+server.addMessageListener("progressBar", (event) => {
+	console.log(`bar ${event.name} ${event.seconds} ${event.startPercent}`);
+	if (event.seconds == 9) event.preventDefault();
+	event.startPercent = 25;
+});
+server.addMessageListener("spectatedHealth", (event) => {
+	console.log(`spectated ${event.name} ${event.health} ${event.target?.name}`);
 });
 server.addMessageListener("voiceMask", (event) => {
 	console.log(`voice ${event.args.length} ${event.args.number(0)} ${event.args.isText(0)}`);

@@ -13,6 +13,12 @@
 // message has `args` too, for what the table leaves out. `player` is every
 // message's receiver, so a player an argument names is `target` (or its
 // role: `killer`, `sender`). The words are scripts/docs/messages.ts's.
+//
+// A name hears one message, or a few that are the same thing to an author:
+// `progressBar` is BarTime and BarTime2, which only adds where the bar
+// starts. Its event has the fields of them all, each at the same argument in
+// every one that writes it; a field one of them lacks reads as empty there,
+// as an argument past the last does.
 
 /**
  * What an argument is read as: a number, a boolean, text; `texts` every text
@@ -144,7 +150,8 @@ export const CLIENT_MESSAGES = `
  * Every message's name in the player's words, by the game's: lowerCamelCase,
  * without the protocol's `Msg`, an abbreviation spelled out (`CurWeapon` is
  * `currentWeapon`, `SetFOV` `fov`) and an opaque name given its meaning
- * (`SayText` is `chat`, `Battery` `armor`, `ShowMenu` `menu`).
+ * (`SayText` is `chat`, `Battery` `armor`, `ShowMenu` `menu`). Messages that
+ * are one thing to an author share a name (`BarTime`, `BarTime2`).
  */
 export const MESSAGE_NAMES: Record<string, string> = {
 	ADStop: 'adStop',
@@ -153,7 +160,7 @@ export const MESSAGE_NAMES: Record<string, string> = {
 	AmmoX: 'ammo',
 	ArmorType: 'armorType',
 	BarTime: 'progressBar',
-	BarTime2: 'progressBarPartial',
+	BarTime2: 'progressBar',
 	Battery: 'armor',
 	BlinkAcct: 'moneyBlink',
 	BombDrop: 'bombDrop',
@@ -182,8 +189,8 @@ export const MESSAGE_NAMES: Record<string, string> = {
 	HostageK: 'hostageKilled',
 	HostagePos: 'hostagePosition',
 	HudText: 'hint',
-	HudTextArgs: 'hintWithParams',
-	HudTextPro: 'newPlayerHint',
+	HudTextArgs: 'hint',
+	HudTextPro: 'hint',
 	InitHUD: 'initHud',
 	ItemPickup: 'itemPickup',
 	ItemStatus: 'itemStatus',
@@ -210,7 +217,7 @@ export const MESSAGE_NAMES: Record<string, string> = {
 	ShowMenu: 'menu',
 	ShowTimer: 'showTimer',
 	SpecHealth: 'spectatedHealth',
-	SpecHealth2: 'spectatedPlayerHealth',
+	SpecHealth2: 'spectatedHealth',
 	Spectator: 'spectator',
 	StatusIcon: 'statusIcon',
 	StatusText: 'statusText',
@@ -230,3 +237,10 @@ export const MESSAGE_NAMES: Record<string, string> = {
 	WeaponList: 'weaponList',
 	WeapPickup: 'weaponPickup',
 };
+
+/** The names server.addMessageListener takes, each with the game's messages it hears, in the game's order. */
+export const MESSAGE_GROUPS = new Map<string, string[]>();
+for (const message of CLIENT_MESSAGES) {
+	const name = MESSAGE_NAMES[message];
+	if (name) MESSAGE_GROUPS.set(name, [...(MESSAGE_GROUPS.get(name) ?? []), message]);
+}

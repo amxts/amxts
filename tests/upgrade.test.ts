@@ -283,3 +283,21 @@ test('a game message is heard through addMessageListener, by its name in the pla
 	expect(left[0].why).toContain('"message:MyModMsg" is not a message the game has');
 	expect(upgradeMessages('plugins/a.ts', text)).toEqual({ text, changes: [], left });
 });
+
+test('the game\'s look-alike messages are upgraded to the one name that hears them all', () => {
+	const source = [
+		'server.addEventListener("message:BarTime", onBar);',
+		'server.addEventListener("message:BarTime2", onBar);',
+		'server.addEventListener("message:SpecHealth2", onHealth);',
+		'server.addEventListener("message:HudTextArgs", onHint);',
+		'server.addEventListener("message:HudTextPro", onHint);',
+	].join('\n');
+
+	expect(upgradeMessages('plugins/a.ts', source).text.split('\n')).toEqual([
+		'server.addMessageListener("progressBar", onBar);',
+		'server.addMessageListener("progressBar", onBar);',
+		'server.addMessageListener("spectatedHealth", onHealth);',
+		'server.addMessageListener("hint", onHint);',
+		'server.addMessageListener("hint", onHint);',
+	]);
+});

@@ -12,9 +12,9 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IncludeParser } from '../src/parser/include-parser';
 import { docsLang, docText, pick, renderDoc } from './apply-docs';
-import { CLIENT_MESSAGES, MESSAGE_FIELDS, MESSAGE_NAMES } from './client-messages';
+import { CLIENT_MESSAGES, MESSAGE_FIELDS, MESSAGE_GROUPS, MESSAGE_NAMES } from './client-messages';
 import { EVENTS, PLAYER_CHANGE } from './docs/events';
-import { ANY_MESSAGE, gameName, MESSAGES } from './docs/messages';
+import { ANY_MESSAGE, gameName, MESSAGES, missingField } from './docs/messages';
 import { GAME_ENUMS, memberName } from './include-enums';
 import { includePath, listIncludes, parseOrder, readInclude, resolveTransitive } from './includes';
 
@@ -570,47 +570,82 @@ const MESSAGE_ACCESSORS: Record<MessageField['kind'], { type: string; takes?: st
 // the same rule.
 const VGUI_MENUS = GAME_ENUMS.get('VGUIMenu')!.map(m => ({ name: memberName(m.name.replace(/^VGUI_Menu_/, ''), false), value: m.value }));
 
-const messageClassName = (name: string) => `${name}Message`;
+/** A field of a name's event, with the messages of the name that do not carry it. */
+type NameField = MessageField & { missing: string[] };
 
-/** A message's words: what the game uses it for, how one without fields is read, and the game's name of it. */
-function messageSummary(name: string) {
-	const args = MESSAGE_FIELDS[name] ? '' : ` ${pick(ANY_MESSAGE.args, DOCS_LANG)}`;
-	return `${docText(`${pick(MESSAGES[name].summary, DOCS_LANG)}${args}`)}\n\n${pick(gameName(name), DOCS_LANG)}`;
+/** A name server.addMessageListener takes: the game's messages it hears, and the fields of them all - `null` for messages without a known layout. */
+interface MessageName {
+	name: string;
+	messages: string[];
+	fields: NameField[] | null;
 }
 
-function messageClass(name: string) {
-	const fields = MESSAGE_FIELDS[name].map((field) => {
+/** What a field reads as on a message of its name that does not carry it. */
+const MISSING_VALUE: Partial<Record<MessageField['kind'], string>> = { number: '0', player: 'null', texts: '[]' };
+
+function messageName([name, messages]: [string, string[]]): MessageName {
+	const known = messages.filter(message => MESSAGE_FIELDS[message]);
+	if (known.length === 0) return { name, messages, fields: null };
+	if (known.length < messages.length) throw new Error(`${name}: MESSAGE_FIELDS has the layout of some of ${messages.join(', ')}, not of all`);
+
+	const all = messages.flatMap(message => MESSAGE_FIELDS[message]);
+	const fields = all.filter((field, i) => all.findIndex(other => other.name === field.name) === i).map((field) => {
+		if (all.some(other => other.name === field.name && (other.arg !== field.arg || other.kind !== field.kind || other.of !== field.of))) {
+			throw new Error(`${name}: ${field.name} is not the same argument in ${messages.join(', ')}`);
+		}
+		const missing = messages.filter(message => !MESSAGE_FIELDS[message].some(other => other.name === field.name));
+		// A message without the field must write nothing at its argument, or the field would read that.
+		if (missing.some(message => MESSAGE_FIELDS[message].some(other => other.arg >= field.arg))) {
+			throw new Error(`${name}: ${missing.join(', ')} writes another argument where ${field.name} is`);
+		}
+		if (missing.length > 0 && !MISSING_VALUE[field.kind]) throw new Error(`${name}: MISSING_VALUE has nothing for a missing ${field.kind} field, ${field.name}`);
+		return { ...field, missing };
+	});
+	return { name, messages, fields };
+}
+
+/** A name's class, by its first message: `BarTimeMessage` for `progressBar`. */
+const messageClassName = (m: MessageName) => `${m.messages[0]}Message`;
+
+/** A name's words: what the game uses its messages for, how one without fields is read, the game's names of them and Pawn's way to hear them. */
+function messageSummary(m: MessageName) {
+	const args = m.fields ? '' : ` ${pick(ANY_MESSAGE.args, DOCS_LANG)}`;
+	const pawn = m.messages.map(message => `\`register_message(get_user_msgid("${message}"), ...)\``).join(', ');
+	return `${docText(`${pick(MESSAGES[m.messages[0]].summary, DOCS_LANG)}${args}`)}\n\n${pick(gameName(m.messages), DOCS_LANG)}\n\nPawn: ${pawn}`;
+}
+
+function messageClass(m: MessageName) {
+	const fields = m.fields!.map((field) => {
 		const accessor = MESSAGE_ACCESSORS[field.kind];
-		const words = MESSAGES[name]?.fields?.[field.name];
+		const words = MESSAGES[m.messages[0]].fields?.[field.name];
+		const missing = field.missing.length > 0 ? ` ${pick(missingField(field.missing, MISSING_VALUE[field.kind]!), DOCS_LANG)}` : '';
 		return [
-			`\t${renderDoc(`${words ? `${docText(pick(words, DOCS_LANG))}\n\n` : ''}Pawn: \`get_msg_arg_*(${field.arg})\``, '\t')}`,
+			`\t${renderDoc(`${words ? `${docText(`${pick(words, DOCS_LANG)}${missing}`)}\n\n` : ''}Pawn: \`get_msg_arg_*(${field.arg})\``, '\t')}`,
 			`\tget ${field.name}(): ${accessor.type} { return ${accessor.get(field)}; }`,
 			`\tset ${field.name}(value: ${accessor.takes ?? accessor.type}) { ${accessor.set(field)}; }`,
 		].join('\n');
 	});
 	return [
-		renderDoc(`${messageSummary(name)}\n\nPawn: \`register_message(get_user_msgid("${name}"), ...)\``, ''),
-		`export class ${messageClassName(name)} extends ClientMessage {`,
+		renderDoc(messageSummary(m), ''),
+		`export class ${messageClassName(m)} extends ClientMessage {`,
 		// What makes two message classes different types to TypeScript.
-		`\tprivate readonly kind: string = "${name}";`,
+		`\tprivate readonly kind: string = "${m.messages[0]}";`,
 		...fields,
 		`}`,
 	].join('\n');
 }
 
-function messageKey(name: string) {
-	const type = MESSAGE_FIELDS[name] ? messageClassName(name) : 'ClientMessage';
-	return [`\t${renderDoc(`${messageSummary(name)}\n\nPawn: \`register_message(get_user_msgid("${name}"), ...)\``, '\t')}`, `\t${MESSAGE_NAMES[name]}: ${type};`].join('\n');
+function messageKey(m: MessageName) {
+	return [`\t${renderDoc(messageSummary(m), '\t')}`, `\t${m.name}: ${m.fields ? messageClassName(m) : 'ClientMessage'};`].join('\n');
 }
 
-const typedMessages = CLIENT_MESSAGES.filter(name => MESSAGE_FIELDS[name]);
 const strayMessages = [...Object.keys(MESSAGE_FIELDS), ...Object.keys(MESSAGE_NAMES)].filter(name => !CLIENT_MESSAGES.includes(name));
 if (strayMessages.length > 0) throw new Error(`MESSAGE_FIELDS or MESSAGE_NAMES names messages the game does not have: ${strayMessages.join(', ')}`);
-const unnamed = CLIENT_MESSAGES.filter(name => !MESSAGE_NAMES[name] || !MESSAGES[name]);
-if (unnamed.length > 0) throw new Error(`messages without a name in MESSAGE_NAMES or words in scripts/docs/messages.ts: ${unnamed.join(', ')}`);
-const messageNames = Object.values(MESSAGE_NAMES);
-const namedTwice = messageNames.filter((name, i) => messageNames.indexOf(name) !== i);
-if (namedTwice.length > 0) throw new Error(`MESSAGE_NAMES gives two messages one name: ${namedTwice.join(', ')}`);
+const unnamed = CLIENT_MESSAGES.filter(name => !MESSAGE_NAMES[name]);
+if (unnamed.length > 0) throw new Error(`messages without a name in MESSAGE_NAMES: ${unnamed.join(', ')}`);
+const messageNames = [...MESSAGE_GROUPS].map(messageName);
+const wordless = messageNames.map(m => m.messages[0]).filter(message => !MESSAGES[message]);
+if (wordless.length > 0) throw new Error(`messages without words in scripts/docs/messages.ts: ${wordless.join(', ')}`);
 
 writeFileSync('./as/events.ts', `// GENERATED by scripts/generate-host.ts — do not edit
 // Source: includes/*.inc, through the forwards the host plugin relays
@@ -672,7 +707,7 @@ ${VGUI_MENUS.map(m => `\tif (name == "${m.name}") return ${m.value};`).join('\n'
 	return current;
 }
 
-${typedMessages.map(messageClass).join('\n\n')}
+${messageNames.filter(m => m.fields).map(messageClass).join('\n\n')}
 
 /** Every event a server raises, by name: the short one and the Pawn one. */
 export interface ServerEventMap {
@@ -689,13 +724,13 @@ ${serverEvents.flatMap((e) => {
 
 /** Every message the server sends its clients, by the name server.addMessageListener takes. */
 export interface ServerMessageMap {
-${CLIENT_MESSAGES.map(messageKey).join('\n')}
+${messageNames.map(messageKey).join('\n')}
 }
 
-/** The game's name of a message, by the name server.addMessageListener takes; a name it does not know as it is. */
-export function protocolMessageName(name: string): string {
-${CLIENT_MESSAGES.map(m => `\tif (name == "${MESSAGE_NAMES[m]}") return "${m}";`).join('\n')}
-\treturn name;
+/** The game's names of the messages a name server.addMessageListener takes hears; a name it does not know as it is. */
+export function protocolMessageNames(name: string): string[] {
+${messageNames.map(m => `\tif (name == "${m.name}") return [${m.messages.map(message => `"${message}"`).join(', ')}];`).join('\n')}
+\treturn [name];
 }
 
 ${serverEvents.map(eventPlumbing).join('\n\n')}

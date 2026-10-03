@@ -3,7 +3,7 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // Messages to clients as events, on the fake server: tests/as/messages.ts.
 // @ts-ignore - bun:test types not available during type checking
 import { expect, setDefaultTimeout, test } from 'bun:test';
-import { CLIENT_MESSAGES, MESSAGE_FIELDS, MESSAGE_NAMES } from '../scripts/client-messages';
+import { CLIENT_MESSAGES, MESSAGE_FIELDS, MESSAGE_GROUPS } from '../scripts/client-messages';
 import { MESSAGES } from '../scripts/docs/messages';
 
 setDefaultTimeout(120_000);
@@ -16,7 +16,7 @@ const LONG = 4;
 const COORD = 6;
 const STRING = 7;
 
-const LISTENED = ['TextMsg', 'RoundTime', 'HideWeapon', 'TeamScore', 'ItemPickup', 'DeathMsg', 'TeamInfo', 'ScreenFade', 'StatusIcon', 'ScoreAttrib', 'VGUIMenu', 'Damage', 'VoiceMask'];
+const LISTENED = ['TextMsg', 'RoundTime', 'HideWeapon', 'TeamScore', 'ItemPickup', 'DeathMsg', 'TeamInfo', 'ScreenFade', 'StatusIcon', 'ScoreAttrib', 'VGUIMenu', 'Damage', 'BarTime', 'BarTime2', 'SpecHealth', 'SpecHealth2', 'VoiceMask'];
 
 test('a message is registered once per name, when the server is up, and only its name reaches the plugin', async () => {
 	const server = await loadPlugin(PLUGIN);
@@ -114,6 +114,22 @@ test('ScoreAttrib\'s flags, VGUIMenu\'s menu and Damage\'s origin by name and as
 	expect(damage.args).toEqual([0, 30, 2, 1, 2, 3]);
 });
 
+test('one name hears both of its messages: BarTime\'s startPercent reads as 0 and is not written', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	expect(server.sendMessage('BarTime', [5], { types: [SHORT] }).args).toEqual([5]);
+	expect(server.sendMessage('BarTime2', [5, 40], { types: [SHORT, SHORT] }).args).toEqual([5, 25]);
+	expect(server.sendMessage('BarTime2', [9, 40], { types: [SHORT, SHORT] }).prevented).toBe(true);
+	server.sendMessage('SpecHealth', [80]);
+	server.sendMessage('SpecHealth2', [70, alice.id]);
+
+	expect(server.log).toContain('bar BarTime 5 0');
+	expect(server.log).toContain('bar BarTime2 5 40');
+	expect(server.log).toContain('spectated SpecHealth 80 null');
+	expect(server.log).toContain('spectated SpecHealth2 70 Alice');
+});
+
 test('a message whose layout is not known is read by its arguments', async () => {
 	const server = await loadPlugin(PLUGIN);
 
@@ -122,28 +138,33 @@ test('a message whose layout is not known is read by its arguments', async () =>
 	expect(server.log).toContain('voice 2 7 false');
 });
 
-test('the layouts: every message the game has, every field with its words in both languages, an argument once', () => {
+test('the layouts: every message the game has, every name\'s words and its fields\' in both languages, an argument once', () => {
 	const events = readFileSync('as/events.ts', 'utf8');
+	const groups = [...MESSAGE_GROUPS];
 
-	for (const [name, fields] of Object.entries(MESSAGE_FIELDS)) {
-		expect(CLIENT_MESSAGES).toContain(name);
-		expect(MESSAGES[name]?.summary.en).toBeTruthy();
-		expect(MESSAGES[name]?.summary.ru).toBeTruthy();
-		for (const field of fields) {
-			expect(`${name}.${field.name}: ${MESSAGES[name]?.fields?.[field.name]?.ru ? 'words' : 'none'}`).toBe(`${name}.${field.name}: words`);
-		}
+	for (const [message, fields] of Object.entries(MESSAGE_FIELDS)) {
+		expect(CLIENT_MESSAGES).toContain(message);
 		// Two fields over one argument only as bits of it.
 		const plain = fields.filter(field => field.kind !== 'bit' && field.kind !== 'fadeDirection').map(field => field.arg);
 		expect(new Set(plain).size).toBe(plain.length);
-		expect(events).toContain(`	${MESSAGE_NAMES[name]}: ${name}Message;`);
 	}
-	// Every message a name of its own in the player's words, and words in both languages ending with the game's name.
-	expect(new Set(Object.values(MESSAGE_NAMES)).size).toBe(CLIENT_MESSAGES.length);
-	for (const name of CLIENT_MESSAGES) {
-		expect(MESSAGE_NAMES[name]).toMatch(/^[a-z][A-Za-z0-9]*$/);
-		expect(`${name}: ${MESSAGES[name]?.summary.en && MESSAGES[name]?.summary.ru ? 'words' : 'none'}`).toBe(`${name}: words`);
-		expect(events).toContain(`The game's \`${name}\` message.`);
+	// Every message under a name in the player's words; a name's words are its first message's, ending with the game's names.
+	expect(groups.flatMap(([, messages]) => messages).sort()).toEqual([...CLIENT_MESSAGES].sort());
+	expect(Object.keys(MESSAGES).sort()).toEqual(groups.map(([, messages]) => messages[0]).sort());
+	for (const [name, messages] of groups) {
+		const words = MESSAGES[messages[0]];
+		expect(name).toMatch(/^[a-z][A-Za-z0-9]*$/);
+		expect(`${name}: ${words.summary.en && words.summary.ru ? 'words' : 'none'}`).toBe(`${name}: words`);
+		for (const field of messages.flatMap(message => MESSAGE_FIELDS[message] ?? [])) {
+			expect(`${name}.${field.name}: ${words.fields?.[field.name]?.ru ? 'words' : 'none'}`).toBe(`${name}.${field.name}: words`);
+		}
+		expect(events).toContain(`\t${name}: ${MESSAGE_FIELDS[messages[0]] ? `${messages[0]}Message` : 'ClientMessage'};`);
+		expect(events).toContain(`\tif (name == "${name}") return [${messages.map(message => `"${message}"`).join(', ')}];`);
 	}
+	// The look-alikes that are one thing to an author share a name; a field one of them lacks says so.
+	expect(MESSAGE_GROUPS.get('progressBar')).toEqual(['BarTime', 'BarTime2']);
+	expect(events).toContain('The game\'s `BarTime` and `BarTime2` messages.');
+	expect(events).toContain('`BarTime` does not carry it: there it reads as `0`, and writing it does nothing.');
 	// The menu names are the game event's: VguiMenu from the same include.
 	expect(events).toContain('case 27: return "classCT";');
 });
