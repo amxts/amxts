@@ -117,7 +117,13 @@ export class Service {
 	private id: i32 = -1;
 	private failed: bool = false;
 
-	constructor(public name: string, public hash: i32) {}
+	// Asked as the plugin starts, which tells the server that this plugin
+	// uses the module: its owner then stays while the plugin runs, and starts
+	// over with it. The owner may start later; a call asks again.
+	constructor(public name: string, public hash: i32) {
+		const id = _owner(name, hash);
+		if (id >= 0) this.id = id;
+	}
 
 	/** A call of the module's `op`-th function (or field). */
 	begin(op: i32): Writer {

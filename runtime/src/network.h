@@ -613,14 +613,15 @@ static void NetCancel(NetRequest *r)
 	curl_multi_wakeup(g_netMulti);
 }
 
-/** Every request of every plugin goes: the plugins are being unloaded. */
-static void NetForgetAll()
+/** Every request of a plugin goes: the plugin is being unloaded. */
+static void NetForget(wasm_module_inst_t inst)
 {
-	std::vector<NetRequest *> all;
+	std::vector<NetRequest *> its;
 	for (std::map<int32_t, NetRequest *>::iterator it = g_netRequests.begin(); it != g_netRequests.end(); ++it)
-		all.push_back(it->second);
-	for (size_t i = 0; i < all.size(); i++)
-		NetCancel(all[i]);
+		if (it->second->inst == inst)
+			its.push_back(it->second);
+	for (size_t i = 0; i < its.size(); i++)
+		NetCancel(its[i]);
 }
 
 /** Stops the worker and deletes every request: the module is detaching. */

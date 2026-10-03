@@ -73,60 +73,67 @@ static AMX *g_host = NULL;      // host plugin's AMX: natives are resolved from 
 
 #include "coroutine.h"
 
+// What a plugin of the list is now (amxts_plugins): running; unloaded by
+// amxts_unload, until amxts_load or the map changes; or refused - it did not
+// compile or load, and Plugin.reason says why.
+#define PLUGIN_RUNNING  0
+#define PLUGIN_UNLOADED 1
+#define PLUGIN_REFUSED  2
+
 struct Plugin {
+	// The plugins.ini line - "shop.ts" - or what amxts_load was given.
 	std::string          name;
+	// The .aot: the line's file, or for a .ts the build beside the list.
 	std::string          path;
 	// The .ts this was compiled from, when it was written as one. The watcher
 	// follows whichever file the author edits: the source if there is one, the
 	// .aot if the author builds elsewhere and drops the result in.
 	std::string          source;
-	time_t               sourceStamp;
+	time_t               sourceStamp = 0;
 	// When the .aot was last written.
-	time_t               stamp;
-	unsigned char       *file;
-	wasm_module_t        module;
-	wasm_module_inst_t   inst;
-	wasm_exec_env_t      env;
-	// What plugin() declared, for the listing. AMX Mod X has one entry per
-	// .amxx file and every plugin here shares the host's, so this is the only
-	// place their names exist.
+	time_t               stamp = 0;
+	// Named in plugins.ini, rather than loaded by hand with amxts_load.
+	bool                 listed = true;
+	int                  state = PLUGIN_REFUSED;
+	std::string          reason;
+	unsigned char       *file = NULL;
+	wasm_module_t        module = NULL;
+	wasm_module_inst_t   inst = NULL;
+	wasm_exec_env_t      env = NULL;
 	// The function table the plugin exports (asc --exportTable), for reading
 	// a handler's parameter types before calling it. See Fire.
 	wasm_table_inst_t    table;
-	bool                 hasTable;
+	bool                 hasTable = false;
+	// What plugin() declared, for the listing. AMX Mod X has one entry per
+	// .amxx file and every plugin here shares the host's, so this is the only
+	// place their names exist.
 	std::string          title;
 	std::string          version;
 	std::string          author;
 	std::string          description;
+	// The shared modules this plugin calls another plugin for (w_owner): the
+	// plugins that go with an owner when it is reloaded, and keep it loaded.
+	std::vector<std::string> uses;
 	// Coroutines - async functions parked at an await; see "coroutines" below.
 	// A plugin that never makes a Promise has none of this in use.
-	int                  depth;          // this plugin's wasm calls on the native stack
-	bool                 wake;           // it has jobs, to run once depth is 0
-	bool                 entering;       // co_spawn is calling an async function's body
-	uint32_t             stackTop;       // __stack_pointer with nothing running; 0 without async
+	int                  depth = 0;          // this plugin's wasm calls on the native stack
+	bool                 wake = false;       // it has jobs, to run once depth is 0
+	bool                 entering = false;   // co_spawn is calling an async function's body
+	uint32_t             stackTop = 0;       // __stack_pointer with nothing running; 0 without async
 	std::map<int32_t, Coroutine> coroutines;
 	std::vector<int32_t> running;        // coroutines being run, innermost last
 };
 
-static std::vector<Plugin> g_plugins;
-
 /**
- * A plugin named in plugins.ini that is not running: it failed to compile, or
- * failed to load once compiled.
- *
- * It has to be remembered, because the watcher walks the loaded plugins and a
- * failed one is not among them - so without this, fixing the mistake in the
- * editor would do nothing at all until the next map change, which is the
+ * Every plugin of the list, and every one loaded by hand, whatever its state:
+ * an index into it is how a handler, a slot or a native names its plugin, so
+ * an entry stays where it is for as long as the plugins are not all reloaded
+ * - a plugin unloaded or loaded again keeps its index. A failed one is here
+ * too, because the watcher walks this list: without it, fixing the mistake in
+ * the editor would do nothing at all until the next map change, which is the
  * moment an author is most likely to be watching for something to happen.
  */
-struct Broken {
-	std::string name;
-	std::string source;
-	std::string output;
-	time_t      stamp;
-};
-
-static std::vector<Broken> g_broken;
+static std::vector<Plugin> g_plugins;
 
 // Which plugin a host native is running on behalf of. wasm_exec_env_t carries
 // the module instance, so this is only needed where a native has to hand a
@@ -283,6 +290,8 @@ struct Slot {
 #define SLOT_TRACE   (-7)
 #define SLOT_WATCH    (-5)
 #define SLOT_ORPHANED (-6)
+#define SLOT_LOAD     (-8)
+#define SLOT_UNLOAD   (-9)
 
 static Slot g_slots[MAX_CALLBACK_SLOTS];
 static int  g_slotCount = 0;
@@ -2541,10 +2550,20 @@ static void w_serve(wasm_exec_env_t env, int32_t name, int32_t hash)
 	g_services.push_back(service);
 }
 
-/** The service's number for amxts_rpc; -1 when nobody serves it, -2 when its owner was built from another version. */
+/**
+ * The service's number for amxts_rpc; -1 when nobody serves it, -2 when its
+ * owner was built from another version. A proxy asks once as its plugin
+ * starts, which notes that the plugin uses the module (Plugin.uses).
+ */
 static int32_t w_owner(wasm_exec_env_t env, int32_t name, int32_t hash)
 {
 	std::string wanted = AsString(Inst(env), name);
+	int user = PluginOf(Inst(env));
+	if (user >= 0 && (size_t)user < g_plugins.size()) {
+		std::vector<std::string> &uses = g_plugins[user].uses;
+		if (std::find(uses.begin(), uses.end(), wanted) == uses.end())
+			uses.push_back(wanted);
+	}
 	for (size_t i = 0; i < g_services.size(); i++) {
 		if (g_services[i].name != wanted) continue;
 		if (g_services[i].plugin < 0) return -1;
@@ -2744,8 +2763,9 @@ static NativeSymbol g_wasmNatives[] = {
  */
 static cell Fire(const Handler &h, uint32_t *argv, int argc, cell fallback)
 {
-	// An orphaned slot, or one belonging to the module rather than a plugin.
-	if (h.plugin < 0 || (size_t)h.plugin >= g_plugins.size())
+	// An orphaned slot, one belonging to the module rather than a plugin, or a
+	// plugin that is not running.
+	if (h.plugin < 0 || (size_t)h.plugin >= g_plugins.size() || !g_plugins[h.plugin].inst)
 		return fallback;
 
 	Plugin &p = g_plugins[h.plugin];
@@ -3091,48 +3111,71 @@ static void RemoveHost()
 
 // ---------------------------------------------------------------- boot
 
+/** Takes out of `list` every entry `belongs` says is the plugin's. */
+template <typename T, typename Belongs>
+static void DropFrom(std::vector<T> &list, Belongs belongs)
+{
+	list.erase(std::remove_if(list.begin(), list.end(), belongs), list.end());
+}
+
 /**
- * Drops every loaded plugin and what it registered with AMX Mod X.
+ * Stops one plugin and takes back what it registered with AMX Mod X; its
+ * entry stays at its index, for the caller to say what it is now.
  *
  * A task is removed and its slot given back. A hookchain or a Ham hook is
- * switched off, and its slot kept under its key for the reloaded plugin to
- * take back and switch on (TakeSlot); one it does not take back is given back
- * once the reload is done (FreeSwitchedOff). The rest - register_clcmd,
- * register_srvcmd, register_message, register_menucmd - have no undo, so
- * their publics stay bound to their slots: those become orphans, which answer
- * PLUGIN_CONTINUE and call nothing, until the same registration comes back
- * and reuses its slot. An orphan whose registration never comes back - a
- * command the new code no longer adds - stays spent, one of the
- * MAX_CALLBACK_SLOTS, until the map changes.
+ * switched off, and its slot kept under its key for the plugin to take back
+ * and switch on when it registers it again (TakeSlot); one it does not take
+ * back is given back once the load is done (FreeSwitchedOff). The rest -
+ * register_clcmd, register_srvcmd, register_message, register_menucmd - have
+ * no undo, so their publics stay bound to their slots: those become orphans,
+ * which answer PLUGIN_CONTINUE and call nothing, until the same registration
+ * comes back and reuses its slot. An orphan whose registration never comes
+ * back - a command the new code no longer adds - stays spent, one of the
+ * MAX_CALLBACK_SLOTS, until the map changes. Its listeners, its subscriptions
+ * and its requests go; its natives and the modules it serves stay registered,
+ * answering nothing until a plugin claims them again.
  */
-static void UnloadPlugins()
+static void ReleasePlugin(int index)
 {
-	// Their requests are taken back: a response has nowhere to go.
-	NetForgetAll();
+	Plugin &p = g_plugins[index];
+	if (p.inst)
+		NetForget(p.inst);
+	// Their timers and requests come back to orphaned slots, which do nothing.
+	if (!p.coroutines.empty())
+		MF_PrintSrvConsole("[amxts] %s: %d async function(s) were still waiting, and are dropped\n",
+		                   p.name.c_str(), (int)p.coroutines.size());
+	if (p.env)    wasm_runtime_destroy_exec_env(p.env);
+	if (p.inst)   wasm_runtime_deinstantiate(p.inst);
+	if (p.module) wasm_runtime_unload(p.module);
+	free(p.file);
 
-	for (size_t i = 0; i < g_plugins.size(); i++) {
-		Plugin &p = g_plugins[i];
-		// Their timers and requests come back to orphaned slots, which do nothing.
-		if (!p.coroutines.empty())
-			MF_PrintSrvConsole("[amxts] %s: %d async function(s) were still waiting, and are dropped\n",
-			                   p.name.c_str(), (int)p.coroutines.size());
-		if (p.env)    wasm_runtime_destroy_exec_env(p.env);
-		if (p.inst)   wasm_runtime_deinstantiate(p.inst);
-		if (p.module) wasm_runtime_unload(p.module);
-		free(p.file);
-	}
+	p.file = NULL;
+	p.module = NULL;
+	p.inst = NULL;
+	p.env = NULL;
+	p.hasTable = false;
+	p.title = p.version = p.author = p.description = "";
+	p.uses.clear();
+	p.depth = 0;
+	p.wake = false;
+	p.entering = false;
+	p.stackTop = 0;
+	p.coroutines.clear();
+	p.running.clear();
 
-	g_plugins.clear();
-	g_events.clear();
-	g_subscriptions.clear();
-	g_broken.clear();
-	g_services.clear();
-	g_fieldListeners.clear();
-	g_timers.clear();
+	for (std::map<std::string, std::vector<Handler> >::iterator it = g_events.begin(); it != g_events.end(); ++it)
+		DropFrom(it->second, [index](const Handler &h) { return h.plugin == index; });
+	for (std::map<std::string, std::vector<Subscription> >::iterator it = g_subscriptions.begin(); it != g_subscriptions.end(); ++it)
+		DropFrom(it->second, [index](const Subscription &s) { return s.handler.plugin == index; });
+	DropFrom(g_fieldListeners, [index](const FieldListener &l) { return l.plugin == index; });
+
+	for (size_t i = 0; i < g_services.size(); i++)
+		if (g_services[i].plugin == index)
+			g_services[i].plugin = -1;
 
 	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++) {
 		Slot &slot = g_slots[i];
-		if (!slot.used || slot.plugin < 0)
+		if (!slot.used || slot.plugin != index)
 			continue;
 		if (slot.taskId >= 0) {
 			RemoveTask(slot.taskId);
@@ -3144,11 +3187,32 @@ static void UnloadPlugins()
 		slot.plugin = SLOT_ORPHANED;
 	}
 
-	// The natives stay registered with AMX Mod X - there is no way to take one
-	// back - so the entries are kept and w_export gives each one to whichever
-	// plugin claims its name again. Until then, calling one answers 0.
+	// AMX Mod X has no way to take a native back, so the entries are kept and
+	// w_export gives each one to whichever plugin claims its name again.
+	// Until then, calling one answers 0.
 	for (size_t i = 0; i < g_exported.size(); i++)
-		g_exported[i].plugin = SLOT_ORPHANED;
+		if (g_exported[i].plugin == index)
+			g_exported[i].plugin = SLOT_ORPHANED;
+}
+
+/**
+ * Drops every plugin and what it registered with AMX Mod X (ReleasePlugin),
+ * for a reload of them all. The entries let go, for LoadScripts to keep what
+ * the commands said.
+ */
+static std::vector<Plugin> UnloadPlugins()
+{
+	for (size_t i = 0; i < g_plugins.size(); i++)
+		ReleasePlugin((int)i);
+
+	std::vector<Plugin> before;
+	before.swap(g_plugins);
+	g_events.clear();
+	g_subscriptions.clear();
+	g_services.clear();
+	g_fieldListeners.clear();
+	g_timers.clear();
+	return before;
 }
 
 static void Teardown()
@@ -3167,7 +3231,6 @@ static void Teardown()
 	g_plugins.clear();
 	g_events.clear();
 	g_subscriptions.clear();
-	g_broken.clear();
 	g_services.clear();
 	g_fieldListeners.clear();
 
@@ -3397,12 +3460,16 @@ static std::string CompilerBuild(const std::string &tool, const std::string &log
 	return build;
 }
 
+/** Why the last CompilePlugin or LoadPlugin failed, in a few words: what amxts_plugins shows. */
+static std::string g_refusal;
+
 static bool CompilePlugin(const std::string &source, const std::string &output)
 {
 	std::string tool = MF_BuildPathname("addons/amxts/tools/" COMPILER_FILE);
 
 	if (FileStamp(tool.c_str()) == 0) {
 		MF_PrintSrvConsole("[amxts] %s is missing - a .ts plugin needs the compiler beside the module\n", tool.c_str());
+		g_refusal = "the compiler is missing";
 		return false;
 	}
 
@@ -3415,6 +3482,7 @@ static bool CompilePlugin(const std::string &source, const std::string &output)
 	if (build != AMXTS_BUILD) {
 		MF_PrintSrvConsole("[amxts] %s is not compiled: amxts-compile is %s%s, the module %s - take both from the same release\n",
 		                   source.c_str(), build.empty() ? "of an older release" : "", build.c_str(), AMXTS_BUILD);
+		g_refusal = "the compiler is of another build";
 		return false;
 	}
 
@@ -3425,8 +3493,10 @@ static bool CompilePlugin(const std::string &source, const std::string &output)
 	args.push_back(output);
 	int code = RunCompiler(tool, args, log);
 
-	if (code < 0)
+	if (code < 0) {
+		g_refusal = "the compiler did not finish";
 		return false;
+	}
 
 	MF_PrintSrvConsole("[amxts] compiler exited with %d\n", code);
 
@@ -3441,6 +3511,7 @@ static bool CompilePlugin(const std::string &source, const std::string &output)
 			fclose(f);
 		}
 
+		g_refusal = "it does not compile";
 		return false;
 	}
 
@@ -3554,14 +3625,25 @@ static bool OfThisAbi(const char *name, const unsigned char *data, size_t size)
 	std::string built = abi.empty() ? "an older amxts" : "amxts " + (sameVersion ? abi : AbiVersion(abi));
 	MF_PrintSrvConsole("[amxts] %s was built for %s, this is %s - build it again\n",
 	                   name, built.c_str(), (sameVersion ? ours : AbiVersion(ours)).c_str());
+	g_refusal = "built for " + built;
 	return false;
 }
 
-static bool LoadPlugin(const char *file, const char *name, const char *source = NULL)
+/**
+ * Loads the .aot of the plugin at `index` - an entry of the list or of
+ * amxts_load, not running - and runs its top level. false, with g_refusal
+ * saying why, when it cannot; what it took is then ReleasePlugin's to free.
+ */
+static bool LoadPlugin(int index)
 {
-	FILE *f = fopen(file, "rb");
+	const std::string name = g_plugins[index].name;
+	const std::string path = g_plugins[index].path;
+	g_plugins[index].stamp = FileStamp(path.c_str());
+
+	FILE *f = fopen(path.c_str(), "rb");
 	if (!f) {
-		MF_PrintSrvConsole("[amxts] missing %s\n", file);
+		MF_PrintSrvConsole("[amxts] missing %s\n", path.c_str());
+		g_refusal = "its file is missing";
 		return false;
 	}
 
@@ -3569,55 +3651,35 @@ static bool LoadPlugin(const char *file, const char *name, const char *source = 
 	long len = ftell(f);
 	fseek(f, 0, SEEK_SET);
 
-	Plugin p;
-	p.name = name;
-	p.path = file;
-	p.source = source ? source : "";
-	p.sourceStamp = source ? FileStamp(source) : 0;
-	p.stamp = FileStamp(file);
-	p.file = (unsigned char *)malloc(len);
-	p.module = NULL;
-	p.inst = NULL;
-	p.env = NULL;
-	p.depth = 0;
-	p.wake = false;
-	p.entering = false;
-	p.stackTop = 0;
-
-	size_t got = fread(p.file, 1, len, f);
+	unsigned char *file = (unsigned char *)malloc(len);
+	g_plugins[index].file = file;
+	size_t got = fread(file, 1, len, f);
 	fclose(f);
 
-	const char *other = AotBuiltForOtherSystem(p.file, got);
+	const char *other = AotBuiltForOtherSystem(file, got);
 	if (other) {
 		MF_PrintSrvConsole("[amxts] %s was compiled for a %s server, and this one runs %s - build it for this server (amxts build picks the system from AMXTS_SERVER, or --os)\n",
-		                   name, other, THIS_SYSTEM);
-		free(p.file);
+		                   name.c_str(), other, THIS_SYSTEM);
+		g_refusal = std::string("built for a ") + other + " server";
 		return false;
 	}
 
-	if (!OfThisAbi(name, p.file, got)) {
-		free(p.file);
+	if (!OfThisAbi(name.c_str(), file, got))
 		return false;
-	}
 
 	char err[192];
-	p.module = wasm_runtime_load(p.file, (uint32_t)got, err, sizeof(err));
-	if (!p.module) {
-		MF_PrintSrvConsole("[amxts] %s: %s\n", name, err);
-		free(p.file);
+	wasm_module_t module = wasm_runtime_load(file, (uint32_t)got, err, sizeof(err));
+	g_plugins[index].module = module;
+	if (!module) {
+		MF_PrintSrvConsole("[amxts] %s: %s\n", name.c_str(), err);
+		g_refusal = err;
 		return false;
 	}
 
-	// The entry goes in before instantiation, and the plugin is made current
-	// for it, because a plugin registers at the top level of its file and
-	// WebAssembly runs that during instantiation. Anything registered there
-	// has to know which plugin it belongs to, and the index is what says so.
-	p.inst = NULL;
-	p.env = NULL;
-
-	g_plugins.push_back(p);
-
-	int index = (int)g_plugins.size() - 1;
+	// The plugin is made current for its instantiation, because a plugin
+	// registers at the top level of its file and WebAssembly runs that during
+	// instantiation. Anything registered there has to know which plugin it
+	// belongs to, and the index is what says so.
 	int previous = g_currentPlugin;
 	g_currentPlugin = index;
 
@@ -3635,45 +3697,38 @@ static bool LoadPlugin(const char *file, const char *name, const char *source = 
 	// Its top level may call an async function, whose jobs wait for DrainJobs
 	// below rather than running inside the start function.
 	g_plugins[index].depth = 1;
-	wasm_module_inst_t inst =
-		wasm_runtime_instantiate(p.module, 64 * 1024, 0, err, sizeof(err));
+	wasm_module_inst_t inst = wasm_runtime_instantiate(module, 64 * 1024, 0, err, sizeof(err));
 	g_plugins[index].depth = 0;
 
 	g_currentPlugin = previous;
 
 	if (!inst) {
 		// Its top level failed, or WAMR refused it: an abort's frames are kept.
-		PrintFailure(index, TakeFailure(index, NULL, err));
-		g_plugins.pop_back();
-		wasm_runtime_unload(p.module);
-		free(p.file);
+		Failure failure = TakeFailure(index, NULL, err);
+		PrintFailure(index, failure);
+		g_refusal = "its top level failed: " + failure.message;
 		return false;
 	}
 
-	g_plugins[index].inst = inst;
+	Plugin &p = g_plugins[index];
 	p.inst = inst;
-
 	// The exported function table, for Fire to read handler signatures from.
 	p.hasTable = wasm_runtime_get_export_table_inst(inst, "table", &p.table);
-	g_plugins[index].hasTable = p.hasTable;
-	g_plugins[index].table = p.table;
 
-	p.env = wasm_runtime_create_exec_env(p.inst, 64 * 1024);
+	p.env = wasm_runtime_create_exec_env(inst, 64 * 1024);
 	if (!p.env) {
-		MF_PrintSrvConsole("[amxts] %s: cannot create exec env\n", name);
-		g_plugins.pop_back();
-		wasm_runtime_deinstantiate(p.inst);
-		wasm_runtime_unload(p.module);
-		free(p.file);
+		MF_PrintSrvConsole("[amxts] %s: cannot create exec env\n", name.c_str());
+		g_refusal = "no exec env for it";
 		return false;
 	}
 
-	g_plugins[index].env = p.env;
+	p.state = PLUGIN_RUNNING;
+	p.reason = "";
 
 	// A plugin with async functions: where its shadow stack starts, for
 	// DrainJobs. Its top level has returned, so nothing is on it.
-	if (wasm_runtime_lookup_function(p.inst, "__co_stack"))
-		g_plugins[index].stackTop = CoCall(p.env, "__co_stack");
+	if (wasm_runtime_lookup_function(inst, "__co_stack"))
+		p.stackTop = CoCall(p.env, "__co_stack");
 
 	DrainJobs(index);
 	return true;
@@ -3707,14 +3762,92 @@ static void InitPlugin(int index)
 	DrainJobs(index);
 }
 
-static void LoadScripts()
+/**
+ * Compiles the plugin at `index` when its .ts is newer than its build, or the
+ * build is of another ABI, then loads it and runs its init(). Its entry says
+ * how that went: running, or refused and why.
+ */
+static bool LoadEntry(int index)
+{
+	Plugin &p = g_plugins[index];
+	g_refusal = "";
+
+	// Built from an older source, or by an amxts of another ABI: compiled again.
+	bool loaded = false;
+	if (!p.source.empty()) {
+		p.sourceStamp = FileStamp(p.source.c_str());
+		bool stale = FileStamp(p.path.c_str()) < p.sourceStamp || FileAbi(p.path) != AMXTS_ABI;
+		loaded = (!stale || CompilePlugin(p.source, p.path)) && LoadPlugin(index);
+	} else {
+		loaded = LoadPlugin(index);
+	}
+
+	if (!loaded) {
+		ReleasePlugin(index);
+		g_plugins[index].state = PLUGIN_REFUSED;
+		g_plugins[index].reason = g_refusal;
+		return false;
+	}
+
+	InitPlugin(index);
+	return true;
+}
+
+/** A plugin's name without its .ts or .aot: what a command may call it by. */
+static std::string Stem(const std::string &name)
+{
+	size_t dot = name.find_last_of('.');
+	bool known = dot != std::string::npos && (name.compare(dot, std::string::npos, ".ts") == 0 || name.compare(dot, std::string::npos, ".aot") == 0);
+	return known ? name.substr(0, dot) : name;
+}
+
+/** The entry of `list` whose line is `name`; -1 for none. */
+static int Named(const std::vector<Plugin> &list, const std::string &name)
+{
+	for (size_t i = 0; i < list.size(); i++)
+		if (list[i].name == name)
+			return (int)i;
+	return -1;
+}
+
+/** The entry a command names, by its line ("shop.ts") or without the extension ("shop"); -1 for none. */
+static int FindPlugin(const std::string &wanted)
+{
+	for (size_t i = 0; i < g_plugins.size(); i++)
+		if (g_plugins[i].name == wanted || Stem(g_plugins[i].name) == wanted)
+			return (int)i;
+	return -1;
+}
+
+/**
+ * A new entry, not loaded yet, for `line`: a plugin's file in plugins/ beside
+ * the list. A .ts is built into build/ beside it, and the result kept there
+ * so that a server restart does not compile it again. Its index.
+ */
+static int AddPlugin(const std::string &line, bool listed)
 {
 	const std::string home = ListHome();
+	std::string file = MF_BuildPathname("%s/plugins/%s", home.c_str(), line.c_str());
+	bool isSource = Stem(line) + ".ts" == line;
+
+	Plugin p;
+	p.name = line;
+	p.listed = listed;
+	p.source = isSource ? file : "";
+	p.path = isSource ? std::string(MF_BuildPathname("%s/build/%s.aot", home.c_str(), Stem(line).c_str())) : file;
+	g_plugins.push_back(p);
+	return (int)g_plugins.size() - 1;
+}
+
+/** The lines of the plugin list: a file of plugins/ each, without blanks and comments. */
+static std::vector<std::string> ReadList()
+{
+	std::vector<std::string> lines;
 	std::string listPath = MF_BuildPathname("%s", ListFile().c_str());
 	FILE *f = fopen(listPath.c_str(), "r");
 	if (!f) {
 		MF_PrintSrvConsole("[amxts] no plugin list at %s\n", listPath.c_str());
-		return;
+		return lines;
 	}
 
 	if (HasOwnList())
@@ -3727,45 +3860,36 @@ static void LoadScripts()
 		char *end = p + strlen(p);
 		while (end > p && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' '))
 			*--end = 0;
-		if (!*p || *p == ';' || *p == '#')
-			continue;
-
-		size_t len = strlen(p);
-		bool isSource = len > 3 && !strcmp(p + len - 3, ".ts");
-
-		if (!isSource) {
-			char *path = MF_BuildPathname("%s/plugins/%s", home.c_str(), p);
-			if (LoadPlugin(path, p))
-				InitPlugin((int)g_plugins.size() - 1);
-			continue;
-		}
-
-		// A plugin written as TypeScript is compiled here, and the result is
-		// kept beside it so that a server restart does not compile it again.
-		std::string source = MF_BuildPathname("%s/plugins/%s", home.c_str(), p);
-		std::string stem(p, len - 3);
-		std::string output = MF_BuildPathname("%s/build/%s.aot", home.c_str(), stem.c_str());
-
-		Broken broken;
-		broken.name = p;
-		broken.source = source;
-		broken.output = output;
-		broken.stamp = FileStamp(source.c_str());
-
-		// Built from an older source, or by an amxts of another ABI: compiled again.
-		bool stale = FileStamp(output.c_str()) < broken.stamp || FileAbi(output) != AMXTS_ABI;
-		if (stale && !CompilePlugin(source, output)) {
-			g_broken.push_back(broken);
-			continue;
-		}
-
-		if (LoadPlugin(output.c_str(), p, source.c_str()))
-			InitPlugin((int)g_plugins.size() - 1);
-		else
-			g_broken.push_back(broken);
+		if (*p && *p != ';' && *p != '#')
+			lines.push_back(p);
 	}
 
 	fclose(f);
+	return lines;
+}
+
+/**
+ * Loads the plugins of the list, in its order, then those amxts_load added.
+ * `before` is the entries a reload of every plugin let go, whose commands it
+ * keeps: a plugin unloaded stays unloaded, one loaded by hand comes back.
+ */
+static void LoadScripts(const std::vector<Plugin> &before = std::vector<Plugin>())
+{
+	std::vector<std::string> lines = ReadList();
+	for (size_t i = 0; i < lines.size(); i++)
+		AddPlugin(lines[i], true);
+
+	for (size_t i = 0; i < before.size(); i++)
+		if (!before[i].listed && Named(g_plugins, before[i].name) < 0)
+			AddPlugin(before[i].name, false);
+
+	for (size_t i = 0; i < g_plugins.size(); i++) {
+		int was = Named(before, g_plugins[i].name);
+		if (was >= 0 && before[was].state == PLUGIN_UNLOADED)
+			g_plugins[i].state = PLUGIN_UNLOADED;
+		else
+			LoadEntry((int)i);
+	}
 }
 
 /**
@@ -3853,24 +3977,27 @@ static void RegisterServerCommand(const char *command, int owner, const char *in
 	g_host->hea = mark;
 }
 
-static void LoadScripts();
-
 /**
- * Tells the plugins that the server is up.
+ * Tells the plugins that the server is up - every plugin, or the one at
+ * `only`, loaded once the server was.
  *
- * Fired from plugin_init, and again after a reload: a plugin's top level runs
- * when it is loaded, but everything it may not do that early - read a config,
- * register a command, put its menus up - waits for this. A reload that
- * skipped it left a plugin half awake, which is a strange thing to debug.
+ * Fired from plugin_init, and again after a reload or a load: a plugin's top
+ * level runs when it is loaded, but everything it may not do that early -
+ * read a config, register a command, put its menus up - waits for this. A
+ * reload that skipped it left a plugin half awake, which is a strange thing
+ * to debug.
  */
-static void FireInit()
+static void FireInit(int only = -1)
 {
 	std::map<std::string, std::vector<Handler> >::iterator it = g_events.find("plugin_init");
 	if (it == g_events.end())
 		return;
 
-	for (size_t i = 0; i < it->second.size(); i++)
-		Fire(it->second[i], NULL, 0, 0);
+	// A copy: a listener that adds another must not move this loop's floor.
+	std::vector<Handler> handlers = it->second;
+	for (size_t i = 0; i < handlers.size(); i++)
+		if (only < 0 || handlers[i].plugin == only)
+			Fire(handlers[i], NULL, 0, 0);
 }
 
 
@@ -3885,10 +4012,196 @@ static void FreeSwitchedOff()
 static void ReloadPlugins()
 {
 	MF_PrintSrvConsole("[amxts] reloading\n");
-	UnloadPlugins();
-	LoadScripts();
+	LoadScripts(UnloadPlugins());
 	FireInit();
 	FreeSwitchedOff();
+}
+
+/** Whether `p` calls a module the plugin at `owner` serves. */
+static bool UsesModuleOf(const Plugin &p, int owner)
+{
+	for (size_t i = 0; i < g_services.size(); i++)
+		if (g_services[i].plugin == owner && std::find(p.uses.begin(), p.uses.end(), g_services[i].name) != p.uses.end())
+			return true;
+	return false;
+}
+
+/**
+ * The running plugins that call a module the plugin at `index` serves, and
+ * those that call theirs, in the list's order: what holds handles and
+ * functions of its instance, which mean nothing to another.
+ */
+static std::vector<int> Dependents(int index)
+{
+	std::vector<int> found(1, index);
+	for (size_t k = 0; k < found.size(); k++)
+		for (size_t i = 0; i < g_plugins.size(); i++)
+			if (g_plugins[i].state == PLUGIN_RUNNING && std::find(found.begin(), found.end(), (int)i) == found.end()
+			    && UsesModuleOf(g_plugins[i], found[k]))
+				found.push_back((int)i);
+
+	found.erase(found.begin());
+	std::sort(found.begin(), found.end());
+	return found;
+}
+
+/** The plugins' names, "shop.ts, vip.ts". */
+static std::string Names(const std::vector<int> &plugins)
+{
+	std::string names;
+	for (size_t i = 0; i < plugins.size(); i++)
+		names += (i ? ", " : "") + g_plugins[plugins[i]].name;
+	return names;
+}
+
+/**
+ * Whether one of these plugins is in the middle of a call - a command run
+ * with server_exec from its own handler - and cannot be stopped under it;
+ * the console says so.
+ */
+static bool Busy(const std::vector<int> &plugins)
+{
+	for (size_t i = 0; i < plugins.size(); i++) {
+		if (g_plugins[plugins[i]].depth > 0) {
+			MF_PrintSrvConsole("[amxts] %s is running a call - try again from the console\n", g_plugins[plugins[i]].name.c_str());
+			return true;
+		}
+	}
+	return false;
+}
+
+/** The entry a command names, or -1 with a line in the console. */
+static int PluginFor(const std::string &wanted)
+{
+	int index = FindPlugin(wanted);
+	if (index < 0)
+		MF_PrintSrvConsole("[amxts] no plugin %s - amxts_plugins lists them\n", wanted.c_str());
+	return index;
+}
+
+/** Loads these plugins in place, then tells them the server is up. */
+static void StartPlugins(const std::vector<int> &plugins)
+{
+	for (size_t i = 0; i < plugins.size(); i++)
+		LoadEntry(plugins[i]);
+	for (size_t i = 0; i < plugins.size(); i++)
+		if (g_plugins[plugins[i]].state == PLUGIN_RUNNING)
+			FireInit(plugins[i]);
+	FreeSwitchedOff();
+}
+
+/**
+ * amxts_unload <plugin>: stops it, and what it registered with it, until
+ * amxts_load or the map changes. A plugin whose module others call stays:
+ * they hold handles and functions of it.
+ */
+static void UnloadOne(const std::string &wanted)
+{
+	int index = PluginFor(wanted);
+	if (index < 0)
+		return;
+
+	const std::string name = g_plugins[index].name;
+	if (g_plugins[index].state != PLUGIN_RUNNING) {
+		MF_PrintSrvConsole("[amxts] %s is not running\n", name.c_str());
+		return;
+	}
+
+	std::vector<int> dependents = Dependents(index);
+	if (!dependents.empty()) {
+		MF_PrintSrvConsole("[amxts] %s stays: its module is in use - unload first %s\n", name.c_str(), Names(dependents).c_str());
+		return;
+	}
+
+	if (Busy(std::vector<int>(1, index)))
+		return;
+
+	ReleasePlugin(index);
+	g_plugins[index].state = PLUGIN_UNLOADED;
+	MF_PrintSrvConsole("[amxts] unloaded %s\n", name.c_str());
+}
+
+/**
+ * An entry for a plugin amxts_load names and the list does not: its file in
+ * plugins/, `<name>`, `<name>.ts` or `<name>.aot`. -1 when there is none.
+ */
+static int AddByHand(const std::string &wanted)
+{
+	const std::string home = ListHome();
+	const char *endings[] = { "", ".ts", ".aot" };
+	for (int i = 0; i < 3; i++) {
+		std::string line = wanted + endings[i];
+		if (Stem(line) != line && FileStamp(MF_BuildPathname("%s/plugins/%s", home.c_str(), line.c_str())))
+			return AddPlugin(line, false);
+	}
+
+	MF_PrintSrvConsole("[amxts] no plugin %s in %s/plugins\n", wanted.c_str(), home.c_str());
+	return -1;
+}
+
+/** amxts_load <plugin>: one unloaded or refused, or a file of plugins/ the list does not name. */
+static void LoadOne(const std::string &wanted)
+{
+	int index = FindPlugin(wanted);
+	if (index >= 0 && g_plugins[index].state == PLUGIN_RUNNING) {
+		MF_PrintSrvConsole("[amxts] %s is running - amxts_reload %s starts it over\n", g_plugins[index].name.c_str(), wanted.c_str());
+		return;
+	}
+
+	if (index < 0)
+		index = AddByHand(wanted);
+	if (index >= 0)
+		StartPlugins(std::vector<int>(1, index));
+}
+
+/**
+ * amxts_reload <plugin>: starts it over from disk, compiled again when its
+ * .ts changed. The plugins that call its module start over after it: they
+ * hold handles and functions of the old instance.
+ */
+static void ReloadOne(const std::string &wanted)
+{
+	int index = PluginFor(wanted);
+	if (index < 0)
+		return;
+
+	std::vector<int> dependents = Dependents(index);
+	std::vector<int> group(1, index);
+	group.insert(group.end(), dependents.begin(), dependents.end());
+	if (Busy(group))
+		return;
+
+	if (dependents.empty())
+		MF_PrintSrvConsole("[amxts] reloading %s\n", g_plugins[index].name.c_str());
+	else
+		MF_PrintSrvConsole("[amxts] reloading %s, and what uses its module: %s\n", g_plugins[index].name.c_str(), Names(dependents).c_str());
+	for (size_t i = group.size(); i-- > 0;)
+		ReleasePlugin(group[i]);
+	StartPlugins(group);
+}
+
+/** A server command's argument `n`, as typed. */
+static std::string CommandArgument(int n)
+{
+	cell mark = g_host->hea;
+	cell addr;
+	cell *phys = HeapCells(128, &addr);
+	if (!phys)
+		return std::string();
+	phys[0] = 0;
+
+	Args params(3);
+	params[1] = n;
+	params[2] = addr;
+	params[3] = 127;
+	CallNative("read_argv", params);
+
+	int len = 0;
+	const char *text = MF_GetAmxString(g_host, addr, 0, &len);
+	std::string out = text ? text : "";
+
+	g_host->hea = mark;
+	return out;
 }
 
 /**
@@ -3910,44 +4223,33 @@ static void WatchPlugins()
 	for (size_t i = 0; i < g_plugins.size(); i++) {
 		Plugin &p = g_plugins[i];
 
+		// An unloaded plugin stays as it is until amxts_load.
+		if (p.state == PLUGIN_UNLOADED)
+			continue;
+
 		// A plugin written as TypeScript is watched by its source: the .aot is
 		// a build product, and waiting for that one would mean waiting for a
-		// compile that nothing has started.
+		// compile that nothing has started. A refused one is watched as well,
+		// so that saving the fix is all it takes; compiling it here rather than
+		// at the reload keeps a plugin that is still broken from restarting
+		// the ones that are not.
 		if (!p.source.empty()) {
 			time_t now = FileStamp(p.source.c_str());
-			if (now && now != p.sourceStamp) {
-				MF_PrintSrvConsole("[amxts] %s changed, compiling\n", p.name.c_str());
-				p.sourceStamp = now;
+			if (!now || now == p.sourceStamp)
+				continue;
 
-				if (CompilePlugin(p.source, p.path))
-					changed = true;
-			}
+			MF_PrintSrvConsole("[amxts] %s changed, compiling\n", p.name.c_str());
+			p.sourceStamp = now;
+			changed = CompilePlugin(p.source, p.path) || changed;
 			continue;
 		}
 
 		time_t now = FileStamp(p.path.c_str());
-
 		if (now && now != p.stamp) {
 			MF_PrintSrvConsole("[amxts] %s changed on disk\n", p.name.c_str());
 			p.stamp = now;
 			changed = true;
 		}
-	}
-
-	// A plugin that failed is watched by its source as well, so that saving the
-	// fix is all it takes. Compiling it here rather than at the reload keeps a
-	// plugin that is still broken from restarting the ones that are not.
-	for (size_t i = 0; i < g_broken.size(); i++) {
-		time_t now = FileStamp(g_broken[i].source.c_str());
-
-		if (!now || now == g_broken[i].stamp)
-			continue;
-
-		MF_PrintSrvConsole("[amxts] %s changed, compiling\n", g_broken[i].name.c_str());
-		g_broken[i].stamp = now;
-
-		if (CompilePlugin(g_broken[i].source, g_broken[i].output))
-			changed = true;
 	}
 
 	if (changed)
@@ -3956,23 +4258,34 @@ static void WatchPlugins()
 
 static void ListPlugins()
 {
+	static const char *const STATES[] = { "running", "unloaded", "refused" };
+
 	int used = 0;
 	for (int i = 0; i < g_slotCount; i++)
 		if (g_slots[i].used)
 			used++;
 
-	MF_PrintSrvConsole("[amxts] %d plugin(s), %d of %d callback slots in use\n",
-	                   (int)g_plugins.size(), used, MAX_CALLBACK_SLOTS);
+	int counts[3] = { 0, 0, 0 };
+	int width = 0;
+	for (size_t i = 0; i < g_plugins.size(); i++) {
+		counts[g_plugins[i].state]++;
+		if ((int)g_plugins[i].name.size() > width)
+			width = (int)g_plugins[i].name.size();
+	}
+
+	MF_PrintSrvConsole("[amxts] %d plugin(s): %d running, %d unloaded, %d refused; %d of %d callback slots in use\n",
+	                   (int)g_plugins.size(), counts[PLUGIN_RUNNING], counts[PLUGIN_UNLOADED], counts[PLUGIN_REFUSED], used, MAX_CALLBACK_SLOTS);
 
 	for (size_t i = 0; i < g_plugins.size(); i++) {
-		Plugin &p = g_plugins[i];
-		MF_PrintSrvConsole("  %s  %s %s  by %s%s%s\n",
-			p.name.c_str(),
-			p.title.empty() ? "(no plugin() call)" : p.title.c_str(),
-			p.version.c_str(),
-			p.author.empty() ? "-" : p.author.c_str(),
-			p.description.empty() ? "" : " - ",
-			p.description.c_str());
+		const Plugin &p = g_plugins[i];
+		std::string about = p.state == PLUGIN_REFUSED ? p.reason
+			: p.state == PLUGIN_UNLOADED ? std::string()
+			: p.title.empty() ? std::string("(no plugin() call)")
+			: p.title + " " + p.version + "  by " + (p.author.empty() ? "-" : p.author) + (p.description.empty() ? "" : " - " + p.description);
+		std::string state = STATES[p.state];
+		if (!about.empty())
+			state += std::string(10 - state.size(), ' ') + about;
+		MF_PrintSrvConsole("  %-*s  %s\n", width, p.name.c_str(), state.c_str());
 	}
 }
 
@@ -4103,8 +4416,10 @@ static cell AMX_NATIVE_CALL n_init(AMX *amx, cell *params)
 
 	g_pendingCommands.clear();
 
-	RegisterServerCommand("amxts_reload", SLOT_RELOAD, "reload every amxts plugin from disk");
-	RegisterServerCommand("amxts_plugins", SLOT_LIST, "list the loaded amxts plugins");
+	RegisterServerCommand("amxts_reload", SLOT_RELOAD, "[plugin] - reload one amxts plugin from disk, or every one");
+	RegisterServerCommand("amxts_unload", SLOT_UNLOAD, "<plugin> - stop an amxts plugin until amxts_load or the map changes");
+	RegisterServerCommand("amxts_load", SLOT_LOAD, "<plugin> - load an amxts plugin: an unloaded one, or a file of plugins/");
+	RegisterServerCommand("amxts_plugins", SLOT_LIST, "list the amxts plugins and what each is doing");
 	RegisterServerCommand("amxts_trace", SLOT_TRACE, "log every handler call, for cornering a crash");
 	StartWatcher();
 
@@ -4221,7 +4536,23 @@ static cell AMX_NATIVE_CALL n_callback(AMX *amx, cell *params)
 		return 1;
 
 	if (g_slots[slot].plugin == SLOT_RELOAD) {
-		ReloadPlugins();
+		std::string name = CommandArgument(1);
+		if (name.empty())
+			ReloadPlugins();
+		else
+			ReloadOne(name);
+		return 1;
+	}
+
+	if (g_slots[slot].plugin == SLOT_UNLOAD || g_slots[slot].plugin == SLOT_LOAD) {
+		bool load = g_slots[slot].plugin == SLOT_LOAD;
+		std::string name = CommandArgument(1);
+		if (name.empty())
+			MF_PrintSrvConsole("[amxts] %s <plugin> - amxts_plugins lists them\n", load ? "amxts_load" : "amxts_unload");
+		else if (load)
+			LoadOne(name);
+		else
+			UnloadOne(name);
 		return 1;
 	}
 

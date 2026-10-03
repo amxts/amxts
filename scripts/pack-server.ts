@@ -173,8 +173,9 @@ plugin compiles to WebAssembly rather than to JavaScript. tsconfig.json and
 .assemblyscript beside your plugins are what an editor reads to know that -
 open this folder, not the server root, and nothing will look like an error.
 
-Two server commands: amxts_plugins lists what is loaded, amxts_reload starts
-them over.
+Server commands: amxts_plugins lists the plugins and what each is doing,
+amxts_reload starts them over (amxts_reload <plugin> one of them), and
+amxts_unload <plugin> and amxts_load <plugin> stop and start one.
 
 What is in tools/
 -----------------
