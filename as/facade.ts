@@ -5,7 +5,7 @@
 // includes/*.inc as Pawn sees it, and the bridge natives that
 // runtime/src/module.cpp registers by hand for the places where a string
 // crossing as UTF-16 is worth a purpose-built thunk. Both are direct calls —
-// an import whose signature wamrc knows costs 2 ns.
+// an import whose signature wamrc knows is far cheaper than its generic call.
 //
 // The `// @ts-ignore: decorator` lines are AssemblyScript's own idiom, used
 // throughout its standard library: an editor reading this as TypeScript would

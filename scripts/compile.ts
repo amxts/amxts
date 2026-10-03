@@ -192,8 +192,8 @@ export function compileToMachineCode(plugin: Plugin, wasm: string, natives: Plug
 	}
 
 	// A signature that disagrees with its import is not an error to wamrc: it
-	// drops that native to the generic path, 28 ns a call instead of 2, and
-	// says so only in this warning. That means the API and the module have
+	// drops that native to the generic path, many times slower than the direct
+	// call, and says so only in this warning. That means the API and the module have
 	// drifted apart, which is worth refusing rather than running slowly.
 	if (/failed to check signature/.test(out)) {
 		rmSync(part, { force: true });

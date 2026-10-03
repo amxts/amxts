@@ -31,7 +31,8 @@ import { createSocket } from 'node:dgram';
 // Two compilers, in order: asc turns AssemblyScript into wasm, wamrc turns
 // wasm into i386 machine code - in the object format of the server's system,
 // Windows or Linux, whichever this machine is (scripts/system.ts). wamrc is given runtime/natives.txt so that a
-// call into a host native compiles to a direct call — 2 ns instead of 28. Both
+// call into a host native compiles to a direct call, far cheaper than WAMR's
+// generic one. Both
 // must come from the same WAMR release as the module, or the loader reports
 // "unknown binary version" (CONTRIBUTING.md builds both from one checkout).
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';

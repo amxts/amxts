@@ -1083,8 +1083,8 @@ writeFileSync(
 // Source: includes/*.inc
 //
 // One thunk per native, so that wamrc can emit a direct call to it: an import
-// whose signature the compiler knows costs 2 ns, one it has to reach through
-// aot_invoke_native costs 28. Frame and Args come from module.cpp, which is
+// whose signature the compiler knows is far cheaper than one it has to reach
+// through aot_invoke_native. Frame and Args come from module.cpp, which is
 // the only file that includes this one.
 //
 // A buffer parameter is copied into the AMX heap before the call and back
