@@ -579,9 +579,11 @@ static wasm_module_inst_t Inst(wasm_exec_env_t env)
 struct Args {
 	cell p[32];
 
+	// Only the count and the arguments are cleared: a native reads no
+	// further, and clearing all 32 cells was a measurable part of a call.
 	Args(int argc)
 	{
-		memset(p, 0, sizeof(p));
+		memset(p, 0, (argc + 1) * sizeof(cell));
 		p[0] = argc * sizeof(cell);
 	}
 
@@ -999,19 +1001,43 @@ static int32_t w_get_name(wasm_exec_env_t env, int32_t id, int32_t out, int32_t 
 	return written;
 }
 
+// fields.h's: an entvar's four bytes where the game keeps them.
+static char *EntvarAt(int32_t id, int32_t offset);
+
+// pev->health's place in entvars_t (scripts/entvars.ts checks the layout).
+#define ENTVAR_HEALTH 352
+
+/**
+ * A player's health as get_user_health gives it - pev->health, truncated -
+ * read where the game keeps it rather than through the native and its name.
+ * A slot nobody is in goes to the native, which says so as it does in Pawn.
+ */
 static int32_t w_get_health(wasm_exec_env_t env, int32_t id)
 {
+	char *at = MF_IsPlayerIngame(id) ? EntvarAt(id, ENTVAR_HEALTH) : NULL;
+	if (at)
+		return (int32_t)*(float *)at;
+
+	static Cached cached = { { NULL, 0 }, 0 };
 	Args params(1);
 	params[1] = id;
-	return (int32_t)CallNative("get_user_health", params);
+	return (int32_t)CallCached(cached, "get_user_health", params);
 }
 
+/** set_user_health's: above 0 the field is written; 0 or less kills, which the native does. */
 static void w_set_health(wasm_exec_env_t env, int32_t id, int32_t hp)
 {
+	char *at = hp > 0 && MF_IsPlayerIngame(id) ? EntvarAt(id, ENTVAR_HEALTH) : NULL;
+	if (at) {
+		*(float *)at = (float)hp;
+		return;
+	}
+
+	static Cached cached = { { NULL, 0 }, 0 };
 	Args params(2);
 	params[1] = id;
 	params[2] = hp;
-	CallNative("set_user_health", params);
+	CallCached(cached, "set_user_health", params);
 }
 
 /**

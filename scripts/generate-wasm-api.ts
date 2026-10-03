@@ -1037,11 +1037,13 @@ const thunks = chosen.map((n) => {
 	// name up in a map of strings on every call. Measured: a thousand calls
 	// went from 57 microseconds to what a direct call costs.
 	body.push(`\tstatic Cached cached = { { NULL, 0 }, 0 };`);
-	body.push(`\tFrame f(env);`);
-	body.push(`\tArgs p(${n.params.length});`);
-
 	// How many cells each buffer spans; '' for any other parameter.
 	const counts = n.params.map((p, i) => isBuffer(p) && !isInputString(p, n.params[i + 1]) ? cellCount(n, i) : '');
+
+	// The frame takes room in the AMX heap for a buffer and gives it back
+	// after the call; a native of plain cells has nothing to copy.
+	if (n.params.some(isBuffer)) body.push(`\tFrame f(env);`);
+	body.push(`\tArgs p(${n.params.length});`);
 
 	n.params.forEach((p, i) => {
 		if (isBuffer(p) && !counts[i]) {
@@ -1397,9 +1399,14 @@ ${Array.from(hooks.entries()).sort().map(([short, constant]) => `\t\tcase "${sho
 const bridge = (() => {
 	const source = readFileSync('./runtime/src/module.cpp', 'utf-8');
 	const table = source.slice(source.indexOf('static NativeSymbol g_wasmNatives[]'));
+	// The table takes the entity fields' natives from fields.h, by its macro:
+	// left out, every field read went through WAMR's generic call.
+	const fields = readFileSync('./runtime/src/fields.h', 'utf-8');
+	const fieldNatives = fields.slice(fields.indexOf('#define FIELD_NATIVES'));
+	const entries = table.slice(0, table.indexOf('};')).replace('FIELD_NATIVES', fieldNatives.slice(0, fieldNatives.search(/\n\s*\n/)));
 
 	return Array.from(
-		table.slice(0, table.indexOf('};')).matchAll(/\{\s*"([^"]+)",\s*\(void \*\)\w+,\s*"(\([^)]*\)\w?)"/g),
+		entries.matchAll(/\{\s*"([^"]+)",\s*\(void \*\)\w+,\s*"(\([^)]*\)\w?)"/g),
 		m => `${m[1]} ${m[2]}`,
 	);
 })();
