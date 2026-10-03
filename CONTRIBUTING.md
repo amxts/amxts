@@ -151,8 +151,8 @@ the HUD's money, a vector, an event, whole and fractional arithmetic and a
 plugin's hot path against the same in Pawn (`tests/server/perf-pawn.sma`),
 and fails when TypeScript's time over Pawn's passes its limit (`LIMITS` in
 `tests/server/perf.ts`): the failure names the ratio, both times and the
-limit. A change to a hot path comes with its before and after; a limit
-moves on purpose, in the commit that moves the number.
+limit. A change to a hot path is measured before and after, and the result
+goes to the maintainers, not into the commit; a limit moves only on purpose.
 
 ## Documentation
 
