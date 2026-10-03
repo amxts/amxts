@@ -102,7 +102,7 @@ describe('a plugin\'s map', () => {
 		expect(map.files.some(file => file.startsWith('~lib/'))).toBe(false);
 		expect(map.functions).toContain('Checks.expect<String>');
 		// `descend` calls itself, so it stays a function of its own
-		expect(linesOf(wasm, map, 'descend', 'tests/server/errors.ts')).toEqual([34]);
+		expect(linesOf(wasm, map, 'descend', 'tests/server/errors.ts')).toEqual([36]);
 		expect(map.root).toBe('');
 	});
 
