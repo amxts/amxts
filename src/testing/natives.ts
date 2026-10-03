@@ -886,6 +886,11 @@ export const NATIVES: Record<string, Native> = {
 		c.server.semiclipMasks.set(id, mask | 0);
 	},
 	resemiclip_get_user_mask: (c, [id]) => c.server.semiclipMasks.get(id) ?? 0,
+	// A hook's handle switched off and on, as reapi and Ham Sandwich do: a switched-off one does not call the plugin.
+	DisableHookChain: (c, [handle]) => c.server.switchHook(handle, false),
+	EnableHookChain: (c, [handle]) => c.server.switchHook(handle, true),
+	DisableHamForward: (c, [handle]) => c.server.switchHook(handle, false),
+	EnableHamForward: (c, [handle]) => c.server.switchHook(handle, true),
 	register_touch: (c, [touched, toucher, callback]) => {
 		c.server.touches.push({ touched: c.memory.text(touched), toucher: c.memory.text(toucher), slot: c.server.slotByPublic(c.memory.text(callback)) });
 		return c.server.touches.length;

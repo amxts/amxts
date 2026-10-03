@@ -34,7 +34,7 @@ import {
 	register_message, get_msg_args, get_msg_argtype, get_msg_arg_int, get_msg_arg_float, get_msg_arg_string,
 	set_msg_arg_int, set_msg_arg_float, set_msg_arg_string, get_user_userid,
 	emessage_begin, ewrite_byte, ewrite_short, ewrite_string, emessage_end, elog_message,
-	has_reunion, REU_GetAuthtype, REU_GetProtocol, REU_GetAuthKey
+	has_reunion, REU_GetAuthtype, REU_GetProtocol, REU_GetAuthKey, DisableHamForward, EnableHamForward
 } from "./natives";
 // Promise, async/await and AbortSignal, as the globals they are in JavaScript.
 import "./promise";
@@ -62,6 +62,8 @@ import { Vector } from "./vector";
 @external("env", "export")       declare function _export(name: string, fn: i32): i32;
 // @ts-ignore: decorator
 @external("env", "slot")         declare function _slot(fn: i32, shape: i32, key: string, fallback: i32): i32;
+// @ts-ignore: decorator
+@external("env", "slot_on")      declare function _slotOn(slot: i32, on: i32): void;
 // @ts-ignore: decorator
 @external("env", "arg")          declare function _arg(index: i32): i32;
 // @ts-ignore: decorator
@@ -226,9 +228,17 @@ export function ret(value: number): void {
  * the server when typed.
  */
 export function publicFor(handler: WideHandler, key: string, fallback: number = 0): string {
-	// Must match SLOT_REUSED in runtime/src/module.cpp.
-	const REUSED: i32 = 0x10000;
+	return __switchedPublic(handler, key, null, fallback);
+}
 
+// Must match SLOT_REUSED in runtime/src/module.cpp.
+const SLOT_REUSED: i32 = 0x10000;
+
+/**
+ * @hidden `publicFor`, the public switched by `hook`: switched off, a call
+ * answers `fallback` in the module, without reaching the plugin.
+ */
+export function __switchedPublic(handler: WideHandler, key: string, hook: __Switch | null, fallback: number = 0): string {
 	const slot = _slot(hostIndex(handler, true), SHAPE_WIDE, key, fallback);
 
 	if (slot < 0) {
@@ -236,7 +246,33 @@ export function publicFor(handler: WideHandler, key: string, fallback: number = 
 		return "";
 	}
 
-	return (slot & REUSED) ? "" : `__amxts_cb${slot}`;
+	const index = slot & ~SLOT_REUSED;
+	if (hook != null) hook.add((on: bool): void => _slotOn(index, on ? 1 : 0));
+	return (slot & SLOT_REUSED) ? "" : `__amxts_cb${slot}`;
+}
+
+/**
+ * @hidden A registration with AMX Mod X - a hook, or a public it calls - that
+ * is switched off while what it delivers has no listener and back on for the
+ * next one, so that an event nobody listens to does not reach the plugin.
+ * One switched off before it is made is made switched off.
+ */
+export class __Switch {
+	private on: bool = true;
+	private parts: ((on: bool) => void)[] = [];
+
+	/** Switches every registration of it on or off. */
+	set(on: bool): void {
+		if (on == this.on) return;
+		this.on = on;
+		for (let i = 0; i < this.parts.length; i++) this.parts[i](on);
+	}
+
+	/** What switches one registration, once it is made; run at once while the switch is off. */
+	add(part: (on: bool) => void): void {
+		this.parts.push(part);
+		if (!this.on) part(false);
+	}
 }
 
 // AMX Mod X implements a native as a public in some plugin, so this names the
@@ -2156,9 +2192,11 @@ const waitingServerCommands: string[] = [];
 
 // A touch the engine module filters by class, so a touch nobody listens for -
 // and there is one every frame for a player on the ground - never reaches the
-// plugin. One register_touch per pair of classes, its listeners behind it.
+// plugin. One register_touch per pair of classes, its listeners behind it,
+// switched off while it has none.
 class TouchFilter {
 	listeners: TouchListener[] = [];
+	hook: __Switch = new __Switch();
 	constructor(public toucher: string, public touched: string) {}
 }
 
@@ -2168,21 +2206,27 @@ const waitingTouches: TouchFilter[] = [];
 // A Ham Sandwich hook waiting for plugin_init: RegisterHam makes an entity of
 // the class to find its function, which is not for the moment a plugin loads.
 class HamRegistration {
-	constructor(public fn: i32, public classname: string, public handler: WideHandler, public post: bool) {}
+	constructor(public fn: i32, public classname: string, public handler: WideHandler, public post: bool, public hook: __Switch | null) {}
 }
 
 const waitingHams: HamRegistration[] = [];
 
 function registerHam(registration: HamRegistration): void {
-	_ham(registration.fn, registration.classname, hostIndex(registration.handler, true), registration.post ? 1 : 0);
+	const handle = _ham(registration.fn, registration.classname, hostIndex(registration.handler, true), registration.post ? 1 : 0);
+	const hook = registration.hook;
+	if (hook == null || handle == 0) return;
+	hook.add((on: bool): void => {
+		if (on) EnableHamForward(handle);
+		else DisableHamForward(handle);
+	});
 }
 
 /**
  * @hidden The hood of a game event Ham Sandwich delivers (as/hooks.ts):
- * `fn` hooked on the class, a reload taking its slot back.
+ * `fn` hooked on the class, a reload taking its slot back, switched by `hook`.
  */
-export function __ham(fn: i32, classname: string, handler: WideHandler, post: bool): void {
-	const registration = new HamRegistration(fn, classname, handler, post);
+export function __ham(fn: i32, classname: string, handler: WideHandler, post: bool, hook: __Switch | null = null): void {
+	const registration = new HamRegistration(fn, classname, handler, post, hook);
 	if (serverUp) registerHam(registration);
 	else waitingHams.push(registration);
 }
@@ -2594,6 +2638,14 @@ export function __onCell(event: string, fn: i32, arg: i32, value: i32): void {
 	_onCell(event, fn, 0, arg, value);
 }
 
+// @ts-ignore: decorator
+@external("env", "off") declare function _off(event: string, fn: i32): void;
+
+/** @hidden Takes the handler `fn` of a forward the host relays off again: once its event has no listener left. */
+export function __off(event: string, fn: i32): void {
+	_off(event, fn);
+}
+
 /** @hidden Runs `register` from plugin_init on: now, or when it comes. */
 export function __whenUp(register: () => void): void {
 	if (serverUp) register();
@@ -2792,9 +2844,12 @@ export class ClientMessage {
 // One register_message per message name, its listeners behind it: the engine
 // hands the plugin only the messages it listens to. Registered when the
 // server is up - a message's id is known from plugin_init - and a reload
-// takes the same public back.
+// takes the same public back. AMX Mod X's unregister_message can take
+// another plugin's hook off instead, so with no listener left the public is
+// switched off in the module.
 class MessageChannel {
 	listeners: ((event: ClientMessage) => void)[] = [];
+	hook: __Switch = new __Switch();
 	constructor(public name: string, public make: () => ClientMessage) {}
 }
 
@@ -2819,6 +2874,7 @@ function listenToMessage<E>(name: string, listener: (event: E) => void): void {
 	}
 
 	channel.listeners.push(changetype<(event: ClientMessage) => void>(listener));
+	channel.hook.set(true);
 }
 
 function stopListeningToMessage<E>(name: string, listener: (event: E) => void): void {
@@ -2826,6 +2882,7 @@ function stopListeningToMessage<E>(name: string, listener: (event: E) => void): 
 	if (channel == null) return;
 	const at = channel.listeners.indexOf(changetype<(event: ClientMessage) => void>(listener));
 	if (at >= 0) channel.listeners.splice(at, 1);
+	channel.hook.set(channel.listeners.length > 0);
 }
 
 function registerMessage(channel: MessageChannel): void {
@@ -2837,7 +2894,7 @@ function registerMessage(channel: MessageChannel): void {
 	}
 
 	const fired = (message: number, dest: number, receiver: number, d: number): void => messageFired(channel, <i32>receiver);
-	const pub = publicFor(fired, `msg:${channel.name}`);
+	const pub = __switchedPublic(fired, `msg:${channel.name}`, channel.hook);
 	if (pub.length > 0) register_message(id, pub);
 }
 
@@ -3605,6 +3662,7 @@ function addTouchListener(listener: TouchListener, toucher: string, touched: str
 	}
 
 	filter.listeners.push(listener);
+	filter.hook.set(true);
 }
 
 function removeTouchListener(listener: TouchListener, toucher: string, touched: string): void {
@@ -3612,12 +3670,13 @@ function removeTouchListener(listener: TouchListener, toucher: string, touched: 
 	if (filter == null) return;
 	const at = filter.listeners.indexOf(listener);
 	if (at >= 0) filter.listeners.splice(at, 1);
+	filter.hook.set(filter.listeners.length > 0);
 }
 
 /** Hands one pair of classes to the engine module; a reload takes the same public back. */
 function registerTouch(filter: TouchFilter): void {
 	const fired = (touched: number, toucher: number, c: number, d: number): void => touchFired(filter, touched, toucher);
-	const pub = publicFor(fired, `touch:${filter.toucher}:${filter.touched}`);
+	const pub = __switchedPublic(fired, `touch:${filter.toucher}:${filter.touched}`, filter.hook);
 	if (pub.length > 0) register_touch(filter.touched, filter.toucher, pub);
 }
 

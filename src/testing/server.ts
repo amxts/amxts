@@ -75,6 +75,12 @@ interface Slot extends Handler {
 	/** What the call answers when the handler says nothing. */
 	fallback: number;
 	key: string;
+	/**
+	 * Switched off while what it delivers has no listener - by the plugin
+	 * (slot_on), or a hook by DisableHookChain and DisableHamForward: a call
+	 * answers the fallback without reaching the plugin.
+	 */
+	off?: boolean;
 }
 
 interface Task {
@@ -750,7 +756,8 @@ export class FakeServer {
 	private outcome = 0;
 	private outcomeSaid = false;
 	private taskOrder = 0;
-	private hookHandles = 0;
+	/** The slots of RegisterHookChain's and RegisterHam's handles, which DisableHookChain and the rest take. */
+	private readonly hookSlots = new Map<number, Slot>();
 	private entityIds: number;
 
 	constructor(options: ServerOptions = {}) {
@@ -1493,7 +1500,7 @@ export class FakeServer {
 
 	/** Fire in module.cpp: one handler, its outcome, and the state put back. @internal */
 	call(handler: Handler, args: number[], fallback: number): number {
-		if (handler.plugin.unloaded) return fallback;
+		if (handler.plugin.unloaded || (handler as Slot).off) return fallback;
 		const fn = handler.plugin.table.get(handler.fn);
 		const cells = handler.shape === SHAPE_WIDE ? [0, 1, 2, 3].map(i => args[i] ?? 0) : [args[0] ?? 0];
 		if (handler.tag) cells.unshift(handler.tag);
@@ -1750,6 +1757,33 @@ export class FakeServer {
 		return { superseded, answer: this.forwardAnswer };
 	}
 
+	/** Switches a hook off or on by the handle RegisterHookChain or RegisterHam gave. @internal */
+	switchHook(handle: number, on: boolean): number {
+		const slot = this.hookSlots.get(handle);
+		if (!slot) throw new Error(`the fake server knows no hook handle ${handle}`);
+		slot.off = !on;
+		return 1;
+	}
+
+	/**
+	 * Whether a game event's hook calls the plugin - reapi's chain, or Ham
+	 * Sandwich's function on a class: false while the plugin has switched it
+	 * off, for having no listener; undefined when it was never registered.
+	 *
+	 * ```ts
+	 * server.hooked('resetMaxSpeed');                // the chain, before the game
+	 * server.hooked('spawn', { classname: 'player', post: true });
+	 * ```
+	 */
+	hooked(event: string, options: { post?: boolean; classname?: string } = {}): boolean | undefined {
+		const shape = tables().hooks.get(event);
+		if (!shape) throw new Error(`no hookchain named "${event}" in as/hooks.ts`);
+		const slots = options.classname !== undefined
+			? this.hams.get(`${shape.ham}:${options.classname}:${options.post ? 'post' : 'pre'}`)
+			: this.hookchains.get(shape.kind)?.[options.post ? 'post' : 'pre'];
+		return slots?.length ? slots.some(slot => !slot.off) : undefined;
+	}
+
 	/** A slot by the public name a native was given: "__amxts_cb3". @internal */
 	slotByPublic(name: string): Slot {
 		const match = name.match(/^__amxts_cb(\d+)$/);
@@ -2002,6 +2036,14 @@ export class FakeServer {
 			list.push({ plugin, fn, shape });
 		},
 
+		// The plugin's handler of a forward taken off, once its event has no listener left.
+		off(this: FakeServer, plugin: PluginInstance, name: number, fn: number) {
+			const list = this.events.get(plugin.memory.string(name)) ?? [];
+			for (let i = list.length - 1; i >= 0; i--) {
+				if (list[i].plugin === plugin && list[i].fn === fn) list.splice(i, 1);
+			}
+		},
+
 		// on, for the calls whose argument `arg` is `value` alone - compared before the plugin, as module.cpp does.
 		on_cell(this: FakeServer, plugin: PluginInstance, name: number, fn: number, shape: number, arg: number, value: number) {
 			const event = plugin.memory.string(name);
@@ -2044,6 +2086,12 @@ export class FakeServer {
 			return left.index | SLOT_REUSED;
 		},
 
+		// One of the plugin's slots switched off while what it delivers has no listener, or back on.
+		slot_on(this: FakeServer, plugin: PluginInstance, index: number, on: number) {
+			const slot = this.slots[index];
+			if (slot?.plugin === plugin) slot.off = on === 0;
+		},
+
 		clcmd(this: FakeServer, plugin: PluginInstance, pattern: number, fn: number, flags: number, info: number, shape: number) {
 			const name = plugin.memory.string(pattern);
 			const slot = this.takeSlot(plugin, fn, shape, `clcmd:${name}`, PLUGIN_HANDLED);
@@ -2077,7 +2125,8 @@ export class FakeServer {
 			let chain = this.hookchains.get(kind);
 			if (!chain) this.hookchains.set(kind, chain = { pre: [], post: [] });
 			(post ? chain.post : chain.pre).push(slot);
-			return ++this.hookHandles;
+			this.hookSlots.set(this.hookSlots.size + 1, slot);
+			return this.hookSlots.size;
 		},
 
 		// RegisterHam: kept by the function's id and the class, for hamCall().
@@ -2087,7 +2136,8 @@ export class FakeServer {
 			const list = this.hams.get(key) ?? [];
 			list.push(slot);
 			this.hams.set(key, list);
-			return ++this.hookHandles;
+			this.hookSlots.set(this.hookSlots.size + 1, slot);
+			return this.hookSlots.size;
 		},
 
 		tag(this: FakeServer, _plugin: PluginInstance, tag: number) {

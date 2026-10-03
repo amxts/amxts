@@ -1,5 +1,6 @@
 import type { Text } from './docs/events';
 import type { HamAnswer, HamFunction, HamKind } from './ham-functions';
+import type { HeardEvent } from './hlds-events';
 // Generates as/hooks.ts: one event class per reapi hookchain, and the map
 // game.addEventListener types a listener by.
 //
@@ -1016,13 +1017,20 @@ function hamClass(ham: HamFunction) {
 	return ham.target === 'player' ? 'classname.length > 0 ? classname : "player"' : 'classname';
 }
 
-/** The list a listener is taken off. */
-function listOf(spec: EventSpec) {
+/**
+ * How a listener is taken off: from Ham Sandwich's list of its class or from
+ * the chain's phase, each switching its hook off with its last listener; a
+ * stock hook's backend is switched off with the event's last.
+ */
+function removal(spec: EventSpec, heard: HeardEvent | undefined) {
 	const { camel, hook, ham } = spec;
-	const reapi = `post ? ${camel}Post : ${camel}Pre`;
-	if (!ham) return reapi;
-	if (!hook) return `${camel}Hams.listening(${hamClass(ham)}, post)`;
-	return `${toHam(ham)} ? ${camel}Hams.listening(${hamOwnClass(ham)}, post) : ${reapi}`;
+	if (ham && !hook) return [`\t\t${camel}Hams.remove(${hamClass(ham)}, post, fn);`];
+	return [
+		...(ham ? [`\t\tif (${toHam(ham)}) { ${camel}Hams.remove(${hamOwnClass(ham)}, post, fn); return; }`] : []),
+		`\t\t(post ? ${camel}Post : ${camel}Pre).remove(fn);`,
+		...(heard ? [`\t\t${camel}Backend.set(${camel}Pre.entries.length + ${camel}Post.entries.length > 0);`] : []),
+		...(heard?.post ? [`\t\t${camel}PostBackend.set(${camel}Post.entries.length > 0);`] : []),
+	];
 }
 
 /** What a listener with a class it cannot take is told, instead of being added. */
@@ -1075,10 +1083,11 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 				`}`,
 				`function ${camel}FireHlds(event: ${Name}, post: bool): void {`,
 				`\tevent.__hlds = true;`,
-				`\t${camel}Run(event, post ? ${camel}Post : ${camel}Pre, post);`,
+				`\t${camel}Run(event, post ? ${camel}Post.entries : ${camel}Pre.entries, post);`,
 				`}`,
 				`let ${camel}HldsHooked = false;`,
-				...(heard.post ? [`let ${camel}PostHldsHooked = false;`] : []),
+				`const ${camel}Backend = new __Switch();`,
+				...(heard.post ? [`let ${camel}PostHldsHooked = false;`, `const ${camel}PostBackend = new __Switch();`] : []),
 				`function ${camel}Run(event: ${Name}, entries: HookEntry<${Name}, ${T}>[], post: bool): void {`,
 			]
 		: [
@@ -1111,18 +1120,16 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 	tables.push([
 		...(hook
 			? [
-					`const ${camel}Pre: HookEntry<${Name}, ${T}>[] = [];`,
-					`const ${camel}Post: HookEntry<${Name}, ${T}>[] = [];`,
-					`let ${camel}PreHooked = false;`,
-					`let ${camel}PostHooked = false;`,
+					`const ${camel}Pre = new ChainPhase<${Name}, ${T}>();`,
+					`const ${camel}Post = new ChainPhase<${Name}, ${T}>();`,
 				]
 			: []),
 		...fire,
 		...(ham ? [`const ${camel}Hams = new HamHooks<${Name}, ${T}>(${ham.ham});`] : []),
 		...(hook
 			? [
-					`function ${camel}FirePre(a: number, b: number, c: number, d: number) { ${camel}Fire(${camel}Pre, false, false); }`,
-					`function ${camel}FirePost(a: number, b: number, c: number, d: number) { ${camel}Fire(${camel}Post, true, false); }`,
+					`function ${camel}FirePre(a: number, b: number, c: number, d: number) { ${camel}Fire(${camel}Pre.entries, false, false); }`,
+					`function ${camel}FirePost(a: number, b: number, c: number, d: number) { ${camel}Fire(${camel}Post.entries, true, false); }`,
 				]
 			: []),
 	].join('\n'));
@@ -1145,24 +1152,24 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 			? `\t\t\tif (idof<R>() != idof<Promise<void>>()) ERROR("an async ${camel} listener answers nothing: return the ${TYPES[result.kind]} without await");`
 			: `\t\t\tif (idof<R>() != idof<Promise<${T}>>() && idof<R>() != idof<Promise<void>>()) ERROR("an async ${camel} listener answers with Promise<${TYPES[result.kind]}>");`;
 
-	// reapi's chain is registered on the first listener; a Ham Sandwich hook
-	// on the first listener for its class (HamHooks).
-	const reapiHook = hook
-		? [
-				`\t\tif (post && !${camel}PostHooked) { ${camel}PostHooked = true; hook("${hook}", ${camel}FirePost, true); }`,
-				`\t\tif (!post && !${camel}PreHooked) { ${camel}PreHooked = true; hook("${hook}", ${camel}FirePre, false); }`,
-			]
-		: [];
+	// reapi's chain is registered on the first listener of a phase
+	// (ChainPhase); a Ham Sandwich hook on the first listener for its class
+	// (HamHooks).
+	const reapiHook = hook ? [`\t\t(post ? ${camel}Post : ${camel}Pre).add(entry, "${hook}", post ? ${camel}FirePost : ${camel}FirePre, post);`] : [];
 	const guard = refusal(spec);
 	// A chain of ReGameDLL's or ReHLDS's own: without reapi nothing delivers it, and the console says so once.
 	const reapiOnly = hook && !ham && !heard ? `\t\tif (!__hasReapi()) { __sayOnce("${camel} needs ReAPI, which this server does not have: its listeners are never called"); return; }` : '';
-	// One a stock hook hears instead: its backend is registered on the first listener, its post one on the first post listener.
+	// One a stock hook hears instead: its backend is registered on the first
+	// listener, its post one on the first post listener, each switched off
+	// while it has none (removal).
 	const hlds = heard
 		? [
 				`\t\tif (!__hasReapi()) {`,
-				`\t\t\tif (!${camel}HldsHooked) { ${camel}HldsHooked = true; ${camel}Hlds(${camel}FireHlds); }`,
-				...(heard.post ? [`\t\t\tif (post && !${camel}PostHldsHooked) { ${camel}PostHldsHooked = true; ${camel}PostHlds(${camel}FireHlds); }`] : []),
-				`\t\t\t(post ? ${camel}Post : ${camel}Pre).push(entry);`,
+				`\t\t\tif (!${camel}HldsHooked) { ${camel}HldsHooked = true; ${camel}Hlds(${camel}FireHlds, ${camel}Backend); }`,
+				...(heard.post ? [`\t\t\tif (post && !${camel}PostHldsHooked) { ${camel}PostHldsHooked = true; ${camel}PostHlds(${camel}FireHlds, ${camel}PostBackend); }`] : []),
+				`\t\t\t(post ? ${camel}Post : ${camel}Pre).entries.push(entry);`,
+				`\t\t\t${camel}Backend.set(true);`,
+				...(heard.post ? [`\t\t\tif (post) ${camel}PostBackend.set(true);`] : []),
 				`\t\t\treturn;`,
 				`\t\t}`,
 			]
@@ -1181,18 +1188,17 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 		`\t\t\tentry.source = changetype<usize>(listener);`,
 		`\t\t}`,
 		...answerBranch,
-		...(ham && hook ? [`\t\tif (${toHam(ham)}) { ${camel}Hams.listen(${hamOwnClass(ham)}, post, ${camel}Fire).push(entry); return; }`] : []),
-		...(ham && !hook ? [`\t\t${camel}Hams.listen(${hamClass(ham)}, post, ${camel}Fire).push(entry);`] : []),
+		...(ham && hook ? [`\t\tif (${toHam(ham)}) { ${camel}Hams.add(${hamOwnClass(ham)}, post, ${camel}Fire, entry); return; }`] : []),
+		...(ham && !hook ? [`\t\t${camel}Hams.add(${hamClass(ham)}, post, ${camel}Fire, entry);`] : []),
 		...hlds,
 		...reapiHook,
-		...(hook ? [`\t\t(post ? ${camel}Post : ${camel}Pre).push(entry);`] : []),
 		`\t\treturn;`,
 		`\t}`,
 	].join('\n'));
 
 	removes.push([
 		`\tif (idof<E>() == idof<${Name}>()) {`,
-		`\t\tunlisten<${Name}, ${T}>(${listOf(spec)}, fn);`,
+		...removal(spec, heard),
 		`\t\treturn;`,
 		`\t}`,
 	].join('\n'));
@@ -1213,16 +1219,16 @@ writeFileSync('./as/hooks.ts', `// GENERATED by scripts/generate-hooks.ts — do
 // Player, a Weapon or an Entity - what the handler returns is the game's
 // answer, and blocking without one is \`event.preventDefault()\`. Listen with
 // \`game.addEventListener("takeDamage", ...)\`.
-import { Call, Player, RoundWinner, Team, TouchEvent, UseType, Vector, arg, argText, cellFloat, floatCell, handled, hook, __ham, __hasReapi, __outcome, __nativeVector, __setNativeVector, __sayOnce, __weaponClassnames } from "./facade";
+import { Call, Player, RoundWinner, Team, TouchEvent, UseType, Vector, WideHandler, arg, argText, cellFloat, floatCell, handled, hook, __Switch, __ham, __hasReapi, __outcome, __nativeVector, __setNativeVector, __sayOnce, __weaponClassnames } from "./facade";
 import { Entity, HitGroup, Weapon, WeaponKind } from "./entities";
 import {
-	GetHookChainReturn, SetHookChainArg, SetHookChainReturn, NATIVE_SetHookChainArg,
+	DisableHookChain, EnableHookChain, GetHookChainReturn, SetHookChainArg, SetHookChainReturn, NATIVE_SetHookChainArg,
 	GetHamReturnEntity, GetHamReturnFloat, GetHamReturnInteger, GetHamReturnString, GetHamReturnVector,
 	SetHamParamEntity, SetHamParamFloat, SetHamParamInteger, SetHamParamString, SetHamParamVector,
 	SetHamReturnEntity, SetHamReturnFloat, SetHamReturnInteger, SetHamReturnString, SetHamReturnVector
 } from "./natives";
 import {
-	ATYPE_BOOL, ATYPE_CLASSPTR, ATYPE_EDICT, ATYPE_FLOAT, ATYPE_INTEGER, ATYPE_STRING, ATYPE_VECTOR, HC_BREAK, HAM_OVERRIDE, HAM_SUPERCEDE,
+	ATYPE_BOOL, ATYPE_CLASSPTR, ATYPE_EDICT, ATYPE_FLOAT, ATYPE_INTEGER, ATYPE_STRING, ATYPE_VECTOR, HC_BREAK, HAM_OVERRIDE, HAM_SUPERCEDE, HookName,
 	${HAM_FUNCTIONS.map(f => f.ham).join(', ')}
 } from "./constants";
 import { DAMAGE, Damage, FlagFamily } from "./flags";
@@ -1438,16 +1444,49 @@ function unlisten<E, T>(list: HookEntry<E, T>[], fn: usize): void {
 // reapi: Ham Sandwich hooks the function on every weapon's class.
 const EVERY_WEAPON = "weapon_*";
 
-/** The listeners of one class's Ham Sandwich hook, pre or post. */
+/**
+ * One phase of a reapi hookchain, before the game or after it: its listeners,
+ * and the hook registered on the first of them and switched off while none is
+ * left - DisableHookChain, so the game's function does not call the plugin for
+ * nothing. On a server without reapi the listeners alone: a backend hears the
+ * event (as/hlds.ts).
+ */
+class ChainPhase<E, T> {
+	entries: HookEntry<E, T>[] = [];
+	private hooked: bool = false;
+	private chain: __Switch = new __Switch();
+
+	// The event's fire function comes with each listener, as HamHooks' does.
+	add(entry: HookEntry<E, T>, name: HookName, fire: WideHandler, post: bool): void {
+		if (!this.hooked) {
+			this.hooked = true;
+			const handle = <i32>hook(name, fire, post);
+			if (handle != 0) this.chain.add((on: bool): void => {
+				if (on) EnableHookChain(handle);
+				else DisableHookChain(handle);
+			});
+		}
+		this.entries.push(entry);
+		this.chain.set(true);
+	}
+
+	remove(fn: usize): void {
+		unlisten(this.entries, fn);
+		this.chain.set(this.entries.length > 0);
+	}
+}
+
+/** The listeners of one class's Ham Sandwich hook, pre or post, and the hook's switch. */
 class HamList<E, T> {
 	entries: HookEntry<E, T>[] = [];
+	hook: __Switch = new __Switch();
 	constructor(public classname: string, public post: bool) {}
 }
 
 /**
  * An event's Ham Sandwich hooks: one registration per class and phase, made
  * on the first listener for it, so only the classes listened for reach the
- * plugin - as a touch's do.
+ * plugin - as a touch's do - and switched off while it has none.
  */
 class HamHooks<E, T> {
 	private lists: HamList<E, T>[] = [];
@@ -1457,23 +1496,27 @@ class HamHooks<E, T> {
 	// module's start, ahead of the natives it calls.
 	constructor(private fn: i32) {}
 
-	/** The list a listener for this class goes to, the hook registered when it is new. */
-	listen(classname: string, post: bool, fire: (entries: HookEntry<E, T>[], post: bool, ham: bool) => void): HookEntry<E, T>[] {
-		const found = this.find(classname, post);
-		if (found != null) return found.entries;
+	/** Adds a listener for this class, the hook registered when it is the class's first. */
+	add(classname: string, post: bool, fire: (entries: HookEntry<E, T>[], post: bool, ham: bool) => void, entry: HookEntry<E, T>): void {
+		const list = this.find(classname, post) ?? this.hookClass(classname, post, fire);
+		list.entries.push(entry);
+		list.hook.set(true);
+	}
 
+	remove(classname: string, post: bool, fn: usize): void {
+		const list = this.find(classname, post);
+		if (list == null) return;
+		unlisten(list.entries, fn);
+		list.hook.set(list.entries.length > 0);
+	}
+
+	private hookClass(classname: string, post: bool, fire: (entries: HookEntry<E, T>[], post: bool, ham: bool) => void): HamList<E, T> {
 		const list = new HamList<E, T>(classname, post);
 		this.lists.push(list);
 		const fired = (a: number, b: number, c: number, d: number): void => fire(list.entries, post, true);
 		const classes = classname == EVERY_WEAPON ? __weaponClassnames() : [classname];
-		for (let i = 0; i < classes.length; i++) __ham(this.fn, classes[i], fired, post);
-		return list.entries;
-	}
-
-	/** The list the listeners for this class are on; none there is an empty one. */
-	listening(classname: string, post: bool): HookEntry<E, T>[] {
-		const found = this.find(classname, post);
-		return found != null ? found.entries : [];
+		for (let i = 0; i < classes.length; i++) __ham(this.fn, classes[i], fired, post, list.hook);
+		return list;
 	}
 
 	private find(classname: string, post: bool): HamList<E, T> | null {

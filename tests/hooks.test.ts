@@ -47,8 +47,10 @@ test('game.addEventListener: every chain is a key, with its event and its answer
 	expect(hooks).toMatch(/export interface GameAnswerMap \{[\s\S]*\ttakeDamage: number;/);
 	// A chain with nothing to answer takes a listener that returns nothing.
 	expect(hooks).toMatch(/export interface GameAnswerMap \{[\s\S]*\tplayerSpawn: void;/);
-	// The chain is registered once per side, however many listeners it gets.
-	expect(hooks).toContain('if (!post && !takeDamagePreHooked) { takeDamagePreHooked = true; hook("take_damage", takeDamageFirePre, false); }');
+	// The chain is registered once per side, however many listeners it gets,
+	// and switched off with the side's last listener (ChainPhase).
+	expect(hooks).toContain('(post ? takeDamagePost : takeDamagePre).add(entry, "take_damage", post ? takeDamageFirePost : takeDamageFirePre, post);');
+	expect(hooks).toContain('(post ? takeDamagePost : takeDamagePre).remove(fn);');
 	expect(hooks).toContain(`ERROR("a playerSpawn listener cannot answer: the game's function returns nothing")`);
 });
 
@@ -143,14 +145,18 @@ test('the same function under reapi and Ham Sandwich is one event: reapi for its
 	expect(classBody('TakeDamageEvent')).toContain('private static readonly ham: i32 = Ham_TakeDamage;');
 	expect(classBody('TakeDamageEvent')).toContain('get entity(): Entity');
 	// Without reapi, Ham Sandwich hears the chain's own class too: "player".
-	expect(hooks).toContain('if ((classname.length > 0 && classname != "player") || !__hasReapi()) { takeDamageHams.listen(classname.length > 0 ? classname : "player", post, takeDamageFire).push(entry); return; }');
+	expect(hooks).toContain('if ((classname.length > 0 && classname != "player") || !__hasReapi()) { takeDamageHams.add(classname.length > 0 ? classname : "player", post, takeDamageFire, entry); return; }');
+	expect(hooks).toContain('if ((classname.length > 0 && classname != "player") || !__hasReapi()) { takeDamageHams.remove(classname.length > 0 ? classname : "player", post, fn); return; }');
 	// A weapon chain's own class is every weapon: a class narrows it to Ham Sandwich, and without reapi it hooks every weapon's.
-	expect(hooks).toContain('if ((classname.length > 0) || !__hasReapi()) { canDeployHams.listen(classname.length > 0 ? classname : EVERY_WEAPON, post, canDeployFire).push(entry); return; }');
+	expect(hooks).toContain('if ((classname.length > 0) || !__hasReapi()) { canDeployHams.add(classname.length > 0 ? classname : EVERY_WEAPON, post, canDeployFire, entry); return; }');
 	// A chain of ReGameDLL's own that nothing on plain HLDS hears says so there, once, and is not added.
 	expect(hooks).toContain('if (!__hasReapi()) { __sayOnce("fallDamage needs ReAPI, which this server does not have: its listeners are never called"); return; }');
-	// One a stock hook hears goes to its backend (as/hlds.ts), registered on the first listener.
-	expect(hooks).toContain('if (!roundEndHldsHooked) { roundEndHldsHooked = true; roundEndHlds(roundEndFireHlds); }');
-	expect(hooks).toContain('if (post && !newRoundPostHldsHooked) { newRoundPostHldsHooked = true; newRoundPostHlds(newRoundFireHlds); }');
+	// One a stock hook hears goes to its backend (as/hlds.ts), registered on
+	// the first listener and switched off with the event's last.
+	expect(hooks).toContain('if (!roundEndHldsHooked) { roundEndHldsHooked = true; roundEndHlds(roundEndFireHlds, roundEndBackend); }');
+	expect(hooks).toContain('roundEndBackend.set(roundEndPre.entries.length + roundEndPost.entries.length > 0);');
+	expect(hooks).toContain('if (post && !newRoundPostHldsHooked) { newRoundPostHldsHooked = true; newRoundPostHlds(newRoundFireHlds, newRoundPostBackend); }');
+	expect(hooks).toContain('newRoundPostBackend.set(newRoundPost.entries.length > 0);');
 	expect(hooks).toMatch(/\tspawn: SpawnEvent;/);
 	expect(hooks).not.toContain('basePlayerSpawn');
 	expect(hooks).toMatch(/\tgameThink: GameThinkEvent;/);

@@ -278,6 +278,13 @@ struct Slot {
 	const char *enable;
 	// The closure's number for the plugin's dispatcher, 0 for a plain function (Handler.tag).
 	int32_t  tag;
+	/**
+	 * Switched off by its plugin while what it delivers has no listener
+	 * (w_slotOn): a call answers the fallback without entering the plugin.
+	 * For the registrations AMX Mod X cannot switch off - a message, a touch,
+	 * a log line, a command.
+	 */
+	bool     off;
 };
 
 // A slot whose plugin is one of these is the module's own: a server command it
@@ -1227,6 +1234,13 @@ static void w_console_timeEnd(wasm_exec_env_t env, int32_t label)
 
 // ---------------------------------------------------------------- registration
 
+/** Takes out of `list` every entry `belongs` names. */
+template <typename T, typename Belongs>
+static void DropFrom(std::vector<T> &list, Belongs belongs)
+{
+	list.erase(std::remove_if(list.begin(), list.end(), belongs), list.end());
+}
+
 // on(event, handler, shape) - a forward the generated host plugin relays.
 static void w_on(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t shape)
 {
@@ -1238,6 +1252,17 @@ static void w_on(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t shape)
 	h.fn = (uint32_t)fn;
 	h.shape = shape;
 	g_events[AsString(Inst(env), name)].push_back(h);
+}
+
+// off(event, handler) - the plugin's handler of a forward taken off again,
+// once its event has no listener left: the forward stops reaching it.
+static void w_off(wasm_exec_env_t env, int32_t name, int32_t fn)
+{
+	std::map<std::string, std::vector<Handler> >::iterator it = g_events.find(AsString(Inst(env), name));
+	if (it == g_events.end())
+		return;
+	int plugin = g_currentPlugin;
+	DropFrom(it->second, [plugin, fn](const Handler &h) { return h.plugin == plugin && h.fn == (uint32_t)fn; });
 }
 
 // on_cell(event, handler, shape, arg, value) - on, for the calls whose
@@ -1425,6 +1450,7 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 				g_slots[i].oneShot = false;
 				g_slots[i].taskId = -1;
 				g_slots[i].generation++;
+				g_slots[i].off = false;
 				if (g_slots[i].enable && g_slots[i].handle)
 					CallWithHandle(g_slots[i].enable, g_slots[i].handle);
 				if (reused)
@@ -1457,6 +1483,7 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 	g_slots[slot].handle = 0;
 	g_slots[slot].disable = NULL;
 	g_slots[slot].enable = NULL;
+	g_slots[slot].off = false;
 	if (slot >= g_slotCount)
 		g_slotCount = slot + 1;
 
@@ -1911,6 +1938,19 @@ static int32_t w_slot(wasm_exec_env_t env, int32_t fn, int32_t shape, int32_t ke
 		return -1;
 
 	return reused ? (slot | SLOT_REUSED) : slot;
+}
+
+/**
+ * slot_on(slot, on) - switches one of the plugin's slots off while what it
+ * delivers has no listener, and back on: switched off, AMX Mod X still calls
+ * the public, and the call answers its fallback here.
+ */
+static void w_slotOn(wasm_exec_env_t env, int32_t slot, int32_t on)
+{
+	(void)env;
+	if (slot < 0 || slot >= g_slotCount || !g_slots[slot].used || g_slots[slot].plugin != g_currentPlugin)
+		return;
+	g_slots[slot].off = !on;
 }
 
 /**
@@ -2705,6 +2745,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "outcome",         (void *)w_outcome,         "(i)",  NULL },
 	{ "export",          (void *)w_export,          "(ii)i", NULL },
 	{ "slot",            (void *)w_slot,            "(iiii)i", NULL },
+	{ "slot_on",         (void *)w_slotOn,          "(ii)", NULL },
 	{ "arg",             (void *)w_arg,             "(i)i", NULL },
 	{ "arg_text",        (void *)w_argText,         "(iii)i", NULL },
 	{ "set_arg_text",    (void *)w_setArgText,      "(iii)i", NULL },
@@ -2733,6 +2774,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "seed",            (void *)w_seed,            "()F",  NULL },
 	{ "on",           (void *)w_on,           "(iii)",  NULL },
 	{ "on_cell",      (void *)w_on_cell,      "(iiiii)", NULL },
+	{ "off",          (void *)w_off,          "(ii)",   NULL },
 	{ "subscribe",    (void *)w_subscribe,    "(iii)",  NULL },
 	{ "emit_local",   (void *)w_emit_local,   "(iiii)", NULL },
 	{ "clcmd",        (void *)w_clcmd,        "(iiiii)i", NULL },
@@ -3136,13 +3178,6 @@ static void RemoveHost()
 }
 
 // ---------------------------------------------------------------- boot
-
-/** Takes out of `list` every entry `belongs` says is the plugin's. */
-template <typename T, typename Belongs>
-static void DropFrom(std::vector<T> &list, Belongs belongs)
-{
-	list.erase(std::remove_if(list.begin(), list.end(), belongs), list.end());
-}
 
 /**
  * Stops one plugin and takes back what it registered with AMX Mod X; its
@@ -4603,6 +4638,9 @@ static cell AMX_NATIVE_CALL n_callback(AMX *amx, cell *params)
 	// PLUGIN_HANDLED here is what made `say /hp` go quiet after a reload.
 	if (g_slots[slot].plugin == SLOT_ORPHANED)
 		return 0;
+
+	if (g_slots[slot].off)
+		return g_slots[slot].fallback;
 
 	// The host plugin says how many arguments it pushed; never read past what
 	// actually arrived.
