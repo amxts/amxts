@@ -13113,10 +13113,30 @@ index ab7302f..3f17444 100644
 +  }
 +}
 diff --git a/std/assembly/math.ts b/std/assembly/math.ts
-index e93837b..e61947b 100644
+index e93837b..bdf5633 100644
 --- a/std/assembly/math.ts
 +++ b/std/assembly/math.ts
-@@ -3287,3 +3287,25 @@ switch (e) {
+@@ -1592,6 +1592,19 @@ export namespace NativeMath {
+   }
+ 
+   export function mod(x: f64, y: f64): f64 { // see: musl/src/math/fmod.c
++    // amxts: a plugin's whole numbers are f64, and `n % d` of two of them
++    // within i32 is i32's remainder, which takes the dividend's sign as
++    // JavaScript's does; a zero keeps the dividend's sign (-4 % 2 is -0).
++    // NaN, infinities, fractions, a zero divisor and larger numbers go on
++    // to the general remainder below.
++    if (builtin_abs<f64>(x) < 2147483648.0 && builtin_abs<f64>(y) < 2147483648.0) {
++      let ix = <i32>x;
++      let iy = <i32>y;
++      if (<f64>ix == x && <f64>iy == y && iy != 0) {
++        let r = ix % iy;
++        return r ? <f64>r : builtin_copysign<f64>(0.0, x);
++      }
++    }
+     if (builtin_abs<f64>(y) == 1.0) {
+       // x % 1, x % -1  ==>  sign(x) * abs(x - 1.0 * trunc(x / 1.0))
+       // TODO: move this rule to compiler's optimization pass.
+@@ -3287,3 +3300,25 @@ switch (e) {
    case 63:
  }
  */
