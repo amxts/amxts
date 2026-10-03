@@ -37,7 +37,7 @@ import { MESSAGE_NAMES } from './client-messages';
 import { CORE_ENTRIES, CORE_PLUGINS, loadProject } from './project';
 import { c, log } from './ui';
 import { upgradeMenus } from './upgrade-menus';
-import { COMMON, EVENTS, HIDDEN, HIDDEN_EVENTS, RENAMED } from './upgrade-names';
+import { COMMON, EVENTS, FLAG_NAMES, HIDDEN, HIDDEN_EVENTS, RENAMED } from './upgrade-names';
 
 /** The old spelling of a specifier and the new one. */
 export type Renames = Map<string, string>;
@@ -478,9 +478,9 @@ export function upgradeMessages(file: string, text: string): { text: string; cha
 }
 
 /** The flag families: a value of one, or a list of them, is a flag's name. */
-const FLAG_FAMILIES = ['HideHud', 'Button', 'Effect', 'EntityFlag', 'Damage', 'Access', 'ScoreStatus', 'WeaponState', 'PhysicsFlag', 'FlagName'];
-/** The fields that hold flags: `player.hideHud`, `entity.flags`, `event.damageType`. */
-const FLAG_FIELDS = new Set(['access', 'buttons', 'oldButtons', 'buttonLast', 'buttonPressed', 'buttonReleased', 'hideHud', 'hideHudSent', 'damageType', 'effects', 'flags', 'physicsFlags', 'weaponState']);
+const FLAG_FAMILIES = ['HideHud', 'Button', 'Effect', 'EntityFlag', 'Damage', 'Access', 'ScoreStatus', 'WeaponState', 'PhysicsFlag', 'FlagName', 'DeathMessageFlag', 'KillRarity'];
+/** The fields that hold flags: `player.hideHud`, `entity.flags`, `event.damageType`, a death message's `event.rarity`. */
+const FLAG_FIELDS = new Set(['access', 'buttons', 'oldButtons', 'buttonLast', 'buttonPressed', 'buttonReleased', 'hideHud', 'hideHudSent', 'damageType', 'effects', 'flags', 'physicsFlags', 'weaponState', 'rarity']);
 /** The options that take flags: `bot.move({ buttons })`, `server.addCommand(..., { access })`. */
 const FLAG_OPTIONS = new Set(['access', 'buttons']);
 /** The calls that take flags, by the argument's place: `screen.hideHud(["Money"])`, `cmd(name, handler, "KICK")`. */
@@ -503,7 +503,7 @@ const COMPARISONS = new Set([
  */
 function flagName(old: string, constant: boolean): string | null {
 	if (constant) return /^[A-Z][A-Z0-9_]*$/.test(old) ? old.toLowerCase().replace(/_([a-z0-9])/g, (_, next: string) => next.toUpperCase()) : null;
-	return /^[A-Z][a-z0-9]\w*$/.test(old) ? old[0].toLowerCase() + old.slice(1) : null;
+	return FLAG_NAMES[old] ?? (/^[A-Z][a-z0-9]\w*$/.test(old) ? old[0].toLowerCase() + old.slice(1) : null);
 }
 
 /**

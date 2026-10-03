@@ -347,8 +347,8 @@ export const GAME: Record<string, GameDoc> = {
 		},
 		fields: {
 			flags: {
-				en: `The extras the death message carries, any of \`"Position"\`, \`"Assistant"\`, \`"KillRarity"\`.`,
-				ru: `Дополнения к сообщению о смерти, любые из \`"Position"\`, \`"Assistant"\`, \`"KillRarity"\`.`,
+				en: `The extras the death message carries, any of \`"position"\`, \`"assistant"\`, \`"killRarity"\`.`,
+				ru: `Дополнения к сообщению о смерти, любые из \`"position"\`, \`"assistant"\`, \`"killRarity"\`.`,
 			},
 			rarity: {
 				en: `The things that made the kill rare, e.g. \`"Headshot"\`, \`"NoScope"\`, \`"Penetrated"\`, \`"InAir"\`.`,

@@ -228,3 +228,6 @@ export const HIDDEN: Record<Kind, Record<string, string>> = {
  * ours is not listed.
  */
 export const COMMON = new Set(['menu', 'weapon', 'memory', 'conditions', 'activity', 'train', 'tank', 'sneaking', 'onTarget', 'lastFire', 'teamName']);
+
+/** Flag names that are more than the old one in lowerCamelCase: KillRarity's `"ThruSmoke"` is `"throughSmoke"`. */
+export const FLAG_NAMES: Record<string, string> = { ThruSmoke: 'throughSmoke' };

@@ -566,7 +566,7 @@ const MESSAGE_ACCESSORS: Record<MessageField['kind'], { type: string; takes?: st
 // VGUIMenu's menus by the names game.addEventListener("showVguiMenu") gives
 // them (VguiMenu, scripts/generate-hooks.ts): the include's members, named by
 // the same rule.
-const VGUI_MENUS = GAME_ENUMS.get('VGUIMenu')!.map(m => ({ name: memberName(m.name.replace(/^VGUI_Menu_/, ''), false), value: m.value }));
+const VGUI_MENUS = GAME_ENUMS.get('VGUIMenu')!.map(m => ({ name: memberName(m.name.replace(/^VGUI_Menu_/, '')), value: m.value }));
 
 /** A field of a name's event, with the messages of the name that do not carry it. */
 type NameField = MessageField & { missing: string[] };

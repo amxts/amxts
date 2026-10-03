@@ -101,8 +101,8 @@ export const HEARD: Record<string, HeardEvent> = {
 		class: 'B',
 		backend: 'DeathMsg message',
 		gaps: {
-			en: '`preventDefault()` stops the message; `assister` and `inflictor` read as the world, `flags` as empty, `rarity` has `"Headshot"` alone; changing a field does nothing',
-			ru: '`preventDefault()` отменяет сообщение; `assister` и `inflictor` читаются как мир, `flags` пуст, в `rarity` бывает только `"Headshot"`; запись поля ничего не делает',
+			en: '`preventDefault()` stops the message; `assister` and `inflictor` read as the world, `flags` as empty, `rarity` has `"headshot"` alone; changing a field does nothing',
+			ru: '`preventDefault()` отменяет сообщение; `assister` и `inflictor` читаются как мир, `flags` пуст, в `rarity` бывает только `"headshot"`; запись поля ничего не делает',
 		},
 	},
 	pain: { class: 'A', backend: 'FM_EmitSound of a player\'s pain sound; lastHitGroup and hasArmour from the player' },

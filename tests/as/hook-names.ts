@@ -25,5 +25,5 @@ function onShowVguiMenu(event: ShowVguiMenuEvent) {
 
 function onDeathMessage(event: SendDeathMessageEvent) {
 	console.log(`death ${event.flags.join(",")} / ${event.rarity.join(",")}`);
-	event.rarity = event.rarity.filter(name => name != "Headshot");
+	event.rarity = event.rarity.filter(name => name != "headshot");
 }

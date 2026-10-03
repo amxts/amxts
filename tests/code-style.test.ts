@@ -1225,3 +1225,46 @@ test('7: a flag\'s name is lowerCamelCase, like every union value of the API', (
 	expect(names.length).toBeGreaterThan(100);
 	expect(names.filter(name => !/^[a-z][a-zA-Z0-9]*$/.test(name))).toEqual([]);
 });
+
+/**
+ * The unions whose values stay as the game writes them, each with why: the
+ * game's own words for what a player sees, a name the game gives a thing, or
+ * a tag inside a text.
+ */
+const UNION_WORDS: Record<string, RegExp> = {
+	// The teams as the game names them on the scoreboard and in its team menu.
+	Team: /^(?:TERRORIST|CT|SPECTATOR|UNASSIGNED)$/,
+	RoundWinner: /^(?:TERRORIST|CT)$/,
+	TeamChoice: /^(?:TERRORIST|CT|VIP|SPECTATOR)$/,
+	// An entity's classname, as the game, the maps and `give` name it.
+	WeaponName: /^weapon_[a-z0-9]+$/,
+	ItemName: /^(?:weapon|item)_[a-z0-9]+$/,
+	// A colour tag inside a menu's text.
+	MenuColor: /^![a-z]$/,
+	// reapi's own names of its hookchains, which the raw hook() takes.
+	HookName: /^[a-z0-9_]+$/,
+	// No error at all.
+	RequestErrorKind: /^$/,
+};
+
+/** Every string literal of every union in the API's files (as/), by the type it is in. */
+function unionValues(): { type: string; value: string }[] {
+	const found: { type: string; value: string }[] = [];
+	for (const name of readdirSync('as').filter(file => file.endsWith('.ts'))) {
+		const source = ts.createSourceFile(name, readFileSync(join('as', name), 'utf8'), ts.ScriptTarget.Latest, true);
+		const visit = (node: ts.Node, type: string) => {
+			const named = ts.isTypeAliasDeclaration(node) ? node.name.text : type;
+			if (ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal) && ts.isUnionTypeNode(node.parent)) found.push({ type: named, value: node.literal.text });
+			ts.forEachChild(node, child => visit(child, named));
+		};
+		visit(source, '');
+	}
+	return found;
+}
+
+test('7: every union value of the API is lowerCamelCase, but the game\'s own words', () => {
+	const values = unionValues();
+	expect(values.length).toBeGreaterThan(500);
+	const odd = values.filter(({ type, value }) => !/^[a-z][a-zA-Z0-9]*$/.test(value) && !UNION_WORDS[type]?.test(value));
+	expect(odd.map(({ type, value }) => `${type}: "${value}"`)).toEqual([]);
+});

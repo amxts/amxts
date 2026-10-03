@@ -112,7 +112,7 @@ test('a Pawn enum argument is a union of names, from the include', () => {
 	expect(hooks).toContain('case 32: return "defusekit";');
 	expect(hooks).toContain('case 4: return "leftArm";');
 	expect(hooks).toMatch(/export type TeamChoice =\n\t\| "TERRORIST"\n\t\| "CT"\n\t\| "VIP"\n\t\| "auto"\n\t\| "SPECTATOR"\n\t\| "unknown";/);
-	expect(hooks).toContain('["Headshot", "KillerBlind", "NoScope", "Penetrated", "ThruSmoke", "AssistedFlash", "DominationBegan", "Domination", "Revenge", "InAir"]');
+	expect(hooks).toContain('["headshot", "killerBlind", "noScope", "penetrated", "throughSmoke", "assistedFlash", "dominationBegan", "domination", "revenge", "inAir"]');
 	// No Pawn-dodge names are left.
 	expect(hooks).not.toMatch(/\tget \w+Value\(/);
 });

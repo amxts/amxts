@@ -123,7 +123,7 @@ describe('enum and flag arguments are names', () => {
 		const victim = server.join('Bob');
 		const sent = server.fireHook('sendDeathMessage', [killer.id, victim.id, 0, 0, 'ak47', 0x1 | 0x4, 0x1 | 0x4 | 0x800]);
 
-		expect(server.log).toContain('death Position,KillRarity / Headshot,NoScope');
+		expect(server.log).toContain('death position,killRarity / headshot,noScope');
 		expect(sent.args[6]).toBe(0x4 | 0x800);
 	});
 });

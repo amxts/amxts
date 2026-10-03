@@ -480,3 +480,10 @@ test('a file without flags is left as it is', () => {
 	const source = 'const title = "Money";\nprint(player, "Jump");';
 	expect(upgradeFlags('plugins/plain.ts', source)).toEqual({ text: source, changes: [], left: [] });
 });
+
+test('a death message\'s flags are lowerCamelCase too', () => {
+	const source = 'game.addEventListener("sendDeathMessage", (event) => {\n\tif (event.rarity.includes("Headshot") && !event.rarity.includes("ThruSmoke")) event.flags = ["Position", "KillRarity"];\n});\n';
+	const { text } = upgradeFlags('plugins/a.ts', source);
+	expect(text).toBe('game.addEventListener("sendDeathMessage", (event) => {\n\tif (event.rarity.includes("headshot") && !event.rarity.includes("throughSmoke")) event.flags = ["position", "killRarity"];\n});\n');
+	expect(upgradeFlags('plugins/a.ts', text).changes).toEqual([]);
+});

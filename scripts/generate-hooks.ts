@@ -184,7 +184,7 @@ const NAMED: Record<string, NamedSpec> = {
 		type: 'DeathMessageFlag',
 		prefix: /^PLAYERDEATH_/,
 		flags: true,
-		names: { PLAYERDEATH_KILLRARITY: 'KillRarity' },
+		names: { PLAYERDEATH_KILLRARITY: 'killRarity' },
 		about: 'The extras a death message carries.',
 	},
 	ItemID: {
@@ -212,7 +212,7 @@ const NAMED: Record<string, NamedSpec> = {
 		type: 'KillRarity',
 		prefix: /^KILLRARITY_/,
 		flags: true,
-		names: { KILLRARITY_NOSCOPE: 'NoScope', KILLRARITY_THRUSMOKE: 'ThruSmoke', KILLRARITY_ASSISTEDFLASH: 'AssistedFlash', KILLRARITY_INAIR: 'InAir' },
+		names: { KILLRARITY_NOSCOPE: 'noScope', KILLRARITY_THRUSMOKE: 'throughSmoke', KILLRARITY_ASSISTEDFLASH: 'assistedFlash', KILLRARITY_INAIR: 'inAir' },
 		about: 'The things that made a kill rare: a headshot, through smoke, in the air, ...',
 	},
 };
@@ -243,7 +243,7 @@ function namedOf(tag: string, hook: string): Named | null {
 	if (!raw) throw new Error(`${hook}: enum ${tag} is not in the includes`);
 	const members = raw
 		.filter(m => !spec.skip?.test(m.name))
-		.map(m => ({ name: spec.names?.[m.name] ?? memberName(m.name.replace(spec.prefix, ''), !!spec.flags), value: m.value }));
+		.map(m => ({ name: spec.names?.[m.name] ?? memberName(m.name.replace(spec.prefix, '')), value: m.value }));
 	const named: Named = { ...spec, tag, members };
 	namedUsed.set(tag, named);
 	return named;
