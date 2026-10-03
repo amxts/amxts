@@ -754,7 +754,8 @@ async function runSuite(suite: Suite, password: string, alive: () => boolean): P
 	// the console - the engine redirects it - so the reply is the first part
 	// of the suite's output, and the console after it the rest: what an async
 	// suite prints later, and what the server says on its own.
-	const reply = (await rcon(password, `${suite.command}${extra ? ` ${extra}` : ''}`) ?? '').split(/\r?\n/);
+	const answer = await rcon(password, `${suite.command}${extra ? ` ${extra}` : ''}`);
+	const reply = (answer ?? '').split(/\r?\n/);
 	// hlds_linux also prints what it redirects to its own output, the
 	// container's console: a line the reply has is taken from the console once.
 	const output = () => {
@@ -789,7 +790,10 @@ async function runSuite(suite: Suite, password: string, alive: () => boolean): P
 		lines.push(`${tag} ${seen ? 'ok  ' : 'FAIL'} the console shows "${text}"`);
 	}
 
-	const problem = done ? null : alive() ? `no "${tag} N ok, M failed" in ${SUITE_TIMEOUT / 1000}s` : 'the server went away';
+	// A suite that timed out says whether its command was answered at all:
+	// without a reply, what it printed while the command ran is lost.
+	const unanswered = answer === null ? ', and rcon did not answer its command' : '';
+	const problem = done ? null : alive() ? `no "${tag} N ok, M failed" in ${SUITE_TIMEOUT / 1000}s${unanswered}` : 'the server went away';
 	return { suite, passed, failed: failed + (problem ? 1 : 0), lines, problem, output: since };
 }
 
@@ -983,6 +987,13 @@ function report(results: SuiteResult[], problems: string[]): number {
 		const counts = `${result.passed} ok${result.failed ? `, ${result.failed} failed` : ''}`;
 		console.log(`${status} ${result.suite.name.padEnd(18)} ${counts}${result.problem ? ` - ${result.problem}` : ''}`);
 		for (const line of result.lines.filter(one => one.includes(' FAIL '))) console.log(`       ${line}`);
+		// The lines of a suite that timed out - its rcon reply, then the
+		// console - tell a command that never ran from one that stopped.
+		if (result.problem?.startsWith('no ')) {
+			const own = result.output.filter(line => line.includes(`[${result.suite.name}]`));
+			console.log(own.length ? '       what it printed:' : '       it printed nothing');
+			for (const line of own) console.log(`         ${line}`);
+		}
 	}
 
 	for (const problem of problems) console.log(`FAIL ${problem}`);
