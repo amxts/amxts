@@ -24,4 +24,10 @@ this folder as it is.
 Links between pages are relative links to the `.md` files, so they work here
 too; the site turns them into its addresses.
 
+A feature new in a minor version carries `:since{v="0.2"}` at the end of its
+heading (`## Fake clients :since{v="0.2"}`), or after its name in a table
+cell or a sentence: the site shows it as a small "since v0.2" badge, in the
+page's contents too, and the heading's anchor stays `#fake-clients`. The
+version is the minor one, in quotes.
+
 [Русский](README.ru.md)
