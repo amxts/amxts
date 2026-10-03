@@ -375,8 +375,8 @@ export default {
 		ru: `Читает строковый аргумент, который широкий обработчик получил числом.`,
 	},
 	'cellsToString': {
-		en: `Reads the text a raw native from \`~/natives\` wrote into a cell array. \`stringToCells\` is the other way.`,
-		ru: `Читает текст, который сырой натив из \`~/natives\` записал в массив ячеек. Обратно — \`stringToCells\`.`,
+		en: `Reads the text a raw native from \`@amxts/core/natives\` wrote into a cell array. \`stringToCells\` is the other way.`,
+		ru: `Читает текст, который сырой натив из \`@amxts/core/natives\` записал в массив ячеек. Обратно — \`stringToCells\`.`,
 	},
 	'stringToCells': {
 		en: `Writes text into a cell array as a Pawn string, for a raw native.`,
@@ -384,7 +384,7 @@ export default {
 	},
 	'cells': {
 		en: `
-			Passes a string to a raw native from \`~/natives\` without declaring a
+			Passes a string to a raw native from \`@amxts/core/natives\` without declaring a
 			buffer for it:
 
 			  cfg_set_base_dir(cells("myplugin"));
@@ -393,7 +393,7 @@ export default {
 			arguments going in: a native that writes text back needs \`out()\`.
 		`,
 		ru: `
-			Передаёт строку сырому нативу из \`~/natives\` без объявления буфера под неё:
+			Передаёт строку сырому нативу из \`@amxts/core/natives\` без объявления буфера под неё:
 
 			  cfg_set_base_dir(cells("myplugin"));
 
@@ -2740,7 +2740,7 @@ export default {
 	'Call': {
 		en: `
 			A call of a Pawn native with a \`...\` tail, built one argument at a time -
-			the low-level way. A native from \`~/natives\` is an ordinary function and
+			the low-level way. A native from \`@amxts/core/natives\` is an ordinary function and
 			needs none of this.
 
 			  new Call(NATIVE_server_print).str("%s").str(text).run();
@@ -2758,7 +2758,7 @@ export default {
 		`,
 		ru: `
 			Вызов Pawn-натива с хвостом \`...\`, собираемый по одному аргументу, —
-			низкоуровневый способ. Натив из \`~/natives\` — обычная функция, и ему это
+			низкоуровневый способ. Натив из \`@amxts/core/natives\` — обычная функция, и ему это
 			не нужно.
 
 			  new Call(NATIVE_server_print).str("%s").str(text).run();

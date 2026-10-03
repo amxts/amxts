@@ -966,7 +966,7 @@ export function __cellsOf(text: string): StaticArray<i32> {
 	return cells;
 }
 
-/** Reads the text a raw native from `~/natives` wrote into a cell array. `stringToCells` is the other way. */
+/** Reads the text a raw native from `@amxts/core/natives` wrote into a cell array. `stringToCells` is the other way. */
 export function cellsToString(cells: StaticArray<i32>): string {
 	return __cellText(changetype<usize>(cells), cells.length);
 }
@@ -979,7 +979,7 @@ export function stringToCells(text: string, cells: StaticArray<i32>): void {
 // The natives in ~/natives take addresses, because that is what Pawn pushes: a
 // string has to be in memory this plugin owns before its address means anything.
 /**
- * Passes a string to a raw native from `~/natives` without declaring a
+ * Passes a string to a raw native from `@amxts/core/natives` without declaring a
  * buffer for it:
  *
  *   cfg_set_base_dir(cells("myplugin"));
@@ -3982,7 +3982,7 @@ export function clearInterval(handle: number): void {
 // the tail's types.
 /**
  * A call of a Pawn native with a `...` tail, built one argument at a time -
- * the low-level way. A native from `~/natives` is an ordinary function and
+ * the low-level way. A native from `@amxts/core/natives` is an ordinary function and
  * needs none of this.
  *
  *   new Call(NATIVE_server_print).str("%s").str(text).run();
