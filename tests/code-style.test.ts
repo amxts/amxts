@@ -109,7 +109,7 @@ const FACADE_EQUIVALENTS: Record<string, string> = {
 	get_user_frags: 'player.frags',
 	set_user_frags: 'player.frags',
 	get_user_deaths: 'player.deaths',
-	get_user_authid: 'player.authid',
+	get_user_authid: 'player.steamId',
 	get_user_ip: 'player.ip',
 	is_user_bot: 'player.isBot',
 	rg_set_user_team: 'player.team = ...',

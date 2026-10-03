@@ -88,6 +88,7 @@ export const RENAMED: Record<Kind, Record<string, string>> = {
 	Player: {
 		...ENTITY,
 		account: 'money',
+		authid: 'steamId',
 		lastAccount: 'lastSentMoney',
 		nextAccountHealthUpdate: 'nextScoreboardUpdate',
 		clientHealth: 'healthSent',
@@ -224,10 +225,10 @@ export const HIDDEN: Record<Kind, Record<string, string>> = {
 
 /**
  * Old names common enough elsewhere - a menu's `menu`, a message's `weapon`,
- * a memory's `memory` - that a use on a value the code does not say is one of
- * ours is not listed.
+ * a memory's `memory`, a ban's `authid` - that a use on a value the code does
+ * not say is one of ours is not listed.
  */
-export const COMMON = new Set(['menu', 'weapon', 'memory', 'conditions', 'activity', 'train', 'tank', 'sneaking', 'onTarget', 'lastFire', 'teamName']);
+export const COMMON = new Set(['menu', 'weapon', 'memory', 'conditions', 'activity', 'train', 'tank', 'sneaking', 'onTarget', 'lastFire', 'teamName', 'authid']);
 
 /**
  * Server events by their old names - the Pawn forward's and the short one
@@ -309,6 +310,7 @@ export const SERVER_EVENT_FIELDS: Record<string, Record<string, string>> = {
 	internalCommand: { cmd: 'command' },
 	inconsistentFile: { filename: 'file' },
 	playbackEvent: { eventid: 'eventIndex' },
+	authorized: { authid: 'steamId' },
 };
 
 /** The server events whose fields are renamed, by the class an annotation names them with. */
@@ -316,6 +318,7 @@ export const SERVER_FIELD_CLASSES: Record<string, string> = {
 	CS_InternalCommandEvent: 'internalCommand',
 	InconsistentFileEvent: 'inconsistentFile',
 	PfnPlaybackeventEvent: 'playbackEvent',
+	ClientAuthorizedEvent: 'authorized',
 };
 
 const TRACE = { tracehandle: 'trace' };
@@ -373,6 +376,9 @@ export const GAME_EVENT_FIELDS: Record<string, Record<string, string>> = {
 	traceLine: { src: 'start', spot: 'end', ...TRACE },
 	userInfoChange: { infobuffer: 'info' },
 };
+
+/** The fake server's options for a test's player by their old names: `server.join(name, { authid })`. */
+export const JOIN_OPTIONS: Record<string, string> = { authid: 'steamId' };
 
 /** Flag names that are more than the old one in lowerCamelCase: KillRarity's `"ThruSmoke"` is `"throughSmoke"`. */
 export const FLAG_NAMES: Record<string, string> = { ThruSmoke: 'throughSmoke' };

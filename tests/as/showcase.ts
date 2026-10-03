@@ -35,9 +35,9 @@ server.addEventListener("putInServer", (event) => {
 	const player = event.player;
 	if (player.isBot) return;
 
-	const before = visits.get(player.authid);
+	const before = visits.get(player.steamId);
 	const count = before != null ? parseInt(before) + 1 : 1;
-	visits.set(player.authid, count.toString());
+	visits.set(player.steamId, count.toString());
 
 	print(player, `Welcome to ${server.map}, ${player.name}! Visit #${count}.`);
 	greeted.emit(player.name, count);

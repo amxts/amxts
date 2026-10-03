@@ -332,6 +332,7 @@ const EVENT_RENAMES: Record<string, string> = {
 	cmd: 'command',
 	filename: 'file',
 	eventid: 'eventIndex',
+	authid: 'steamId',
 };
 
 /** The event's field for the parameter at `i`, read from the call's arguments (the facade's __native* helpers). */

@@ -50,6 +50,7 @@ async function run() {
 	}
 
 	check.expect(bot.isBot, "isBot").toBe(true);
+	check.expect(bot.steamId, "a bot's steamId").toBe("BOT");
 	check.expect(bot.name.length > 0, `the bot has a name (${bot.name})`).toBe(true);
 
 	// Cyrillic on purpose: a chat command's arguments are UTF-8.

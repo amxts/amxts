@@ -630,9 +630,9 @@ export default {
 		en: `The player's IP address without the port, e.g. \`"192.168.0.10"\`.`,
 		ru: `IP-адрес игрока без порта, например \`"192.168.0.10"\`.`,
 	},
-	'Client.authid': {
-		en: `The player's SteamID, e.g. \`"STEAM_0:1:12345"\`. A bot has \`"BOT"\`, HLTV has \`"HLTV"\`; until Steam confirms the player it is \`"STEAM_ID_PENDING"\` (wait for the \`"authorized"\` event), and on a LAN server \`"STEAM_ID_LAN"\`.`,
-		ru: `SteamID игрока, например \`"STEAM_0:1:12345"\`. У бота — \`"BOT"\`, у HLTV — \`"HLTV"\`; пока Steam не подтвердил игрока — \`"STEAM_ID_PENDING"\` (дождитесь события \`"authorized"\`), на LAN-сервере — \`"STEAM_ID_LAN"\`.`,
+	'Client.steamId': {
+		en: `The player's SteamID, e.g. \`"STEAM_0:1:12345"\`. A bot has \`"BOT"\`, HLTV has \`"HLTV"\`; until Steam confirms the player it is \`"STEAM_ID_PENDING"\` (wait for the \`"authorized"\` event), and on a LAN server \`"STEAM_ID_LAN"\`. With Reunion a game without Steam gets one made from its key (\`authKey\`): \`"STEAM_..."\` or \`"VALVE_..."\`, as the server's Reunion settings say.`,
+		ru: `SteamID игрока, например \`"STEAM_0:1:12345"\`. У бота — \`"BOT"\`, у HLTV — \`"HLTV"\`; пока Steam не подтвердил игрока — \`"STEAM_ID_PENDING"\` (дождитесь события \`"authorized"\`), на LAN-сервере — \`"STEAM_ID_LAN"\`. С Reunion игра без Steam получает SteamID, сделанный из её ключа (\`authKey\`): \`"STEAM_..."\` или \`"VALVE_..."\`, как скажут настройки Reunion на сервере.`,
 	},
 	'Client.authType': {
 		en: `The way the player's game proved who he is, as Reunion tells it: one of \`"steam"\` (a Steam game), \`"steamEmu"\`, \`"revEmu"\`, \`"revEmu2013"\`, \`"oldRevEmu"\`, \`"sc2009"\`, \`"avsmp"\`, \`"sxei"\`, \`"sse3"\` (a game without Steam, by the emulator it proved itself with), \`"dproto"\`, \`"hltv"\`, or \`"unknown"\` on a server without Reunion.`,
@@ -797,14 +797,14 @@ export default {
 			Pawn: \`get_user_ip\`
 		`,
 	},
-	'Player.authid': {
+	'Player.steamId': {
 		en: `
-			The player's SteamID, e.g. \`"STEAM_0:1:12345"\`. A bot has \`"BOT"\`, HLTV has \`"HLTV"\`; until Steam confirms the player it is \`"STEAM_ID_PENDING"\` (wait for the \`"authorized"\` event), and on a LAN server \`"STEAM_ID_LAN"\`.
+			The player's SteamID, e.g. \`"STEAM_0:1:12345"\`. A bot has \`"BOT"\`, HLTV has \`"HLTV"\`; until Steam confirms the player it is \`"STEAM_ID_PENDING"\` (wait for the \`"authorized"\` event), and on a LAN server \`"STEAM_ID_LAN"\`. With Reunion a game without Steam gets one made from its key (\`authKey\`): \`"STEAM_..."\` or \`"VALVE_..."\`, as the server's Reunion settings say.
 
 			Pawn: \`get_user_authid\`
 		`,
 		ru: `
-			SteamID игрока, например \`"STEAM_0:1:12345"\`. У бота — \`"BOT"\`, у HLTV — \`"HLTV"\`; пока Steam не подтвердил игрока — \`"STEAM_ID_PENDING"\` (дождитесь события \`"authorized"\`), на LAN-сервере — \`"STEAM_ID_LAN"\`.
+			SteamID игрока, например \`"STEAM_0:1:12345"\`. У бота — \`"BOT"\`, у HLTV — \`"HLTV"\`; пока Steam не подтвердил игрока — \`"STEAM_ID_PENDING"\` (дождитесь события \`"authorized"\`), на LAN-сервере — \`"STEAM_ID_LAN"\`. С Reunion игра без Steam получает SteamID, сделанный из её ключа (\`authKey\`): \`"STEAM_..."\` или \`"VALVE_..."\`, как скажут настройки Reunion на сервере.
 
 			Pawn: \`get_user_authid\`
 		`,

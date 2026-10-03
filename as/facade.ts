@@ -1324,8 +1324,8 @@ export interface Client {
 	readonly name: string;
 	/** The player's IP address without the port, e.g. `"192.168.0.10"`. */
 	readonly ip: string;
-	/** The player's SteamID, e.g. `"STEAM_0:1:12345"`. A bot has `"BOT"`, HLTV has `"HLTV"`; until Steam confirms the player it is `"STEAM_ID_PENDING"` (wait for the `"authorized"` event), and on a LAN server `"STEAM_ID_LAN"`. */
-	readonly authid: string;
+	/** The player's SteamID, e.g. `"STEAM_0:1:12345"`. A bot has `"BOT"`, HLTV has `"HLTV"`; until Steam confirms the player it is `"STEAM_ID_PENDING"` (wait for the `"authorized"` event), and on a LAN server `"STEAM_ID_LAN"`. With Reunion a game without Steam gets one made from its key (`authKey`): `"STEAM_..."` or `"VALVE_..."`, as the server's Reunion settings say. */
+	readonly steamId: string;
 	/** The way the player's game proved who he is, as Reunion tells it: one of `"steam"` (a Steam game), `"steamEmu"`, `"revEmu"`, `"revEmu2013"`, `"oldRevEmu"`, `"sc2009"`, `"avsmp"`, `"sxei"`, `"sse3"` (a game without Steam, by the emulator it proved itself with), `"dproto"`, `"hltv"`, or `"unknown"` on a server without Reunion. */
 	readonly authType: AuthType;
 	/** The network protocol of the player's game: `48` for today's game, `47` for an old one Reunion lets in. `0` on a server without Reunion. */
@@ -1491,11 +1491,11 @@ export class Player extends PlayerFields implements Client {
 	}
 
 	/**
-	 * The player's SteamID, e.g. `"STEAM_0:1:12345"`. A bot has `"BOT"`, HLTV has `"HLTV"`; until Steam confirms the player it is `"STEAM_ID_PENDING"` (wait for the `"authorized"` event), and on a LAN server `"STEAM_ID_LAN"`.
+	 * The player's SteamID, e.g. `"STEAM_0:1:12345"`. A bot has `"BOT"`, HLTV has `"HLTV"`; until Steam confirms the player it is `"STEAM_ID_PENDING"` (wait for the `"authorized"` event), and on a LAN server `"STEAM_ID_LAN"`. With Reunion a game without Steam gets one made from its key (`authKey`): `"STEAM_..."` or `"VALVE_..."`, as the server's Reunion settings say.
 	 *
 	 * Pawn: `get_user_authid`
 	 */
-	get authid(): string {
+	get steamId(): string {
 		return get_user_authid(this.id);
 	}
 

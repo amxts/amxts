@@ -108,7 +108,7 @@ export const EVENTS: Record<string, EventDoc> = {
 		notes: [{ en: `A bot's SteamID is \`"BOT"\`.`, ru: `SteamID бота — \`"BOT"\`.` }],
 		fields: {
 			player,
-			authid: { en: `The player's SteamID, e.g. \`"STEAM_0:1:12345"\`. A bot has \`"BOT"\`, HLTV has \`"HLTV"\`; on a LAN server it is \`"STEAM_ID_LAN"\`.`, ru: `SteamID игрока, например \`"STEAM_0:1:12345"\`. У бота — \`"BOT"\`, у HLTV — \`"HLTV"\`; на LAN-сервере — \`"STEAM_ID_LAN"\`.` },
+			steamId: { en: `The player's SteamID, e.g. \`"STEAM_0:1:12345"\`. A bot has \`"BOT"\`, HLTV has \`"HLTV"\`; on a LAN server it is \`"STEAM_ID_LAN"\`. With Reunion a game without Steam gets one made from its key: \`"STEAM_..."\` or \`"VALVE_..."\`, as the server's Reunion settings say.`, ru: `SteamID игрока, например \`"STEAM_0:1:12345"\`. У бота — \`"BOT"\`, у HLTV — \`"HLTV"\`; на LAN-сервере — \`"STEAM_ID_LAN"\`. С Reunion игра без Steam получает SteamID, сделанный из её ключа: \`"STEAM_..."\` или \`"VALVE_..."\`, как скажут настройки Reunion на сервере.` },
 		},
 	},
 	client_putinserver: {

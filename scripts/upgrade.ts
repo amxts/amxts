@@ -37,7 +37,7 @@ import { MESSAGE_NAMES } from './client-messages';
 import { CORE_ENTRIES, CORE_PLUGINS, loadProject } from './project';
 import { c, log } from './ui';
 import { upgradeMenus } from './upgrade-menus';
-import { COMMON, EVENTS, FLAG_NAMES, GAME_EVENT_FIELDS, HIDDEN, HIDDEN_EVENTS, RENAMED, SERVER_EVENT_CLASSES, SERVER_EVENT_FIELDS, SERVER_EVENTS, SERVER_EVENTS_BY_HAND, SERVER_FIELD_CLASSES, SERVER_GAME_EVENTS } from './upgrade-names';
+import { COMMON, EVENTS, FLAG_NAMES, GAME_EVENT_FIELDS, HIDDEN, HIDDEN_EVENTS, JOIN_OPTIONS, RENAMED, SERVER_EVENT_CLASSES, SERVER_EVENT_FIELDS, SERVER_EVENTS, SERVER_EVENTS_BY_HAND, SERVER_FIELD_CLASSES, SERVER_GAME_EVENTS } from './upgrade-names';
 
 /** The old spelling of a specifier and the new one. */
 export type Renames = Map<string, string>;
@@ -260,9 +260,11 @@ const SAME_ELEMENTS = new Set(['filter', 'slice', 'concat', 'sort', 'reverse', '
 /** The fields that are a weapon - the ones a player's `items` hold - and the entity classes a `new` or an annotation names. */
 const WEAPON_FIELDS = new Set(['activeItem', 'lastItem', 'activeItemSent', 'clientActiveItem']);
 const CLASSES = new Set<Kind>(['Player', 'Weapon', 'Entity']);
+/** What a value an annotation names is: a `Client` is a player who is not in the game yet. */
+const TYPE_KINDS: Record<string, Kind> = { Player: 'Player', Client: 'Player', Weapon: 'Weapon', Entity: 'Entity' };
 /** An annotation of one of them, or a list of them: `Player | null`, `Weapon[]`. */
-const ONE_TYPE = /^(Player|Weapon|Entity)(?:\s*\|\s*(?:null|undefined))*$/;
-const LIST_TYPE = /^(?:(Player|Weapon|Entity)\[\]|Array<(Player|Weapon|Entity)>)$/;
+const ONE_TYPE = /^(Player|Client|Weapon|Entity)(?:\s*\|\s*(?:null|undefined))*$/;
+const LIST_TYPE = /^(?:(Player|Client|Weapon|Entity)\[\]|Array<(Player|Client|Weapon|Entity)>)$/;
 
 /**
  * A file's declarations by name, as TypeScript binds them: one file alone,
@@ -331,7 +333,7 @@ export function upgradeNames(file: string, text: string): { text: string; change
 		}
 		const declared = ts.isIdentifier(node) ? declaration(node) : undefined;
 		if (!declared || !ts.isVariableDeclaration(declared)) return undefined;
-		if (declared.type) return (declared.type.getText(source).match(LIST_TYPE)?.slice(1).find(Boolean) as Kind | undefined);
+		if (declared.type) return TYPE_KINDS[declared.type.getText(source).match(LIST_TYPE)?.slice(1).find(Boolean) ?? ''];
 		return declared.initializer && elementsOf(declared.initializer);
 	};
 
@@ -353,7 +355,7 @@ export function upgradeNames(file: string, text: string): { text: string; change
 	const declaredKind = (declared: ts.Declaration): Kind | undefined => {
 		if (ts.isBindingElement(declared)) return (declared.propertyName ?? declared.name).getText(source) === 'player' ? 'Player' : undefined;
 		if (!ts.isVariableDeclaration(declared) && !ts.isParameter(declared)) return undefined;
-		if (declared.type) return declared.type.getText(source).match(ONE_TYPE)?.[1] as Kind | undefined;
+		if (declared.type) return TYPE_KINDS[declared.type.getText(source).match(ONE_TYPE)?.[1] ?? ''];
 		if (ts.isVariableDeclaration(declared)) {
 			if (declared.initializer) return kindOf(declared.initializer);
 			const loop = declared.parent.parent;
@@ -408,6 +410,18 @@ export function upgradeNames(file: string, text: string): { text: string; change
 		else if (Object.hasOwn(HIDDEN_EVENTS, name.text)) leave(name, `"${name.text}" is not in the API: hook it with @amxts/core/natives, ${HIDDEN_EVENTS[name.text]}`);
 	};
 
+	/** A test's player joining the fake server with an option by its old name: `server.join("Alice", { authid })` is `{ steamId: authid }`. */
+	const upgradeJoin = (call: ts.CallExpression) => {
+		const options = call.arguments[1];
+		if (!options || !ts.isObjectLiteralExpression(options)) return;
+		for (const option of options.properties) {
+			const name = option.name && ts.isIdentifier(option.name) ? option.name.text : '';
+			if (!Object.hasOwn(JOIN_OPTIONS, name)) continue;
+			const to = JOIN_OPTIONS[name];
+			replace(option.name!, ts.isShorthandPropertyAssignment(option) ? `${to}: ${name}` : to);
+		}
+	};
+
 	const visit = (node: ts.Node) => {
 		if (ts.isCallExpression(node) && isPlayerAll(node.expression)) {
 			const to = playersOf(node);
@@ -438,7 +452,9 @@ export function upgradeNames(file: string, text: string): { text: string; change
 			return;
 		}
 
-		if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && /^(?:add|remove)EventListener$/.test(node.expression.name.text)) upgradeListener(node);
+		if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return;
+		if (/^(?:add|remove)EventListener$/.test(node.expression.name.text)) upgradeListener(node);
+		else if (node.expression.name.text === 'join') upgradeJoin(node);
 	};
 	visit(source);
 	return { ...applyEdits(file, text, source, edits), left };

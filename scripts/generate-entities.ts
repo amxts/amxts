@@ -326,7 +326,7 @@ const HAND_WRITTEN = new Set([
 	'deaths',
 	'team',
 	'ip',
-	'authid',
+	'steamId',
 	'isAlive',
 	'isConnected',
 	'isBot',

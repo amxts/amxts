@@ -363,6 +363,35 @@ test('an event\'s field in Pawn\'s words is the author\'s where the code says wh
 	expect(upgradeEvents('plugins/a.ts', text).changes).toEqual([]);
 });
 
+test('a player\'s authid is his steamId, on a Player, a Client, the authorized event and a test\'s player', () => {
+	const source = [
+		'server.addCommand("/id", ({ player }) => print(player, player.authid));',
+		'function remember(client: Client) { return client.authid; }',
+		'server.addEventListener("authorized", (event) => console.log(event.authid));',
+		'server.addEventListener("authorized", ({ player, authid }) => console.log(authid));',
+		'function heard(event: ClientAuthorizedEvent) { return event.authid; }',
+		'const alice = server.join("Alice", { team: "CT", authid: "STEAM_0:0:42" });',
+		'const bob = server.join("Bob", { authid });',
+		'const ban = { authid: "STEAM_0:0:7" };',
+		'console.log(ban.authid, ["a", "b"].join(","));',
+	].join('\n');
+	const names = upgradeNames('plugins/a.ts', source);
+	const { text } = upgradeEvents('plugins/a.ts', names.text);
+
+	expect(text.split('\n')).toEqual([
+		'server.addCommand("/id", ({ player }) => print(player, player.steamId));',
+		'function remember(client: Client) { return client.steamId; }',
+		'server.addEventListener("authorized", (event) => console.log(event.steamId));',
+		'server.addEventListener("authorized", ({ player, steamId: authid }) => console.log(authid));',
+		'function heard(event: ClientAuthorizedEvent) { return event.steamId; }',
+		'const alice = server.join("Alice", { team: "CT", steamId: "STEAM_0:0:42" });',
+		'const bob = server.join("Bob", { steamId: authid });',
+		'const ban = { authid: "STEAM_0:0:7" };',
+		'console.log(ban.authid, ["a", "b"].join(","));',
+	]);
+	expect(names.left).toEqual([]);
+});
+
 test('the game\'s look-alike messages are upgraded to the one name that hears them all', () => {
 	const source = [
 		'server.addEventListener("message:BarTime", onBar);',

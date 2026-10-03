@@ -24,7 +24,7 @@ describe('the showcase greets', () => {
 		const server = await loadPlugin('tests/as/showcase.ts');
 		server.vault('showcase_visits').set('STEAM_0:0:42', '6');
 
-		const alice = server.join('Alice', { authid: 'STEAM_0:0:42' });
+		const alice = server.join('Alice', { steamId: 'STEAM_0:0:42' });
 
 		expect(alice.chat).toContain('Visit #7.');
 		expect(server.vault('showcase_visits').get('STEAM_0:0:42')).toBe('7');
@@ -36,7 +36,7 @@ describe('the showcase greets', () => {
 		server.vault('showcase_visits').set('ключ', '6');
 
 		// Cyrillic on purpose: a vault key beyond ASCII.
-		const alice = server.join('Alice', { authid: 'ключ' });
+		const alice = server.join('Alice', { steamId: 'ключ' });
 
 		expect(alice.chat).toContain('Visit #7.');
 	});

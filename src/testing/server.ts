@@ -203,7 +203,8 @@ export interface JoinOptions {
 	armor?: number;
 	alive?: boolean;
 	bot?: boolean;
-	authid?: string;
+	/** His SteamID: "STEAM_0:0:<id>" unless said, "BOT" for a bot. */
+	steamId?: string;
 	ip?: string;
 	/** How Reunion says his game proved who he is, by its name in the player's API: "steam" unless said. */
 	authType?: string;
@@ -313,7 +314,7 @@ export class FakePlayer extends FakeEntity {
 	connected = true;
 	alive: boolean;
 	readonly bot: boolean;
-	readonly authid: string;
+	readonly steamId: string;
 	readonly ip: string;
 	readonly authType: string;
 	readonly protocol: number;
@@ -339,7 +340,7 @@ export class FakePlayer extends FakeEntity {
 		super(server, id, 'player');
 		this.alive = options.alive ?? true;
 		this.bot = options.bot ?? false;
-		this.authid = options.authid ?? (this.bot ? 'BOT' : `STEAM_0:0:${id}`);
+		this.steamId = options.steamId ?? (this.bot ? 'BOT' : `STEAM_0:0:${id}`);
 		this.ip = options.ip ?? `127.0.0.${id}:27005`;
 		this.authType = options.authType ?? 'steam';
 		this.protocol = options.protocol ?? 48;
@@ -980,7 +981,7 @@ export class FakeServer {
 		this.entities.set(id, player);
 
 		this.fire('client_connect', id);
-		this.fire('client_authorized', id, player.authid);
+		this.fire('client_authorized', id, player.steamId);
 		this.fire('client_putinserver', id);
 		return player;
 	}

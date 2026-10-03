@@ -542,7 +542,7 @@ export const NATIVES: Record<string, Native> = {
 	REU_GetProtocol: (c, [id]) => player(c, id)?.protocol ?? 0,
 	REU_GetAuthKey: (c, [id, buffer, length]) => c.memory.setText(buffer, length, player(c, id)?.authKey ?? ''),
 	get_user_name: (c, [id, buffer, length]) => c.memory.setText(buffer, length, id === 0 ? 'Console' : player(c, id)?.name ?? ''),
-	get_user_authid: (c, [id, buffer, length]) => c.memory.setText(buffer, length, player(c, id)?.authid ?? ''),
+	get_user_authid: (c, [id, buffer, length]) => c.memory.setText(buffer, length, player(c, id)?.steamId ?? ''),
 	get_user_ip: (c, [id, buffer, length, withoutPort]) => {
 		const ip = player(c, id)?.ip ?? '';
 		return c.memory.setText(buffer, length, withoutPort ? ip.replace(/:\d+$/, '') : ip);
