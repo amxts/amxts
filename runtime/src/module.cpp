@@ -2677,10 +2677,10 @@ static int32_t w_rpc(wasm_exec_env_t env, int32_t service, int32_t plugin, int32
 	g_rpcReply.clear();
 
 	// Who is asking - by instance rather than g_currentPlugin, which a
-	// coroutine's resumption does not always set.
-	int from = -1;
-	for (size_t i = 0; i < g_plugins.size(); i++)
-		if (g_plugins[i].inst == inst) from = (int)i;
+	// coroutine's resumption does not always set; while a plugin's top level
+	// runs it has no instance yet, and the plugin being loaded is current.
+	// A function passed in the request is called back there.
+	int from = PluginOf(inst);
 
 	int prev = g_currentPlugin;
 	g_currentPlugin = target;
