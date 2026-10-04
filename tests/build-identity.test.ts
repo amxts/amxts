@@ -83,3 +83,18 @@ test('a plugin carries the ABI it is compiled against, into its .aot', async () 
 	expect(await compilePlugin(plugin)).toBeNull();
 	expect(readFileSync(aot).includes(`${ABI_SECTION}\0${abiIdentity()}`)).toBe(true);
 });
+
+test('a plugin compiled again as another version carries that version, not the cached one', async () => {
+	const wasm = join(out, 'version.wasm');
+	const was = process.env.AMXTS_AS_VERSION;
+	try {
+		for (const version of ['0.0.1', '0.0.2']) {
+			process.env.AMXTS_AS_VERSION = version;
+			expect(await compileWasmFile({ source: 'tests/as/timer-keeper.ts', root: 'as' }, wasm)).toBeNull();
+			expect(readSection(new Uint8Array(readFileSync(wasm)), ABI_SECTION)).toStartWith(`${version}+abi.`);
+		}
+	} finally {
+		if (was === undefined) delete process.env.AMXTS_AS_VERSION;
+		else process.env.AMXTS_AS_VERSION = was;
+	}
+});

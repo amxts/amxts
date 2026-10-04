@@ -1,7 +1,8 @@
 // Compiles kept on disk, reused while what they read is the same.
 //
 // A compile is keyed by everything that is not a file it read - the
-// compiler, the hood's scripts, the flags, the project and its config - and
+// compiler, the hood's scripts, the version the core builds as (a plugin
+// carries it in its ABI), the flags, the project and its config - and
 // stored with every file read it made (scripts/tracked-fs.ts): the entry, what
 // it imports, the facade and the generated API, the module packages. It is
 // taken again only while each of those reads sees the same thing it saw, so a
@@ -15,6 +16,7 @@ import type { Reads } from './tracked-fs';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { coreVersion } from './build-identity';
 import { listIncludes } from './includes';
 import { currentProjectDir, loadProject } from './project';
 import { hashOf, recordReads, unchanged } from './tracked-fs';
@@ -118,7 +120,7 @@ export function diskCache(dir: string | null, code: () => string, ownIncludes: s
 	let identity: string | null = null;
 	const fileOf = (parts: unknown[]) => {
 		identity ??= hashOf(`${FORMAT}\n${code()}`);
-		return join(dir!, `${hashOf(JSON.stringify([identity, projectIdentity(ownIncludes), ...parts]))}.json`);
+		return join(dir!, `${hashOf(JSON.stringify([identity, coreVersion(), projectIdentity(ownIncludes), ...parts]))}.json`);
 	};
 
 	let pruned = false;
