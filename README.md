@@ -55,9 +55,10 @@ On the server:
   for its server's system, which the build reads off the server's folder
   (or `--os`).
 - **ReHLDS with ReGameDLL and ReAPI** - recommended. amxts is tested on it and
-  on plain HLDS, where entity fields and most game events work through AMX
-  Mod X's own modules, and some of ReGameDLL's events come with less or not at
-  all.
+  on plain HLDS, where the entity fields work through AMX Mod X's own modules
+  and the game events come through Ham Sandwich, the game's log and its
+  messages: most of them after the game has acted, and a few of ReGameDLL's
+  not at all.
 - **AMX Mod X 1.9** or later.
 
 To write plugins: [Node.js](https://nodejs.org) 20.12+. The build runs on
