@@ -205,7 +205,9 @@ const SUITE_ARGS: Record<string, () => string> = {
 };
 
 const START_TIMEOUT = 90_000;
-const SUITE_TIMEOUT = 20_000;
+// A suite that plays a round (round-order) waits for bots, the round on and the
+// next one: up to 20 seconds on a slow runner, so the limit is above that.
+const SUITE_TIMEOUT = 30_000;
 const BOT_TIMEOUT = 30_000;
 
 // Console lines that mean a plugin did not load or something crashed - a
