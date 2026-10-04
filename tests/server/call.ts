@@ -4,9 +4,11 @@
 // item" to ArrayGetArray, "no end" to formatex - has nothing to copy, and
 // handed address 0 the native wrote into the host plugin's own data there.
 // That holds for a native with a `...` tail, which goes through the
-// dispatcher (amxts_call), and for one with a fixed arity.
+// dispatcher (amxts_call), and for one with a fixed arity. A buffer whose
+// length the declaration does not give is copied up to 128 cells, and at the
+// end of the plugin's memory only as far as the memory goes.
 import { Call, CellBuffer } from "@amxts/core";
-import { ArrayCreate, ArrayDestroy, ArrayGetArray, ArrayPushArray, NATIVE_formatex } from "@amxts/core/natives";
+import { ArrayCreate, ArrayDestroy, ArrayGetArray, ArrayPushArray, NATIVE_formatex, get_players } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
 server.addServerCommand("amxts_test_call", run);
@@ -42,6 +44,15 @@ function run() {
 
 	check.expect(new Call(NATIVE_formatex).buffer(letter, -1).str("B").run(), "formatex told -1 is not called").toBe(0);
 	check.expect(hostNullLength(), "formatex told -1 leaves the host's data alone").toBe(0);
+
+	// The 33 cells server.players passes get_players, in a page of its own at
+	// the end of the plugin's memory, which the allocator never takes.
+	const page = memory.grow(1);
+	const ids = (page + 1) * 65536 - 33 * 4;
+	const count = new CellBuffer(1);
+	const none = new CellBuffer(1);
+	get_players(ids, count.address, none.address, none.address);
+	check.expect(count.get(0), "get_players fills a buffer at the end of the plugin's memory").toBe(server.players.length);
 
 	check.done();
 }
