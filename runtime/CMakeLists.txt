@@ -72,6 +72,10 @@ else()
 endif()
 
 if(MSVC)
-	target_compile_definitions(amxts_amxx PRIVATE _CRT_SECURE_NO_WARNINGS HAVE_STDINT_H)
+	# A std::mutex built by Visual Studio 2022 17.10 or newer is constexpr and
+	# crashes (an access violation in msvcp140.dll) where the server loads an
+	# older Visual C++ runtime; the network thread's lock is one. This keeps the
+	# constructor the older runtimes have.
+	target_compile_definitions(amxts_amxx PRIVATE _CRT_SECURE_NO_WARNINGS HAVE_STDINT_H _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
 	target_compile_options(amxts_amxx PRIVATE /wd4996)
 endif()
