@@ -94,13 +94,14 @@ describe('one instance, two plugins', () => {
 describe('a plugin that stops', () => {
 	const HELLO = 'tests/as/shared-hello.ts';
 
-	test('its menu goes, closed for whoever looks at it; loaded again, it makes the menu once and is called back itself', async () => {
+	test('its menu goes, closed on the next frame for whoever looks at it; loaded again, it makes the menu once and is called back itself', async () => {
 		const { server, menus } = await boot([...OWNERS, HELLO]);
 		const alice = server.join('Alice', { health: 81 });
 
 		expect(server.native('shared_hello_show', alice.id)).toBe(true);
 		expect(menus.screen(alice)!.text).toContain('Wave');
 		server.unload(server.plugins.find(plugin => plugin.source === HELLO)!);
+		server.advance(100);
 		expect(menus.screen(alice)).toBe(null);
 
 		await server.load(HELLO);
