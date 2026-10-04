@@ -3,6 +3,7 @@
 	"compilerOptions": {
 		"target": "es2015",
 		"moduleDetection": "force",
+		"useUnknownInCatchVariables": false,
 		"module": "esnext",
 		"moduleResolution": "bundler",
 		"paths": {

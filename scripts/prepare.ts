@@ -115,6 +115,9 @@ const tsconfig = {
 		// plugin declares is its own, never a global another plugin's name
 		// collides with.
 		moduleDetection: 'force',
+		// `catch (error)` reads `error.message` as the compiler takes it: the
+		// base config's strict mode would make the caught value `unknown`.
+		useUnknownInCatchVariables: false,
 		paths,
 	},
 	include: [
