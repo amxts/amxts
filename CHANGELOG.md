@@ -6,7 +6,7 @@
 
 ### Summary
 
-Fixes for 0.2.0: a Windows server with an older Visual C++ runtime crashed at start, a plugin's call could fail at random when a native wrote into a buffer near the end of its memory, and the editor marked `error.message` in a `catch` as an error.
+Fixes for 0.2.0: a plugin's call could fail at random when a native wrote into a buffer near the end of its memory, a build after an upgrade could keep plugins of the old version that the new module refuses, `amxts upgrade` rewrote the module's own files when the project lives in the server's folder, and the editor marked `error.message` in a `catch` as an error.
 
 ### ⬆️ Upgrade guide
 
@@ -17,6 +17,9 @@ Fixes for 0.2.0: a Windows server with an older Visual C++ runtime crashed at st
 - **module:** Start on a server with an older Visual C++ runtime: the network thread's lock crashed Windows servers whose `msvcp140.dll` predates Visual Studio 2022 17.10 ([04dbe6b](https://github.com/amxts/amxts/commit/04dbe6b))
 - **runtime:** A native whose array size the include does not give - `get_players`, which `server.players` calls, among them - no longer fails the plugin's call when the array lies near the end of the plugin's memory ([e5dee94](https://github.com/amxts/amxts/commit/e5dee94))
 - **editor:** `catch (error)` reads `error.message` without a cast, as the compiler and the docs do ([d2875cf](https://github.com/amxts/amxts/commit/d2875cf))
+- **build:** A plugin is compiled again when the core's version changes: after an upgrade the build cache could hand back a plugin of the old version, which the new module refuses ([7abae6c](https://github.com/amxts/amxts/commit/7abae6c))
+- **upgrade:** The module's own files are left alone - the API it writes into `addons/amxts/plugins/` - when the project lives in the server's folder ([c400c24](https://github.com/amxts/amxts/commit/c400c24))
+- **testing:** The test server raises `configsQueued` and `configsExecuted` when the map starts, as AMX Mod X does ([2be9123](https://github.com/amxts/amxts/commit/2be9123))
 
 ### ❤️ Contributors
 
