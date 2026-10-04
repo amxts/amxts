@@ -6,19 +6,22 @@
 # packages calls this from its own publish.yml with the ones it owns: the
 # core (publish.yml here), amxts-cli and each official module.
 #
-# The core is checked out at the tag, the command and the official modules
-# beside it, and `bun run publish:npm` packs all eight as a developer's machine
-# does - wamrc from the GitHub Release, the modules compiled for both systems -
-# then publishes the ones named. A package that is not the core's waits until
-# the core of its version is on npm, so all the tags of a release can be
-# pushed at once.
+# Each package goes out as its own version, and links to the core by the core's
+# (`^<version>`). The core's own packages go out with the core of the tag;
+# another repository's - its tag is its own version - with the newest release
+# of the core, which it waits for until npm has it, so all the tags of a
+# release can be pushed at once. The core is checked out at that release, the
+# command and the official modules beside it, and `bun run publish:npm` packs
+# all nine as a developer's machine does - wamrc from the core's GitHub
+# Release, the modules compiled for both systems - then publishes the ones
+# named.
 name: npm
 
 on:
   workflow_call:
     inputs:
       tag:
-        description: The release's tag, v<version>
+        description: The caller's tag, v<its version>
         type: string
         required: true
       packages:
@@ -38,22 +41,34 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: The core of this version on npm
-        if: ${{ !contains(inputs.packages, '@amxts/core') }}
+      - name: The core these packages go out with
+        id: core
         env:
           TAG: ${{ inputs.tag }}
+          OWN: ${{ contains(inputs.packages, '@amxts/core') }}
+          OWNER: ${{ github.repository_owner }}
         run: |
+          if [ "$OWN" = "true" ]; then
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          core=$(git ls-remote --tags --refs "https://github.com/$OWNER/amxts" 'v*' | sed -E 's#.*refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          if [ -z "$core" ]; then
+            echo "::error::$OWNER/amxts has no release tag"
+            exit 1
+          fi
+          echo "tag=$core" >> "$GITHUB_OUTPUT"
           for attempt in $(seq 240); do
-            [ "$(npm view "@amxts/core@${TAG#v}" version 2>/dev/null)" = "${TAG#v}" ] && exit 0
+            [ "$(npm view "@amxts/core@${core#v}" version 2>/dev/null)" = "${core#v}" ] && exit 0
             sleep 60
           done
-          echo "::error::@amxts/core ${TAG#v} is not on npm after 4 hours: publish the core's release, then run this again"
+          echo "::error::@amxts/core ${core#v} is not on npm after 4 hours: publish the core's release, then run this again"
           exit 1
 
       - uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/amxts
-          ref: ${{ inputs.tag }}
+          ref: ${{ steps.core.outputs.tag }}
           path: amxts
       - uses: ./amxts/.github/actions/setup
       - uses: actions/checkout@v4
