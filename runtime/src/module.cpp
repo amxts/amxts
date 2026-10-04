@@ -757,6 +757,25 @@ struct Frame {
 	}
 
 	/**
+	 * How many of a guessed `cells` lie in the plugin's memory from `ptr`:
+	 * a buffer whose length the declaration does not give is copied up to a
+	 * guess, which can reach past the end of the memory when the buffer sits
+	 * there - get_players' 33 cells against 128. The thunk copies that many
+	 * in and the same number back; -1 when `ptr` is not in the memory.
+	 * validate_app_addr is not asked: refusing, it also leaves the instance
+	 * an "out of bounds memory access", which fails the plugin's call as
+	 * soon as the native returns.
+	 */
+	int32_t fits(int32_t ptr, int32_t cells)
+	{
+		uint64_t start = 0, end = 0;
+		if (ptr <= 0 || !wasm_runtime_get_app_addr_range(inst, (uint64_t)ptr, &start, &end))
+			return -1;
+		uint64_t room = (end - (uint64_t)ptr) / 4;
+		return room < (uint64_t)cells ? (int32_t)room : cells;
+	}
+
+	/**
 	 * Same, for a string: one character per cell, terminated by a zero one,
 	 * which is what a Pawn string is. The plugin does not pass a length
 	 * because a `...` tail carries none, so the scan stops at the terminator,
