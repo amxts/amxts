@@ -30,11 +30,13 @@ import type { Kind } from './upgrade-names';
 // with its title (scripts/upgrade-menus.ts). What is rewritten no longer
 // matches, so a second run changes nothing.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { MESSAGE_NAMES } from './client-messages';
 import { CORE_ENTRIES, CORE_PLUGINS, loadProject } from './project';
+import { serverFiles } from './server-files';
+import { serverFolder } from './system';
 import { c, log } from './ui';
 import { upgradeMenus } from './upgrade-menus';
 import { COMMON, EVENTS, FLAG_NAMES, GAME_EVENT_FIELDS, HIDDEN, HIDDEN_EVENTS, JOIN_OPTIONS, RENAMED, SERVER_EVENT_CLASSES, SERVER_EVENT_FIELDS, SERVER_EVENTS, SERVER_EVENTS_BY_HAND, SERVER_FIELD_CLASSES, SERVER_GAME_EVENTS } from './upgrade-names';
@@ -774,13 +776,37 @@ export function upgradeFlags(file: string, text: string): { text: string; change
 /** Folders that are not the project's code: what is installed, built or generated. */
 const SKIP = new Set(['node_modules', 'dist', '.amxts', '.git']);
 
+/** A server's addons/amxts: the module's files, written over on every start. */
+const SERVER_FOLDER = /[\\/]addons[\\/]amxts$/i;
+
 /** The project's TypeScript files: its plugins, its tests and fixtures, a module's sources. */
 function codeFiles(dir: string, skip: Set<string>): string[] {
 	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
 		const path = join(dir, entry.name);
-		if (entry.isDirectory()) return SKIP.has(entry.name) || skip.has(path) || entry.name.startsWith('.') ? [] : codeFiles(path, skip);
+		if (entry.isDirectory()) return SKIP.has(entry.name) || skip.has(path) || entry.name.startsWith('.') || SERVER_FOLDER.test(path) ? [] : codeFiles(path, skip);
 		return /\.(?:ts|mts|cts)$/.test(entry.name) ? [path] : [];
 	});
+}
+
+/** The server's addons/amxts that AMXTS_SERVER names, or '' when it names none. */
+function serverDir(): string {
+	try {
+		const dir = serverFolder(process.env.AMXTS_SERVER ?? '');
+		return dir && resolve(dir);
+	} catch {
+		return '';
+	}
+}
+
+/**
+ * The project's code to upgrade. The module's own files - the API a server
+ * writes beside its plugins, at the core's version it runs - are not, in the
+ * server's folder or a copy of one; a file of that name in the plugins
+ * folder is the author's.
+ */
+function projectFiles(dir: string, pluginsDir: string, outDir: string): string[] {
+	const theirs = new Set(serverFiles().filter(file => !file.keep).map(file => basename(file.path)));
+	return codeFiles(dir, new Set([outDir, serverDir()])).filter(file => !theirs.has(basename(file)) || dirname(file) === pluginsDir);
 }
 
 /** Rewrites the project in `dir`: every change, in the order of the files, and what is left to do by hand. `write: false` only lists them. */
@@ -790,7 +816,7 @@ export function upgradeProject(dir: string, { write = true } = {}): { changes: C
 	const renames = renamesFor(project.modules, place => ownFolder && existsSync(join(project.pluginsDir, place)));
 	const changes: Change[] = [];
 	const left: Left[] = [];
-	for (const file of codeFiles(project.dir, new Set([project.outDir]))) {
+	for (const file of projectFiles(project.dir, resolve(project.pluginsDir), project.outDir)) {
 		const text = readFileSync(file, 'utf8');
 		const name = relative(project.dir, file).replace(/\\/g, '/');
 		const http = dropHttpImports(name, text);

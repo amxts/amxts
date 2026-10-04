@@ -110,6 +110,40 @@ test('a project is rewritten in place - plugins, tests, a local module - and a s
 	expect(upgradeProject(dir)).toEqual({ changes: [], left: [] });
 });
 
+test('a project in the server\'s folder: the module\'s own files there are not the project\'s code', () => {
+	const dir = join(tmpdir(), 'amxts-upgrade-server');
+	rmSync(dir, { recursive: true, force: true });
+	made.push(dir);
+	const old = 'import { user_slap } from "~/natives";\nexport class ClientInfochangedEvent {}\n';
+	const files: Record<string, string> = {
+		'package.json': '{ "name": "myserver", "private": true }\n',
+		'amxts.config.ts': 'export default defineConfig({ modules: [] });\n',
+		'plugins/myplugin.ts': 'import { user_slap } from "~/natives";\n',
+		// The module's files on the server, under addons/amxts.
+		'cstrike/addons/amxts/plugins/events.ts': old,
+		'cstrike/addons/amxts/plugins/hlds.ts': old,
+		'cstrike/addons/amxts/plugins/imports.d.ts': old,
+		'cstrike/addons/amxts/plugins/hello.ts': old,
+		// The folder AMXTS_SERVER names, by another name.
+		'test-server/amxts/plugins/hello.ts': old,
+		// A copy of the module's files, anywhere.
+		'backup/plugins/events.ts': old,
+	};
+	for (const [path, text] of Object.entries(files)) {
+		mkdirSync(dirname(join(dir, path)), { recursive: true });
+		writeFileSync(join(dir, path), text);
+	}
+	const server = process.env.AMXTS_SERVER;
+	process.env.AMXTS_SERVER = join(dir, 'test-server/amxts');
+	try {
+		expect(upgradeProject(dir).changes.map(change => change.file)).toEqual(['plugins/myplugin.ts']);
+	} finally {
+		if (server === undefined) delete process.env.AMXTS_SERVER;
+		else process.env.AMXTS_SERVER = server;
+	}
+	for (const path of Object.keys(files).filter(path => path !== 'plugins/myplugin.ts')) expect(readFileSync(join(dir, path), 'utf8')).toBe(files[path]);
+});
+
 test('a menu\'s function is rewritten before the names in its body: the player it took is a Player', () => {
 	const dir = join(tmpdir(), 'amxts-upgrade-menu-names');
 	rmSync(dir, { recursive: true, force: true });
