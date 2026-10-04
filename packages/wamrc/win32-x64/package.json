@@ -1,6 +1,6 @@
 {
 	"name": "@amxts/wamrc-win32-x64",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "wamrc, WAMR's ahead-of-time compiler with the amxts patch, for Windows x64: @amxts/core compiles plugins with it",
 	"license": "Apache-2.0 WITH LLVM-exception",
 	"homepage": "https://amxts.github.io",
