@@ -28,8 +28,9 @@ const includesDir = './includes';
 const MAX_PARAMS = 31;
 
 // How many cells to copy for an array whose size the declaration does not give
-// and that has no length parameter beside it. Bounded by the plugin's own
-// memory either way — see Frame::in in runtime/src/module.cpp.
+// and that has no length parameter beside it - at most: a buffer at the end of
+// the plugin's memory is copied as far as the memory goes (Frame::fits in
+// runtime/src/module.cpp).
 const DEFAULT_CELLS = 128;
 
 // AssemblyScript keeps these for itself. A native named like one gets an
@@ -149,7 +150,7 @@ function isLength(p: Parameter | undefined): boolean {
  * A literal size in the declaration is the truth. Otherwise AMX Mod X's own
  * convention holds: the parameter after the array is its length, and the
  * plugin passes it, so the thunk reads it at runtime — `A(n)` below is that
- * argument. `&x` is one cell.
+ * argument. `&x` is one cell. Else it is a guess, DEFAULT_CELLS at most.
  */
 function cellCount(native: NativeFunction, index: number): string {
 	const p = native.params[index];
@@ -158,7 +159,8 @@ function cellCount(native: NativeFunction, index: number): string {
 
 	if (isLength(native.params[index + 1])) return `a${index + 1}`;
 
-	return String(DEFAULT_CELLS);
+	// A guess: the thunk counts it once, `n<index>`, for the copy in and the copy back.
+	return `n${index}`;
 }
 
 function asName(name: string): string {
@@ -1049,6 +1051,7 @@ const thunks = chosen.map((n) => {
 		if (isBuffer(p) && !counts[i]) {
 			body.push(`\tp[${i + 1}] = f.inString(a${i});`);
 		} else if (counts[i]) {
+			if (counts[i] === `n${i}`) body.push(`\tint32_t n${i} = f.fits(a${i}, ${DEFAULT_CELLS});`);
 			// A buffer that does not cross is never handed to the native as
 			// address 0, the host's data: see Frame::in.
 			body.push(`\tp[${i + 1}] = f.in(a${i}, ${counts[i]});`, `\tif (!p[${i + 1}])\n\t\treturn 0;`);

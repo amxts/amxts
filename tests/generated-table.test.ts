@@ -90,4 +90,16 @@ describe('the generated native table', () => {
 			expect(signature).toBe(`(${'i'.repeat(arities.get(name) ?? -1)})i`);
 		}
 	});
+
+	test('copies a buffer of a guessed size as far as the plugin\'s memory goes, the same both ways', () => {
+		// get_players(players[MAX_PLAYERS], ...): the size is a name, so a guess.
+		// Asked for a whole 128 cells from a buffer at the end of the memory, the
+		// module would refuse them and fail the plugin's call with "out of bounds
+		// memory access"; it counts what fits once and copies that both ways.
+		const getPlayers = thunks.slice(thunks.indexOf('static int32_t w_get_players('));
+		const body = getPlayers.slice(0, getPlayers.indexOf('\n}'));
+		expect(body).toContain('int32_t n0 = f.fits(a0, 128);');
+		expect(body).toContain('p[1] = f.in(a0, n0);');
+		expect(body).toContain('f.out(a0, n0, p[1]);');
+	});
 });
