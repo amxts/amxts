@@ -137,11 +137,14 @@ in `dist-release/` (`bun run release:linux --no-upload --dry-run`, and
 `release:windows`'s), and CI runs it on a tag before the release.
 `bun run publish:local` publishes them to a local registry on
 `http://localhost:4873/` and leaves it running (`--reset` empties it,
-`--stop` stops it); `--as 0.2.0` stages them all as that version, the
-checkouts unchanged and the earlier releases copied from npm beside them,
-to try `amxts upgrade` before a release. A server runs
-their plugins with a module built as that version:
-`AMXTS_AS_VERSION=0.2.0 bun run generate`, then the module.
+`--stop` stops it). Each package goes out as its own version - the core and
+`wamrc` share one, the command, `create-amxts` and each official module have
+theirs - with its links to the others as `^<their version>`. `--as 0.3.0`
+stages the core and `wamrc` as that version (and the command too, when its
+`CORE_RANGE` does not take it), the checkouts unchanged and the earlier
+releases copied from npm beside them, to try `amxts upgrade` before a
+release. A server runs the modules' plugins with a module built as that
+version: `AMXTS_AS_VERSION=0.3.0 bun run generate`, then the module.
 
 The suites run with `--smol`; a full run takes about 1.2 GB of memory, and
 under 2 GB when it compiles everything, from an empty compile cache (CI);
@@ -183,7 +186,8 @@ public element gets an entry in both.
 `0.N.x` (the latest is what [amxts.github.io](https://amxts.github.io/docs)
 shows; `main` is at `/docs/next`). A fix the released version needs too -
 in the code or the docs - goes into the latest `0.N.x`, which is then merged
-into `main`; everything else goes into `main`.
+into `main`; everything else goes into `main`. The command and each official
+module have versions of their own, so their lines are their own versions'.
 
 ## Commits
 
