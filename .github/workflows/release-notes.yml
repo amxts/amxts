@@ -4,6 +4,11 @@
 # (scripts/release-line.ts): called on a tag by the publish.yml of
 # amxts-cli, the official modules and amxts-vscode. The core's own release is made by CI, with its files
 # (scripts/release.ts).
+#
+# Called from another repository, it first waits for the core's GitHub Release
+# of its newest tag v<version> to be published, so a module or the command is
+# never out on GitHub before the core it is released with: all the tags of a
+# release can be pushed at once, the core's first.
 name: Release notes
 
 on:
@@ -17,10 +22,27 @@ on:
 jobs:
   release:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 200
     permissions:
       contents: write
     steps:
+      - name: The core's release first
+        if: github.repository != format('{0}/amxts', github.repository_owner)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CORE: ${{ github.repository_owner }}/amxts
+        run: |
+          core=$(git ls-remote --tags --refs "https://github.com/$CORE" 'v*' | sed -E 's#.*refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          if [ -z "$core" ]; then
+            echo "::error::$CORE has no release tag"
+            exit 1
+          fi
+          for attempt in $(seq 180); do
+            [ "$(gh release view "$core" --repo "$CORE" --json isDraft --jq .isDraft 2>/dev/null)" = "false" ] && exit 0
+            sleep 60
+          done
+          echo "::error::$CORE's release $core is not published after 3 hours: publish it, then run this again"
+          exit 1
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag }}
