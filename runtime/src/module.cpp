@@ -612,8 +612,11 @@ static wasm_module_inst_t Inst(wasm_exec_env_t env)
 struct Args {
 	cell p[32];
 
-	// Only the count and the arguments are cleared: a native reads no
-	// further, and clearing all 32 cells was a measurable part of a call.
+	// Only the count and the arguments are cleared: clearing all 32 cells was
+	// a measurable part of a call. So every call passes every parameter its
+	// native declares, the defaults too: AMX Mod X's natives read some of
+	// theirs without looking at the count - register_srvcmd its info[],
+	// set_task its repeat - and would read what an earlier call left here.
 	Args(int argc)
 	{
 		memset(p, 0, (argc + 1) * sizeof(cell));
@@ -1561,11 +1564,14 @@ static void RegisterClientCommand(const char *pattern, int slot, int flags, cons
 	snprintf(pub, sizeof(pub), "__amxts_cb%d", slot);
 
 	cell mark = g_host->hea;
-	Args params(4);
+	// register_clcmd(client_cmd[], function[], flags, info[], FlagManager, bool:info_ml)
+	Args params(6);
 	params[1] = PushString(pattern);
 	params[2] = PushString(pub);
 	params[3] = flags;
 	params[4] = PushString(info);
+	params[5] = -1;
+	params[6] = 0;
 
 	CallNative("register_clcmd", params);
 	g_host->hea = mark;
@@ -2026,13 +2032,14 @@ static int32_t w_task(wasm_exec_env_t env, int32_t secondsBits, int32_t fn, int3
 
 	// set_task(Float:time, const function[], id, const parameter[], len,
 	// const flags[], repeat) - "b" is the flag for "keep firing".
-	Args params(6);
+	Args params(7);
 	params[1] = (cell)secondsBits;
 	params[2] = PushString(pub);
 	params[3] = id;
 	params[4] = PushString("");
 	params[5] = 0;
 	params[6] = PushString(repeat ? "b" : "");
+	params[7] = 0;
 
 	CallNative("set_task", params);
 	g_host->hea = mark;
@@ -2232,11 +2239,13 @@ static int32_t w_ham(wasm_exec_env_t env, int32_t id, int32_t entityClass, int32
 	snprintf(pub, sizeof(pub), "__amxts_cb%d", slot);
 
 	cell mark = g_host->hea;
-	Args params(4);
+	// RegisterHam(Ham:function, EntityClass[], Callback[], Post, bool:specialbot)
+	Args params(5);
 	params[1] = id;
 	params[2] = PushString(AsString(Inst(env), entityClass).c_str());
 	params[3] = PushString(pub);
 	params[4] = post;
+	params[5] = 0;
 
 	cell handle = CallNative("RegisterHam", params);
 	g_host->hea = mark;
@@ -4153,11 +4162,15 @@ static void RegisterServerCommand(const char *command, int owner, const char *in
 	char pub[32];
 	snprintf(pub, sizeof(pub), "__amxts_cb%d", slot);
 
+	// register_srvcmd(server_cmd[], function[], flags, info[], bool:info_ml):
+	// ADMIN_ALL, so it is listed with its info.
 	cell mark = g_host->hea;
-	Args params(3);
+	Args params(5);
 	params[1] = PushString(command);
 	params[2] = PushString(pub);
-	params[3] = PushString(info);
+	params[3] = 0;
+	params[4] = PushString(info);
+	params[5] = 0;
 
 	CallNative("register_srvcmd", params);
 	g_host->hea = mark;
