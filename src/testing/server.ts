@@ -826,11 +826,17 @@ export class FakeServer {
 		return plugin;
 	}
 
-	/** plugin_precache, plugin_init and plugin_cfg, as a map start sends them. */
+	/**
+	 * What a map start sends, in AMX Mod X's order: plugin_precache,
+	 * plugin_init, plugin_cfg, then OnAutoConfigsBuffered and
+	 * OnConfigsExecuted, once the server has run its configs.
+	 */
 	start(): void {
 		this.fire('plugin_precache');
 		this.fire('plugin_init');
 		this.fire('plugin_cfg');
+		this.fire('OnAutoConfigsBuffered');
+		this.fire('OnConfigsExecuted');
 	}
 
 	// ------------------------------------------------------------ what a test reads

@@ -1,6 +1,7 @@
-// A fixture for tests/fake-server.test.ts: a console command, a server
-// command, a cvar with a change listener, an exported native, a search in a
-// sphere, and one native the fake server does not answer.
+// A fixture for tests/fake-server.test.ts: the map's start, a console
+// command, a server command, a cvar with a change listener, an exported
+// native, a search in a sphere, and one native the fake server does not
+// answer.
 import { nativeFn, ret } from "@amxts/core";
 import { get_user_time } from "@amxts/core/natives";
 
@@ -8,6 +9,8 @@ const step = new Cvar("counter_step", "1");
 let total = 0;
 
 step.addEventListener("change", event => console.log(`step ${event.oldValue} -> ${event.value}`));
+server.addEventListener("pluginsLoaded", () => console.log("plugins loaded"));
+server.addEventListener("configsExecuted", () => console.log(`configs executed, step ${step.number}`));
 
 server.addCommand<AddArgs>("counter_add [times]", ({ player, times }) => add(player, times ?? 1), { description: "Adds the step to the counter" });
 server.addCommand("counter_time", ({ player }) => playedTime(player));

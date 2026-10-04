@@ -27,7 +27,7 @@ export interface SetupOptions extends ServerOptions {
 	 * `["welcome"]` - in this order; all of them when left out, none for `[]`.
 	 */
 	plugins?: string[];
-	/** Starts the map - plugin_init, then plugin_cfg - once everything is loaded. True when left out. */
+	/** Starts the map - plugin_init, plugin_cfg, then OnConfigsExecuted - once everything is loaded. True when left out. */
 	start?: boolean;
 }
 

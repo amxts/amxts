@@ -26,7 +26,8 @@ export { constant } from './tables';
 
 /**
  * Compiles a plugin (once per test run), loads it into a new fake server and
- * starts the map: its top level runs, then plugin_init and plugin_cfg.
+ * starts the map: its top level runs, then plugin_init, plugin_cfg and
+ * OnConfigsExecuted.
  *
  * Several plugins go into one server as an array - they hear each other's
  * forwards and natives, as on a real one.

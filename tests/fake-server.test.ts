@@ -13,6 +13,12 @@ setDefaultTimeout(60_000);
 
 const COUNTER = 'tests/as/counter.ts';
 
+test('the map starts as on a real server: the plugins are loaded, then the configs run', async () => {
+	const server = await loadPlugin(COUNTER, { cvars: { counter_step: '3' } });
+
+	expect(server.log).toContain('plugins loaded\nconfigs executed, step 3');
+});
+
 test('a cvar is made with its default, and its listener hears a change', async () => {
 	const server = await loadPlugin(COUNTER);
 	expect(server.cvar('counter_step')).toBe('1');
