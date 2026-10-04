@@ -17,8 +17,8 @@
 // reads both manifests back from the release and refuses while a system is
 // missing, a file is not attached or differs in size, or the versions, tags
 // or commits disagree (scripts/release-check.ts); then it takes the draft off
-// and, for a new minor version, cuts its release line's branch 0.N.x at the
-// tag (scripts/release-line.ts).
+// and cuts its release line's branch 0.N.x at a new minor version's tag, or
+// brings it up to a patch's (scripts/release-line.ts).
 //
 // The tag is --tag, else GITHUB_REF_NAME in CI, else the tag at HEAD, and must
 // be v<package.json's version>. The repository is AMXTS_RELEASE_REPO, else
@@ -40,7 +40,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { releaseNotes } from './changelog';
 import { manifestName, releaseProblems } from './release-check';
-import { cutLine } from './release-line';
+import { releaseLine } from './release-line';
 import { HOST_SYSTEM, modulePath, serverFiles, SYSTEM_NAME, wamrcPath } from './system';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -319,9 +319,9 @@ function publish(tag: string): void {
 		gh(['release', 'edit', tag, '--repo', REPO, '--draft=false']);
 		if (!dryRun) console.log(`✅ ${tag} published`);
 	}
-	// A new minor version starts its release line: 0.N.x at the tag.
+	// Its release line: 0.N.x cut at a new minor version, brought up to a patch.
 	try {
-		console.log(`  ${cutLine(tag, REPO, dryRun)}`);
+		console.log(`  ${releaseLine(tag, REPO, dryRun)}`);
 	} catch (error) {
 		throw new ReleaseError((error as Error).message);
 	}

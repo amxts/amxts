@@ -1,8 +1,8 @@
 # A repository's GitHub Release of a tag, with the version's section of its
-# CHANGELOG.md as the notes (`bun run changelog release`), and for a new minor
-# version its release line, the branch 0.N.x (scripts/release-line.ts): called
-# on a tag by the publish.yml of amxts-cli, the official modules and
-# amxts-vscode. The core's own release is made by CI, with its files
+# CHANGELOG.md as the notes (`bun run changelog release`), and its release
+# line, the branch 0.N.x - cut at a new minor version, brought up to a patch
+# (scripts/release-line.ts): called on a tag by the publish.yml of
+# amxts-cli, the official modules and amxts-vscode. The core's own release is made by CI, with its files
 # (scripts/release.ts).
 name: Release notes
 
@@ -38,8 +38,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
         run: bun amxts/scripts/changelog.ts release "$TAG" --dir repo
-      # A new minor version starts its release line: 0.N.x at the tag, which
-      # takes the fixes for that version and whose README the site shows.
+      # Its release line, 0.N.x, which takes the fixes for that version and
+      # whose README the site shows: cut at a new minor version's tag, brought
+      # up to a patch's.
       - name: The release line
         env:
           GH_TOKEN: ${{ github.token }}
