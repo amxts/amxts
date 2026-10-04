@@ -1,0 +1,23 @@
+name: Feature request
+description: Something amxts could do, or do better
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you want to do
+      description: The plugin you are writing and what gets in the way - the need, before any solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: How it could look
+      description: The code you would like to write, in a ```ts block.
+
+  - type: textarea
+    id: now
+    attributes:
+      label: What you do today
+      description: A workaround, a Pawn native, or another plugin you use for it.

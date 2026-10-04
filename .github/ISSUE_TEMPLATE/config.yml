@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://amxts.github.io/docs
+    about: How to write a plugin, install amxts and use its API.
+  - name: hlds.run
+    url: https://hlds.run/resources/441/
+    about: Questions and discussion, in Russian.

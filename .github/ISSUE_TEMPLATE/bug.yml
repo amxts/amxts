@@ -1,0 +1,92 @@
+name: Bug report
+description: Something does not work - a crash, an error, a wrong result
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The more of this you fill in, the faster it is found.
+        You may write in English or Russian.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to repeat it
+      description: The smallest plugin or steps that show it. Plugin code goes in a ```ts block.
+      placeholder: |
+        1. Put this plugin on the server...
+        2. Join and type /shop...
+        3. ...
+
+  - type: input
+    id: version
+    attributes:
+      label: amxts version
+      description: "`npx amxts info` in the project prints it, or the version in the server's console when the module starts."
+      placeholder: "0.2.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: system
+    attributes:
+      label: Server system
+      options:
+        - Windows
+        - Linux
+        - Docker (ghcr.io/amxts/server)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engine
+      options:
+        - ReHLDS
+        - Valve's HLDS
+    validations:
+      required: true
+
+  - type: input
+    id: stack
+    attributes:
+      label: Metamod, AMX Mod X, ReGameDLL, ReAPI
+      description: Their versions - `meta list` and `amxx version` in the server's console.
+      placeholder: "Metamod-R 1.3.0.149, AMX Mod X 1.10.0.5467, ReGameDLL 5.28, ReAPI 5.26"
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How amxts got on the server
+      options:
+        - amxts upgrade
+        - The server kit from a GitHub Release
+        - Built from source
+        - Other
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Server console
+      description: |
+        The lines around the problem. Start the server with `-condebug` and it writes everything to `cstrike/qconsole.log`.
+        AMX Mod X's logs are in `addons/amxmodx/logs/`.
+      render: text
+
+  - type: textarea
+    id: crash
+    attributes:
+      label: If the server crashes
+      description: |
+        Windows: Event Viewer -> Windows Logs -> Application -> the "Application Error" of hlds.exe - its "Faulting module name" and "Fault offset".
+        Linux: the last lines of the console, and a core dump's backtrace if you have one.
+      render: text
