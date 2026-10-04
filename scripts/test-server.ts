@@ -5,6 +5,7 @@
 //   bun run test:server --stop     stop a server left by --keep and clean up
 //   bun run test:server --linux    the same suites on a Linux server, in Docker
 //   bun run test:server --plain    the same on Linux without ReHLDS, ReGameDLL, ReAPI
+//   bun run test:server --linux --amxx 1.9.0-git5303   on another AMX Mod X build
 //   bun run test:server --quick    the suites compiled as `amxts dev` compiles them
 //   bun run test:server --only cvar,player   only these suites
 //
@@ -69,6 +70,9 @@
 // test's folder and the module are copied into the container before it
 // starts, its console is `docker logs`, and it is
 // removed at the end. AMXTS_SERVER is not needed; the map is de_dust2.
+// --amxx <build> runs it on another AMX Mod X: the image amxts-hlds:<build>,
+// built from docker/hlds with that build's packages - one listed, with their
+// sha256, in docker/hlds/amxmodx.sha256.
 // --plain is --linux on the amxts-hlds-plain image (docker/hlds-plain):
 // Valve's HLDS with metamod-p and AMX Mod X's stock modules, no reapi. Its
 // container, its build folder and its port (27017) are its own, so it runs
@@ -97,10 +101,26 @@ const linux = plain || args.includes('--linux');
 const quick = args.includes('--quick');
 const portArg = args.indexOf('--port');
 const onlyArg = args.indexOf('--only');
+const amxxArg = args.indexOf('--amxx');
+/** The AMX Mod X build --amxx names; none for the image's own. */
+const AMXX = amxxArg >= 0 ? args[amxxArg + 1] ?? '' : '';
 /** The suites --only names; none for every suite. */
 const ONLY = onlyArg >= 0 ? (args[onlyArg + 1] ?? '').split(',').map(name => name.trim()).filter(Boolean) : [];
 const PORT = Number(portArg >= 0 ? args[portArg + 1] : process.env.AMXTS_TEST_PORT ?? (plain ? 27017 : 27016));
 const MAP = process.env.AMXTS_TEST_MAP ?? (linux ? 'de_dust2' : 'c21_kitty');
+
+// The builds docker/hlds can take: amxmodx-<build>-base-linux.tar.gz in its
+// list of sha256.
+if (amxxArg >= 0) {
+	const builds = [...readFileSync(join(CORE_DIR, 'docker/hlds/amxmodx.sha256'), 'utf-8').matchAll(/amxmodx-(\S+)-base-linux\.tar\.gz$/gm)].map(m => m[1]);
+	const problem = !linux || plain
+		? '--amxx picks the AMX Mod X of the --linux server'
+		: builds.includes(AMXX) ? '' : `--amxx: ${AMXX || 'no build'} is not in docker/hlds/amxmodx.sha256 (${builds.join(', ')})`;
+	if (problem) {
+		fail(problem);
+		process.exit(1);
+	}
+}
 
 // The server's addons/amxts, or a folder above it (src/system.mjs).
 let amxtsDir = '';
@@ -237,7 +257,7 @@ interface SuiteResult {
 
 // The Linux server: one container, named after its port.
 const IMAGE_DIR = plain ? 'docker/hlds-plain' : 'docker/hlds';
-const IMAGE = process.env.AMXTS_TEST_IMAGE ?? (plain ? 'amxts-hlds-plain' : 'amxts-hlds');
+const IMAGE = process.env.AMXTS_TEST_IMAGE ?? (plain ? 'amxts-hlds-plain' : AMXX ? `amxts-hlds:${AMXX}` : 'amxts-hlds');
 const CONTAINER = `amxts-test-${plain ? 'plain-' : ''}${PORT}`;
 const CONTAINER_GAME = '/hlds/cstrike';
 
@@ -257,13 +277,14 @@ function containerRunning(): boolean {
  * The image from docker/hlds (docker/hlds-plain): SteamCMD and the releases,
  * a few minutes the first time, the cache's answer after that - so a changed
  * Dockerfile is built again. An image named by AMXTS_TEST_IMAGE is taken as
- * it is.
+ * it is. --amxx builds it with that AMX Mod X.
  */
 function ensureImage(): void {
 	const present = docker(['image', 'inspect', IMAGE]).status === 0;
 	if (present && process.env.AMXTS_TEST_IMAGE) return;
 	if (!present) console.log(`building the ${IMAGE} image (${IMAGE_DIR}) - a few minutes, once`);
-	const built = spawnSync('docker', ['build', '--load', '--quiet', '-t', IMAGE, join(CORE_DIR, IMAGE_DIR)], { stdio: ['ignore', 'ignore', 'inherit'] });
+	const amxx = AMXX ? ['--build-arg', `AMXX=${AMXX}`] : [];
+	const built = spawnSync('docker', ['build', '--load', '--quiet', ...amxx, '-t', IMAGE, join(CORE_DIR, IMAGE_DIR)], { stdio: ['ignore', 'ignore', 'inherit'] });
 	if (built.status !== 0) throw new Error(`docker build of ${IMAGE} failed`);
 }
 

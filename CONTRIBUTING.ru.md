@@ -124,10 +124,16 @@ bun run test:fast      # the quick ones: the style test, the generators, the inc
 bun run test:server    # the server suites, on a test server of the AMXTS_SERVER install
 bun run test:server --linux   # the same suites on a Linux server, in Docker
 bun run test:server --plain   # the same on Linux without ReHLDS, ReGameDLL, ReAPI
+bun run test:server --linux --amxx 1.9.0-git5303   # the same on another AMX Mod X build
 bun run test:server --quick   # the same suites compiled as `amxts dev` compiles them
 bun run test:server --only cvar,player   # only these suites, beside what every run loads
 bun run test:release          # пакеты npm от начала до конца: локальный реестр, npx create-amxts, сервер в Docker
 ```
+
+`--amxx <build>` запускает сервер под Linux на другой сборке AMX Mod X —
+любой, чьи пакеты с sha256 есть в `docker/hlds/amxmodx.sha256`. CI гоняет
+серверные наборы на трёх: своей сборке образа (1.10.0-git5474),
+1.9.0-git5303 и 1.10.0-git5486.
 
 `bun run test:release` публикует девять пакетов в свой локальный реестр,
 создаёт проект через `npx create-amxts`, собирает и тестирует его и
