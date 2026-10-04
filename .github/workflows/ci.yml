@@ -2,18 +2,18 @@
 #
 # On every push and pull request, side by side: the type check and lint; the
 # test suite in three parts; and the Linux module and wamrc built in Docker,
-# then the server suites on a Linux test server in Docker (bun run
-# test:server --linux). On a tag v*, the Windows files are built too, on a
-# Windows runner (bun run release:windows), then the nine npm packages are
-# tried end to end with both systems' files (bun run test:release: a local
-# registry, npx create-amxts, typecheck, build, test, the server image in
-# Docker); once everything passes, both systems' files go to the tag's draft
-# release (created with the version's section of CHANGELOG.md as its notes),
-# and the Publish workflow is started: the draft taken off, the server image;
-# the npm packages are published by hand after it (bun run publish:npm). Run
-# by hand (workflow_dispatch), it builds the Windows files as a dry run and
-# tries the packages - a release's rehearsal - and keeps the Windows files as
-# an artifact.
+# then the server suites on a Linux test server in Docker (bun run test:server
+# --linux), on three AMX Mod X builds. On a tag v*, the Windows files are
+# built too, on a Windows runner (bun run release:windows), then the nine npm
+# packages are tried end to end with both systems' files (bun run
+# test:release: a local registry, npx create-amxts, typecheck, build, test,
+# the server image in Docker); once everything passes, both systems' files go
+# to the tag's draft release (created with the version's section of
+# CHANGELOG.md as its notes), and the Publish workflow is started: the draft
+# taken off, the server image; the npm packages are published by hand after it
+# (bun run publish:npm). Run by hand (workflow_dispatch), it builds the
+# Windows files as a dry run and tries the packages - a release's rehearsal -
+# and keeps the Windows files as an artifact.
 #
 # Every job checks the core out as `amxts` and runs .github/actions/setup,
 # which puts the command and the official modules beside it. What does not
@@ -80,9 +80,23 @@ jobs:
         working-directory: amxts
         run: bun run test:part ${{ matrix.part }} 3
 
+  # The server suites run on three AMX Mod X builds, one job each: the test
+  # server image's own, and with --amxx the last of 1.9 - the oldest the docs
+  # promise - and the newest of 1.10. A mistake one build lives through can
+  # crash another. The Linux files come from the image's own job.
   linux:
+    name: ${{ matrix.amxx && format('linux (AMX Mod X {0})', matrix.amxx) || 'linux' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        amxx: ["", 1.9.0-git5303, 1.10.0-git5486]
+    env:
+      AMXX: ${{ matrix.amxx }}
+      # The test server image's tag, and the cache of its layers.
+      HLDS: amxts-hlds${{ matrix.amxx && format(':{0}', matrix.amxx) || '' }}
+      HLDS_SCOPE: amxts-hlds${{ matrix.amxx && format('-{0}', matrix.amxx) || '' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -98,14 +112,19 @@ jobs:
           load: true
           cache-from: type=gha,scope=amxts-build
           cache-to: type=gha,mode=max,scope=amxts-build
+      # Every build shares the layers under AMX Mod X: another build's image
+      # starts from the default one's cache.
       - name: The Linux test server image
         uses: docker/build-push-action@v7
         with:
           context: amxts/docker/hlds
-          tags: amxts-hlds
+          tags: ${{ env.HLDS }}
+          build-args: ${{ matrix.amxx && format('AMXX={0}', matrix.amxx) || '' }}
           load: true
-          cache-from: type=gha,scope=amxts-hlds
-          cache-to: type=gha,mode=max,scope=amxts-hlds
+          cache-from: |
+            type=gha,scope=amxts-hlds
+            type=gha,scope=${{ env.HLDS_SCOPE }}
+          cache-to: type=gha,mode=max,scope=${{ env.HLDS_SCOPE }}
 
       # The build's work folder - the WAMR and AMX Mod X checkouts, wamrc and
       # the module's objects - is a folder here instead of a Docker volume,
@@ -128,19 +147,21 @@ jobs:
 
       - name: The server suites on Linux
         working-directory: amxts
-        run: bun run test:server --linux
+        run: bun run test:server --linux ${AMXX:+--amxx "$AMXX"}
       - name: The test server's console
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: test-server-linux
+          name: test-server-linux${{ matrix.amxx && format('-{0}', matrix.amxx) || '' }}
           path: amxts/dist-wasm/test-server-linux/last-run
           if-no-files-found: ignore
 
       - name: The Linux server kit
+        if: matrix.amxx == ''
         working-directory: amxts
         run: bun run serverkit --os linux
       - name: The Linux files
+        if: matrix.amxx == ''
         uses: actions/upload-artifact@v7
         with:
           name: amxts-linux
