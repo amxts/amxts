@@ -58,15 +58,10 @@
 //
 // Publishing to npm refuses a folder with uncommitted changes and a wamrc
 // built from one, skips a package npm has at its version already, and stops
-// at the first failure, saying what went out. npm asks for the one-time
-// password; --otp passes one.
-//
-// In GitHub Actions with `id-token: write` it publishes as npm's trusted
-// publisher of the workflow - no token, no npm login - with provenance, and
-// a checkout is the commit it was checked out at (the Publish workflow,
-// .github/workflows/npm.yml). npm takes a package only from the workflow its
-// trusted publisher names, in the repository its package.json names: each
-// repository publishes its own packages with --only.
+// at the first failure, saying what went out: run again, it finishes the
+// rest. It runs on a maintainer's machine, after the core's Publish workflow
+// has made the GitHub Release its wamrc comes from: npm login first; npm asks
+// for the one-time password, --otp passes one.
 //
 // The local registry is Verdaccio 6 from npm (installed into
 // dist-npm/verdaccio-tool/), started in the background with no window, on
@@ -100,8 +95,6 @@ const LOCAL_PORT = process.env.AMXTS_REGISTRY_PORT ?? '4873';
 const LOCAL_REGISTRY = `http://localhost:${LOCAL_PORT}/`;
 const REPO = process.env.AMXTS_RELEASE_REPO ?? 'amxts/amxts';
 const WINDOWS = process.platform === 'win32';
-/** A GitHub Actions job that may ask for an OIDC token: npm's trusted publishing. */
-const TRUSTED = Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
 
 /** The core checkout's version: wamrc's too. */
 const CORE_VERSION = String(readJson(join(CORE, 'package.json')).version);
@@ -741,11 +734,11 @@ async function main(args: string[]) {
 		packAll({ strict: false, wamrcFolder, skipGenerate });
 		console.log('\nA dry run: nothing was published. bun run publish:check tries these packages as a user would.');
 	} else if (command === 'npm') {
-		if (!TRUSTED && !run('npm', ['whoami'], { quiet: true, allowFail: true }).ok) throw new PublishError('npm has no user logged in: npm login, then run it again');
+		if (!run('npm', ['whoami'], { quiet: true, allowFail: true }).ok) throw new PublishError('npm has no user logged in: npm login, then run it again');
 		const wanted = onlyNames(option(args, '--only'));
 		const packs = packAll({ strict: true, wamrcFolder, skipGenerate }).filter(pack => !wanted || wanted.includes(pack.name));
 		const otp = option(args, '--otp');
-		publishAll(packs, NPM_REGISTRY, TRUSTED ? ['--provenance'] : otp ? ['--otp', otp] : []);
+		publishAll(packs, NPM_REGISTRY, otp ? ['--otp', otp] : []);
 	} else if (command === 'local' && args.includes('--stop')) {
 		console.log(stopRegistry() ? 'the local registry is stopped' : 'no local registry of this script is running');
 	} else if (command === 'local') {
