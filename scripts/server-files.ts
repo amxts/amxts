@@ -45,6 +45,8 @@ export function serverTsconfig(): string {
 			noLib: true,
 			allowJs: false,
 			strict: true,
+			// `catch (error)` reads `error.message`, as the compiler takes it.
+			useUnknownInCatchVariables: false,
 			noImplicitReturns: true,
 			experimentalDecorators: true,
 			typeRoots: ['./.assemblyscript/types'],
