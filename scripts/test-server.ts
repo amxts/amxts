@@ -920,11 +920,11 @@ async function main(): Promise<number> {
 		// The first thing to know: whether it is loading the test's plugins
 		// and nothing else. If not, it stops here before anything runs. The
 		// host plugin has no line in plugins.ini: the module loads it, once -
-		// the console says so when the host attaches (`amxx plugins` cuts a
-		// file name to 11 characters).
+		// the console says so when the host attaches (`amxx plugins` of AMX
+		// Mod X 1.10 cuts a file name to 11 characters; 1.9 lists it whole).
 		const listed = await rcon(password, 'amxx plugins') ?? '';
 		const running = [...listed.matchAll(/(\S+\.amxx)\s+running/g)].map(m => m[1]);
-		const expected = new Set(pawn.map(f => basename(f).replace(/\.sma$/, '.amxx')));
+		const expected = new Set(['amxts_host.amxx', ...pawn.map(f => basename(f).replace(/\.sma$/, '.amxx'))]);
 		const strangers = running.filter(file => !expected.has(file));
 		const lines = consoleLines();
 		const hosts = lines.filter(line => line.includes('[amxts] host native table')).length;
