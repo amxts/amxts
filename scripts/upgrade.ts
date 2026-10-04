@@ -35,8 +35,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { MESSAGE_NAMES } from './client-messages';
 import { CORE_ENTRIES, CORE_PLUGINS, loadProject } from './project';
-import { serverFiles } from './server-files';
-import { serverFolder } from './system';
+import { apiFiles, serverFolder } from './system';
 import { c, log } from './ui';
 import { upgradeMenus } from './upgrade-menus';
 import { COMMON, EVENTS, FLAG_NAMES, GAME_EVENT_FIELDS, HIDDEN, HIDDEN_EVENTS, JOIN_OPTIONS, RENAMED, SERVER_EVENT_CLASSES, SERVER_EVENT_FIELDS, SERVER_EVENTS, SERVER_EVENTS_BY_HAND, SERVER_FIELD_CLASSES, SERVER_GAME_EVENTS } from './upgrade-names';
@@ -805,7 +804,9 @@ function serverDir(): string {
  * folder is the author's.
  */
 function projectFiles(dir: string, pluginsDir: string, outDir: string): string[] {
-	const theirs = new Set(serverFiles().filter(file => !file.keep).map(file => basename(file.path)));
+	// The API at the top of as/, and the editor's globals: what the module
+	// writes beside the plugins (scripts/server-files.ts).
+	const theirs = new Set([...apiFiles(), 'imports.d.ts']);
 	return codeFiles(dir, new Set([outDir, serverDir()])).filter(file => !theirs.has(basename(file)) || dirname(file) === pluginsDir);
 }
 
