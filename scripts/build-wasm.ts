@@ -454,8 +454,12 @@ async function deployAndReload(built: string[], names: string): Promise<string> 
 		return `deployed ${names} - rcon ${reply === null ? 'got no answer' : 'refused the password'}, the module reloads them on its own`;
 	}
 
-	const lines = reply.split('\n').map(line => line.trimEnd()).filter(Boolean);
-	return [`deployed, the server reloaded ${names}`, ...lines.map(line => c.dim(`  ${line}`))].join('\n');
+	// The module's own "reloading x" and "loaded x" only repeat the line above;
+	// anything else it says - a refusal, an error - is shown.
+	const lines = reply.split('\n').map(line => line.trimEnd()).filter(line => line && !/^\[amxts\] (?:reloading|loaded) /.test(line));
+	const loaded = built.every(file => reply.includes(`[amxts] loaded ${file}`));
+	const head = loaded ? `deployed, the server reloaded ${names}` : `deployed ${names} - the server did not load it all:`;
+	return [head, ...lines.map(line => c.dim(`  ${line}`))].join('\n');
 }
 
 /**
