@@ -222,15 +222,6 @@ jobs:
         with:
           path: amxts
       - uses: ./amxts/.github/actions/setup
-      # The official modules the setup does not check out, which the packages carry too.
-      - uses: actions/checkout@v7
-        with:
-          repository: ${{ github.repository_owner }}/resemiclip
-          path: amxts-modules/resemiclip
-      - uses: actions/checkout@v7
-        with:
-          repository: ${{ github.repository_owner }}/ftp
-          path: amxts-modules/ftp
       - uses: actions/download-artifact@v8
         with:
           name: amxts-linux

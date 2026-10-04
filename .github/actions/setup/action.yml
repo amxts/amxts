@@ -1,6 +1,6 @@
 # What every job of CI needs before it starts: the command and the official
 # modules checked out beside the core (the folders the core's package.json and
-# theirs link to), Node and Bun, the dependencies, the patched AssemblyScript,
+# theirs link to, and the ones the packages carry), Node and Bun, the dependencies, the patched AssemblyScript,
 # AMX Mod X and the generated API. The core itself is checked out as `amxts`
 # by the job, which then runs this - on Linux, or on Windows for the Windows
 # half of a release.
@@ -10,39 +10,28 @@ description: The core's neighbours, toolchain, dependencies and generated API
 runs:
   using: composite
   steps:
-    # The neighbours of the core's release line: on a line's branch (0.N.x),
-    # a tag of it (v0.N.M) or a pull request into it, each neighbour at its
-    # own branch of that line when it has one; at its default branch
-    # otherwise - main, the next version, as the core's main.
-    - name: The neighbours' branches
-      id: line
+    # Each neighbour versions on its own, so its release line is not the
+    # core's by name (a module at 0.1.1 beside the core at 0.2.1). On a
+    # release line of the core - its branch 0.N.x, a patch's tag (v0.N.M,
+    # M > 0) or a pull request into 0.N.x - each neighbour is at its own
+    # highest 0.N.x: the code released with the core's line. Anywhere else -
+    # main, a pull request into it, a new minor's tag (v0.N.0, made on main)
+    # - at its default branch: main, the next version, as the core's main.
+    - name: The command and the official modules
       shell: bash
       env:
         OWNER: ${{ github.repository_owner }}
+        REF: ${{ github.base_ref || github.ref_name }}
       run: |
-        line=$(git -C amxts branch --show-current)
-        [ -n "$line" ] || line=$(git -C amxts describe --tags --exact-match 2>/dev/null | sed -nE 's/^v([0-9]+\.[0-9]+)\.[0-9]+$/\1.x/p')
-        [ -n "$line" ] || line=$GITHUB_BASE_REF
-        for repo in amxts-cli config-core menu-core; do
-          ref=
-          if [[ "$line" =~ ^[0-9]+\.[0-9]+\.x$ ]] && git ls-remote --exit-code --heads "https://github.com/$OWNER/$repo" "$line" >/dev/null; then ref=$line; fi
-          echo "$repo=$ref" >> "$GITHUB_OUTPUT"
+        line=
+        [[ "$REF" =~ ^([0-9]+\.[0-9]+\.x|v[0-9]+\.[0-9]+\.[1-9][0-9]*)$ ]] && line=1
+        for dir in amxts-cli amxts-modules/{config-core,menu-core,resemiclip,ftp}; do
+          url="https://github.com/$OWNER/${dir#amxts-modules/}"
+          branch=
+          [ -z "$line" ] || branch=$(git ls-remote --heads "$url" | grep -oE '[0-9]+\.[0-9]+\.x$' | sort -V | tail -n 1)
+          echo "$dir: ${branch:-the default branch}"
+          git clone -q --depth 1 ${branch:+--branch "$branch"} "$url" "$dir"
         done
-    - uses: actions/checkout@v7
-      with:
-        repository: ${{ github.repository_owner }}/amxts-cli
-        ref: ${{ steps.line.outputs.amxts-cli }}
-        path: amxts-cli
-    - uses: actions/checkout@v7
-      with:
-        repository: ${{ github.repository_owner }}/config-core
-        ref: ${{ steps.line.outputs.config-core }}
-        path: amxts-modules/config-core
-    - uses: actions/checkout@v7
-      with:
-        repository: ${{ github.repository_owner }}/menu-core
-        ref: ${{ steps.line.outputs.menu-core }}
-        path: amxts-modules/menu-core
 
     - uses: actions/setup-node@v7
       with:
