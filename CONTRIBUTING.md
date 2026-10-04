@@ -146,6 +146,11 @@ releases copied from npm beside them, to try `amxts upgrade` before a
 release. A server runs the modules' plugins with a module built as that
 version: `AMXTS_AS_VERSION=0.3.0 bun run generate`, then the module.
 
+A release's packages go to npm by hand, once the core's Publish workflow has
+made its GitHub Release (`wamrc` comes from it): a maintainer runs `npm
+login`, then `bun run publish:npm` - all nine, in order, skipping what npm
+has, so a run after a failure finishes it.
+
 The suites run with `--smol`; a full run takes about 1.2 GB of memory, and
 under 2 GB when it compiles everything, from an empty compile cache (CI);
 one file is `bun test --smol tests/<name>.test.ts`.
