@@ -37,7 +37,7 @@ const strings = (server: FakeServer, handle: number) => server.cellArrayStrings(
 describe('loading', () => {
 	test('a file and its section by name; ".ini" is added', async () => {
 		const { server, cfg } = await boot({ 'a.ini': '[S]\nK = v\n' });
-		expect(server.log).toContain('[ConfigCore] Plugin initialized (v0.1.0)');
+		expect(server.log).toContain('[ConfigCore] Plugin initialized (v0.1.1)');
 		expect(cfg('cfg_load_file', 'a')).toBe(0);
 		expect(cfg('cfg_load_file', 'a.ini')).toBe(1); // the same file again: a new handle
 		expect(cfg('cfg_get_section', 1, 'S')).toBe(1); // and new sections

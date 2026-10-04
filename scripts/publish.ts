@@ -184,9 +184,13 @@ function run(file: string, args: string[], options: { cwd?: string; quiet?: bool
 	return { ok: result.status === 0, stdout: result.stdout ?? '' };
 }
 
-/** `npm pack --json` in a folder: what it says of the one package - a list of it up to npm 11, an object by its name from npm 12. */
+/**
+ * `npm pack --json` in a folder: what it says of the one package - a list of it up to npm 11, an object by its name from npm 12.
+ * npm may run the folder's `prepare` all the same, whose lines come before the JSON.
+ */
 function npmPack(dir: string, args: string[]) {
-	const out = JSON.parse(run('npm', ['pack', '--json', '--ignore-scripts', ...args], { cwd: dir, quiet: true }).stdout);
+	const stdout = run('npm', ['pack', '--json', '--ignore-scripts', ...args], { cwd: dir, quiet: true }).stdout;
+	const out = JSON.parse(stdout.slice(Math.max(0, stdout.search(/^[[{]/m))));
 	return Array.isArray(out) ? out[0] : Object.values(out)[0] as any;
 }
 
