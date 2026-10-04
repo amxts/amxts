@@ -1,8 +1,9 @@
 // The published packages end to end, before a release: all nine published
 // to an empty local registry by publish.ts's local mode, a project made from
 // them with `npx create-amxts` - menu-core picked, so config-core comes as its
-// requirement, and no server - type-checked, built and tested, and its build
-// run on the server image of the release's Linux kit, in Docker.
+// requirement, and no server - then resemiclip and ftp added with `amxts
+// module add` and used in its plugin, type-checked, built and tested, and its
+// build run on the server image of the release's Linux kit, in Docker.
 //
 //   bun run test:release [--wamrc <folder>] [--image <name>] [--skip-generate] [--keep]
 //
@@ -19,7 +20,7 @@
 // Whatever happens, the registry, the container and the folder are removed at
 // the end; --keep leaves the folder.
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
@@ -43,10 +44,37 @@ const RELEASE = resolve(option('--wamrc') ?? join(CORE, 'dist-release'));
 const KIT = join(RELEASE, 'linux', 'amxts-server-linux-x64.tar.gz');
 const IMAGE = option('--image');
 const OWN_IMAGE = 'amxts-release-test';
-/** The modules the project gets: menu-core, picked, and config-core, which it requires. */
-const MODULES = ['menu-core', 'config-core'];
+/** The modules the project is made with: menu-core, picked, and config-core, which it requires. */
+const PICKED = ['menu-core', 'config-core'];
+/** The modules `amxts module add` adds to it after. */
+const ADDED = ['resemiclip', 'ftp'];
+/** A library has no plugin of its own: the build compiles it into the plugins that import it. */
+const LIBRARIES = ['ftp'];
+/** The modules with a plugin of their own, which the build takes as the package came with it. */
+const OWNERS = [...PICKED, ...ADDED].filter(name => !LIBRARIES.includes(name));
 /** The plugins its build makes: the starter's own and the modules' owners. */
-const PLUGINS = ['hello', ...MODULES];
+const PLUGINS = ['hello', ...OWNERS];
+
+/**
+ * What the starter's plugin gets: a use of each added module, since a
+ * module's plugin is built only when a plugin uses it. The address ftp does
+ * not take fails at once, without the network, and says so on the console.
+ */
+const USES = `
+// resemiclip, without an import.
+semiclip.rule = (player, target) => player.team == target.team;
+
+// ftp, a library: compiled into this plugin.
+tryFtp();
+
+async function tryFtp() {
+	try {
+		await ftp.connect("gopher://example.com");
+	} catch (error) {
+		console.log(\`ftp: \${error.message}\`);
+	}
+}
+`;
 
 /** How long the server may take to load the plugins. */
 const START_TIMEOUT = 180_000;
@@ -136,12 +164,13 @@ function changes(before: Map<string, string>, after: Map<string, string>): strin
 	return [...paths].filter(path => before.get(path) !== after.get(path)).map(path => (!after.has(path) ? `- ${path}` : !before.has(path) ? `+ ${path}` : `~ ${path}`));
 }
 
-/** The plugins a build wrote, each the module's own .aot where it is a module's. */
+/** The plugins a build wrote, each the module's own .aot where it is a module's, and none of a library. */
 function buildProblems(system: string): (string | false)[] {
 	const dist = join(project, 'dist');
 	return [
 		...PLUGINS.map(name => !existsSync(join(dist, `${name}.aot`)) && `no dist/${name}.aot`),
-		...MODULES.map((name) => {
+		...LIBRARIES.map(name => existsSync(join(dist, `${name}.aot`)) && `dist/${name}.aot: @amxts/${name} is a library, compiled into the plugins that import it`),
+		...OWNERS.map((name) => {
 			const prebuilt = join(project, 'node_modules/@amxts', name, 'prebuilt', system, `${name}.aot`);
 			const built = join(dist, `${name}.aot`);
 			return !(existsSync(prebuilt) && existsSync(built) && readFileSync(prebuilt).equals(readFileSync(built))) && `dist/${name}.aot (${system}) is not the one @amxts/${name} came with: it was compiled again`;
@@ -217,6 +246,7 @@ async function runServer(image: string) {
 		hosts !== 1 && (hosts ? `the host plugin attached ${hosts} times` : 'the host plugin did not attach'),
 		!lines.some(line => line.includes('[amxts] plugin list') && line.includes('addons/amxts/project/plugins.ini')) && 'the module did not take the project\'s plugin list',
 		...PLUGINS.map(name => !lines.some(line => line.includes(`[amxts] loaded ${name}.aot`)) && `${name}.aot did not load`),
+		!lines.some(line => line.includes('[amxts] ftp: ')) && 'hello.aot did not run the ftp library compiled into it',
 		errors.length > 0 && `errors in the console:\n    ${errors.join('\n    ')}`,
 	]);
 }
@@ -265,7 +295,6 @@ async function main() {
 	// 2. A project, as a user makes one: no server, menu-core.
 	step('npx create-amxts', work, 'npx', [`create-amxts@${CREATE_VERSION}`, 'my-server', '--yes', '--pm', 'npm', '--modules', 'menu-core', '--no-git'], userEnv);
 	const core = realpathSync(join(project, 'node_modules/@amxts/core'));
-	const config = readFileSync(join(project, 'amxts.config.ts'), 'utf8');
 	const wamrc = join(project, 'node_modules', `@amxts/wamrc-${process.platform}-${process.arch}`, WINDOWS ? 'wamrc.exe' : 'wamrc');
 	fail([
 		!core.startsWith(root) && `@amxts/core is ${core}, outside the project`,
@@ -273,12 +302,20 @@ async function main() {
 		readJson(join(core, 'package.json')).version !== VERSION && `@amxts/core is not ${VERSION}`,
 		!existsSync(wamrc) && `no ${wamrc}`,
 		!existsSync(join(core, 'node_modules/assemblyscript/std/assembly.json')) && 'no bundled assemblyscript typings in @amxts/core',
-		...MODULES.map(name => !config.includes(`@amxts/${name}`) && `amxts.config.ts does not list @amxts/${name}`),
-		...MODULES.map(name => !existsSync(join(project, 'node_modules/@amxts', name, 'package.json')) && `@amxts/${name} is not installed`),
 	]);
+
+	// 3. Modules added after, as a user adds them, and used in the plugin.
+	for (const name of ADDED) step(`amxts module add ${name}`, project, 'npx', ['amxts', 'module', 'add', name], userEnv);
+	const config = readFileSync(join(project, 'amxts.config.ts'), 'utf8');
+	fail([
+		...[...PICKED, ...ADDED].map(name => !config.includes(`@amxts/${name}`) && `amxts.config.ts does not list @amxts/${name}`),
+		...[...PICKED, ...ADDED].map(name => !existsSync(join(project, 'node_modules/@amxts', name, 'package.json')) && `@amxts/${name} is not installed`),
+	]);
+	const hello = join(project, 'plugins/hello.ts');
+	writeFileSync(hello, `import { ftp } from "@amxts/ftp";\n\n${readFileSync(hello, 'utf8')}${USES}`);
 	const installed = snapshot(join(project, 'node_modules'));
 
-	// 3. What a user runs next. The build first: what it analysed is its own.
+	// 4. What a user runs next. The build first: what it analysed is its own.
 	step('amxts typecheck', project, 'npx', ['amxts', 'typecheck'], userEnv);
 	step('amxts build', project, 'npx', ['amxts', 'build'], userEnv);
 	const analysis = join(project, 'node_modules/.cache/amxts/analysis');
@@ -289,7 +326,7 @@ async function main() {
 	]);
 	step('amxts test', project, 'npx', ['amxts', 'test'], userEnv);
 
-	// 4. Its build on the Linux server.
+	// 5. Its build on the Linux server.
 	if (HOST_SYSTEM !== 'linux') {
 		step('amxts build --os linux', project, 'npx', ['amxts', 'build', '--os', 'linux'], userEnv);
 		fail(buildProblems('linux'));
