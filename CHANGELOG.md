@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.2.1
+
+[compare changes](https://github.com/amxts/amxts/compare/v0.2.0...v0.2.1)
+
+### Summary
+
+Fixes for 0.2.0: a Windows server with an older Visual C++ runtime crashed at start, a plugin's call could fail at random when a native wrote into a buffer near the end of its memory, and the editor marked `error.message` in a `catch` as an error.
+
+### ⬆️ Upgrade guide
+
+`npx amxts upgrade` in the project: it moves `@amxts/core` to 0.2.1, builds the plugins again and puts the 0.2.1 module on the server named in `.env`. A server installed by hand takes the module (and `amxts-compile`, where it has one) from this release; the plugins are built again, since the module loads only plugins of its own release.
+
+### 🩹 Fixes
+
+- **module:** Start on a server with an older Visual C++ runtime: the network thread's lock crashed Windows servers whose `msvcp140.dll` predates Visual Studio 2022 17.10 ([04dbe6b](https://github.com/amxts/amxts/commit/04dbe6b))
+- **runtime:** A native whose array size the include does not give - `get_players`, which `server.players` calls, among them - no longer fails the plugin's call when the array lies near the end of the plugin's memory ([e5dee94](https://github.com/amxts/amxts/commit/e5dee94))
+- **editor:** `catch (error)` reads `error.message` without a cast, as the compiler and the docs do ([d2875cf](https://github.com/amxts/amxts/commit/d2875cf))
+
+### ❤️ Contributors
+
+- Ernest Manukyan ([@kukson777](https://github.com/kukson777))
+
 ## v0.2.0
 
 [compare changes](https://github.com/amxts/amxts/compare/v0.1.0...v0.2.0)
