@@ -4,15 +4,16 @@
 # test suite in three parts; and the Linux module and wamrc built in Docker,
 # then the server suites on a Linux test server in Docker (bun run
 # test:server --linux). On a tag v*, the Windows files are built too, on a
-# Windows runner (bun run release:windows), then the eight npm packages are
+# Windows runner (bun run release:windows), then the nine npm packages are
 # tried end to end with both systems' files (bun run test:release: a local
 # registry, npx create-amxts, typecheck, build, test, the server image in
 # Docker); once everything passes, both systems' files go to the tag's draft
 # release (created with the version's section of CHANGELOG.md as its notes),
-# and the Publish workflow is started: the draft taken off, the npm packages,
-# the server image. Run by hand (workflow_dispatch), it builds the Windows
-# files as a dry run and tries the packages - a release's rehearsal - and
-# keeps the Windows files as an artifact.
+# and the Publish workflow is started: the draft taken off, the server image;
+# the npm packages are published by hand after it (bun run publish:npm). Run
+# by hand (workflow_dispatch), it builds the Windows files as a dry run and
+# tries the packages - a release's rehearsal - and keeps the Windows files as
+# an artifact.
 #
 # Every job checks the core out as `amxts` and runs .github/actions/setup,
 # which puts the command and the official modules beside it. What does not
@@ -291,8 +292,8 @@ jobs:
         run: |
           bun run release:linux --skip-build --no-upload
           bun run release:upload
-      # The Publish workflow of the tag: the draft taken off, then npm and the
-      # server image. Run by hand with the tag, it does the same.
+      # The Publish workflow of the tag: the draft taken off, then the server
+      # image. Run by hand with the tag, it does the same.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
