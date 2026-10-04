@@ -53,8 +53,8 @@ export const EVENTS: Record<string, EventDoc> = {
 	},
 	plugin_cfg: {
 		summary: {
-			en: `Every config has been read and every plugin is loaded: the moment to read cvars and to create forwards other plugins listen to.`,
-			ru: `Все конфиги прочитаны, все плагины загружены: момент читать квары и создавать форварды для других плагинов.`,
+			en: `Every plugin has started: the moment to create forwards other plugins listen to. The configs run after it: read cvars in \`"configsExecuted"\`.`,
+			ru: `Все плагины запустились: момент создавать форварды для других плагинов. Конфиги выполняются после него: квары читайте в \`"configsExecuted"\`.`,
 		},
 	},
 	plugin_end: {
