@@ -28,10 +28,10 @@ plugin.
   `player.team == "CT"`, `player.hideHud.push("money")`,
   `entity.renderMode = "additive"`.
 - **Events as in the DOM.** `server.addEventListener("putInServer", ...)`,
-  `game.addEventListener("takeDamage", ...)` for the game's events (reapi's
+  `game.addEventListener("takeDamage", ...)` for the game's events (ReAPI's
   hookchains and Ham Sandwich's functions), with
   `event.preventDefault()` and an answer by `return`.
-- **The editor knows the game.** Every native, reapi field and hookchain
+- **The editor knows the game.** Every native, ReAPI field and hookchain
   comes with its type and a tooltip in English or Russian; a typo is a red
   line, not a runtime error.
 - **No import lines.** `Player`, `server`, `print` and the modules' names are
@@ -54,7 +54,7 @@ On the server:
   `amxts_amxx_i386.so`, both tested on a real server. A plugin is compiled
   for its server's system, which the build reads off the server's folder
   (or `--os`).
-- **ReHLDS with ReGameDLL and reapi** - recommended. amxts is tested on it and
+- **ReHLDS with ReGameDLL and ReAPI** - recommended. amxts is tested on it and
   on plain HLDS, where entity fields and most game events work through AMX
   Mod X's own modules, and some of ReGameDLL's events come with less or not at
   all.
