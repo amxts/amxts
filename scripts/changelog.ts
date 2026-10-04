@@ -92,7 +92,7 @@ function contributors(repo: string, dir: string, from: string, names: string[]):
 	const head = git(dir, ['rev-parse', 'HEAD']);
 	// GitHub knows a commit's login only once the commit is there.
 	if (!git(dir, ['branch', '-r', '--contains', 'HEAD'])) {
-		console.warn(`⚠ ${basename(dir)}: HEAD is not on its remote yet, so the contributors are names, not GitHub logins - push, then run bun run changelog`);
+		process.stderr.write(`⚠ ${basename(dir)}: HEAD is not on its remote yet, so the contributors are names, not GitHub logins - push, then run bun run changelog\n`);
 	}
 	const known = new Map<string, string>();
 	const compare = from && head && spawnSync('gh', ['api', `repos/${repo}/compare/${from}...${head}`, '--jq', '.commits[] | [.commit.author.name, .author.login // ""] | @tsv'], { encoding: 'utf8' });
