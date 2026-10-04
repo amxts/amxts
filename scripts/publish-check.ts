@@ -19,6 +19,8 @@ import { fileURLToPath } from 'node:url';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const VERSION = String(JSON.parse(readFileSync(join(CORE, 'package.json'), 'utf8')).version);
+/** create-amxts goes out as its own version, beside the core in ../amxts-cli. */
+const CREATE_VERSION = String(JSON.parse(readFileSync(join(CORE, '../amxts-cli/packages/create-amxts/package.json'), 'utf8')).version);
 const REGISTRY = 'http://localhost:4873/';
 const WINDOWS = process.platform === 'win32';
 const args = process.argv.slice(2);
@@ -53,7 +55,7 @@ const env: NodeJS.ProcessEnv = {
 const project = join(folder, 'my-server');
 console.log(`\nthe project: ${project}`);
 
-step('npm create amxts', folder, 'npm', ['create', `amxts@${VERSION}`, 'my-server', '--', '--yes', '--pm', 'npm', '--modules', 'menu-core', '--target', 'hlds', '--no-git'], env);
+step('npm create amxts', folder, 'npm', ['create', `amxts@${CREATE_VERSION}`, 'my-server', '--', '--yes', '--pm', 'npm', '--modules', 'menu-core', '--target', 'hlds', '--no-git'], env);
 step('amxts module add', project, 'npx', ['amxts', 'module', 'add', 'resemiclip'], env);
 step('amxts info', project, 'npx', ['amxts', 'info'], env);
 step('amxts build', project, 'npx', ['amxts', 'build'], env);

@@ -29,6 +29,8 @@ import { HOST_SYSTEM } from './system';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const VERSION = String(JSON.parse(readFileSync(join(CORE, 'package.json'), 'utf8')).version);
+/** create-amxts goes out as its own version, beside the core in ../amxts-cli. */
+const CREATE_VERSION = String(JSON.parse(readFileSync(join(CORE, '../amxts-cli/packages/create-amxts/package.json'), 'utf8')).version);
 const WINDOWS = process.platform === 'win32';
 const args = process.argv.slice(2);
 
@@ -261,7 +263,7 @@ async function main() {
 	step('the packages, into an empty local registry', CORE, process.execPath, [join(CORE, 'scripts/publish.ts'), 'local', '--reset', ...passOn], publishEnv);
 
 	// 2. A project, as a user makes one: no server, menu-core.
-	step('npx create-amxts', work, 'npx', [`create-amxts@${VERSION}`, 'my-server', '--yes', '--pm', 'npm', '--modules', 'menu-core', '--no-git'], userEnv);
+	step('npx create-amxts', work, 'npx', [`create-amxts@${CREATE_VERSION}`, 'my-server', '--yes', '--pm', 'npm', '--modules', 'menu-core', '--no-git'], userEnv);
 	const core = realpathSync(join(project, 'node_modules/@amxts/core'));
 	const config = readFileSync(join(project, 'amxts.config.ts'), 'utf8');
 	const wamrc = join(project, 'node_modules', `@amxts/wamrc-${process.platform}-${process.arch}`, WINDOWS ? 'wamrc.exe' : 'wamrc');
