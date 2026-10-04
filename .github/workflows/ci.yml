@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: amxts
       - uses: ./amxts/.github/actions/setup
@@ -64,14 +64,14 @@ jobs:
       matrix:
         part: [1, 2, 3]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: amxts
       - uses: ./amxts/.github/actions/setup
       # A compiled plugin is stored under a hash of everything it was built
       # from, so an older part's cache is safe to start from: what changed is
       # compiled again, the rest is read back.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: amxts/node_modules/.cache/amxts
           key: tests-${{ matrix.part }}-${{ hashFiles('amxts/runtime/patches/**', 'amxts/as/**', 'amxts/scripts/**', 'amxts/src/**', 'amxts/tests/**') }}
@@ -84,14 +84,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: amxts
       - uses: ./amxts/.github/actions/setup
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: The Linux toolchain image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: amxts/docker/build
           tags: amxts-build
@@ -99,7 +99,7 @@ jobs:
           cache-from: type=gha,scope=amxts-build
           cache-to: type=gha,mode=max,scope=amxts-build
       - name: The Linux test server image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: amxts/docker/hlds
           tags: amxts-hlds
@@ -110,7 +110,7 @@ jobs:
       # The build's work folder - the WAMR and AMX Mod X checkouts, wamrc and
       # the module's objects - is a folder here instead of a Docker volume,
       # so it is cached: wamrc is built again only when its inputs change.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: linux-work
           key: linux-work-${{ hashFiles('amxts/docker/build/**', 'amxts/runtime/patches/wamr-*.patch', 'amxts/runtime/CMakeLists.txt', 'amxts/runtime/src/**') }}
@@ -131,7 +131,7 @@ jobs:
         run: bun run test:server --linux
       - name: The test server's console
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-server-linux
           path: amxts/dist-wasm/test-server-linux/last-run
@@ -141,7 +141,7 @@ jobs:
         working-directory: amxts
         run: bun run serverkit --os linux
       - name: The Linux files
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: amxts-linux
           path: |
@@ -161,7 +161,7 @@ jobs:
     steps:
       # The patches apply to LF files: no CRLF in the checkouts.
       - run: git config --global core.autocrlf false
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: amxts
       - uses: ./amxts/.github/actions/setup
@@ -171,7 +171,7 @@ jobs:
       # exports name becomes an empty one, as in docker/build/Dockerfile.
       - name: Cache LLVM
         id: llvm
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: llvm
           key: llvm-${{ env.LLVM_VERSION }}-windows-wamrc
@@ -201,7 +201,7 @@ jobs:
         env:
           LLVM_DIR: ${{ github.workspace }}/llvm/lib/cmake/llvm
         run: bun run release:windows ${{ startsWith(github.ref, 'refs/tags/v') && '--no-upload' || '--dry-run' }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: amxts-windows
           path: amxts/dist-release/windows
@@ -218,24 +218,24 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: amxts
       - uses: ./amxts/.github/actions/setup
       # The official modules the setup does not check out, which the packages carry too.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ github.repository_owner }}/resemiclip
           path: amxts-modules/resemiclip
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ github.repository_owner }}/ftp
           path: amxts-modules/ftp
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: amxts-linux
           path: amxts
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: amxts-windows
           path: amxts/dist-release/windows
@@ -248,9 +248,9 @@ jobs:
         run: |
           mkdir "$RUNNER_TEMP/kit"
           tar -xzf amxts/dist-release/linux/amxts-server-linux-x64.tar.gz -C "$RUNNER_TEMP/kit"
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: The server image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: amxts/docker/server
           build-contexts: kit=${{ runner.temp }}/kit
@@ -273,15 +273,15 @@ jobs:
       # Starting the Publish workflow.
       actions: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: amxts
       - uses: ./amxts/.github/actions/setup
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: amxts-linux
           path: amxts
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: amxts-windows
           path: amxts/dist-release/windows
