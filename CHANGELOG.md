@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.2.2
+
+[compare changes](https://github.com/amxts/amxts/compare/v0.2.1...v0.2.2)
+
+### Summary
+
+A fix for a server that crashed at start on some AMX Mod X builds: the module registered its server commands with fewer arguments than AMX Mod X reads, and AMX Mod X read a command's description from leftover memory. Whether it crashed depended on the AMX Mod X build and the plugins loaded - most often with one or two plugins. The server suites run on AMX Mod X 1.9 and the newest 1.10 as well from now on.
+
+### ⬆️ Upgrade guide
+
+`npx amxts upgrade` in the project, with the server stopped: it moves `@amxts/core` to 0.2.2, builds the plugins again and puts the 0.2.2 module on the server named in `.env`. A server installed by hand takes the module (and `amxts-compile`, where it has one) from this release, and its plugins are built again.
+
+### 🩹 Fixes
+
+- **runtime:** No crash at start on some AMX Mod X builds: every native the module calls - `register_srvcmd`, `register_clcmd`, `set_task`, `RegisterHam` - gets all its parameters ([c02eb1e](https://github.com/amxts/amxts/commit/c02eb1e))
+
+### ❤️ Contributors
+
+- Ernest Manukyan ([@kukson777](https://github.com/kukson777))
+
 ## v0.2.1
 
 [compare changes](https://github.com/amxts/amxts/compare/v0.2.0...v0.2.1)
