@@ -100,6 +100,9 @@
 // --sanitize is --linux with the module of `bun run build:linux --sanitize`:
 // hlds starts with the sanitizers' runtime preloaded (hlds_linux itself is not
 // built with it), and a sanitizer's report in the console fails the run.
+// A Linux server starts with core dumps on: when it exits on its own, the
+// report says how and prints its core dump's backtrace (scripts/core-dumps.ts),
+// kept with the console in last-run.
 import type { Plugin } from './compile';
 import { spawnSync } from 'node:child_process';
 import { createSocket } from 'node:dgram';
@@ -107,6 +110,7 @@ import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, re
 import { basename, dirname, join, resolve } from 'node:path';
 import { ABI_SECTION, abiIdentity, abiLine, releaseLine } from './build-identity';
 import { compileAll } from './compile-pool';
+import { coreDumpArgs, crashReport } from './core-dumps';
 import { includeDirs } from './includes';
 import { pluginCache } from './plugin-cache';
 import { CORE_DIR, CORE_PLUGINS, loadProject, PROJECT_GAME_FOLDERS, projectPlugins, sourcesFor } from './project';
@@ -192,6 +196,8 @@ const buildDir = join(project.outDir, plain ? 'test-server-plain' : linux ? 'tes
 const rootDir = linux ? join(buildDir, 'stage') : join(hldsDir, 'amxts-test');
 const testDir = linux ? join(rootDir, 'amxts', 'test') : join(gameDir, TEST);
 const pidFile = join(rootDir, 'hlds.pid');
+// Where the Linux server's core dump goes, mounted at /cores (scripts/core-dumps.ts).
+const coresDir = join(rootDir, 'cores');
 // What says a folder is this script's to delete.
 const MARKER = '.amxts-test';
 
@@ -341,7 +347,7 @@ function ensureImage(): void {
 function startContainer(argv: string[]): number {
 	ensureImage();
 	if (containerExists()) docker(['rm', '-f', CONTAINER]);
-	const created = docker(['create', '--name', CONTAINER, '-t', '-p', `127.0.0.1:${PORT}:27015/udp`, '--add-host', 'host.docker.internal:host-gateway', ...SANITIZER_ENV, IMAGE, ...argv]);
+	const created = docker(['create', '--name', CONTAINER, '-t', '-p', `127.0.0.1:${PORT}:27015/udp`, '--add-host', 'host.docker.internal:host-gateway', ...coreDumpArgs(coresDir), ...SANITIZER_ENV, IMAGE, ...argv]);
 	if (created.status !== 0) throw new Error(`docker create failed: ${created.stderr.trim()}`);
 
 	// The configs a module reads, from the image: Linux offsets, not Windows'.
@@ -960,6 +966,7 @@ function keepEvidence(): string {
 	if (linux) {
 		writeFileSync(join(dir, 'console.log'), consoleLines().join('\n'));
 		amxxLogLines();
+		if (existsSync(coresDir)) cpSync(coresDir, join(dir, 'cores'), { recursive: true });
 	}
 	const logs = join(testDir, 'amxx', 'logs');
 	if (existsSync(logs)) cpSync(logs, join(dir, 'amxx-logs'), { recursive: true });
@@ -1183,6 +1190,11 @@ function report(results: SuiteResult[], problems: string[]): number {
 	if (problems.some(problem => /exited|went away/.test(problem)) || results.some(result => result.problem === 'the server went away')) {
 		console.log('\nthe last lines of the console:');
 		for (const line of consoleLines().filter(Boolean).slice(-30)) console.log(`  ${line}`);
+		// How it stopped, and where: its exit code and the core dump's backtrace.
+		if (linux) {
+			console.log('\nhow it stopped:');
+			for (const line of crashReport(CONTAINER, coresDir)) console.log(`  ${line}`);
+		}
 	}
 
 	const passed = results.reduce((sum, result) => sum + result.passed, 0);

@@ -146,9 +146,18 @@ server suites on three: the image's own (1.10.0-git5474), 1.9.0-git5303 and
 `--sanitize` runs the Linux server with the module of `bun run build:linux
 --sanitize`, its C++ under AddressSanitizer and UBSan: a memory error in it
 fails the run with the sanitizer's report, which names the file and line.
-CI runs it too, as the `linux (sanitizers)` job. CI builds the module and
-compiles the suites once, in the `linux (build)` job (`test:server --linux
---build-only`); the four `linux` jobs take them as they are (`--prebuilt`).
+CI runs it too, as the `linux (sanitizers)` job, and `--plain` as the
+`linux (plain HLDS)` job. CI builds the module and compiles the suites
+once, in the `linux (build)` job (`test:server --linux --build-only`); the
+five `linux` jobs take them as they are (`--prebuilt`).
+
+The Linux server starts with core dumps on. When it exits on its own, the
+run says how (the exit code, the signal) and prints the backtrace of its
+core dump, kept with the console in `last-run`; `test:release` does the
+same. The Docker host's `core_pattern` has to be `/cores/core.%e.%p` for
+the dump to come: CI sets it, and on Docker Desktop `docker run --rm
+--privileged debian:bookworm-slim sh -c 'echo /cores/core.%e.%p >
+/proc/sys/kernel/core_pattern'` does, until Docker restarts.
 
 `bun run test:release` publishes the nine packages to a local registry of
 its own, makes a project with `npx create-amxts`, builds and tests it and

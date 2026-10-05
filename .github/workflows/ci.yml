@@ -3,8 +3,8 @@
 # On every push and pull request, side by side: the type check and lint; the
 # test suite in three parts; and the Linux module, wamrc and the server suites
 # built once, in Docker, then the suites run on a Linux test server in Docker
-# (bun run test:server --linux), on three AMX Mod X builds and under
-# sanitizers. On a tag v*, the Windows files are
+# (bun run test:server --linux), on three AMX Mod X builds, on plain HLDS
+# and under sanitizers. On a tag v*, the Windows files are
 # built too, on a Windows runner (bun run release:windows), then the nine npm
 # packages are tried end to end with both systems' files (bun run
 # test:release: a local registry, npx create-amxts, typecheck, build, test,
@@ -167,13 +167,19 @@ jobs:
   # The server suites run on three AMX Mod X builds, one job each: the test
   # server image's own, and with --amxx the last of 1.9 - the oldest the docs
   # promise - and the newest of 1.10. A mistake one build lives through can
-  # crash another. One more job runs them with the module under
-  # AddressSanitizer and UBSan (test:server --sanitize): a memory error in the
-  # module fails it with the file and line. It does not hold the release back
-  # (continue-on-error) until it has been green for a while. Each takes the
-  # module and the suites linux-build made (--prebuilt) and builds nothing.
+  # crash another. One more job runs them on Valve's HLDS with metamod-p and
+  # no ReHLDS, ReGameDLL or ReAPI (test:server --plain), where the module
+  # takes its other paths: events through Ham Sandwich, the logs and the
+  # messages, the engine's functions hooked by hand. And one more with the
+  # module under AddressSanitizer and UBSan (test:server --sanitize): a memory
+  # error in the module fails it with the file and line. That one does not
+  # hold the release back (continue-on-error) until it has been green for a
+  # while. Each takes the module and the suites linux-build made (--prebuilt)
+  # and builds nothing. A server that crashes leaves a core dump, and the
+  # runner prints its backtrace: the console, the dump and the backtrace are
+  # the job's artifact when it fails.
   linux:
-    name: ${{ matrix.sanitize && 'linux (sanitizers)' || matrix.amxx && format('linux (AMX Mod X {0})', matrix.amxx) || 'linux' }}
+    name: ${{ matrix.plain && 'linux (plain HLDS)' || matrix.sanitize && 'linux (sanitizers)' || matrix.amxx && format('linux (AMX Mod X {0})', matrix.amxx) || 'linux' }}
     needs: linux-build
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -183,15 +189,22 @@ jobs:
       matrix:
         amxx: ["", 1.9.0-git5303, 1.10.0-git5486]
         sanitize: [false]
+        plain: [false]
         include:
           - amxx: ""
             sanitize: true
+          - amxx: ""
+            plain: true
     env:
       AMXX: ${{ matrix.amxx }}
       SANITIZE: ${{ matrix.sanitize && '--sanitize' || '' }}
-      # The test server image's tag, and the cache of its layers.
-      HLDS: amxts-hlds${{ matrix.amxx && format(':{0}', matrix.amxx) || '' }}
-      HLDS_SCOPE: amxts-hlds${{ matrix.amxx && format('-{0}', matrix.amxx) || '' }}
+      PLAIN: ${{ matrix.plain && '--plain' || '' }}
+      # The test server image's folder, its tag, and the cache of its layers.
+      HLDS_DIR: ${{ matrix.plain && 'hlds-plain' || 'hlds' }}
+      HLDS: ${{ matrix.plain && 'amxts-hlds-plain' || format('amxts-hlds{0}', matrix.amxx && format(':{0}', matrix.amxx) || '') }}
+      HLDS_SCOPE: ${{ matrix.plain && 'amxts-hlds-plain' || format('amxts-hlds{0}', matrix.amxx && format('-{0}', matrix.amxx) || '') }}
+      # The build folder of the suites: --plain has one of its own.
+      SUITES: dist-wasm/test-server-${{ matrix.plain && 'plain' || 'linux' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -208,7 +221,7 @@ jobs:
       - name: The Linux test server image
         uses: docker/build-push-action@v7
         with:
-          context: amxts/docker/hlds
+          context: amxts/docker/${{ env.HLDS_DIR }}
           tags: ${{ env.HLDS }}
           build-args: ${{ matrix.amxx && format('AMXX={0}', matrix.amxx) || '' }}
           load: true
@@ -217,15 +230,22 @@ jobs:
             type=gha,scope=${{ env.HLDS_SCOPE }}
           cache-to: type=gha,mode=max,scope=${{ env.HLDS_SCOPE }}
 
+      # The kernel writes a core dump where its core_pattern says, in the
+      # crashing process's own file system: the folder the runner mounts at
+      # /cores (scripts/core-dumps.ts).
+      - name: Core dumps into /cores
+        run: sudo sysctl -w kernel.core_pattern=/cores/core.%e.%p
       - name: The server suites on Linux
         working-directory: amxts
-        run: bun run test:server --linux --prebuilt $SANITIZE ${AMXX:+--amxx "$AMXX"}
-      - name: The test server's console
+        run: |
+          [ "$SUITES" = dist-wasm/test-server-linux ] || mv dist-wasm/test-server-linux "$SUITES"
+          bun run test:server --linux --prebuilt $PLAIN $SANITIZE ${AMXX:+--amxx "$AMXX"}
+      - name: The test server's console, core dump and backtrace
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: test-server-linux${{ matrix.amxx && format('-{0}', matrix.amxx) || '' }}${{ matrix.sanitize && '-sanitize' || '' }}
-          path: amxts/dist-wasm/test-server-linux/last-run
+          name: test-server-linux${{ matrix.amxx && format('-{0}', matrix.amxx) || '' }}${{ matrix.sanitize && '-sanitize' || '' }}${{ matrix.plain && '-plain' || '' }}
+          path: amxts/${{ env.SUITES }}/last-run
           if-no-files-found: ignore
 
   # The Windows files: the host plugin, the module that carries it (MSVC,
@@ -328,9 +348,18 @@ jobs:
           load: true
           cache-from: type=gha,scope=amxts-server
           cache-to: type=gha,mode=max,scope=amxts-server
+      - name: Core dumps into /cores
+        run: sudo sysctl -w kernel.core_pattern=/cores/core.%e.%p
       - name: The packages, end to end
         working-directory: amxts
         run: bun run test:release --image amxts-release-test
+      - name: The server's console, core dump and backtrace
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-release-server
+          path: amxts/dist-release/last-run
+          if-no-files-found: ignore
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

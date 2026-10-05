@@ -145,9 +145,18 @@ bun run test:release          # пакеты npm от начала до конц
 `--sanitize` запускает сервер под Linux с модулем из `bun run build:linux
 --sanitize`, его C++ под AddressSanitizer и UBSan: ошибка памяти в нём
 проваливает прогон отчётом санитайзера, который называет файл и строку.
-CI гоняет и его — задачей `linux (sanitizers)`. Модуль и наборы CI собирает
-один раз, задачей `linux (build)` (`test:server --linux --build-only`); четыре
-задачи `linux` берут их как есть (`--prebuilt`).
+CI гоняет и его — задачей `linux (sanitizers)`, а `--plain` — задачей
+`linux (plain HLDS)`. Модуль и наборы CI собирает один раз, задачей
+`linux (build)` (`test:server --linux --build-only`); пять задач `linux`
+берут их как есть (`--prebuilt`).
+
+Сервер под Linux стартует с включёнными core dump. Когда он завершается
+сам, прогон говорит как (код выхода, сигнал) и печатает backtrace его core
+dump, который остаётся вместе с консолью в `last-run`; `test:release`
+делает так же. Чтобы дамп появился, `core_pattern` хоста Docker должен быть
+`/cores/core.%e.%p`: CI его ставит, а на Docker Desktop это делает `docker
+run --rm --privileged debian:bookworm-slim sh -c 'echo /cores/core.%e.%p >
+/proc/sys/kernel/core_pattern'` — до перезапуска Docker.
 
 `bun run test:release` публикует девять пакетов в свой локальный реестр,
 создаёт проект через `npx create-amxts`, собирает и тестирует его и
