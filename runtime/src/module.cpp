@@ -27,6 +27,7 @@
 #undef min
 #undef max
 
+#include <ctype.h>
 #include <stdarg.h>
 #include <string.h>
 #include <stdio.h>
@@ -50,6 +51,7 @@
 #include <vector>
 #include <deque>
 #include <map>
+#include <set>
 #include <unordered_map>
 #include <algorithm>
 
@@ -239,6 +241,11 @@ struct Handler {
 	int      whereArg = -1;
 	cell     whereValue = 0;
 	/**
+	 * A command's admin flags (get_user_flags' bits): a player with none of
+	 * them does not reach the handler. 0 for everyone.
+	 */
+	int      access = 0;
+	/**
 	 * What Fire calls, looked up once, when the handler is registered (Bind):
 	 * the function, the kinds of its parameters, and whether every one is an
 	 * i32 and takes its cell as it is. NULL when the plugin exports no table;
@@ -358,17 +365,10 @@ struct Slot : Handler {
 	bool     off;
 };
 
-// A slot whose plugin is one of these is the module's own: a server command it
-// registered for itself, not a plugin's callback. ORPHANED is what a slot
-// becomes when the plugin holding it is reloaded away - register_clcmd cannot
-// be undone, so the registration outlives the handler and has to land
-// somewhere harmless.
-#define SLOT_RELOAD   (-2)
-#define SLOT_LIST     (-3)
-#define SLOT_TRACE   (-7)
+// What a slot becomes when the plugin holding it is reloaded away - an AMX
+// Mod X registration cannot be undone, so it outlives the handler and has to
+// land somewhere harmless.
 #define SLOT_ORPHANED (-6)
-#define SLOT_LOAD     (-8)
-#define SLOT_UNLOAD   (-9)
 
 static Slot g_slots[MAX_CALLBACK_SLOTS];
 static int  g_slotCount = 0;
@@ -1750,74 +1750,100 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 	return slot;
 }
 
-/**
- * A command a plugin asked for before AMX Mod X was ready to hear it.
- *
- * A plugin's top level runs during plugin_natives, which is where it has to
- * run - that is when AMX Mod X asks for natives, and a plugin exports its own
- * by running. It is also too early to register a command: a register_concmd
- * issued there crashed the server the moment the command was typed, with
- * nothing in any log. So the registrations are kept here and made from
- * plugin_init, and a plugin author never has to know.
- */
-struct PendingCommand {
-	std::string pattern;
-	std::string info;
-	int slot;
-	int flags;
-};
-
-static std::vector<PendingCommand> g_pendingCommands;
+// Whether plugin_init has come this map: the watcher looks at the plugins'
+// files from then on.
 static bool g_amxxReady = false;
 
-static void RegisterClientCommand(const char *pattern, int slot, int flags, const char *info)
+/**
+ * The commands plugins added, by name in lower case: the players' and the
+ * server's. Each name's handlers are a Forward's, walked in place in the
+ * order they were added, so a plugin stopping in a command takes its own
+ * out safely (DropFrom). The module hears them itself - a player's in
+ * Metamod's ClientCommand, the server's through the engine's
+ * AddServerCommand - so there is no slot and no AMX Mod X timing to wait for.
+ */
+static std::map<std::string, Forward> g_clientCommands;
+static std::map<std::string, Forward> g_serverCommands;
+
+static std::string Lower(const char *text)
 {
-	char pub[32];
-	snprintf(pub, sizeof(pub), "__amxts_cb%d", slot);
-
-	cell mark = g_host->hea;
-	// register_clcmd(client_cmd[], function[], flags, info[], FlagManager, bool:info_ml)
-	Args params(6);
-	params[1] = PushString(pattern);
-	params[2] = PushString(pub);
-	params[3] = flags;
-	params[4] = PushString(info);
-	params[5] = -1;
-	params[6] = 0;
-
-	CallNative("register_clcmd", params);
-	g_host->hea = mark;
+	std::string lower = text ? text : "";
+	for (size_t i = 0; i < lower.size(); i++)
+		lower[i] = (char)tolower((unsigned char)lower[i]);
+	return lower;
 }
 
-// cmd(pattern, handler, flags, info, shape) - register_clcmd through a slot.
-static int32_t w_clcmd(wasm_exec_env_t env, int32_t pattern, int32_t fn, int32_t flags, int32_t info, int32_t shape)
+/** A plugin's handler of the command `lower`, its name in lower case. */
+static void AddCommand(std::map<std::string, Forward> &commands, const std::string &lower, int32_t fn, int32_t shape, int access)
 {
-	std::string key = "clcmd:" + AsString(Inst(env), pattern);
+	Handler h;
+	h.plugin = g_currentPlugin;
+	h.fn = (uint32_t)fn;
+	h.shape = shape;
+	h.tag = TakeTag();
+	h.access = access;
+	Bind(h);
+	commands[lower].handlers.push_back(h);
+}
 
-	bool reused = false;
-	int slot = TakeSlot(fn, shape, key.c_str(), &reused, 1);   // PLUGIN_HANDLED
-	if (slot < 0)
-		return -1;
-
-	// Already registered with AMX Mod X before the reload; the slot is enough.
-	if (reused)
-		return slot;
-
-	std::string text = AsString(Inst(env), pattern);
-	std::string help = AsString(Inst(env), info);
-
-	if (!g_amxxReady) {
-		PendingCommand pending;
-		pending.pattern = text;
-		pending.info = help;
-		pending.slot = slot;
-		pending.flags = flags;
-		g_pendingCommands.push_back(pending);
-		return slot;
+/**
+ * Runs a command's handlers in order, as AMX Mod X runs its own: a player's
+ * id, the command's flags and 0, as register_clcmd's handler gets them. One
+ * that answers PLUGIN_HANDLED takes the command; PLUGIN_HANDLED_MAIN keeps
+ * it from the game and lets the rest have it. A handler that says nothing
+ * has handled it. What the handlers answered, or'ed.
+ */
+static cell RunCommand(Forward &f, int id)
+{
+	f.depth++;
+	cell result = 0;
+	int flags = -1;
+	for (size_t i = 0, end = f.handlers.size(); i < end && !(result & 1); i++) {
+		const Handler &h = f.handlers[i];
+		if (h.plugin == HANDLER_GONE)
+			continue;
+		if (h.access) {
+			if (flags < 0)
+				flags = MF_GetPlayerFlags(id);
+			if (!(flags & h.access))
+				continue;
+		}
+		uint32_t argv[MAX_EVENT_ARGS] = { (uint32_t)id, (uint32_t)h.access, 0, 0 };
+		result |= Fire(h, argv, MAX_EVENT_ARGS, 1);   // PLUGIN_HANDLED
 	}
+	EndDispatch(f);
+	return result;
+}
 
-	RegisterClientCommand(text.c_str(), slot, flags, help.c_str());
-	return slot;
+// clcmd(name, handler, flags, shape) - a player's command, heard in ClientCommand.
+static void w_clcmd(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t flags, int32_t shape)
+{
+	AddCommand(g_clientCommands, Lower(AsString(Inst(env), name).c_str()), fn, shape, flags);
+}
+
+static void ServerCommand();
+
+/**
+ * The names the module gave the engine as server commands. The engine keeps
+ * a name's pointer and cannot take a command back, so a name is handed to it
+ * once a process and lives as long as the module; one callback answers them
+ * all (ServerCommand), and a name whose plugin stopped answers nothing.
+ */
+static std::set<std::string> g_engineCommands;
+
+static void AddEngineCommand(const std::string &name)
+{
+	std::pair<std::set<std::string>::iterator, bool> added = g_engineCommands.insert(name);
+	if (added.second)
+		REG_SVR_COMMAND((char *)added.first->c_str(), ServerCommand);
+}
+
+// srvcmd(name, handler, shape) - a server command, the engine's.
+static void w_srvcmd(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t shape)
+{
+	std::string lower = Lower(AsString(Inst(env), name).c_str());
+	AddEngineCommand(lower);
+	AddCommand(g_serverCommands, lower, fn, shape, 0);
 }
 
 /**
@@ -3206,6 +3232,8 @@ static void w_rpcResult(wasm_exec_env_t env, int32_t to)
 // Entity fields and the game's members, read in memory: ent_get and the rest.
 #include "fields.h"
 
+static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line);
+
 static NativeSymbol g_wasmNatives[] = {
 	{ "abort",        (void *)w_abort,        "(iiii)", NULL },
 	{ "stack_frames", (void *)w_stack_frames, "(ii)i",  NULL },
@@ -3250,7 +3278,9 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "off",          (void *)w_off,          "(ii)",   NULL },
 	{ "subscribe",    (void *)w_subscribe,    "(iii)",  NULL },
 	{ "emit_local",   (void *)w_emit_local,   "(iiii)", NULL },
-	{ "clcmd",        (void *)w_clcmd,        "(iiiii)i", NULL },
+	{ "clcmd",        (void *)w_clcmd,        "(iiii)", NULL },
+	{ "srvcmd",       (void *)w_srvcmd,       "(iii)", NULL },
+	{ "bot_cmd",      (void *)w_botCmd,       "(ii)", NULL },
 	{ "task",         (void *)w_task,         "(iiii)i", NULL },
 	{ "stop_task",    (void *)w_stopTask,     "(i)i", NULL },
 	{ "tag",          (void *)w_tag,          "(i)",  NULL },
@@ -3651,15 +3681,15 @@ static void RemoveHost()
  * switched off, and its slot kept under its key for the plugin to take back
  * and switch on when it registers it again (TakeSlot); one it does not take
  * back is given back once the load is done (FreeSwitchedOff). The rest -
- * register_clcmd, register_srvcmd, register_message, register_menucmd - have
- * no undo, so their publics stay bound to their slots: those become orphans,
- * which answer PLUGIN_CONTINUE and call nothing, until the same registration
- * comes back and reuses its slot. An orphan whose registration never comes
- * back - a command the new code no longer adds - stays spent, one of the
- * MAX_CALLBACK_SLOTS, until the map changes. Its listeners, its subscriptions
- * and its requests go; its natives and the modules it serves stay registered,
- * answering nothing until a plugin claims them again. The owners of the
- * modules it called hear that its run ended (TellOwners), once it is gone.
+ * register_message, register_menucmd, a raw register_clcmd - have no undo,
+ * so their publics stay bound to their slots: those become orphans, which
+ * answer PLUGIN_CONTINUE and call nothing, until the same registration comes
+ * back and reuses its slot. An orphan whose registration never comes back
+ * stays spent, one of the MAX_CALLBACK_SLOTS, until the map changes. Its
+ * commands, its listeners, its subscriptions and its requests go; its
+ * natives and the modules it serves stay registered, answering nothing
+ * until a plugin claims them again. The owners of the modules it called
+ * hear that its run ended (TellOwners), once it is gone.
  */
 static void ReleasePlugin(int index)
 {
@@ -3701,6 +3731,9 @@ static void ReleasePlugin(int index)
 	for (std::map<std::string, std::vector<Subscription> >::iterator it = g_subscriptions.begin(); it != g_subscriptions.end(); ++it)
 		DropFrom(it->second, [index](const Subscription &s) { return s.handler.plugin == index; });
 	DropFrom(g_fieldListeners, [index](const FieldListener &l) { return l.plugin == index; });
+	for (std::map<std::string, Forward> *commands : { &g_clientCommands, &g_serverCommands })
+		for (std::map<std::string, Forward>::iterator it = commands->begin(); it != commands->end(); ++it)
+			DropFrom(it->second, it->second.handlers, [index](const Handler &h) { return h.plugin == index; });
 
 	for (size_t i = 0; i < g_services.size(); i++)
 		if (g_services[i].plugin == index)
@@ -3792,9 +3825,9 @@ static void Teardown()
 	g_callfuncMark = -1;
 	g_msgSayText = g_msgTeamInfo = 0;
 
-	// Commands wait for the next map's plugin_init.
 	g_amxxReady = false;
-	g_pendingCommands.clear();
+	g_clientCommands.clear();
+	g_serverCommands.clear();
 
 	g_timers.clear();
 	g_timerHeap.clear();
@@ -4224,6 +4257,10 @@ static void BindAll(int index)
 		if (l.plugin == index) Bind(l);
 	for (std::pair<const int32_t, ArmedTimer> &t : g_armed)
 		if (t.second.handler.plugin == index) Bind(t.second.handler);
+	for (std::map<std::string, Forward> *commands : { &g_clientCommands, &g_serverCommands })
+		for (std::map<std::string, Forward>::iterator it = commands->begin(); it != commands->end(); ++it)
+			for (Handler &h : it->second.handlers)
+				if (h.plugin == index) Bind(h);
 }
 
 /**
@@ -4510,60 +4547,6 @@ static void LoadScripts(const std::deque<Plugin> &before = std::deque<Plugin>())
 }
 
 /**
- * Registers a server command that the module answers itself.
- *
- * It goes through the same pool of publics as a plugin's callbacks - AMX Mod X
- * has no other way to name a handler - with the slot marked as the module's
- * own, so n_callback knows not to look for a wasm function.
- */
-/** Takes a slot for the module itself, or -1 when none is free. */
-static int TakeModuleSlot(int owner)
-{
-	int slot = -1;
-	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++) {
-		if (!g_slots[i].used) { slot = i; break; }
-	}
-
-	if (slot < 0)
-		return -1;
-
-	g_slots[slot].used = true;
-	g_slots[slot].plugin = owner;
-	g_slots[slot].fn = 0;
-	g_slots[slot].shape = SHAPE_NARROW;
-	g_slots[slot].fallback = 1;
-	g_slots[slot].key = "";
-	g_slots[slot].handle = 0;
-	if (slot >= g_slotCount)
-		g_slotCount = slot + 1;
-
-	return slot;
-}
-
-static void RegisterServerCommand(const char *command, int owner, const char *info)
-{
-	int slot = TakeModuleSlot(owner);
-	if (slot < 0)
-		return;
-
-	char pub[32];
-	snprintf(pub, sizeof(pub), "__amxts_cb%d", slot);
-
-	// register_srvcmd(server_cmd[], function[], flags, info[], bool:info_ml):
-	// ADMIN_ALL, so it is listed with its info.
-	cell mark = g_host->hea;
-	Args params(5);
-	params[1] = PushString(command);
-	params[2] = PushString(pub);
-	params[3] = 0;
-	params[4] = PushString(info);
-	params[5] = 0;
-
-	CallNative("register_srvcmd", params);
-	g_host->hea = mark;
-}
-
-/**
  * Tells the plugins that the server is up - every plugin, or the one at
  * `only`, loaded once the server was.
  *
@@ -4786,30 +4769,6 @@ static void ReloadOne(const std::string &wanted)
 	StartPlugins(group);
 }
 
-/** A server command's argument `n`, as typed. */
-static std::string CommandArgument(int n)
-{
-	cell mark = g_host->hea;
-	cell addr;
-	cell *phys = HeapCells(128, &addr);
-	if (!phys)
-		return std::string();
-	phys[0] = 0;
-
-	Args params(3);
-	params[1] = n;
-	params[2] = addr;
-	params[3] = 127;
-	CallNative("read_argv", params);
-
-	int len = 0;
-	const char *text = MF_GetAmxString(g_host, addr, 0, &len);
-	std::string out = text ? text : "";
-
-	g_host->hea = mark;
-	return out;
-}
-
 /**
  * Reloads when a plugin's .aot has been written since it was loaded.
  *
@@ -4995,6 +4954,42 @@ static cell AMX_NATIVE_CALL n_native(AMX *amx, cell *params)
 }
 
 /**
+ * Every server command the module gave the engine: its own amxts_*, then a
+ * plugin's (g_serverCommands). The engine calls it with the line split.
+ */
+static void ServerCommand()
+{
+	// No map is running: no plugin to answer or to act on.
+	if (!g_host)
+		return;
+
+	std::string name = Lower(CMD_ARGV(0));
+	std::string arg = CMD_ARGC() > 1 ? CMD_ARGV(1) : "";
+	if (name == "amxts_reload") {
+		if (arg.empty())
+			ReloadPlugins();
+		else
+			ReloadOne(arg);
+	} else if (name == "amxts_load" || name == "amxts_unload") {
+		if (arg.empty())
+			MF_PrintSrvConsole("[amxts] %s <plugin> - amxts_plugins lists them\n", name.c_str());
+		else if (name == "amxts_load")
+			LoadOne(arg);
+		else
+			UnloadOne(arg);
+	} else if (name == "amxts_plugins") {
+		ListPlugins();
+	} else if (name == "amxts_trace") {
+		g_trace = !g_trace;
+		MF_PrintSrvConsole("[amxts] tracing %s\n", g_trace ? "on" : "off");
+	} else {
+		std::map<std::string, Forward>::iterator it = g_serverCommands.find(name);
+		if (it != g_serverCommands.end())
+			RunCommand(it->second, 0);
+	}
+}
+
+/**
  * plugin_init's part, from ServerActivate's post, after AMX Mod X's. The
  * plugins are already running: amxts_natives loaded them. What is left is the
  * module's own commands, the watcher, and telling the plugins that the
@@ -5004,20 +4999,11 @@ static void StartServer()
 {
 	g_amxxReady = true;
 
-	for (size_t i = 0; i < g_pendingCommands.size(); i++) {
-		const PendingCommand &c = g_pendingCommands[i];
-		RegisterClientCommand(c.pattern.c_str(), c.slot, c.flags, c.info.c_str());
-	}
-	if (!g_pendingCommands.empty())
-		MF_PrintSrvConsole("[amxts] %d client commands registered\n", (int)g_pendingCommands.size());
-
-	g_pendingCommands.clear();
-
-	RegisterServerCommand("amxts_reload", SLOT_RELOAD, "[plugin] - reload one amxts plugin from disk, or every one");
-	RegisterServerCommand("amxts_unload", SLOT_UNLOAD, "<plugin> - stop an amxts plugin until amxts_load or the map changes");
-	RegisterServerCommand("amxts_load", SLOT_LOAD, "<plugin> - load an amxts plugin: an unloaded one, or a file of plugins/");
-	RegisterServerCommand("amxts_plugins", SLOT_LIST, "list the amxts plugins and what each is doing");
-	RegisterServerCommand("amxts_trace", SLOT_TRACE, "log every handler call, for cornering a crash");
+	AddEngineCommand("amxts_reload");
+	AddEngineCommand("amxts_unload");
+	AddEngineCommand("amxts_load");
+	AddEngineCommand("amxts_plugins");
+	AddEngineCommand("amxts_trace");
 
 	FireInit();
 }
@@ -5710,6 +5696,84 @@ void ChangeLevel(const char *map, const char *landmark)
 	RETURN_META(MRES_IGNORED);
 }
 
+/**
+ * A player's command, after AMX Mod X's: the `command` event, then the
+ * plugins' commands of its name - unless a Pawn plugin took it, in
+ * client_command or a register_clcmd handler of its own. `say` and
+ * `say_team` are commands like any other; the facade reads the chat line.
+ */
+void ClientCommand(edict_t *e)
+{
+	if (META_RESULT_STATUS >= MRES_SUPERCEDE)
+		RETURN_META(MRES_IGNORED);
+	int id = ClientId(e);
+	if (!id)
+		RETURN_META(MRES_IGNORED);
+	if (RaiseFor(FORWARD_CLIENT_COMMAND, id) > 0)
+		RETURN_META(MRES_SUPERCEDE);
+	if (g_clientCommands.empty())
+		RETURN_META(MRES_IGNORED);
+
+	std::map<std::string, Forward>::iterator it = g_clientCommands.find(Lower(CMD_ARGV(0)));
+	if (it != g_clientCommands.end() && RunCommand(it->second, id))
+		RETURN_META(MRES_SUPERCEDE);
+	RETURN_META(MRES_IGNORED);
+}
+
+/**
+ * A line a bot sends, as a client's command comes in from the network: the
+ * engine splits it and the game's ClientCommand is called through Metamod's
+ * table, so AMX Mod X, the module and the game hear it in their order.
+ * ReHLDS gives both through its API; plain HLDS on Linux exports them.
+ * NULL where neither is found (plain HLDS on Windows).
+ */
+typedef void (*TokenizeFn)(char *line);
+static TokenizeFn     g_tokenize = NULL;
+static DLL_FUNCTIONS *g_entityApi = NULL;
+
+static bool FindClientCommandPath()
+{
+	if (g_rehlds) {
+		g_tokenize = g_rehlds->GetFuncs()->TokenizeString;
+		g_entityApi = g_rehlds->GetFuncs()->GetEntityInterface();
+	}
+#ifndef _WIN32
+	else {
+		void *engine = dlopen("engine_i486.so", RTLD_NOW | RTLD_NOLOAD);
+		if (engine) {
+			g_tokenize = (TokenizeFn)dlsym(engine, "Cmd_TokenizeString");
+			g_entityApi = (DLL_FUNCTIONS *)dlsym(engine, "gEntityInterface");
+			dlclose(engine);
+		}
+	}
+#endif
+	return g_tokenize && g_entityApi;
+}
+
+// bot_cmd(id, line) - the bot sends `line`.
+static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line)
+{
+	if (id < 1 || id > gpGlobals->maxClients)
+		return;
+	if (!g_tokenize || !g_entityApi) {
+		static bool said = false;
+		if (!said)
+			MF_PrintSrvConsole("[amxts] a bot's command is not sent on this server: it needs ReHLDS, or HLDS on Linux\n");
+		said = true;
+		return;
+	}
+
+	// The line being run - a command whose handler sends this - is put back
+	// after, for whatever reads it next.
+	// The engine's Cmd_Args is NULL for a command with no argument.
+	const char *args = CMD_ARGS();
+	std::string outer = CMD_ARGC() > 0 ? std::string(CMD_ARGV(0)) + " " + (args ? args : "") : "";
+	std::string text = AsString(Inst(env), line);
+	g_tokenize(&text[0]);
+	g_entityApi->pfnClientCommand(INDEXENT(id));
+	g_tokenize(&outer[0]);
+}
+
 // ---------------------------------------------------------------- the frame
 
 /**
@@ -5750,38 +5814,6 @@ static cell AMX_NATIVE_CALL n_callback(AMX *amx, cell *params)
 	int slot = (int)params[1];
 	if (slot < 0 || slot >= g_slotCount || !g_slots[slot].used)
 		return 1;
-
-	if (g_slots[slot].plugin == SLOT_RELOAD) {
-		std::string name = CommandArgument(1);
-		if (name.empty())
-			ReloadPlugins();
-		else
-			ReloadOne(name);
-		return 1;
-	}
-
-	if (g_slots[slot].plugin == SLOT_UNLOAD || g_slots[slot].plugin == SLOT_LOAD) {
-		bool load = g_slots[slot].plugin == SLOT_LOAD;
-		std::string name = CommandArgument(1);
-		if (name.empty())
-			MF_PrintSrvConsole("[amxts] %s <plugin> - amxts_plugins lists them\n", load ? "amxts_load" : "amxts_unload");
-		else if (load)
-			LoadOne(name);
-		else
-			UnloadOne(name);
-		return 1;
-	}
-
-	if (g_slots[slot].plugin == SLOT_LIST) {
-		ListPlugins();
-		return 1;
-	}
-
-	if (g_slots[slot].plugin == SLOT_TRACE) {
-		g_trace = !g_trace;
-		MF_PrintSrvConsole("[amxts] tracing %s\n", g_trace ? "on" : "off");
-		return 1;
-	}
 
 	// An orphan is a registration whose plugin is gone. PLUGIN_CONTINUE, so
 	// that AMX Mod X passes the command to whoever is alive - answering
@@ -5936,6 +5968,7 @@ void OnAmxxAttach()
 	MF_RegAuthFunc(OnAuthorized);
 	FieldsAttach();
 	HookDrops();
+	FindClientCommandPath();
 	ReadListFile();
 	InstallHost();
 }

@@ -1,9 +1,10 @@
 // The Pawn side of the speed check (perf.ts): the same operations as Pawn
 // plugins write them, each the best of three runs, timed with perf.ts's
 // clock and handed back to it. Run by amxts_perf_pawn <player id>, which
-// perf.ts sends, and amxts_perf_pawn_timers, once a round of timers. What
-// only Pawn can time on perf.ts's side - a forward reaching it, a command, a
-// call of its native - is timed here too and handed back with perf_ours.
+// perf.ts sends, amxts_perf_pawn_timers, once a round of timers, and
+// amxts_perf_pawn_commands, for how many commands its handler got. What
+// only Pawn can time on perf.ts's side - a forward reaching it, a call of its
+// native - is timed here too and handed back with perf_ours.
 #include <amxmodx>
 #include <fun>
 #include <reapi>
@@ -38,9 +39,7 @@ enum
 	FORWARD_PAWN,
 	FORWARD_NOBODY,
 	ECHO_OURS,
-	ECHO_PAWN,
-	COMMAND_OURS,
-	COMMAND_PAWN
+	ECHO_PAWN
 }
 
 new HookChain:g_hook;
@@ -69,6 +68,7 @@ public plugin_init()
 	register_plugin("amxts test: perf", "1.0", "amxts");
 	register_srvcmd("amxts_perf_pawn", "measure");
 	register_srvcmd("amxts_perf_pawn_timers", "arm_timers");
+	register_srvcmd("amxts_perf_pawn_commands", "report_commands");
 	register_clcmd("amxts_perf_pawn_command", "on_command");
 	g_impulse = CreateMultiForward("client_impulse", ET_IGNORE, FP_CELL, FP_CELL);
 	g_heard = CreateMultiForward("perf_heard", ET_IGNORE, FP_CELL, FP_CELL);
@@ -112,6 +112,12 @@ public on_command(id)
 {
 	g_commands++;
 	return PLUGIN_HANDLED;
+}
+
+// perf.ts sends the bot's commands, to this plugin's handler and its own, last.
+public report_commands()
+{
+	perf_report("commands", float(g_commands));
 }
 
 // A task that is removed before it runs.
@@ -240,8 +246,6 @@ run(what, id, count)
 		case FORWARD_NOBODY: for (new i = 0; i < count; i++) ExecuteForward(g_nobody, ret, id, 0);
 		case ECHO_OURS: for (new i = 0; i < count; i++) g_sink += perf_echo(i);
 		case ECHO_PAWN: for (new i = 0; i < count; i++) g_sink += perf_lib_echo(i);
-		case COMMAND_OURS: for (new i = 0; i < count; i++) amxclient_cmd(id, "amxts_perf_command");
-		case COMMAND_PAWN: for (new i = 0; i < count; i++) amxclient_cmd(id, "amxts_perf_pawn_command");
 	}
 }
 
@@ -297,10 +301,6 @@ public measure()
 	report_each("Pawn calls a plugin", ECHO_PAWN, id, FEW);
 	report_ours("Pawn calls a plugin", ECHO_OURS, id, FEW);
 
-	// amxclient_cmd goes through AMX Mod X's command dispatch, as a player's command does.
-	report_each("command", COMMAND_PAWN, id, FEW);
-	report_ours("command", COMMAND_OURS, id, FEW);
-	perf_report("commands", float(g_commands));
 
 	new Float:before = best(RESET, id, FEW);
 	EnableHookChain(g_hook);

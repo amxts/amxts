@@ -5,8 +5,8 @@ import { readFileSync } from 'node:fs';
  *
  * `Args` clears only the cells a call passes, and AMX Mod X's natives read
  * some of their optional parameters without looking at the count:
- * register_srvcmd read its info[] from whatever an earlier call had left on
- * the stack and crashed the server at its start.
+ * register_srvcmd reads its info[] from whatever an earlier call left on
+ * the stack.
  *
  * Reads runtime/natives.txt; run `bun run generate` first.
  */
@@ -56,9 +56,9 @@ test('the module passes every parameter of a native it calls', () => {
 	const table = arities();
 	const all = SOURCES.flatMap(file => calls(readFileSync(`runtime/src/${file}`, 'utf-8')).map(call => ({ file, ...call })));
 
-	// The patterns find the calls: register_srvcmd's is the one that crashed.
-	expect(all.some(call => call.native === 'register_srvcmd')).toBe(true);
-	expect(all.length).toBeGreaterThan(20);
+	// The patterns find the calls: RegisterHookChain's takes a default it must pass.
+	expect(all.some(call => call.native === 'RegisterHookChain')).toBe(true);
+	expect(all.length).toBeGreaterThan(15);
 
 	const short = all
 		.filter(call => !VARIADIC.has(call.native))

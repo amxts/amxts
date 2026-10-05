@@ -81,6 +81,8 @@ interface Slot extends Handler {
 	 * answers the fallback without reaching the plugin.
 	 */
 	off?: boolean;
+	/** A command's admin flags: a player with none of them does not reach it. */
+	access?: number;
 }
 
 interface Task {
@@ -534,6 +536,10 @@ function unsimulated(name: string): Error {
 }
 
 /** A command line as the engine splits it: on spaces, a quoted part kept whole. */
+function addTo(commands: Map<string, Slot[]>, name: string, slot: Slot): void {
+	commands.set(name, [...(commands.get(name) ?? []), slot]);
+}
+
 function splitCommand(line: string): string[] {
 	return [...line.matchAll(/"([^"]*)"|(\S+)/g)].map(m => m[1] ?? m[2]);
 }
@@ -1626,7 +1632,9 @@ export class FakeServer {
 
 	/** The handlers of the command in argv, in order, until one takes it. */
 	private handleCommand(handlers: Map<string, Slot[]>, id: number): boolean {
+		const flags = this.players.find(each => each.id === id)?.flags ?? 0;
 		return [...(handlers.get(this.argv[0].toLowerCase()) ?? [])].some((slot) => {
+			if (slot.access && !(flags & slot.access)) return false;
 			const args = [id, 0, slot.index];
 			return this.withCallArgs(args, () => this.call(slot, args, slot.fallback)) >= PLUGIN_HANDLED;
 		});
@@ -2165,13 +2173,20 @@ export class FakeServer {
 			if (slot?.plugin === plugin) slot.off = on === 0;
 		},
 
-		clcmd(this: FakeServer, plugin: PluginInstance, pattern: number, fn: number, flags: number, info: number, shape: number) {
-			const name = plugin.memory.string(pattern);
-			const slot = this.takeSlot(plugin, fn, shape, `clcmd:${name}`, PLUGIN_HANDLED);
-			let list = this.clientCommands.get(name.toLowerCase());
-			if (!list) this.clientCommands.set(name.toLowerCase(), list = []);
-			list.push(slot);
-			return slot.index;
+		// The module's own table of commands, as ClientCommand and the engine's server commands walk it.
+		clcmd(this: FakeServer, plugin: PluginInstance, name: number, fn: number, flags: number, shape: number) {
+			const slot = this.takeSlot(plugin, fn, shape, '', PLUGIN_HANDLED);
+			slot.access = flags;
+			addTo(this.clientCommands, plugin.memory.string(name).toLowerCase(), slot);
+		},
+
+		srvcmd(this: FakeServer, plugin: PluginInstance, name: number, fn: number, shape: number) {
+			addTo(this.serverCommands, plugin.memory.string(name).toLowerCase(), this.takeSlot(plugin, fn, shape, '', PLUGIN_HANDLED));
+		},
+
+		// A bot's command, as one it sent.
+		bot_cmd(this: FakeServer, plugin: PluginInstance, id: number, line: number) {
+			this.players.find(each => each.id === id)?.command(plugin.memory.string(line));
 		},
 
 		task(this: FakeServer, plugin: PluginInstance, secondsBits: number, fn: number, id: number, repeat: number) {

@@ -33,6 +33,8 @@
 #define FN_ClientPutInServer_Post ClientPutInServer_Post
 #define FN_ClientUserInfoChanged_Post ClientUserInfoChanged_Post
 #define FN_ClientKill_Post ClientKill_Post
+// The players' commands: the `command` event and the plugins' commands.
+#define FN_ClientCommand ClientCommand
 #define FN_CmdStart_Post CmdStart_Post
 #define FN_ChangeLevel ChangeLevel
 

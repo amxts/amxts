@@ -89,10 +89,14 @@ describe('a command\'s arguments, read as their types say', () => {
 	});
 
 	test('the access a command asks for, and a server command\'s words', async () => {
-		const { server, alice, heard } = await boot();
+		const { server, admin, alice, heard } = await boot();
 
 		expect(alice.say('/kick bob')).toBe(false);
 		expect(heard()).toBe('');
+		expect(alice.command('kick_all')).toBe(false);
+		expect(heard()).toBe('');
+		expect(admin.command('kick_all')).toBe(true);
+		expect(heard()).toBe('Admin kicks everyone');
 
 		server.serverCommand('cmd_reset scores');
 		expect(heard()).toBe('reset scores');
@@ -101,6 +105,14 @@ describe('a command\'s arguments, read as their types say', () => {
 		server.serverCommand('cmd_reset everything');
 		expect(heard()).toBe('');
 		expect(server.log).toContain('Usage: cmd_reset [what]');
+	});
+
+	test('a bot\'s command reaches the commands as a player\'s does', async () => {
+		const { server, heard } = await boot();
+		server.join('Robot', { bot: true });
+
+		server.serverCommand('cmd_bot_hp');
+		expect(heard()).toMatch(/^Robot has \d+ HP$/);
 	});
 
 	test('the arguments go to a function written apart as their interface', async () => {
@@ -114,7 +126,7 @@ describe('a command\'s arguments, read as their types say', () => {
 		const { admin, alice } = await boot();
 
 		alice.say('/help');
-		expect(alice.chat).toBe(['give <amount> [what]', '/me <text>', '/hp', 'say rules', 'cmd_reset [what]', 'cmd_login <url> <user>', '/help'].join('\n'));
+		expect(alice.chat).toBe(['give <amount> [what]', '/me <text>', '/hp', 'say rules', 'cmd_reset [what]', 'cmd_login <url> <user>', '/help', 'cmd_bot_hp'].join('\n'));
 		admin.say('/help');
 		expect(admin.chat.split('\n')[0]).toBe('/kick <target> [reason]');
 	});

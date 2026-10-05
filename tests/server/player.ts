@@ -4,7 +4,6 @@
 // fakemeta modules, which every server has, and reapi natives where reapi is.
 import { EV_FL_fov, EV_INT_weapons, m_autoBuyString, m_flVelocityModifier } from "@amxts/core/constants";
 import {
-	amxclient_cmd,
 	entity_get_float,
 	entity_get_int,
 	get_cvar_string,
@@ -55,7 +54,7 @@ async function run() {
 	check.expect(bot.name.length > 0, `the bot has a name (${bot.name})`).toBe(true);
 
 	// Cyrillic on purpose: a chat command's arguments are UTF-8.
-	amxclient_cmd(bot.id, "say", "/amxts_ping раз два");
+	bot.command("say \"/amxts_ping раз два\"");
 	check.expect(caller, "the chat command came from the bot").toBe(bot.name);
 	check.expect(words, "the command's arguments").toBe("раз два");
 

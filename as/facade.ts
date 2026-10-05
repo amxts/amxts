@@ -26,9 +26,9 @@ import {
 	get_cvar_num, get_cvar_string, set_cvar_num, set_cvar_string, get_players, get_user_info,
 	LibraryExists, module_exists, give_item, strip_user_weapons, user_has_weapon, engclient_cmd,
 	cs_get_user_team, cs_set_user_team, cs_get_user_deaths, get_speak, set_speak, cs_set_user_bpammo, cs_set_user_deaths, ExecuteHamB,
-	read_argc, read_argv, set_hudmessage, show_hudmessage, create_cvar, get_cvar_pointer,
+	read_argc, read_args, read_argv, set_hudmessage, show_hudmessage, create_cvar, get_cvar_pointer,
 	get_pcvar_float, get_pcvar_num, get_pcvar_string, set_pcvar_float, set_pcvar_num, set_pcvar_string,
-	hook_cvar_change, get_localinfo, register_srvcmd, register_dictionary,
+	hook_cvar_change, get_localinfo, register_dictionary,
 	set_dhudmessage, show_dhudmessage, CreateHudSyncObj, ShowSyncHudMsg, ClearSyncHud,
 	precache_model, precache_sound, precache_generic, query_client_cvar, register_touch,
 	register_message, get_msg_args, get_msg_argtype, get_msg_arg_int, get_msg_arg_float, get_msg_arg_string,
@@ -51,7 +51,11 @@ import { Vector } from "./vector";
 // @ts-ignore: decorator
 @external("env", "set_health")   declare function _setHealth(id: i32, hp: i32): void;
 // @ts-ignore: decorator
-@external("env", "clcmd")        declare function _clcmd(pattern: string, fn: i32, flags: i32, info: string, shape: i32): i32;
+@external("env", "clcmd")        declare function _clcmd(name: string, fn: i32, flags: i32, shape: i32): void;
+// @ts-ignore: decorator
+@external("env", "srvcmd")       declare function _srvcmd(name: string, fn: i32, shape: i32): void;
+// @ts-ignore: decorator
+@external("env", "bot_cmd")      declare function _botCmd(id: i32, line: string): void;
 // @ts-ignore: decorator
 @external("env", "task")         declare function _task(secondsBits: i32, fn: i32, id: i32, repeat: i32): i32;
 // @ts-ignore: decorator
@@ -1918,12 +1922,14 @@ export class Player extends PlayerFields implements Client {
 	/**
 	 * Runs a command in the player's own console, as if he had typed it:
 	 * `player.command("messagemode say_team")`, `player.command("stop")`.
-	 * The player's game runs it, not the server.
+	 * The player's game runs it, not the server. A bot has no game: its
+	 * command goes to the server as one it sent, `bot.command("say /hp")`.
 	 *
 	 * Pawn: `client_cmd`
 	 */
 	command(text: string): void {
-		new Call(NATIVE_client_cmd).num(this.id).str("%s").str(text).run();
+		if (this.isBot) _botCmd(this.id, text);
+		else new Call(NATIVE_client_cmd).num(this.id).str("%s").str(text).run();
 	}
 
 	/**
@@ -2087,7 +2093,7 @@ export function playerIds(flags: string = "", team: string = ""): number[] {
 export interface CommandOptions {
 	/** The admin right a player needs to use the command; left out, everyone may. */
 	access?: Access;
-	/** The command's description, shown by `amx_help` and in `server.commands`. */
+	/** The command's description, for `server.commands` - what a `/help` prints. */
 	description?: string;
 }
 
@@ -2148,8 +2154,8 @@ export class __CommandWords {
 		readonly player: Player | null,
 		readonly usage: string,
 		readonly words: string[],
-		/** The line from each word on, as typed: what the last text argument takes. */
-		readonly rests: string[]
+		/** The line from each word on, as typed: what the last text argument takes; `null` for the words joined by a space. */
+		readonly rests: string[] | null = null
 	) {}
 
 	get count(): i32 {
@@ -2163,7 +2169,9 @@ export class __CommandWords {
 
 	/** The rest of the line from the word at `at`. */
 	rest(at: i32): string {
-		return at < this.rests.length ? this.rests[at] : "";
+		const rests = this.rests;
+		if (rests != null) return at < rests.length ? rests[at] : "";
+		return at < this.words.length ? this.words.slice(at).join(" ") : "";
 	}
 
 	/** The word at `at` as a number; a word that is not one fails. */
@@ -2244,16 +2252,15 @@ function consoleWords(player: Player | null, usage: string): __CommandWords {
 	const words: string[] = [];
 	const count = read_argc();
 	for (let i = 1; i < count; i++) words.push(read_argv(i));
-	const rests: string[] = [];
-	for (let i = 0; i < words.length; i++) rests.push(words.slice(i).join(" "));
-	return new __CommandWords(player, usage, words, rests);
+	return new __CommandWords(player, usage, words);
 }
 
-// The commands of this plugin, by name. One trampoline serves them all - the
-// host calls it by its table index - and it finds the command by the name the
-// player typed.
+// The players' commands of this plugin, by name, each with its info; the
+// chat handler finds one by the name in the line. commandInfos is every
+// command, the server's too: server.commands.
 const commandNames: string[] = [];
 const commandRuns: ((words: __CommandWords) => void)[] = [];
+const playerCommandInfos: CommandInfo[] = [];
 const commandInfos: CommandInfo[] = [];
 let chatHooked = false;
 
@@ -2277,28 +2284,35 @@ export function accessOf(letters: string): Access[] {
 
 /** Whether a player holds the admin flag a command asks for. */
 function mayRun(id: i32, at: i32): bool {
-	const access = commandInfos[at].access;
+	const access = playerCommandInfos[at].access;
 	if (access == null) return true;
 	return (get_user_flags(id) & ACCESS.bitOf(access)) != 0;
+}
+
+/**
+ * The chat line, as the game reads it: the command's arguments, without the
+ * quotes a game's chat puts around them - `say /kick bob` typed in the
+ * console comes unquoted.
+ */
+function chatLine(): string {
+	const line = read_args().trim();
+	return line.length >= 2 && line.startsWith("\"") && line.endsWith("\"") ? line.substring(1, line.length - 1).trim() : line;
 }
 
 /** say /name a b - the chat text, its first word the name; or a phrase added as "say <phrase>", the whole line. */
 function chatCommand(player: number, level: number, cid: number, unused: number): void {
 	const id = <i32>player;
-	const text = read_argv(1).trim();
+	const text = chatLine();
 	const space = text.indexOf(" ");
 	const slash = text.startsWith("/");
 	const at = slash ? findCommand(space < 0 ? text : text.substring(0, space)) : findCommand("say " + text);
 	if (at < 0 || !mayRun(id, at)) { _outcome(0); return; }
-	runCommand(at, id, chatWords(__playerOf(id), commandInfos[at].usage, slash && space >= 0 ? text.substring(space + 1) : ""));
+	runCommand(at, id, chatWords(__playerOf(id), playerCommandInfos[at].usage, slash && space >= 0 ? text.substring(space + 1) : ""));
 }
 
-/** name a b - a console command, its arguments as the engine split them. */
-function consoleCommand(player: number, level: number, cid: number, unused: number): void {
-	const id = <i32>player;
-	const at = findCommand(read_argv(0));
-	if (at < 0 || !mayRun(id, at)) { _outcome(0); return; }
-	runCommand(at, id, consoleWords(__playerOf(id), commandInfos[at].usage));
+/** name a b - the console command at `at`, its arguments as the engine split them. */
+function consoleCommand(at: i32, id: i32): void {
+	runCommand(at, id, consoleWords(__playerOf(id), playerCommandInfos[at].usage));
 }
 
 /**
@@ -2314,12 +2328,9 @@ function runCommand(at: i32, id: i32, words: __CommandWords): void {
 	handled();
 }
 
-// The server commands of this plugin, by name, and the ones still waiting for
-// plugin_init. One trampoline serves them all, as it does the player commands.
-const serverCommandNames: string[] = [];
+// The server commands of this plugin; the module finds each by its name.
 const serverCommandRuns: ((words: __CommandWords) => void)[] = [];
 const serverCommandUsages: string[] = [];
-const waitingServerCommands: string[] = [];
 
 // A touch the engine module filters by class, so a touch nobody listens for -
 // and there is one every frame for a player on the ground - never reaches the
@@ -2362,24 +2373,10 @@ export function __ham(fn: i32, classname: string, handler: WideHandler, post: bo
 	else waitingHams.push(registration);
 }
 
-/** name a b - typed in the server console or sent over rcon. */
-function serverCommand(a: number, b: number, c: number, d: number): void {
-	const at = serverCommandNames.indexOf(read_argv(0).toLowerCase());
-	if (at < 0) { _outcome(0); return; }
-
+/** name a b - the server command at `at`, typed in the server console or sent over rcon. */
+function serverCommand(at: i32): void {
 	serverCommandRuns[at](consoleWords(null, serverCommandUsages[at]));
 	handled();
-}
-
-/**
- * Hands one name to the engine. Not from a plugin's top level: that runs
- * during plugin_natives, and a command registered then crashes the server
- * when it is typed (see publicFor). A reload takes the same public back, and
- * the engine still knows the name, so nothing is registered twice.
- */
-function registerServerCommand(name: string): void {
-	const pub = publicFor(serverCommand, "srvcmd:" + name, 1);
-	if (pub.length > 0) register_srvcmd(name, pub);
 }
 
 // ---------------------------------------------------------------- HUD
@@ -3204,8 +3201,6 @@ function attachWaitingCvars(event: PluginInitEvent): void {
 	precacheOpen = false;
 	waitingPrecaches.length = 0;
 	makeWaitingCvars();
-	for (let i = 0; i < waitingServerCommands.length; i++) registerServerCommand(waitingServerCommands[i]);
-	waitingServerCommands.length = 0;
 	for (let i = 0; i < waitingTouches.length; i++) registerTouch(waitingTouches[i]);
 	waitingTouches.length = 0;
 	for (let i = 0; i < waitingHams.length; i++) registerHam(waitingHams[i]);
@@ -3532,30 +3527,31 @@ export class Server {
 
 		commandNames.push(name.toLowerCase());
 		commandRuns.push(run);
-		commandInfos.push(new CommandInfo(usage, options.description ?? "", access ?? null, false));
+		const info = new CommandInfo(usage, options.description ?? "", access ?? null, false);
+		playerCommandInfos.push(info);
+		commandInfos.push(info);
 
 		if (!chat) {
+			// The module finds the command by its name and checks the right.
+			const at = commandRuns.length - 1;
 			const flags = access != null ? ACCESS.bitOf(access) : 0;
-			_clcmd(name, consoleCommand.index, flags, options.description ?? "", SHAPE_WIDE);
+			_clcmd(name, hostIndex((player: number, level: number, cid: number, unused: number): void => consoleCommand(at, <i32>player), true), flags, SHAPE_WIDE);
 			return;
 		}
 
 		if (chatHooked) return;
 		chatHooked = true;
-		_clcmd("say", chatCommand.index, 0, "", SHAPE_WIDE);
-		_clcmd("say_team", chatCommand.index, 0, "", SHAPE_WIDE);
+		_clcmd("say", chatCommand.index, 0, SHAPE_WIDE);
+		_clcmd("say_team", chatCommand.index, 0, SHAPE_WIDE);
 	}
 
 	/** @hidden A command of the server console, its words read by `run`, as `__addCommand`'s are. */
 	__addServerCommand(usage: string, run: (words: __CommandWords) => void): void {
-		const lower = commandName(usage).toLowerCase();
-		serverCommandNames.push(lower);
+		const at = serverCommandRuns.length;
 		serverCommandRuns.push(run);
 		serverCommandUsages.push(usage);
 		commandInfos.push(new CommandInfo(usage, "", null, true));
-
-		if (serverUp) registerServerCommand(lower);
-		else waitingServerCommands.push(lower);
+		_srvcmd(commandName(usage), hostIndex((a: number, b: number, c: number, d: number): void => serverCommand(at), true), SHAPE_WIDE);
 	}
 
 	/** Shows a HUD message to every player, with the same options as `player.showHud`. */
@@ -4113,8 +4109,8 @@ export namespace cvar {
  *
  * Pawn: `register_clcmd`
  */
-export function cmd(pattern: string, handler: Handler, flag: FlagName = "all", info: string = ""): void {
-	_clcmd(pattern, hostIndex(handler, false), flagOf(flag), info, SHAPE_NARROW);
+export function cmd(name: string, handler: Handler, flag: FlagName = "all"): void {
+	_clcmd(name, hostIndex(handler, false), flagOf(flag), SHAPE_NARROW);
 }
 
 /**
@@ -4124,8 +4120,8 @@ export function cmd(pattern: string, handler: Handler, flag: FlagName = "all", i
  *
  * Pawn: `register_clcmd`
  */
-export function cmdWide(pattern: string, handler: WideHandler, flag: FlagName = "all", info: string = ""): void {
-	_clcmd(pattern, hostIndex(handler, true), flagOf(flag), info, SHAPE_WIDE);
+export function cmdWide(name: string, handler: WideHandler, flag: FlagName = "all"): void {
+	_clcmd(name, hostIndex(handler, true), flagOf(flag), SHAPE_WIDE);
 }
 
 /** The function a timer runs: `() => ...`. */

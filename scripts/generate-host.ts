@@ -48,6 +48,7 @@ const MODULE_FORWARDS = new Set([
 	'client_authorized',
 	'client_putinserver',
 	'client_infochanged',
+	'client_command',
 	'client_disconnected',
 	'client_remove',
 	'client_kill',

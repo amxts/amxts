@@ -45,7 +45,7 @@ const LIMITS: Record<string, number> = {
 	"Pawn calls a plugin": 12,
 	"timer armed": 7,
 	"timer firing": 7,
-	"command": 25,
+	"command": 2,
 	"remainder": 2.5,
 	"fractions": 0.5,
 	"hot path": 5,
@@ -73,7 +73,7 @@ export function perf_report(what: string, value: Float) {
 	pawn.set(what, value);
 }
 
-/** A result of this side's that only Pawn can time: a forward, a command, a call from Pawn. */
+/** A result of this side's that only Pawn can time: a forward, a call from Pawn. */
 export function perf_ours(what: string, value: Float) {
 	ours.set(what, value);
 }
@@ -207,6 +207,17 @@ function impulseNs(id: number) {
 	const angles = [0, 0, 0];
 	return nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) engfunc(EngFunc_RunPlayerMove, id, angles, 0, 0, 0, 0, 1, 0);
+	});
+}
+
+/**
+ * Nanoseconds a command the bot sends takes to reach a handler: through the
+ * engine and every plugin's hook of the game's ClientCommand, as a player's
+ * command comes.
+ */
+function commandNs(bot: Player, command: string) {
+	return nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) bot.command(command);
 	});
 }
 
@@ -344,6 +355,13 @@ server.addServerCommand("amxts_test_perf", async () => {
 	}
 
 	await timeFiring();
+
+	// Pawn's handler and this plugin's, each sent the bot's command the same
+	// way. Last: the commands leave garbage that a measure after them would pay for.
+	pawn.set("command", commandNs(player, "amxts_perf_pawn_command"));
+	ours.set("command", commandNs(player, "amxts_perf_command"));
+	server.command("amxts_perf_pawn_commands");
+	await sleep(100);
 	compare(check, writes);
 	check.done();
 });

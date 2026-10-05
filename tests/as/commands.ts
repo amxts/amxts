@@ -60,6 +60,16 @@ server.addCommand("/help", ({ player }) => {
 	}
 });
 
+// After a server command and /help: each command's own usage and access, whatever came before it.
+server.addCommand("kick_all", ({ player }) => {
+	heard = `${player.name} kicks everyone`;
+}, { access: "kick" });
+
+// A bot's command, as one it sent.
+server.addServerCommand("cmd_bot_hp", () => {
+	server.players.find(player => player.isBot)?.command("say /hp");
+});
+
 export function cmd_heard() {
 	const said = heard;
 	heard = "";

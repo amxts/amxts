@@ -1168,14 +1168,16 @@ export default {
 		en: `
 			Runs a command in the player's own console, as if he had typed it:
 			\`player.command("messagemode say_team")\`, \`player.command("stop")\`.
-			The player's game runs it, not the server.
+			The player's game runs it, not the server. A bot has no game: its
+			command goes to the server as one it sent, \`bot.command("say /hp")\`.
 
 			Pawn: \`client_cmd\`
 		`,
 		ru: `
 			Выполняет команду в консоли самого игрока, будто он набрал её сам:
 			\`player.command("messagemode say_team")\`, \`player.command("stop")\`.
-			Выполняет её игра игрока, а не сервер.
+			Выполняет её игра игрока, а не сервер. У бота игры нет: его команда
+			приходит на сервер, будто он её прислал, \`bot.command("say /hp")\`.
 
 			Pawn: \`client_cmd\`
 		`,
@@ -1221,8 +1223,8 @@ export default {
 		ru: `Право админа, которое нужно игроку для команды; если не указано, команда доступна всем.`,
 	},
 	'CommandOptions.description': {
-		en: `The command's description, shown by \`amx_help\` and in \`server.commands\`.`,
-		ru: `Описание команды, которое показывают \`amx_help\` и \`server.commands\`.`,
+		en: `The command's description, for \`server.commands\` - what a \`/help\` prints.`,
+		ru: `Описание команды для \`server.commands\` - то, что печатает \`/help\`.`,
 	},
 	'accessOf': {
 		en: `
