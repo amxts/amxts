@@ -6,7 +6,9 @@ import { dirname, join } from 'node:path';
 // A module that comes compiled (scripts/prebuilt.ts): its package carries
 // its .aot for each system, its surface - what a plugin that uses it compiles
 // against - and what they were made from, and a build takes them while the
-// project would make the same - else it says why not.
+// project would make the same - else it says why not. A core is its ABI: the
+// module is compiled here as 0.9.1 and taken as 0.9.2, another patch of its
+// line with the same hood, as the server's module of that line loads it.
 // @ts-ignore - bun:test types not available during type checking
 import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { prebuiltOf, prebuiltSurface } from '../scripts/prebuilt';
@@ -73,6 +75,16 @@ function use(system: 'windows' | 'linux' = 'windows') {
 	return prebuiltOf(pkg, system, sources);
 }
 
+/** `read()` with the core built as `version`, then as 0.9.2 again. */
+function asVersion<T>(version: string, read: () => T): T {
+	process.env.AMXTS_AS_VERSION = version;
+	try {
+		return read();
+	} finally {
+		process.env.AMXTS_AS_VERSION = '0.9.2';
+	}
+}
+
 /** The surface the module came with, or why the build analyses it. */
 function surface() {
 	const { sources, pkg } = greeterPackage();
@@ -91,7 +103,11 @@ function withManifest<T>(edit: (manifest: PrebuiltManifest) => unknown, read: ()
 	}
 }
 
+const asVersionBefore = process.env.AMXTS_AS_VERSION;
+
 afterAll(() => {
+	if (asVersionBefore === undefined) delete process.env.AMXTS_AS_VERSION;
+	else process.env.AMXTS_AS_VERSION = asVersionBefore;
 	setProjectDir(HERE);
 	rmSync(dir, { recursive: true, force: true });
 });
@@ -106,7 +122,7 @@ describe.skipIf(!existsSync(wamrcPath()))('a module that comes compiled', () => 
 		config();
 		// As the release compiles it: none of this machine's settings.
 		const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('AMXTS_')));
-		const run = spawnSync(process.execPath, [join(CORE_DIR, 'scripts/prebuilt.ts')], { cwd: dir, env, encoding: 'utf8' });
+		const run = spawnSync(process.execPath, [join(CORE_DIR, 'scripts/prebuilt.ts')], { cwd: dir, env: { ...env, AMXTS_AS_VERSION: '0.9.1' }, encoding: 'utf8' });
 		expect(`${run.stdout}${run.stderr}`).toContain('prebuilt greeter');
 		expect(run.status).toBe(0);
 		original.manifest = readFileSync(manifestFile, 'utf8');
@@ -114,6 +130,8 @@ describe.skipIf(!existsSync(wamrcPath()))('a module that comes compiled', () => 
 		const made = manifest();
 		expect(Object.keys(made.systems)).toEqual(['windows', 'linux']);
 		expect(Object.keys(made.from)).toEqual(['@amxts/core', '@test/greeter']);
+		expect(made.from['@amxts/core'].version).toBe('0.9.1');
+		expect(made.from['@amxts/core'].abi).toMatch(/^0\.9\.1\+abi\.[0-9a-f]{8}$/);
 		expect(made.options).toEqual({ '@test/greeter': { greeting: 'Hello', times: 1 } });
 		// A number crosses as an include declares it: the declaration is part of the build.
 		expect(made.forwards).toEqual({ greeter_greeted: null });
@@ -123,6 +141,7 @@ describe.skipIf(!existsSync(wamrcPath()))('a module that comes compiled', () => 
 		expect(made.surface!.proxy).toContain('export function greet(name: string): string {');
 		expect(made.surface!.serve).toContain('__serve("greeter"');
 		setProjectDir(dir);
+		process.env.AMXTS_AS_VERSION = '0.9.2';
 	});
 
 	test('a build takes it as it came, for the server\'s system', () => {
@@ -132,8 +151,16 @@ describe.skipIf(!existsSync(wamrcPath()))('a module that comes compiled', () => 
 		expect(linux && 'aot' in linux && Buffer.from(linux.aot).equals(readFileSync(join(greeter, 'prebuilt/linux/greeter.aot')))).toBe(true);
 	});
 
+	test('a core of another line, or of another hood, is said, and the module compiled', () => {
+		expect(asVersion('0.10.0', use)).toEqual({ why: 'greeter 1.2.3 was built for amxts 0.9, the project has 0.10' });
+		expect(asVersion('1.9.1', use)).toEqual({ why: 'greeter 1.2.3 was built for amxts 0.9, the project has 1.9' });
+		const abi = manifest().from['@amxts/core'].abi!;
+		const other = `${abi.slice(0, abi.indexOf('+'))}+abi.99999999`;
+		expect(withManifest(made => Object.assign(made.from['@amxts/core'], { abi: other }))).toEqual({ why: expect.stringContaining(`greeter 1.2.3 was built for amxts ${other}, the project has 0.9.2+abi.`) });
+		expect(withManifest(made => Object.assign(made, { format: 1 }))).toEqual({ why: 'greeter 1.2.3 comes compiled for another build of amxts' });
+	});
+
 	test('what the project would compile otherwise is said, and compiled', () => {
-		expect(withManifest(made => Object.assign(made.from['@amxts/core'], { version: '0.0.1' }))).toEqual({ why: expect.stringContaining('greeter 1.2.3 was built for @amxts/core 0.0.1, the project has') });
 		// The core here is a checkout: its content counts, not only its version.
 		expect(withManifest(made => Object.assign(made.from['@amxts/core'], { hash: 'another' }))).toEqual({ why: expect.stringContaining('greeter 1.2.3 was built from another @amxts/core') });
 		expect(withManifest(made => Object.assign(made.forwards, { greeter_greeted: '[["Float",false]]' }))).toEqual({ why: 'the includes declare the forward greeter_greeted otherwise than when greeter 1.2.3 was built' });
@@ -155,7 +182,7 @@ describe.skipIf(!existsSync(wamrcPath()))('a module that comes compiled', () => 
 		expect(surface()).toEqual({ surface: manifest().surface! });
 		expect(withManifest(made => delete made.systems.windows, surface)).toHaveProperty('surface');
 		expect(withManifest(made => Object.assign(made.forwards, { greeter_greeted: '[["Float",false]]' }), surface)).toHaveProperty('surface');
-		expect(withManifest(made => Object.assign(made.from['@amxts/core'], { version: '0.0.1' }), surface)).toEqual({ why: expect.stringContaining('greeter 1.2.3 was built for @amxts/core 0.0.1, the project has') });
+		expect(asVersion('0.10.0', surface)).toEqual({ why: 'greeter 1.2.3 was built for amxts 0.9, the project has 0.10' });
 		expect(withManifest(made => delete made.surface, surface)).toEqual({ why: 'greeter 1.2.3 comes without its analysis' });
 
 		config(' greeter: { times: 2 },');

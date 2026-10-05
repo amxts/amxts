@@ -22,9 +22,13 @@
 // - the core: the compile's scripts, the patched AssemblyScript and its
 //   Binaryen, the API in as/, the natives table wamrc reads and the WAMR
 //   patch - which also decides whether the server's module loads the .aot.
-//   A package from the registry is its version: what npm has under a
-//   version never changes. A folder on this machine (a checkout) is its
-//   content, so the version and a hash are both kept;
+//   A package from the registry is its ABI (scripts/build-identity.ts): the
+//   .aot is taken under any core of its line whose hood is the same, as the
+//   server's module of that line loads it - a core's patch release needs no
+//   module released again. The .aot keeps the facade of the core it was
+//   compiled with, as any plugin built before the patch does. A folder on
+//   this machine (a checkout) is its content too, so the version, the ABI
+//   and a hash are all kept;
 // - every module package the compile reads - the module, and the ones it
 //   imports (menu-core reads config-core for its proxy) - the same way;
 // - the options amxts.config.ts gives them: setup is compiled with them;
@@ -47,7 +51,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
-import { coreVersion } from './build-identity';
+import { abiIdentity, abiLine, coreVersion, releaseLine } from './build-identity';
 import { compileToMachineCode, compileToWasm } from './compile';
 import { codeFiles } from './compile-cache';
 import { includeForward, nativesBeside } from './plugin-natives';
@@ -60,7 +64,7 @@ import { c, log, since } from './ui';
 export const PREBUILT_DIR = 'prebuilt';
 const MANIFEST = 'manifest.json';
 /** Goes up when the manifest changes shape: a build reads only its own. */
-const FORMAT = 1;
+const FORMAT = 2;
 const CORE_NAME = '@amxts/core';
 
 /** A package as a prebuilt module was compiled with it. */
@@ -68,6 +72,8 @@ interface Built {
 	version: string;
 	/** Its content: the code files, TypeScript without comments. */
 	hash: string;
+	/** The core's: the ABI the .aot carries. */
+	abi?: string;
 }
 
 export interface PrebuiltManifest {
@@ -152,9 +158,9 @@ function coreHash(): string {
 }
 
 /** The core or a module package the project has, by name, as a prebuilt module is checked against it. */
-function installed(name: string, sources: Sources): { version: string; dir: string; hash: () => string } | null {
+function installed(name: string, sources: Sources): { version: string; dir: string; hash: () => string; abi?: string } | null {
 	if (name === CORE_NAME) {
-		return { version: coreVersion(), dir: CORE_DIR, hash: coreHash };
+		return { version: coreVersion(), dir: CORE_DIR, hash: coreHash, abi: abiIdentity() };
 	}
 	const pkg = sources.project.packages.find(each => each.name === name);
 	return pkg ? { version: pkg.version, dir: pkg.dir, hash: () => packageHash(pkg) } : null;
@@ -223,7 +229,8 @@ function mismatch(manifest: PrebuiltManifest, pkg: ModulePackage, sources: Sourc
 	for (const [name, built] of Object.entries(manifest.from)) {
 		const have = installed(name, sources);
 		if (!have) return `${named} was built with ${name}, which the project does not have`;
-		if (have.version !== built.version) return `${named} was built for ${name} ${built.version}, the project has ${have.version}`;
+		const other = have.abi ? otherAbi(built.abi ?? '', have.abi) : have.version !== built.version && `${name} ${built.version}, the project has ${have.version}`;
+		if (other) return `${named} was built for ${other}`;
 		if (!fromRegistry(have.dir) && have.hash() !== built.hash) {
 			return `${named} was built from another ${name} ${built.version} than the one in ${posix(relative(sources.project.dir, have.dir)) || '.'}`;
 		}
@@ -238,6 +245,17 @@ function mismatch(manifest: PrebuiltManifest, pkg: ModulePackage, sources: Sourc
 	const shadow = own ? manifest.places.find(place => existsSync(join(sources.project.pluginsDir, place))) : undefined;
 	if (shadow) return `${posix(relative(sources.project.dir, join(sources.project.pluginsDir, shadow)))} takes the place of a file ${named} was built from`;
 	return null;
+}
+
+/**
+ * How the ABI a module was built for differs from the project's - `amxts 0.2,
+ * the project has 0.3`, or both whole within a line - or false when the
+ * server's module would load it.
+ */
+function otherAbi(built: string, have: string): string | false {
+	if (abiLine(built) === abiLine(have)) return false;
+	const line = (abi: string) => releaseLine(abi.slice(0, abi.indexOf('+')));
+	return line(built) === line(have) ? `amxts ${built}, the project has ${have}` : `amxts ${line(built)}, the project has ${line(have)}`;
 }
 
 /** The `new Forward<...>("name")` calls of a package whose arguments are not all text: their names. */
@@ -288,7 +306,7 @@ async function prebuild(pkg: ModulePackage, sources: Sources): Promise<string> {
 		format: FORMAT,
 		module: pkg.name,
 		version: pkg.version,
-		from: Object.fromEntries([[CORE_NAME, { version: core.version, hash: core.hash() }], ...used.map(each => [each.name, { version: each.version, hash: packageHash(each) }])]),
+		from: Object.fromEntries([[CORE_NAME, { version: core.version, hash: core.hash(), abi: core.abi }], ...used.map(each => [each.name, { version: each.version, hash: packageHash(each) }])]),
 		options: Object.fromEntries(used.map(each => [each.name, optionsOf(sources.project, each.definition)])),
 		forwards: Object.fromEntries(used.flatMap(typedForwards).map(name => [name, declarationOf(name)])),
 		places,

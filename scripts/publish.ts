@@ -53,7 +53,11 @@
 //   optimised, in prebuilt/ with the manifest a build checks it against
 //   (scripts/prebuilt.ts) - compiled here, with this system's wamrc of the
 //   release, which writes either system's .aot - and in the manifest its
-//   surface, which a plugin that uses it compiles against.
+//   surface, which a plugin that uses it compiles against. A build takes it
+//   under any core of the line it was compiled for whose ABI is the same, so
+//   a core's patch release needs no module released again; one that changes
+//   the ABI's hash makes every project compile the modules npm has, until
+//   they are released again.
 // - a package without a LICENSE of its own gets its repository's.
 //
 // Publishing to npm refuses a folder with uncommitted changes and a wamrc
