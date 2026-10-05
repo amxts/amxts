@@ -1274,36 +1274,58 @@ export class HookEvent {
 	// it was called with, and SetHookChainArg changes what the chain goes on
 	// with but not what arg() reads. Without these, \`event.damage = 1.0\`
 	// did its job and \`event.damage\` still said 65 - measured on the server.
-	private written: Map<i32, i32> = new Map<i32, i32>();
-	private writtenText: Map<i32, string> = new Map<i32, string>();
-	private writtenVector: Map<i32, Vector> = new Map<i32, Vector>();
+	// Made on the first write: most events are only read.
+	private written: Map<i32, i32> | null = null;
+	private writtenText: Map<i32, string> | null = null;
+	private writtenVector: Map<i32, Vector> | null = null;
 
 	/** An argument as the handler sees it now: its own write, or what came in. */
 	protected __cell(index: i32): i32 {
-		return this.written.has(index) ? this.written.get(index) : this.__hlds ? 0 : arg(index);
+		const written = this.written;
+		return written != null && written.has(index) ? written.get(index) : this.__hlds ? 0 : arg(index);
 	}
 
 	protected __text(index: i32): string {
-		return this.writtenText.has(index) ? this.writtenText.get(index) : this.__hlds ? "" : argText(index);
+		const written = this.writtenText;
+		return written != null && written.has(index) ? written.get(index) : this.__hlds ? "" : argText(index);
 	}
 
 	protected __vector(index: i32): Vector {
-		return this.writtenVector.has(index) ? this.writtenVector.get(index) : this.__hlds ? new Vector() : __nativeVector(index);
+		const written = this.writtenVector;
+		return written != null && written.has(index) ? written.get(index) : this.__hlds ? new Vector() : __nativeVector(index);
+	}
+
+	private __write(index: i32, cell: i32): void {
+		let written = this.written;
+		if (written == null) this.written = written = new Map<i32, i32>();
+		written.set(index, cell);
+	}
+
+	private __writeText(index: i32, value: string): void {
+		let written = this.writtenText;
+		if (written == null) this.writtenText = written = new Map<i32, string>();
+		written.set(index, value);
+	}
+
+	private __writeVector(index: i32, value: Vector): void {
+		let written = this.writtenVector;
+		if (written == null) this.writtenVector = written = new Map<i32, Vector>();
+		written.set(index, value);
 	}
 
 	/** @hidden A field's value from a stock hook's backend, by the argument's place; -1 is the game's answer. */
 	__give(index: i32, cell: i32): void {
-		this.written.set(index, cell);
+		this.__write(index, cell);
 	}
 
 	/** @hidden */
 	__giveText(index: i32, value: string): void {
-		this.writtenText.set(index, value);
+		this.__writeText(index, value);
 	}
 
 	/** @hidden */
 	__giveVector(index: i32, value: Vector): void {
-		this.writtenVector.set(index, value);
+		this.__writeVector(index, value);
 	}
 
 	/** Writes a number argument back: \`atype\` says how it is read, a float as its bits. */
@@ -1312,20 +1334,20 @@ export class HookEvent {
 		else if (!this.__ham) SetHookChainArg(index + 1, atype, cell);
 		else if (atype == ATYPE_FLOAT) SetHamParamFloat(index + 1, cellFloat(cell));
 		else SetHamParamInteger(index + 1, cell);
-		this.written.set(index, cell);
+		this.__write(index, cell);
 	}
 
 	protected __setText(index: i32, value: string): void {
 		if (this.__hlds) this.__changed = true;
 		else if (this.__ham) SetHamParamString(index + 1, value);
 		else new Call(NATIVE_SetHookChainArg).num(index + 1).num(ATYPE_STRING).str(value).run();
-		this.writtenText.set(index, value);
+		this.__writeText(index, value);
 	}
 
 	// Only Ham Sandwich takes an entity back; reapi's events have no setter for one.
 	protected __setEntity(index: i32, id: number): void {
 		SetHamParamEntity(index + 1, id);
-		this.written.set(index, <i32>id);
+		this.__write(index, <i32>id);
 	}
 
 	// SetHookChainArg takes no vector: reapi hands one over as an array it
@@ -1335,12 +1357,12 @@ export class HookEvent {
 		if (this.__hlds) this.__changed = true;
 		else if (this.__ham) SetHamParamVector(index + 1, value);
 		else __setNativeVector(index, value);
-		this.writtenVector.set(index, value);
+		this.__writeVector(index, value);
 	}
 
 	/** The game's answer as a cell - ATYPE_EDICT is an entity. */
 	protected __resultCell(atype: i32): i32 {
-		if (this.__hlds) return this.written.has(-1) ? this.written.get(-1) : 0;
+		if (this.__hlds) return this.__cell(-1);
 		if (!this.__ham) return GetHookChainReturn(atype);
 		if (atype == ATYPE_FLOAT) GetHamReturnFloat(changetype<i32>(hamOut));
 		else if (atype == ATYPE_EDICT) GetHamReturnEntity(changetype<i32>(hamOut));
