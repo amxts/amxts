@@ -4131,9 +4131,9 @@ export function cmdWide(pattern: string, handler: WideHandler, flag: FlagName = 
 /** The function a timer runs: `() => ...`. */
 export type TimerHandler = () => void;
 
-// The timers that are armed, by handle. The host fires a task by calling one
-// function with the task's id; that function is timerFired, which calls the
-// handler from here - with its closure, which a bare table index would lose.
+// The timers that are armed, by handle. The module fires a timer by calling one
+// function with its id; that function is timerFired, which calls the handler
+// from here - with its closure, which a bare table index would lose.
 class Timer {
 	constructor(public handler: TimerHandler, public repeat: bool) {}
 }
@@ -4148,13 +4148,13 @@ function timerFired(handle: i32): void {
 }
 
 function armTimer(handler: TimerHandler, ms: number, repeat: bool): i32 {
-	// The host's task ids are one space for every plugin, and a timer is
-	// stopped by its id: the handle comes from the host, so no other plugin
+	// The module's timer ids are one space for every plugin, and a timer is
+	// stopped by its id: the handle comes from the module, so no other plugin
 	// has it and clearTimeout here cannot stop a timer there.
 	const handle = _uniqueId();
 	timers.set(handle, new Timer(handler, repeat));
-	// The delay crosses as the bit pattern of a 32-bit float, because a Pawn
-	// native takes cells and every signature in the table is all-i on purpose.
+	// The delay crosses as the bit pattern of a 32-bit float: every signature
+	// in the module's table is all-i on purpose.
 	_task(floatCell(ms / 1000.0), timerFired.index, handle, repeat ? 1 : 0);
 	return handle;
 }

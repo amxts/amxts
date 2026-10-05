@@ -45,6 +45,7 @@
 #include <vector>
 #include <deque>
 #include <map>
+#include <unordered_map>
 #include <algorithm>
 
 // ---------------------------------------------------------------- amx layout
@@ -330,33 +331,6 @@ struct Slot : Handler {
 	 * HAM_IGNORED is 1 again. So whoever takes the slot says what silence means.
 	 */
 	cell     fallback;
-	/**
-	 * A task fires once and is done with its slot.
-	 *
-	 * Without this the slots are a countdown: a plugin arming one a round
-	 * stops responding partway through the map. set_task with no repeat flag
-	 * is the only thing that sets it, so a command or a hook keeps its slot
-	 * for as long as it is registered - which is forever, since AMX Mod X
-	 * cannot unregister any of them.
-	 */
-	bool     oneShot;
-	/**
-	 * The id a task was armed with, so stopTask can give its slot back.
-	 *
-	 * -1 for a slot that is not a task's. A repeating task keeps firing until
-	 * something removes it, and a plugin arming one per player and removing it
-	 * again would otherwise spend a slot each time.
-	 */
-	cell     taskId;
-	/**
-	 * Bumped every time the slot is taken. A task's callback may stop itself
-	 * and arm the next one - frost's thaw arms the end of the slow - and that
-	 * next task can land in the very slot just given back. Freeing "the slot
-	 * that fired" afterwards then freed the new task instead, and its
-	 * callback found an empty slot: a thawed player kept glowing for good.
-	 * The fire path frees the slot only if the generation is still its own.
-	 */
-	uint32_t generation;
 	// What this slot was registered for: "clcmd:say /hp", "hook:3072". AMX Mod
 	// X cannot unregister any of them, so on a reload the plugin takes its own
 	// slots back by this key rather than registering a second time.
@@ -387,7 +361,6 @@ struct Slot : Handler {
 #define SLOT_RELOAD   (-2)
 #define SLOT_LIST     (-3)
 #define SLOT_TRACE   (-7)
-#define SLOT_WATCH    (-5)
 #define SLOT_ORPHANED (-6)
 #define SLOT_LOAD     (-8)
 #define SLOT_UNLOAD   (-9)
@@ -742,21 +715,6 @@ static cell CallWithHandle(const char *name, cell handle)
 	Args params(1);
 	params[1] = handle;
 	return CallByName(name, params);
-}
-
-/**
- * remove_task(id, 1). A task armed here is the host plugin's rather than the
- * plugin's that asked, so remove_task with its default "this plugin only"
- * finds nothing - measured: a repeating task went on firing through it. The
- * flag means "wherever it is"; the ids are the module's own (co_id), so no
- * other plugin's task has one.
- */
-static cell RemoveTask(cell id)
-{
-	Args params(2);
-	params[1] = id;
-	params[2] = 1;
-	return CallNative("remove_task", params);
 }
 
 /**
@@ -1745,9 +1703,6 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 				g_slots[i].tag = tag;
 				g_slots[i].shape = shape;
 				g_slots[i].fallback = fallback;
-				g_slots[i].oneShot = false;
-				g_slots[i].taskId = -1;
-				g_slots[i].generation++;
 				g_slots[i].off = false;
 				Bind(g_slots[i]);
 				if (g_slots[i].enable && g_slots[i].handle)
@@ -1775,9 +1730,6 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 	g_slots[slot].tag = tag;
 	g_slots[slot].shape = shape;
 	g_slots[slot].fallback = fallback;
-	g_slots[slot].oneShot = false;
-	g_slots[slot].taskId = -1;
-	g_slots[slot].generation++;
 	g_slots[slot].key = key ? key : "";
 	g_slots[slot].handle = 0;
 	g_slots[slot].disable = NULL;
@@ -1864,7 +1816,7 @@ static int32_t w_clcmd(wasm_exec_env_t env, int32_t pattern, int32_t fn, int32_t
  * slot(handler, shape, key, fallback) - a host public standing in for a wasm
  * function, with the registering left to the plugin.
  *
- * w_clcmd, w_task, w_hook and w_ham each park a function in a slot and then
+ * w_clcmd, w_hook and w_ham each park a function in a slot and then
  * call the one AMXX native they were built for. Every other AMXX facility that
  * takes a callback by name - register_message, register_touch, query_client_cvar,
  * set_native_filter, menu_core's registrars - would need another
@@ -1910,22 +1862,6 @@ static int32_t w_argText(wasm_exec_env_t env, int32_t index, int32_t out, int32_
 	int len = 0;
 	const char *text = MF_GetAmxString(g_callAmx, g_callArgs[index], 0, &len);
 	return WriteBytes(Inst(env), out, max, text ? text : "");
-}
-
-/**
- * stopTask(id) - remove_task, and the slot with it (RemoveTask).
- */
-static int32_t w_stopTask(wasm_exec_env_t env, int32_t id)
-{
-	(void)env;
-
-	cell removed = RemoveTask((cell)id);
-
-	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++)
-		if (g_slots[i].used && g_slots[i].taskId == (cell)id)
-			g_slots[i].used = false;
-
-	return (int32_t)removed;
 }
 
 /**
@@ -2256,46 +2192,125 @@ static void w_slotOn(wasm_exec_env_t env, int32_t slot, int32_t on)
 	g_slots[slot].off = !on;
 }
 
+// ---------------------------------------------------------------- timers
+//
+// setTimeout, setInterval and sleep: a binary heap by due time, walked once a
+// frame (RunTimers, from StartFrame). Arming is a push, clearing takes the
+// timer out of g_armed - its entry in the heap is dropped when it comes up -
+// and firing calls the plugin directly. No AMX Mod X task, so no limit.
+
+struct TimerEntry {
+	double   due;
+	uint64_t order;   // arming order: two timers due together fire as armed
+	int32_t  id;
+};
+
+struct ArmedTimer {
+	Handler handler;
+	double  every;    // a repeating timer's period in seconds; < 0 fires once
+};
+
+/** The earliest due on top of the heap, then the earliest armed. */
+static bool LaterTimer(const TimerEntry &a, const TimerEntry &b)
+{
+	return a.due != b.due ? a.due > b.due : a.order > b.order;
+}
+
+static std::vector<TimerEntry> g_timerHeap;
+static std::unordered_map<int32_t, ArmedTimer> g_armed;
+static uint64_t g_timerOrder = 0;
+
+// When the frame looks at the plugins' files next (WatchPlugins).
+static float g_nextWatch = 0;
+
+static void QueueTimer(double due, int32_t id)
+{
+	TimerEntry e = { due, g_timerOrder++, id };
+	g_timerHeap.push_back(e);
+	std::push_heap(g_timerHeap.begin(), g_timerHeap.end(), LaterTimer);
+}
+
 /**
- * task(seconds, handler, id) — set_task with a host public standing in for the
- * handler, exactly as clcmd does.
+ * task(seconds, handler, id, repeat) - fires `handler(id)` after `seconds`,
+ * and every `seconds` after that when `repeat` is set. The ids are the
+ * module's own (co_id), so no other plugin's timer has one.
  *
  * The delay arrives as the bit pattern of a 32-bit float rather than as an f32
- * parameter: a Pawn native takes cells, and keeping every signature to `i`
- * means the table wamrc reads cannot disagree with the host about anything
- * but arity — which it now warns about.
+ * parameter: keeping every signature to `i` means the table wamrc reads
+ * cannot disagree with the host about anything but arity.
  */
 static int32_t w_task(wasm_exec_env_t env, int32_t secondsBits, int32_t fn, int32_t id, int32_t repeat)
 {
-	// No key: a task is armed once and fires once, so a reload arms a new one
-	// rather than taking over something that has already gone off.
-	int slot = TakeSlot(fn, SHAPE_NARROW, "", NULL, 0);        // a task answers nobody
-	if (slot < 0)
+	(void)env;
+	int32_t tag = TakeTag();
+	if (g_currentPlugin < 0 || !gpGlobals)
 		return -1;
 
-	// A repeating task keeps its slot: it is still going to fire.
-	g_slots[slot].oneShot = !repeat;
-	g_slots[slot].taskId = (cell)id;
+	float seconds;
+	memcpy(&seconds, &secondsBits, sizeof(seconds));
+	if (!(seconds > 0))
+		seconds = 0;
 
-	char pub[32];
-	snprintf(pub, sizeof(pub), "__amxts_cb%d", slot);
+	ArmedTimer &t = g_armed[id];
+	t.handler = Handler();
+	t.handler.plugin = g_currentPlugin;
+	t.handler.fn = (uint32_t)fn;
+	t.handler.shape = SHAPE_NARROW;
+	t.handler.tag = tag;
+	Bind(t.handler);
+	t.every = repeat ? seconds : -1;
 
-	cell mark = g_host->hea;
+	QueueTimer(gpGlobals->time + seconds, id);
+	return 0;
+}
 
-	// set_task(Float:time, const function[], id, const parameter[], len,
-	// const flags[], repeat) - "b" is the flag for "keep firing".
-	Args params(7);
-	params[1] = (cell)secondsBits;
-	params[2] = PushString(pub);
-	params[3] = id;
-	params[4] = PushString("");
-	params[5] = 0;
-	params[6] = PushString(repeat ? "b" : "");
-	params[7] = 0;
+/** stopTask(id) - the timer does not fire again; 1 if it was armed. */
+static int32_t w_stopTask(wasm_exec_env_t env, int32_t id)
+{
+	(void)env;
+	return g_armed.erase(id) ? 1 : 0;
+}
 
-	CallNative("set_task", params);
-	g_host->hea = mark;
-	return slot;
+/**
+ * Fires every timer that is due. What is due is taken off the heap first, so
+ * a timer armed or repeated by a handler waits for a later frame, even with
+ * no delay. Precision: one frame.
+ */
+static void RunTimers()
+{
+	if (g_timerHeap.empty())
+		return;
+
+	double now = gpGlobals->time;
+	std::vector<int32_t> due;
+	while (!g_timerHeap.empty() && g_timerHeap.front().due <= now) {
+		std::pop_heap(g_timerHeap.begin(), g_timerHeap.end(), LaterTimer);
+		due.push_back(g_timerHeap.back().id);
+		g_timerHeap.pop_back();
+	}
+
+	for (size_t i = 0; i < due.size(); i++) {
+		std::unordered_map<int32_t, ArmedTimer>::iterator it = g_armed.find(due[i]);
+		if (it == g_armed.end())
+			continue;   // cleared, or its plugin is gone
+
+		// A copy: the handler may clear this timer or arm others.
+		Handler h = it->second.handler;
+		if (it->second.every < 0)
+			g_armed.erase(it);
+		else
+			QueueTimer(now + it->second.every, due[i]);
+
+		uint32_t argv[1] = { (uint32_t)due[i] };
+		Fire(h, argv, 1, 0);
+	}
+}
+
+/** A stopped plugin's timers go; their entries in the heap are dropped as they come up. */
+static void DropTimers(int plugin)
+{
+	for (std::unordered_map<int32_t, ArmedTimer>::iterator it = g_armed.begin(); it != g_armed.end(); )
+		it = it->second.handler.plugin == plugin ? g_armed.erase(it) : ++it;
 }
 
 // The most arguments one dispatched call carries: a forward's 32 after
@@ -3647,7 +3662,7 @@ static void ReleasePlugin(int index)
 	p.run = 0;
 	if (p.inst)
 		NetForget(p.inst);
-	// Their timers and requests come back to orphaned slots, which do nothing.
+	DropTimers(index);
 	if (!p.coroutines.empty())
 		MF_PrintSrvConsole("[amxts] %s: %d async function(s) were still waiting, and are dropped\n",
 		                   p.name.c_str(), (int)p.coroutines.size());
@@ -3687,11 +3702,6 @@ static void ReleasePlugin(int index)
 		Slot &slot = g_slots[i];
 		if (!slot.used || slot.plugin != index)
 			continue;
-		if (slot.taskId >= 0) {
-			RemoveTask(slot.taskId);
-			slot.used = false;
-			continue;
-		}
 		if (slot.disable && slot.handle)
 			CallWithHandle(slot.disable, slot.handle);
 		slot.plugin = SLOT_ORPHANED;
@@ -3779,6 +3789,9 @@ static void Teardown()
 	g_pendingCommands.clear();
 
 	g_timers.clear();
+	g_timerHeap.clear();
+	g_armed.clear();
+	g_nextWatch = 0;
 	g_trace = false;
 	g_namesChanging = false;
 	ForgetEdicts();
@@ -4201,6 +4214,8 @@ static void BindAll(int index)
 		if (e.plugin == index) Bind(e);
 	for (FieldListener &l : g_fieldListeners)
 		if (l.plugin == index) Bind(l);
+	for (std::pair<const int32_t, ArmedTimer> &t : g_armed)
+		if (t.second.handler.plugin == index) Bind(t.second.handler);
 }
 
 /**
@@ -4517,41 +4532,6 @@ static int TakeModuleSlot(int owner)
 	return slot;
 }
 
-/**
- * Arms the repeating task that watches for a rebuilt plugin.
- *
- * "b" is set_task's flag for looping forever. The task belongs to the module
- * rather than to a plugin, so a reload leaves it running.
- */
-static void StartWatcher()
-{
-	int slot = TakeModuleSlot(SLOT_WATCH);
-	if (slot < 0)
-		return;
-
-	char pub[32];
-	snprintf(pub, sizeof(pub), "__amxts_cb%d", slot);
-
-	// set_task will not go below a tenth of a second. Next to asc and wamrc,
-	// which take a second or two, this is not the part anyone waits for.
-	float seconds = 0.1f;
-	cell delay;
-	memcpy(&delay, &seconds, sizeof(cell));
-
-	cell mark = g_host->hea;
-	Args params(7);
-	params[1] = delay;
-	params[2] = PushString(pub);
-	params[3] = 0;
-	params[4] = PushString("");
-	params[5] = 0;
-	params[6] = PushString("b");
-	params[7] = 0;
-
-	CallNative("set_task", params);
-	g_host->hea = mark;
-}
-
 static void RegisterServerCommand(const char *command, int owner, const char *info)
 {
 	int slot = TakeModuleSlot(owner);
@@ -4827,9 +4807,9 @@ static std::string CommandArgument(int n)
  *
  * A rebuild is the only thing that changes that file, so this is what makes
  * `bun run plugins --deploy` land on a running server without a map change or
- * anyone typing a command. It runs from a repeating set_task, which means the
- * call arrives from Pawn with no wasm frame underneath - the one place where
- * throwing the instances away is safe.
+ * anyone typing a command. It runs from the frame (StartFrame_Post), with no
+ * wasm frame underneath - the one place where throwing the instances away is
+ * safe.
  *
  * The new time is taken before the reload, not after, so a plugin that fails
  * to load is not retried every second.
@@ -5028,7 +5008,6 @@ static cell AMX_NATIVE_CALL n_init(AMX *amx, cell *params)
 	RegisterServerCommand("amxts_load", SLOT_LOAD, "<plugin> - load an amxts plugin: an unloaded one, or a file of plugins/");
 	RegisterServerCommand("amxts_plugins", SLOT_LIST, "list the amxts plugins and what each is doing");
 	RegisterServerCommand("amxts_trace", SLOT_TRACE, "log every handler call, for cornering a crash");
-	StartWatcher();
 
 	FireInit();
 	return 1;
@@ -5076,14 +5055,6 @@ static cell AMX_NATIVE_CALL n_event(AMX *amx, cell *params)
 			NameChanges((int)*id, 1);
 	}
 
-	// The responses that came in since the last frame go to their plugins
-	// first, whoever listens to the frame.
-	if (forward == FORWARD_SERVER_FRAME) {
-		if (g_namesChanging)
-			NamesChanged();
-		NetFrame();
-	}
-
 	// Most forwards the host relays - a frame, a player thinking - nobody
 	// listens to: they cost this much and no more. Before amxts_init, as AMX
 	// Mod X dispatches plugin_natives and plugin_modules, nothing listens yet.
@@ -5119,6 +5090,36 @@ static cell AMX_NATIVE_CALL n_event(AMX *amx, cell *params)
 
 	CallArgs context(args, argc, amx, -1, lengths);
 	return Dispatch(f, args, argc);
+}
+
+// ---------------------------------------------------------------- the frame
+
+/**
+ * Metamod's StartFrame, after the game's: once a server frame. What came in
+ * since the last frame goes to the plugins first - the responses, the names
+ * that changed - then the timers that are due, then the frame's listeners.
+ * The watcher last, since a reload throws the instances away.
+ */
+void StartFrame_Post()
+{
+	if (g_namesChanging)
+		NamesChanged();
+	NetFrame();
+	RunTimers();
+
+	Forward &f = g_forwards[FORWARD_SERVER_FRAME];
+	if (!f.handlers.empty() || !f.subscribers.empty()) {
+		CallArgs context(NULL, 0, NULL);
+		Dispatch(f, NULL, 0);
+	}
+
+	// Every tenth of a second, from plugin_init on, as the module's commands.
+	if (g_amxxReady && gpGlobals->time >= g_nextWatch) {
+		g_nextWatch = gpGlobals->time + 0.1f;
+		WatchPlugins();
+	}
+
+	RETURN_META(MRES_IGNORED);
 }
 
 // amxts_callback(slot, numargs, a .. h) - the host plugin's pool of publics.
@@ -5160,11 +5161,6 @@ static cell AMX_NATIVE_CALL n_callback(AMX *amx, cell *params)
 		return 1;
 	}
 
-	if (g_slots[slot].plugin == SLOT_WATCH) {
-		WatchPlugins();
-		return 1;
-	}
-
 	// An orphan is a registration whose plugin is gone. PLUGIN_CONTINUE, so
 	// that AMX Mod X passes the command to whoever is alive - answering
 	// PLUGIN_HANDLED here is what made `say /hp` go quiet after a reload.
@@ -5199,18 +5195,7 @@ static cell AMX_NATIVE_CALL n_callback(AMX *amx, cell *params)
 	// What silence means was decided when the slot was taken: PLUGIN_HANDLED
 	// for a command, HC_CONTINUE for a hookchain. One value for both would
 	// have a hook handler that says nothing block the function it hooks.
-	uint32_t generation = g_slots[slot].generation;
-	bool oneShot = g_slots[slot].oneShot;
-
-	cell result = Fire(g_slots[slot], argv, n, g_slots[slot].fallback);
-
-	// A task has now fired, and set_task without a repeat flag does not fire
-	// again. Its slot goes back, or a plugin arming one a round runs out -
-	// unless the callback already gave it back and something else took it.
-	if (oneShot && g_slots[slot].generation == generation)
-		g_slots[slot].used = false;
-
-	return result;
+	return Fire(g_slots[slot], argv, n, g_slots[slot].fallback);
 }
 
 // ---------------------------------------------------------------- player fields for Pawn

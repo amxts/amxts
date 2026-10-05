@@ -34,6 +34,10 @@ const HOST_CELLS = 131072;
 // plugin_natives loads the plugins before AMX Mod X asks anyone for natives.
 const SKIP_FORWARDS = new Set(['plugin_init', 'plugin_natives']);
 
+// Forwards the module fires itself, from Metamod: the host has no public for
+// them, and they keep their number and their event.
+const MODULE_FORWARDS = new Set(['server_frame']);
+
 function isFloat(p: Parameter): boolean {
 	return /Float/.test(p.type);
 }
@@ -875,7 +879,7 @@ public amxts_native_filter(const name[], index, trap)
 }
 
 // ---------------------------------------------------------------- forwards
-${forwards.map(forwardStub).join('\n\n')}
+${forwards.filter(f => !MODULE_FORWARDS.has(f.name)).map(forwardStub).join('\n\n')}
 
 // ------------------------------------------------- natives plugins export
 ${NATIVE_PUBLIC}

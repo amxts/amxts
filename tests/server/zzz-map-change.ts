@@ -1,22 +1,21 @@
 // A map change mid-game: AMX Mod X keeps the module loaded, and every plugin
-// starts over on the new map. The command notes this map's timer, the clock
-// and the starts counted, and changes to the same map; the version that comes
-// back checks that it started once, that the old timer's task is gone, that
-// the clock went on - the module was not loaded again - and that an entity's
+// starts over on the new map. The command notes the clock and the starts
+// counted, and changes to the same map; the version that comes back checks
+// that it started once, that its interval fires once a period, that the clock
+// went on - the module was not loaded again - and that an entity's
 // fields are the new map's. A map change starts every plugin of the test
 // server over, so this file is named to run after zz-reload.
-import { task_exists } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
-/** The old map's timer, clock and starts, for the plugin on the new map to look for. */
+/** The old map's clock and starts, for the plugin on the new map to look for. */
 const left = new Cvar("amxts_test_map_left", "");
 const starts = new Cvar("amxts_test_map_starts", "0");
 
 let ticks = 0;
-const interval = setInterval(() => ticks++, 400);
+setInterval(() => ticks++, 400);
 
 server.addServerCommand("amxts_test_map_change", () => {
-	left.value = `${interval} ${performance.now()} ${starts.number}`;
+	left.value = `${performance.now()} ${starts.number}`;
 	server.command(`changelevel ${server.map}`);
 });
 
@@ -27,11 +26,10 @@ server.addEventListener("init", () => {
 
 function check() {
 	const check = new Checks("map-change");
-	const [oldInterval, clock, startsBefore] = left.value.split(" ");
+	const [clock, startsBefore] = left.value.split(" ");
 	left.value = "";
 
 	check.expect(starts.number - parseInt(startsBefore), "the plugin starts once on the new map").toBe(1);
-	check.expect(task_exists(parseInt(oldInterval), 1), "the old map's interval is gone").toBe(0);
 	check.expect(ticks >= 1 && ticks <= 3, `the new interval fires once a period (${ticks} in 1 s at 0.4 s)`).toBe(true);
 	check.expect(performance.now() > parseFloat(clock), "the clock goes on: the module stayed loaded").toBe(true);
 

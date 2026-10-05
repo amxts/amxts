@@ -21,4 +21,7 @@
 #define FN_AMXX_PLUGINSLOADED OnPluginsLoaded
 #define FN_AMXX_PLUGINSUNLOADED OnPluginsUnloaded
 
+// The frame: the timers, the responses, the watcher and the `frame` event.
+#define FN_StartFrame_Post StartFrame_Post
+
 #endif
