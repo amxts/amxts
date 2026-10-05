@@ -50,6 +50,9 @@ version`.
   native as a direct call;
 - the warning about a signature that disagrees with its import, which WAMR
   compiles out of its own compiler;
+- on i386, a double made a 64-bit integer with saturation (`i64.trunc_sat_f64_s`,
+  what every number made a cell becomes) through SSE2 when it fits in 32 bits,
+  and through the x87 only when it does not;
 - the i386 symbols the loader did not resolve, which LLVM spells with one
   underscore: the float and vector constant pools (`_real@...`, `_xmm@...`)
   and, on Windows, the 64-bit division helpers (`_alldiv`, `_aullrem`, ...);

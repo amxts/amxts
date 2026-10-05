@@ -341,6 +341,85 @@ index 82f70ca..ea501fb 100644
  
      while (frame_ip < frame_ip_end) {
          opcode = *frame_ip++;
+diff --git a/core/iwasm/compilation/aot_emit_conversion.c b/core/iwasm/compilation/aot_emit_conversion.c
+index fa5c2ab..a70adde 100644
+--- a/core/iwasm/compilation/aot_emit_conversion.c
++++ b/core/iwasm/compilation/aot_emit_conversion.c
+@@ -254,6 +254,74 @@ trunc_sat_float_to_int(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
+             res = aot_call_llvm_intrinsic(comp_ctx, func_ctx, intrinsic,
+                                           dest_type, &src_type, 1, operand);
+         }
++        else if (sign && dest_type == I64_TYPE && src_type == F64_TYPE
++                 && !comp_ctx->is_indirect_mode
++                 && !strncmp(comp_ctx->target_arch, "i386", 4)) {
++            /* amxts: on i386 a double becomes a 64-bit integer through the
++               x87 - a store, fld, two fldcw and fistp - while one within 32
++               bits, which is nearly every one (a number made a cell is
++               trunc_sat to 64 bits and a wrap), takes SSE2's cvttsd2si. */
++            LLVMBasicBlockRef narrow_block, wide_block, joined_block;
++            LLVMValueRef fits, narrow, wide, branch;
++            LLVMMetadataRef weights[3];
++
++            fits = LLVMBuildAnd(
++                comp_ctx->builder,
++                LLVMBuildFCmp(comp_ctx->builder, LLVMRealOGT, operand,
++                              F64_CONST(-2147483649.0), "above_i32_min"),
++                LLVMBuildFCmp(comp_ctx->builder, LLVMRealOLT, operand,
++                              F64_CONST(2147483648.0), "below_i32_max"),
++                "fits_i32");
++            ADD_BASIC_BLOCK(joined_block, "trunc_joined");
++            ADD_BASIC_BLOCK(wide_block, "trunc_wide");
++            ADD_BASIC_BLOCK(narrow_block, "trunc_narrow");
++            if (!fits
++                || !(branch = LLVMBuildCondBr(comp_ctx->builder, fits,
++                                              narrow_block, wide_block))) {
++                aot_set_last_error("llvm build cond br failed.");
++                goto fail;
++            }
++            /* Weighted as nearly always narrow, or LLVM makes it a select
++               and runs the x87 path every time too. */
++            weights[0] = LLVMMDStringInContext2(comp_ctx->context,
++                                                "branch_weights", 14);
++            weights[1] = LLVMValueAsMetadata(I32_CONST(2000));
++            weights[2] = LLVMValueAsMetadata(I32_CONST(1));
++            LLVMSetMetadata(
++                branch,
++                LLVMGetMDKindIDInContext(comp_ctx->context, "prof", 4),
++                LLVMMetadataAsValue(comp_ctx->context,
++                                    LLVMMDNodeInContext2(comp_ctx->context,
++                                                         weights, 3)));
++
++            LLVMPositionBuilderAtEnd(comp_ctx->builder, narrow_block);
++            narrow = LLVMBuildSExt(
++                comp_ctx->builder,
++                LLVMBuildFPToSI(comp_ctx->builder, operand, I32_TYPE,
++                                "trunc_i32"),
++                I64_TYPE, "trunc_i32_wide");
++            if (!narrow || !LLVMBuildBr(comp_ctx->builder, joined_block)) {
++                aot_set_last_error("llvm build br failed.");
++                goto fail;
++            }
++
++            LLVMPositionBuilderAtEnd(comp_ctx->builder, wide_block);
++            wide = LLVMBuildFPToSI(comp_ctx->builder, operand, I64_TYPE, name);
++            if (!wide || !LLVMBuildBr(comp_ctx->builder, joined_block)) {
++                aot_set_last_error("llvm build br failed.");
++                goto fail;
++            }
++
++            LLVMPositionBuilderAtEnd(comp_ctx->builder, joined_block);
++            if (!(res = LLVMBuildPhi(comp_ctx->builder, I64_TYPE,
++                                     "trunc_joined_phi"))) {
++                aot_set_last_error("llvm build phi failed.");
++                goto fail;
++            }
++            LLVMAddIncoming(res, &narrow, &narrow_block, 1);
++            LLVMAddIncoming(res, &wide, &wide_block, 1);
++            check_greater_succ = joined_block;
++        }
+         else {
+             if (sign) {
+                 res = LLVMBuildFPToSI(comp_ctx->builder, operand, dest_type,
 diff --git a/core/iwasm/include/wasm_export.h b/core/iwasm/include/wasm_export.h
 index 81efb8f..2d80cf2 100644
 --- a/core/iwasm/include/wasm_export.h
