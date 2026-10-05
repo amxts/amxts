@@ -63,10 +63,10 @@ describe('the generated native table', () => {
 			if (!crossing) continue;
 			const params = signature.slice(1, signature.indexOf(')')).length;
 			expect([name, crossing.split(',').length]).toEqual([name, params]);
-			for (const each of crossing.split(',')) expect(each).toMatch(/^(?:v|s|\[(?:\d+|[an]\d+)>?)$/);
+			for (const each of crossing.split(',')) expect(each).toMatch(/^(?:[stv]|\[(?:\d+|[an]\d+)>?)$/);
 		}
-		// A buffer the native fills, its length after it, a string going in.
-		expect(signatures).toMatch(/^add \(iiii\)i \[a1>,v,s,v$/m);
+		// Text the native fills, its length after it, a string going in.
+		expect(signatures).toMatch(/^add \(iiii\)i t,v,s,v$/m);
 		expect(signatures).toMatch(/^admins_flush \(\)i$/m);
 	});
 
@@ -125,6 +125,19 @@ describe('the generated native table', () => {
 		expect(body).toContain(`p[1] = f.in(a0, ${players});`);
 		expect(body).toContain(`f.out(a0, ${players}, p[1]);`);
 		expect(signatures).toMatch(new RegExp(`^get_players \\(iiii\\)i(?: \\[${players}>,|$)`, 'm'));
+	});
+
+	test('reads a string going in where it is, and writes text coming back only up to its end', () => {
+		expect(thunkOf('strlen')).toContain('p[1] = f.inText(a0);');
+		expect(declarations).toMatch(/__raw_strlen\(changetype<i32>\(string_\)\)/);
+		// A raw native takes the plugin's string too.
+		expect(declarations).toMatch(/declare function get_players\(a0: i32, a1: i32, a2: string, a3: string\): i32;/);
+
+		const body = thunkOf('get_user_name');
+		expect(body).toContain('p[2] = f.outText(a1, a2);');
+		expect(body).toContain('f.backText(a1, a2, p[2]);');
+		expect(body).not.toContain('f.in(');
+		expect(signatures).toMatch(/^get_user_name \(iii\)i v,t,v$/m);
 	});
 
 	test('copies a buffer of a guessed size as far as the plugin\'s memory goes, the same both ways', () => {

@@ -23,75 +23,56 @@
 
 // Promise, for the promise versions, whether or not the plugin imports the facade.
 import "./promise";
+import { __textAt } from "./natives";
 
 // @ts-ignore: decorator
-@external("env", "fopen")        declare function _fopen(name: usize, mode: usize, valve: i32, pathId: usize): i32;
+@external("env", "fopen")        declare function _fopen(name: string, mode: string, valve: i32, pathId: usize): i32;
 // @ts-ignore: decorator
 @external("env", "fclose")       declare function _fclose(file: i32): i32;
 // @ts-ignore: decorator
 @external("env", "fread_blocks") declare function _freadBlocks(file: i32, data: usize, blocks: i32, mode: i32): i32;
 // @ts-ignore: decorator
-@external("env", "fputs")        declare function _fputs(file: i32, text: usize, nullTerm: i32): i32;
+@external("env", "fputs")        declare function _fputs(file: i32, text: string, nullTerm: i32): i32;
 // @ts-ignore: decorator
-@external("env", "file_exists")  declare function _fileExists(name: usize, valve: i32): i32;
+@external("env", "file_exists")  declare function _fileExists(name: string, valve: i32): i32;
 // @ts-ignore: decorator
-@external("env", "dir_exists")   declare function _dirExists(name: usize, valve: i32): i32;
+@external("env", "dir_exists")   declare function _dirExists(name: string, valve: i32): i32;
 // @ts-ignore: decorator
-@external("env", "open_dir")     declare function _openDir(dir: usize, first: usize, length: i32, type: usize, valve: i32, pathId: usize): i32;
+@external("env", "open_dir")     declare function _openDir(dir: string, first: usize, length: i32, type: usize, valve: i32, pathId: usize): i32;
 // @ts-ignore: decorator
 @external("env", "next_file")    declare function _nextFile(handle: i32, name: usize, length: i32, type: usize): i32;
 // @ts-ignore: decorator
 @external("env", "close_dir")    declare function _closeDir(handle: i32): i32;
 // @ts-ignore: decorator
-@external("env", "mkdir")        declare function _mkdir(name: usize, mode: i32, valve: i32, pathId: usize): i32;
+@external("env", "mkdir")        declare function _mkdir(name: string, mode: i32, valve: i32, pathId: string): i32;
 
 // fread_blocks' mode for one byte per cell.
 const BLOCK_CHAR: i32 = 1;
 // What one fread_blocks call reads: the module's thunk copies exactly this
 // many cells of an array whose size it cannot know.
 const READ_CELLS: i32 = 128;
-// What one fputs call writes: the thunk copies a string up to 511 cells.
-const WRITE_BYTES: i32 = 500;
-// A name from open_dir / next_file.
-const NAME_CELLS: i32 = 256;
+// What one fputs call writes: AMX Mod X reads 16383 bytes of a string, and a
+// UTF-16 unit is three bytes at most.
+const WRITE_UNITS: i32 = 4096;
+// A name from open_dir / next_file, which the module writes as UTF-8 bytes.
+const NAME_BYTES: i32 = 256;
 // mkdir's FPERM_DIR_DEFAULT: rwxrwxr-x, where the system has permissions.
 const DIR_MODE: i32 = 0o775;
 
-/** Text as a Pawn string: its UTF-8 bytes, a byte a cell, and a zero cell. */
-function cells(text: string): StaticArray<i32> {
-	const bytes = Uint8Array.wrap(String.UTF8.encode(text));
-	const out = new StaticArray<i32>(bytes.length + 1);
-	for (let i: i32 = 0; i < bytes.length; i++) unchecked(out[i] = <i32>unchecked(bytes[i]));
-	return out;
-}
-
-/** A Pawn string of UTF-8 bytes back as text. */
-function textOf(from: StaticArray<i32>): string {
-	const bytes = new Array<u8>();
-	for (let i: i32 = 0; i < from.length; i++) {
-		const c = unchecked(from[i]);
-		if (c == 0) break;
-		bytes.push(<u8>c);
-	}
-	return String.UTF8.decodeUnsafe(bytes.dataStart, <usize>bytes.length);
-}
-
 function open(path: string, mode: string): i32 {
-	return _fopen(changetype<usize>(cells(path)), changetype<usize>(cells(mode)), 0, 0);
+	return _fopen(path, mode, 0, 0);
 }
 
 function write(path: string, data: string, mode: string): bool {
 	const file = open(path, mode);
 	if (file == 0) return false;
 
-	const bytes = Uint8Array.wrap(String.UTF8.encode(data));
-	const chunk = new StaticArray<i32>(WRITE_BYTES + 1);
-
-	for (let at: i32 = 0; at < bytes.length; at += WRITE_BYTES) {
-		const count = min(WRITE_BYTES, bytes.length - at);
-		for (let i: i32 = 0; i < count; i++) unchecked(chunk[i] = <i32>unchecked(bytes[at + i]));
-		unchecked(chunk[count] = 0);
-		_fputs(file, changetype<usize>(chunk), 0);
+	for (let at: i32 = 0; at < data.length;) {
+		let end = min(at + WRITE_UNITS, data.length);
+		// A surrogate pair is one letter: it goes in one piece.
+		if (end < data.length && (data.charCodeAt(end - 1) & 0xFC00) == 0xD800) end--;
+		_fputs(file, data.substring(at, end), 0);
+		at = end;
 	}
 
 	_fclose(file);
@@ -161,8 +142,7 @@ export function appendFileSync(path: string, data: string): boolean {
  * Pawn: `file_exists`, `dir_exists`
  */
 export function existsSync(path: string): boolean {
-	const name = changetype<usize>(cells(path));
-	return _fileExists(name, 0) != 0 || _dirExists(name, 0) != 0;
+	return _fileExists(path, 0) != 0 || _dirExists(path, 0) != 0;
 }
 
 /**
@@ -176,16 +156,16 @@ export function existsSync(path: string): boolean {
  * Pawn: `open_dir`, `next_file`
  */
 export function readdirSync(path: string): string[] | null {
-	const name = new StaticArray<i32>(NAME_CELLS);
+	const name = new StaticArray<u8>(NAME_BYTES);
 	const type = new StaticArray<i32>(1);
-	const handle = _openDir(changetype<usize>(cells(path)), changetype<usize>(name), NAME_CELLS - 1, changetype<usize>(type), 0, 0);
+	const handle = _openDir(path, changetype<usize>(name), NAME_BYTES - 1, changetype<usize>(type), 0, 0);
 	if (handle == 0) return null;
 
 	const names: string[] = [];
 	for (;;) {
-		const entry = textOf(name);
+		const entry = __textAt(changetype<usize>(name), NAME_BYTES);
 		if (entry != "." && entry != "..") names.push(entry);
-		if (_nextFile(handle, changetype<usize>(name), NAME_CELLS - 1, changetype<usize>(type)) == 0) break;
+		if (_nextFile(handle, changetype<usize>(name), NAME_BYTES - 1, changetype<usize>(type)) == 0) break;
 	}
 
 	_closeDir(handle);
@@ -228,11 +208,11 @@ export function mkdirSync(path: string, options: MakeDirectoryOptions = new Make
 }
 
 function isFolder(path: string): bool {
-	return _dirExists(changetype<usize>(cells(path)), 0) != 0;
+	return _dirExists(path, 0) != 0;
 }
 
 function makeOne(path: string): bool {
-	return _mkdir(changetype<usize>(cells(path)), DIR_MODE, 0, changetype<usize>(cells("GAMECONFIG"))) == 0;
+	return _mkdir(path, DIR_MODE, 0, "GAMECONFIG") == 0;
 }
 
 /** `mkdirSync` as a promise, rejected when the folder cannot be made. */

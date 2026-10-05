@@ -11,11 +11,15 @@ import type { NativeFunction, Parameter } from '../src/types';
 // the three files can only be wrong together.
 //
 // The ABI is Pawn's own: a native takes cells and returns a cell. A float is a
-// cell holding its bit pattern, and an array or a string is a pointer into the
-// plugin's memory that the thunk copies into the AMX heap before the call and
-// back afterwards. Copying both ways means the generator never has to guess
+// cell holding its bit pattern, and an array is a pointer into the plugin's
+// memory that the thunk copies into the AMX heap before the call and back
+// afterwards. Copying both ways means the generator never has to guess
 // whether a native reads an array or fills it — the question that the JS
-// wrapper generator has a page of heuristics for.
+// wrapper generator has a page of heuristics for. Text is the exception: a
+// `const` string is the plugin's own string, which the thunk writes into the
+// heap as UTF-8 in one pass, and the text a typed wrapper asks a native for
+// comes back as UTF-8 bytes up to its end - the wrapper's buffer is empty, so
+// nothing goes in.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IncludeParser } from '../src/parser/include-parser';
@@ -174,18 +178,31 @@ function bufferCells(native: NativeFunction): string[] {
 }
 
 /**
+ * The text buffers a native fills that come back as the typed wrapper's
+ * result: the wrapper's own buffer, empty, so the thunk copies nothing in
+ * and only the text, up to its end, back.
+ */
+function outputTexts(native: NativeFunction): Set<number> {
+	const kinds = kindsOf(native) ?? [];
+	return new Set(kinds.flatMap((k, i) => (k.kind === 'output' ? [i] : [])));
+}
+
+/**
  * How the module's thunk passes a native's arguments, as its line of
- * runtime/natives.txt ends: a string going in `s`, a buffer `[` with the
- * cells it spans and `>` when it comes back, a cell `v` - nothing for a
- * native of cells alone. wamrc reads a line's first two words; the plugins'
- * ABI hashes the whole line (scripts/build-identity.ts), so a parameter that
- * turns from a cell into a buffer, or stops coming back, is another ABI,
- * though the wasm signature stays the same.
+ * runtime/natives.txt ends: a string going in `s` (the plugin's own string),
+ * text the native fills `t` (its length is the next argument, and it comes
+ * back as UTF-8 bytes up to its end), a buffer `[` with the cells it spans
+ * and `>` when it comes back, a cell `v` - nothing for a native of cells
+ * alone. wamrc reads a line's first two words; the plugins' ABI hashes the
+ * whole line (scripts/build-identity.ts), so a parameter that turns from a
+ * cell into a buffer, or stops coming back, is another ABI, though the wasm
+ * signature stays the same.
  */
 function crossing(native: NativeFunction): string {
 	if (!native.params.some(isBuffer)) return '';
 	const cells = bufferCells(native);
-	return ` ${native.params.map((p, i) => !isBuffer(p) ? 'v' : !cells[i] ? 's' : `[${cells[i]}${p.isConst ? '' : '>'}`).join(',')}`;
+	const texts = outputTexts(native);
+	return ` ${native.params.map((p, i) => !isBuffer(p) ? 'v' : !cells[i] ? 's' : texts.has(i) ? 't' : `[${cells[i]}${p.isConst ? '' : '>'}`).join(',')}`;
 }
 
 function asName(name: string): string {
@@ -619,8 +636,7 @@ function typedWrapper(n: NativeFunction, kinds: Kind[]): string {
 		const arg = argNames[i];
 
 		if (kind.kind === 'output') {
-			setup.push(`\tconst __b${i} = new StaticArray<i32>(${OUTPUT_CELLS});`);
-			args.push(`changetype<i32>(__b${i})`);
+			args.push('__textOut()');
 			return;
 		}
 
@@ -644,6 +660,11 @@ function typedWrapper(n: NativeFunction, kinds: Kind[]): string {
 				args.push(`changetype<i32>(__b${i})`);
 				break;
 			case 'string':
+				// A `const` string crosses as the plugin's own: the thunk reads it.
+				if (isInputString(n.params[i], n.params[i + 1])) {
+					args.push(`changetype<i32>(${arg})`);
+					break;
+				}
 				setup.push(`\tconst __b${i} = __textCells(${arg});`);
 				args.push(`changetype<i32>(__b${i})`);
 				break;
@@ -664,9 +685,8 @@ function typedWrapper(n: NativeFunction, kinds: Kind[]): string {
 	let returns = 'number';
 	let result = '__r';
 	if (hasOutput) {
-		const index = kinds.findIndex(k => k.kind === 'output');
 		returns = 'string';
-		result = `__textOf(__b${index})`;
+		result = '__textBack()';
 	} else if (returnTag === 'Float') {
 		returns = 'number';
 		result = '__floatOf(__r)';
@@ -702,9 +722,12 @@ const asLines = chosen.map((n) => {
 		return typedWrapper(n, kinds);
 	}
 
-	const params = n.params.map((p, i) => `a${i}: i32`).join(', ');
+	// A string going in is the plugin's own string, here as in a typed wrapper.
+	const cells = bufferCells(n);
+	const passed = n.params.map((p, i) => (!isBuffer(p) ? '' : cells[i] ? 'pointer' : 'string'));
+	const params = n.params.map((p, i) => `a${i}: ${passed[i] === 'string' ? 'string' : 'i32'}`).join(', ');
 	const doc = n.params.length
-		? `\t/** ${n.params.map(p => (isBuffer(p) ? `${p.name}: pointer` : p.name)).join(', ')} */\n`
+		? `\t/** ${n.params.map((p, i) => (passed[i] ? `${p.name}: ${passed[i]}` : p.name)).join(', ')} */\n`
 		: '';
 
 	// The @ts-ignore is AssemblyScript's own idiom: TypeScript allows a
@@ -729,6 +752,8 @@ function __floatOf(cell: i32): f64 {
 // Text crosses as UTF-8, a byte a cell: AMX Mod X reads the low byte of each
 // cell (get_amxstring), and what a native writes back is bytes the same way.
 // A cell per UTF-16 unit sent a Cyrillic word as "@0" and read Cyrillic back as mojibake.
+// A \`const\` string is not made into cells here: the module reads the
+// plugin's string itself. This is for a writable one with a default.
 function __textCells(text: string): StaticArray<i32> {
 	const bytes = Uint8Array.wrap(String.UTF8.encode(text));
 	const cells = new StaticArray<i32>(bytes.length + 1);
@@ -736,12 +761,30 @@ function __textCells(text: string): StaticArray<i32> {
 	return cells;
 }
 
-function __textOf(cells: StaticArray<i32>): string {
+// Text a native fills comes back here, as UTF-8 bytes up to its end and a
+// zero byte. One buffer serves every wrapper: it is read as soon as the
+// native returns, before anything else can run.
+const __text = new StaticArray<u8>(${OUTPUT_CELLS});
+
+/** The buffer, empty: a call that does not reach its native reads "". */
+function __textOut(): i32 {
+	unchecked(__text[0] = 0);
+	return changetype<i32>(__text);
+}
+
+function __textBack(): string {
+	return __textAt(changetype<usize>(__text), ${OUTPUT_CELLS});
+}
+
+/**
+ * @hidden The UTF-8 text a native wrote at \`at\`, up to its zero byte and at
+ * most \`max\` bytes. Measured first: the decoder takes room for all \`max\`
+ * bytes otherwise, and a short name made the collector's work of a long one.
+ */
+export function __textAt(at: usize, max: i32): string {
 	let length = 0;
-	while (length < cells.length && unchecked(cells[length]) != 0) length++;
-	const bytes = new Uint8Array(length);
-	for (let i = 0; i < length; i++) unchecked(bytes[i] = <u8>unchecked(cells[i]));
-	return String.UTF8.decode(bytes.buffer);
+	while (length < max && load<u8>(at + length) != 0) length++;
+	return String.UTF8.decodeUnsafe(at, length);
 }
 
 function __floatCells(values: f64[]): StaticArray<i32> {
@@ -1122,9 +1165,9 @@ function writeNatives(): void {
 // Every native, with the types its include declares: a Float: is a number, a
 // bool: is a boolean, a string is a string, and a buffer the native fills
 // comes back as its result. Underneath, Pawn still sees cells - a float as its
-// bit pattern, a string as an address in this plugin's memory that the module
-// copies into the AMX heap - and each wrapper does that conversion so a plugin
-// never has to.
+// bit pattern, a string as UTF-8 a byte a cell, which the module writes into
+// the AMX heap straight from this plugin's string - and each wrapper does
+// what is left of the conversion so a plugin never has to.
 //
 // A native whose shape cannot be read with confidence keeps its raw form,
 // cells and addresses, under its own name.
@@ -1172,6 +1215,7 @@ const thunks = chosen.map((n) => {
 	// went from 57 microseconds to what a direct call costs.
 	body.push(`\tstatic Cached cached = { { NULL, 0 }, 0 };`);
 	const counts = bufferCells(n);
+	const texts = outputTexts(n);
 
 	// The frame takes room in the AMX heap for a buffer and gives it back
 	// after the call; a native of plain cells has nothing to copy.
@@ -1180,7 +1224,9 @@ const thunks = chosen.map((n) => {
 
 	n.params.forEach((p, i) => {
 		if (isBuffer(p) && !counts[i]) {
-			body.push(`\tp[${i + 1}] = f.inString(a${i});`);
+			body.push(`\tp[${i + 1}] = f.inText(a${i});`);
+		} else if (texts.has(i)) {
+			body.push(`\tp[${i + 1}] = f.outText(a${i}, a${i + 1});`, `\tif (!p[${i + 1}])\n\t\treturn 0;`);
 		} else if (counts[i]) {
 			if (counts[i] === `n${i}`) body.push(`\tint32_t n${i} = f.fits(a${i}, ${DEFAULT_CELLS});`);
 			// A buffer that does not cross is never handed to the native as
@@ -1198,7 +1244,9 @@ const thunks = chosen.map((n) => {
 
 	n.params.forEach((p, i) => {
 		// Nothing comes back out of a const parameter, whatever its shape.
-		if (counts[i] && !p.isConst)
+		if (texts.has(i))
+			body.push(`\tf.backText(a${i}, a${i + 1}, p[${i + 1}]);`);
+		else if (counts[i] && !p.isConst)
 			body.push(`\tf.out(a${i}, ${counts[i]}, p[${i + 1}]);`);
 	});
 
@@ -1227,7 +1275,9 @@ writeFileSync(
 // which way a native reads it. A buffer that cannot be copied - no room, no
 // such memory, a negative length - answers 0 without calling the native, and
 // one longer than MAX_CROSSING_CELLS is copied, and told to its native, only
-// that far - as amxts_call does.
+// that far - as amxts_call does. A string going in is read from the plugin's
+// string (Frame::inText), and text a typed wrapper asks for comes back only
+// up to its end (Frame::outText, Frame::backText).
 
 ${thunks.join('\n\n')}
 

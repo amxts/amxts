@@ -50,8 +50,7 @@ function run() {
 	const page = memory.grow(1);
 	const ids = (page + 1) * 65536 - 33 * 4;
 	const count = new CellBuffer(1);
-	const none = new CellBuffer(1);
-	get_players(ids, count.address, none.address, none.address);
+	get_players(ids, count.address, "", "");
 	check.expect(count.get(0), "get_players fills a buffer at the end of the plugin's memory").toBe(server.players.length);
 
 	check.done();

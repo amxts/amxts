@@ -727,7 +727,15 @@ static cell CallCached(Cached &cached, const char *name, cell *params)
  * with it. Whether a given array is read or filled is not written down
  * anywhere in the .inc files — the JavaScript wrapper generator carries a page
  * of heuristics to guess it — and here the guess is unnecessary: the plugin
- * owns its side of the memory, so copying twice is always correct.
+ * owns its side of the memory, so copying twice is always correct. Text is
+ * the exception, because its direction is known: a `const` string is read
+ * from the plugin's own string, and the text a typed wrapper asks for comes
+ * back only up to its end.
+ *
+ * The AMX the native gets is the host's, and the buffers are in its heap,
+ * not in the plugin's memory: the memory moves when it grows, which it can
+ * while a native runs code of the same plugin, and a native keeps the AMX it
+ * was called with for its callbacks.
  */
 struct Frame {
 	wasm_module_inst_t inst;
@@ -779,27 +787,116 @@ struct Frame {
 	}
 
 	/**
-	 * Same, for a string: one character per cell, terminated by a zero one,
-	 * which is what a Pawn string is. The plugin does not pass a length
-	 * because a `...` tail carries none, so the scan stops at the terminator,
-	 * the end of the plugin's memory, or MAX_CROSSING_CELLS.
+	 * The plugin's own string, as a Pawn string in the AMX heap: its UTF-16
+	 * (the byte length is the u32 before it, as AsString reads it) written
+	 * as UTF-8, a byte a cell, in one pass - the plugin makes nothing for
+	 * it. Cut at MAX_CROSSING_CELLS - 1 bytes, never inside a letter. 0 when
+	 * the pointer is not a string, or the heap has no room.
 	 */
-	cell inString(int32_t ptr)
+	cell inText(int32_t ptr)
 	{
 		uint64_t start = 0, end = 0;
-		if (ptr <= 0 || !wasm_runtime_get_app_addr_range(inst, (uint64_t)ptr, &start, &end))
+		if (ptr <= 4 || !wasm_runtime_get_app_addr_range(inst, (uint64_t)(ptr - 4), &start, &end))
+			return 0;
+		uint32_t bytes = *(uint32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)(ptr - 4));
+		if (bytes > end - (uint64_t)ptr)
 			return 0;
 
-		int32_t room = (int32_t)((end - (uint64_t)ptr) / 4);
-		if (room > MAX_CROSSING_CELLS)
-			room = MAX_CROSSING_CELLS;
+		const uint16_t *chars = (const uint16_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ptr);
+		uint32_t n = bytes / 2;
 
-		int32_t *src = (int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ptr);
-		int32_t len = 0;
-		while (len < room - 1 && src[len])
-			len++;
+		// Three bytes at most for each unit (a pair's four are two units'),
+		// then given back down to what the text took.
+		uint32_t room = (uint64_t)n * 3 < MAX_CROSSING_CELLS - 1 ? n * 3 : MAX_CROSSING_CELLS - 1;
+		cell addr;
+		cell *phys = HeapCells((int)room + 1, &addr);
+		if (!phys)
+			return 0;
 
-		return in(ptr, len + 1);
+		cell *dst = phys, *stop = phys + room;
+		for (uint32_t i = 0; i < n; i++) {
+			uint32_t c = chars[i];
+			if (c < 0x80) {
+				if (dst == stop)
+					break;
+				*dst++ = (cell)c;
+				continue;
+			}
+
+			// A surrogate pair is one character; a lone half is not one at all.
+			if (c >= 0xD800 && c <= 0xDBFF && i + 1 < n && chars[i + 1] >= 0xDC00 && chars[i + 1] <= 0xDFFF)
+				c = 0x10000 + ((c - 0xD800) << 10) + (chars[++i] - 0xDC00);
+			else if (c >= 0xD800 && c <= 0xDFFF)
+				c = 0xFFFD;
+
+			int size = c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+			if (stop - dst < size)
+				break;
+			if (size == 2) {
+				*dst++ = (cell)(0xC0 | (c >> 6));
+			} else if (size == 3) {
+				*dst++ = (cell)(0xE0 | (c >> 12));
+				*dst++ = (cell)(0x80 | ((c >> 6) & 0x3F));
+			} else {
+				*dst++ = (cell)(0xF0 | (c >> 18));
+				*dst++ = (cell)(0x80 | ((c >> 12) & 0x3F));
+				*dst++ = (cell)(0x80 | ((c >> 6) & 0x3F));
+			}
+			*dst++ = (cell)(0x80 | (c & 0x3F));
+		}
+		*dst = 0;
+
+		// Nothing was taken after it, so the heap's top comes back to its end.
+		g_host->hea = addr + (cell)((dst - phys + 1) * sizeof(cell));
+		return addr;
+	}
+
+	/**
+	 * A string the native fills: `cells` cells of the heap, empty, for a
+	 * plugin's buffer of `cells` + 1 bytes - nothing is copied in, as the
+	 * wrapper's buffer holds nothing yet. 0 when it cannot cross.
+	 */
+	cell outText(int32_t ptr, int32_t cells)
+	{
+		if (ptr <= 0 || cells < 0)
+			return 0;
+		if (cells > MAX_CROSSING_CELLS)
+			cells = MAX_CROSSING_CELLS;
+		if (!wasm_runtime_validate_app_addr(inst, (uint64_t)ptr, (uint64_t)cells + 1))
+			return 0;
+
+		cell addr;
+		cell *phys = HeapCells(cells + 1, &addr);
+		if (!phys)
+			return 0;
+		phys[0] = 0;
+		phys[cells] = 0;
+		return addr;
+	}
+
+	/** What the native wrote, back as bytes up to its end and a zero byte. */
+	void backText(int32_t ptr, int32_t cells, cell addr)
+	{
+		if (cells > MAX_CROSSING_CELLS)
+			cells = MAX_CROSSING_CELLS;
+		const cell *phys = MF_GetAmxAddr(g_host, addr);
+		// Asked again: the plugin's memory can move while the native runs.
+		unsigned char *dst = (unsigned char *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ptr);
+		int i = 0;
+		for (; i < cells && phys[i]; i++)
+			dst[i] = (unsigned char)phys[i];
+
+		// A native that cut the text at its length may have cut a letter in
+		// two: its first bytes alone are no letter, so they are left out.
+		int lead = i;
+		while (lead > 0 && (dst[lead - 1] & 0xC0) == 0x80)
+			lead--;
+		if (lead > 0 && dst[lead - 1] >= 0xC0) {
+			int size = dst[lead - 1] >= 0xF0 ? 4 : dst[lead - 1] >= 0xE0 ? 3 : 2;
+			if (i - (lead - 1) < size)
+				i = lead - 1;
+		}
+		dst[i] = 0;
 	}
 
 	/**
@@ -2112,7 +2209,7 @@ static int32_t w_call(wasm_exec_env_t env, int32_t id, int32_t argsPtr, int32_t 
 		clamped = -1;
 		switch (mask[i]) {
 			case 's':
-				p[i + 1] = f.inString(args[i]);
+				p[i + 1] = f.inText(args[i]);
 				continue;
 
 			case 'b':

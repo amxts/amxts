@@ -737,21 +737,22 @@ function formatPawn(template: string, cursor: FormatCursor): string {
 }
 
 // @ts-ignore: decorator
-@external("env", "LookupLangKey") declare function _lookupLangKey(out: i32, size: i32, key: i32, id: i32): i32;
+@external("env", "LookupLangKey") declare function _lookupLangKey(out: i32, size: i32, key: string, id: i32): i32;
 
 /** The longest line a dictionary holds: AMX Mod X reads a value into 512 bytes. */
 const LANG_TEXT: i32 = 512;
 
 // One buffer for every lookup: a menu translates each of its lines on every draw.
-const langOut = new StaticArray<i32>(LANG_TEXT);
+// The module writes the line into it as UTF-8 bytes, up to its end.
+const langOut = new StaticArray<u8>(LANG_TEXT);
 const langId = new StaticArray<i32>(1);
 
 /** The key's line in the player's language (`0`: the server's), as the dictionary loaded it; empty when no dictionary has it. */
 function lookupLang(key: string, player: i32): string {
 	unchecked(langId[0] = player);
 	unchecked(langOut[0] = 0);
-	_lookupLangKey(changetype<i32>(langOut), LANG_TEXT - 1, changetype<i32>(__cellsOf(key)), changetype<i32>(langId));
-	return __cellText(changetype<usize>(langOut), LANG_TEXT);
+	_lookupLangKey(changetype<i32>(langOut), LANG_TEXT - 1, key, changetype<i32>(langId));
+	return __textAt(changetype<usize>(langOut), LANG_TEXT);
 }
 
 function isDigitCode(code: i32): bool {
@@ -807,7 +808,7 @@ export function __nativeReturnFloats(values: f64[], out: i32): void {
 // @ts-ignore: decorator
 @external("env", "ArrayCreate")     declare function _arrayCreate(cellSize: i32, reserved: i32): i32;
 // @ts-ignore: decorator
-@external("env", "ArrayPushString") declare function _arrayPushString(handle: i32, text: usize): i32;
+@external("env", "ArrayPushString") declare function _arrayPushString(handle: i32, text: string): i32;
 // @ts-ignore: decorator
 @external("env", "ArrayPushCell")   declare function _arrayPushCell(handle: i32, value: i32): i32;
 // @ts-ignore: decorator
@@ -863,7 +864,7 @@ export class CellArray {
 
 	/** Adds a string; it must fit in `cellSize - 1` bytes of UTF-8. */
 	pushString(value: string): void {
-		_arrayPushString(this.handle, changetype<usize>(__cellsOf(value)));
+		_arrayPushString(this.handle, value);
 	}
 
 	/** Adds a whole number, or another array's handle. */
@@ -994,13 +995,6 @@ export function __writeCellText(text: string, cells: StaticArray<i32>, at: i32 =
 	for (let i = 0; i < n; i++) unchecked(cells[at + i] = <i32>unchecked(bytes[i]));
 	unchecked(cells[at + n] = 0);
 	return n;
-}
-
-/** @hidden Text as a Pawn string in a buffer of its own size. */
-export function __cellsOf(text: string): StaticArray<i32> {
-	const cells = new StaticArray<i32>(String.UTF8.byteLength(text) + 1);
-	__writeCellText(text, cells);
-	return cells;
 }
 
 /** Reads the text a raw native from `@amxts/core/natives` wrote into a cell array. `stringToCells` is the other way. */
@@ -1306,7 +1300,7 @@ export interface KillOptions {
 
 // ---------------------------------------------------------------- bots
 
-import { dllfunc, engfunc, global_get, set_pev } from "./natives";
+import { __textAt, dllfunc, engfunc, global_get, set_pev } from "./natives";
 import { DLLFunc_ClientConnect, DLLFunc_ClientPutInServer, EngFunc_CreateFakeClient, EngFunc_RunPlayerMove, glb_frametime, pev_health } from "./constants";
 import { BUTTON, Button } from "./flags";
 
@@ -1929,7 +1923,7 @@ export function playerIds(flags: string = "", team: string = ""): number[] {
 	const list = new StaticArray<i32>(33);
 	const count = new StaticArray<i32>(1);
 
-	get_players(changetype<i32>(list), changetype<i32>(count), cells(flags), cells(team));
+	get_players(changetype<i32>(list), changetype<i32>(count), flags, team);
 
 	const ids: number[] = [];
 	for (let i = 0; i < unchecked(count[0]); i++) ids.push(unchecked(list[i]));
@@ -4121,6 +4115,8 @@ export class Call {
 	// second overwrite the first. Most calls - a field read - hold none, so
 	// the list is made by the first.
 	private held: StaticArray<i32>[] | null = null;
+	// The same for strings, which the module reads where they are.
+	private texts: string[] | null = null;
 	private n: i32 = 0;
 
 	constructor(private id: i32) {}
@@ -4173,9 +4169,13 @@ export class Call {
 
 	/** Adds a string argument, before the `...` or in the tail alike. */
 	str(text: string): Call {
-		const buffer = __cellsOf(text);
-		this.hold(buffer);
-		return this.push(changetype<i32>(buffer), 0x73); // s
+		let texts = this.texts;
+		if (texts == null) {
+			texts = [];
+			this.texts = texts;
+		}
+		texts.push(text);
+		return this.push(changetype<i32>(text), 0x73); // s
 	}
 
 	/** Adds an array of cells the native reads and may write into, followed by its length. */
@@ -4623,7 +4623,7 @@ export function __pluginStopped(run: i32): void {
 @external("env", "emit_local") declare function _emitLocal(forward: string, mask: string, cells: i32, count: i32): void;
 
 // @ts-ignore: decorator
-@external("env", "nvault_lookup") declare function _nvaultLookup(vault: i32, key: i32, value: i32, maxlen: i32, timestamp: i32): i32;
+@external("env", "nvault_lookup") declare function _nvaultLookup(vault: i32, key: string, value: i32, maxlen: i32, timestamp: i32): i32;
 
 /**
  * The forward's stopping rule, one of: `"never"` - every plugin hears it, whatever it
@@ -5122,15 +5122,16 @@ export class Storage {
 		const vault = this.open();
 		if (vault < 0) return null;
 
-		const value = new CellBuffer(TEXT_MAX + 1);
+		// The module writes the value in as UTF-8 bytes, up to its end.
+		const value = new StaticArray<u8>(TEXT_MAX + 1);
 		const stamp = new CellBuffer(1);
 
 		// nvault_lookup rather than nvault_get: the length of nvault_get's
 		// buffer rides in its `...` tail by address, which the dispatcher's
 		// buffer argument cannot say; nvault_lookup takes it as a plain
 		// argument, and answers whether the key exists besides.
-		const found = _nvaultLookup(vault, changetype<i32>(__cellsOf(key)), value.address, TEXT_MAX, stamp.address);
-		return found != 0 ? value.text() : null;
+		const found = _nvaultLookup(vault, key, changetype<i32>(value), TEXT_MAX, stamp.address);
+		return found != 0 ? __textAt(changetype<usize>(value), TEXT_MAX + 1) : null;
 	}
 
 	/** Puts `value` under `key`, replacing what was there. */
