@@ -3202,9 +3202,9 @@ export default {
 			\`\`\`
 
 			The handler's parameters take the forward's types; a named function may
-			take fewer of them. A forward created by a Pawn plugin reaches TypeScript
-			only when one of the amxts host plugin's includes declares it; one emitted
-			from TypeScript reaches every subscriber.
+			take fewer of them. A forward a Pawn plugin makes reaches it after the
+			Pawn plugins' handlers; one emitted from TypeScript reaches every
+			subscriber.
 		`,
 		ru: `
 			Вызывает \`handler\` при каждом срабатывании форварда — из этого плагина,
@@ -3216,9 +3216,9 @@ export default {
 			\`\`\`
 
 			Параметры обработчика получают типы форварда; именованная функция может
-			принимать их меньше. Форвард, созданный Pawn-плагином, доходит до
-			TypeScript, только если он объявлен в одном из инклудов хост-плагина
-			amxts; отправленный из TypeScript доходит до всех подписчиков.
+			принимать их меньше. Форвард, созданный Pawn-плагином, доходит до него
+			после обработчиков Pawn-плагинов; отправленный из TypeScript доходит до
+			всех подписчиков.
 		`,
 	},
 	'Forward.unsubscribe': {

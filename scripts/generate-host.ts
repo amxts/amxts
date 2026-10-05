@@ -214,8 +214,9 @@ for (const name of parseNames) {
 const includeTexts: string[] = [];
 // Forwards of the AMX Mod X distribution itself. Only these are server events:
 // a forward some plugin declares (menu_core's, a project's own) is heard
-// through Forward.subscribe, one way for one thing. The host still relays
-// every forward, which is what lets subscribe hear a Pawn plugin's.
+// through Forward.subscribe, one way for one thing. The host relays the
+// forwards AMX Mod X and its modules raise; a Pawn plugin's own reaches
+// subscribe through the module, which stands in for ExecuteForward.
 const stockForwards = new Set<string>();
 for (const name of parseNames) {
 	const text = readInclude(name);

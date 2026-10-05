@@ -75,3 +75,17 @@ export function xt_emit_many() {
 	many.emit(7, "раз два", 42, 2.5, true, [1, 2, 3], new Vector(1.5, 2.5, 3.5), "x".repeat(2000));
 	return heard;
 }
+
+// A forward a Pawn plugin makes: natives.sma raises it with an argument of
+// each kind it passes, an array through PrepareArray among them.
+const fromPawn = new Forward<number, string, Float, number[]>("xt_from_pawn");
+let heardFromPawn = "";
+
+fromPawn.subscribe((id, word, speed, list) => {
+	heardFromPawn = `${id} ${word} ${speed} ${list.join(",")}`;
+});
+
+/** What the subscriber of natives.sma's forward xt_from_pawn heard, into out[]. */
+export function xt_heard_from_pawn() {
+	return heardFromPawn;
+}

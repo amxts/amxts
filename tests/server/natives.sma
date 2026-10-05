@@ -13,10 +13,14 @@ new g_ok, g_failed;
 // What came into the forward xt_on_many from exports.ts.
 new g_fwId, g_fwWord[32], g_fwCount, Float:g_fwSpeed, bool:g_fwFlag, g_fwList[3], Float:g_fwAt[3], g_fwLong;
 
+// A forward of this plugin's own, which exports.ts subscribes to.
+new g_fromPawn;
+
 public plugin_init()
 {
 	register_plugin("amxts test: natives", "1.0", "amxts");
 	register_srvcmd("amxts_test_natives", "run");
+	g_fromPawn = CreateMultiForward("xt_from_pawn", ET_IGNORE, FP_CELL, FP_STRING, FP_FLOAT, FP_ARRAY);
 }
 
 public run()
@@ -64,6 +68,7 @@ public run()
 	expect_int("a native beyond 128: xt_many_199", xt_many_199(), 199);
 
 	forwardOfEveryKind();
+	forwardFromPawn();
 
 	server_print("[natives] %d ok, %d failed", g_ok, g_failed);
 	return PLUGIN_HANDLED;
@@ -86,6 +91,20 @@ forwardOfEveryKind()
 	expect_float("forward: Vector [1]", g_fwAt[1], 2.5);
 	expect_int("forward: a long string", g_fwLong, 2000);
 	expect_text("forward: what the subscriber heard", heard, "7 раз два 42 2.5 true 1,2,3 1.5,2.5,3.5 2000");
+}
+
+// A forward this plugin makes and raises, to exports.ts's TypeScript subscriber.
+forwardFromPawn()
+{
+	new list[] = { 4, 5, 6 };
+	new ret;
+	// Cyrillic on purpose: the forward's strings are UTF-8.
+	ExecuteForward(g_fromPawn, ret, 9, "слово", 1.5, PrepareArray(list, sizeof(list)));
+
+	new heard[64];
+	xt_heard_from_pawn(heard, charsmax(heard));
+	// Cyrillic on purpose: the forward's strings are UTF-8.
+	expect_text("a Pawn plugin's forward reaches a TypeScript subscriber", heard, "9 слово 1.5 4,5,6");
 }
 
 public xt_on_many(id, const word[], count, Float:speed, bool:flag, const list[], const Float:at[], const long[])

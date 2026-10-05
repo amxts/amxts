@@ -5039,9 +5039,9 @@ export class Forward<T1 = NoArgument, T2 = NoArgument, T3 = NoArgument, T4 = NoA
 	 * ```
 	 *
 	 * The handler's parameters take the forward's types; a named function may
-	 * take fewer of them. A forward created by a Pawn plugin reaches TypeScript
-	 * only when one of the amxts host plugin's includes declares it; one emitted
-	 * from TypeScript reaches every subscriber.
+	 * take fewer of them. A forward a Pawn plugin makes reaches it after the
+	 * Pawn plugins' handlers; one emitted from TypeScript reaches every
+	 * subscriber.
 	 */
 	subscribe(handler: (a1: T1, a2: T2, a3: T3, a4: T4, a5: T5, a6: T6, a7: T7, a8: T8, a9: T9, a10: T10, a11: T11, a12: T12, a13: T13, a14: T14, a15: T15, a16: T16, a17: T17, a18: T18, a19: T19, a20: T20, a21: T21, a22: T22, a23: T23, a24: T24, a25: T25, a26: T26, a27: T27, a28: T28, a29: T29, a30: T30, a31: T31, a32: T32) => void): void {
 		if (this.tag < 0) {
