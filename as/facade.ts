@@ -1246,6 +1246,12 @@ let slot: i32 = 0;
 const scratch = new StaticArray<i32>(256);
 const nameBuf = new StaticArray<u8>(64);
 
+/** What AMX Mod X calls the player in slot `id` now: get_user_name. */
+function readName(id: i32): string {
+	const len = _getName(id, changetype<i32>(nameBuf), 64);
+	return String.UTF8.decodeUnsafe(changetype<usize>(nameBuf), len);
+}
+
 /** A Counter-Strike team, by the name the game gives it: one of `"TERRORIST"`, `"CT"`, `"SPECTATOR"`, `"UNASSIGNED"`. */
 export type Team = "TERRORIST" | "CT" | "SPECTATOR" | "UNASSIGNED";
 
@@ -1464,23 +1470,34 @@ export interface Client {
 
 // @ts-ignore: decorator
 @external("env", "player_slots") declare function _playerSlots(at: usize): void;
+// @ts-ignore: decorator
+@external("env", "player_names") declare function _playerNames(at: usize): void;
 
 // One Player a player, so an event hands out no new object and the same
 // player is the same object. The module writes 1 into `newPlayers` at a
 // slot a new player connects to, and the next lookup makes him his own.
 const players = new StaticArray<Player | null>(MAX_PLAYERS + 1);
 const newPlayers = new StaticArray<i32>(MAX_PLAYERS + 1);
+// A count of each slot's name changes, which the module keeps: a Player
+// keeps its name while the count is the one it read it at. Odd while a
+// change is under way - from client_infochanged, before which AMX Mod X
+// takes the new name, to the next frame - and then a name is not kept.
+const nameChanges = new StaticArray<i32>(MAX_PLAYERS + 1);
 let playersTold = false;
+
+/** Gives the module the tables it writes, once. */
+function tellPlayers(): void {
+	playersTold = true;
+	_playerSlots(changetype<usize>(newPlayers));
+	_playerNames(changetype<usize>(nameChanges));
+}
 
 /** @hidden The Player in slot `id`: the same object while that player stays; a new one past the players. */
 export function __playerOf(id: number): Player {
 	const slot = <i32>id;
 	if (<u32>(slot - 1) >= <u32>MAX_PLAYERS) return new Player(id);
 
-	if (!playersTold) {
-		playersTold = true;
-		_playerSlots(changetype<usize>(newPlayers));
-	}
+	if (!playersTold) tellPlayers();
 
 	if (unchecked(newPlayers[slot]) != 0) {
 		unchecked(newPlayers[slot] = 0);
@@ -1503,6 +1520,11 @@ export function __playerOf(id: number): Player {
  * lists everyone on the server.
  */
 export class Player extends PlayerFields implements Client {
+	/** @hidden The name as last read, and the slot's count of name changes then (nameChanges). */
+	__name: string | null = null;
+	/** @hidden */
+	__nameAt: i32 = 0;
+
 	constructor(id: number) {
 		super(id);
 	}
@@ -1513,8 +1535,18 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `get_user_name`
 	 */
 	get name(): string {
-		const len = _getName(this.id, changetype<i32>(nameBuf), 64);
-		return String.UTF8.decodeUnsafe(changetype<usize>(nameBuf), len);
+		const slot = <i32>this.id;
+		if (<u32>(slot - 1) >= <u32>MAX_PLAYERS) return readName(slot);
+
+		if (!playersTold) tellPlayers();
+		const at = unchecked(nameChanges[slot]);
+		const kept = this.__name;
+		if (kept != null && this.__nameAt == at && (at & 1) == 0) return kept;
+
+		const name = readName(slot);
+		this.__name = name;
+		this.__nameAt = at;
+		return name;
 	}
 
 	/**

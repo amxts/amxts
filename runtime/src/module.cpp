@@ -138,6 +138,9 @@ struct Plugin {
 	// The facade's table of the slots a new player took, in the plugin's
 	// memory (player_slots); 0 until it gives one.
 	int32_t              playerSlots = 0;
+	// Its table of each slot's count of name changes (player_names); 0 until
+	// it gives one.
+	int32_t              playerNames = 0;
 };
 
 /**
@@ -2877,6 +2880,60 @@ static void w_playerSlots(wasm_exec_env_t env, int32_t at)
 }
 
 /**
+ * player_names(at): the facade's table of PLAYER_DATA_SLOTS cells, one a
+ * player id, where the module counts the changes of that player's name, as
+ * get_user_name reads it (NameChanges). The facade keeps a name while the
+ * count is the one it read it at.
+ */
+static void w_playerNames(wasm_exec_env_t env, int32_t at)
+{
+	wasm_module_inst_t inst = Inst(env);
+	int index = PluginOf(inst);
+	if (index < 0 || !wasm_runtime_validate_app_addr(inst, (uint64_t)at, PLAYER_DATA_SLOTS * sizeof(int32_t)))
+		return;
+	g_plugins[index].playerNames = at;
+}
+
+/** Plugin `p`'s table at `at` (player_slots, player_names), or NULL before it gives one. */
+static int32_t *PlayerTable(Plugin &p, int32_t at)
+{
+	return p.inst && at ? (int32_t *)wasm_runtime_addr_app_to_native(p.inst, (uint64_t)at) : NULL;
+}
+
+// A name change under way in some slot: the next frame ends it (NameChanges).
+static bool g_namesChanging = false;
+
+/**
+ * Counts a change of a player's name in each plugin's table (player_names):
+ * `step` 2 for a new player in the slot, whose name AMX Mod X already has;
+ * 1 to make the count odd, from client_infochanged on - AMX Mod X takes the
+ * new name as the forward returns, whoever set it, set_user_info from Pawn
+ * too - until the next frame, which makes it even again. A name read while
+ * the count is odd is not kept.
+ */
+static void NameChanges(int id, int step)
+{
+	for (size_t i = 0; i < g_plugins.size(); i++) {
+		int32_t *count = PlayerTable(g_plugins[i], g_plugins[i].playerNames);
+		if (count && (step == 2 || !(count[id] & 1)))
+			count[id] += step;
+	}
+	if (step == 1)
+		g_namesChanging = true;
+}
+
+/** The frame after a name change: every odd count goes even (NameChanges). */
+static void NamesChanged()
+{
+	g_namesChanging = false;
+	for (size_t i = 0; i < g_plugins.size(); i++) {
+		int32_t *count = PlayerTable(g_plugins[i], g_plugins[i].playerNames);
+		for (int id = 0; count && id < PLAYER_DATA_SLOTS; id++)
+			count[id] += count[id] & 1;
+	}
+}
+
+/**
  * A player is connecting to slot `id`: each plugin's Player of the slot is
  * the one who left, and its facade makes a new one for him.
  */
@@ -2886,10 +2943,11 @@ static void NewPlayer(int id)
 		return;
 
 	for (size_t i = 0; i < g_plugins.size(); i++) {
-		Plugin &p = g_plugins[i];
-		if (p.inst && p.playerSlots)
-			((int32_t *)wasm_runtime_addr_app_to_native(p.inst, (uint64_t)p.playerSlots))[id] = 1;
+		int32_t *slots = PlayerTable(g_plugins[i], g_plugins[i].playerSlots);
+		if (slots)
+			slots[id] = 1;
 	}
+	NameChanges(id, 2);
 }
 
 static const char *PluginName(int index)
@@ -3184,6 +3242,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "player_data_set_text", (void *)w_playerDataSetText, "(iii)",   NULL },
 	{ "player_data_set_players", (void *)w_playerDataSetPlayers, "(iii)", NULL },
 	{ "player_slots",           (void *)w_playerSlots,         "(i)",     NULL },
+	{ "player_names",           (void *)w_playerNames,         "(i)",     NULL },
 	{ "player_change_listen",   (void *)w_playerChangeListen,  "(ii)",    NULL },
 	{ "player_change_get",      (void *)w_playerChangeGet,     "(i)F",    NULL },
 	{ "player_change_get_text", (void *)w_playerChangeGetText, "(iii)i",  NULL },
@@ -3609,6 +3668,7 @@ static void ReleasePlugin(int index)
 	p.env = NULL;
 	p.hasTable = false;
 	p.playerSlots = 0;
+	p.playerNames = 0;
 	p.title = p.version = p.author = p.description = "";
 	p.depth = 0;
 	p.wake = false;
@@ -4998,10 +5058,19 @@ static cell AMX_NATIVE_CALL n_event(AMX *amx, cell *params)
 			NewPlayer((int)*id);
 	}
 
+	if (forward == FORWARD_CLIENT_INFOCHANGED && params[0] >= (cell)(3 * sizeof(cell))) {
+		cell *id = MF_GetAmxAddr(amx, params[3]);
+		if (id && *id >= 0 && *id < PLAYER_DATA_SLOTS)
+			NameChanges((int)*id, 1);
+	}
+
 	// The responses that came in since the last frame go to their plugins
 	// first, whoever listens to the frame.
-	if (forward == FORWARD_SERVER_FRAME)
+	if (forward == FORWARD_SERVER_FRAME) {
+		if (g_namesChanging)
+			NamesChanged();
 		NetFrame();
+	}
 
 	// Most forwards the host relays - a frame, a player thinking - nobody
 	// listens to: they cost this much and no more. Before amxts_init, as AMX

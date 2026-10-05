@@ -344,8 +344,22 @@ export class FakePlayer extends FakeEntity {
 	/** His userid, the number `#12` names him by in a command: the server counts them up as players come. */
 	readonly userid: number;
 
-	constructor(server: FakeServer, id: number, public name: string, options: JoinOptions) {
+	/** His name. A new one reaches the plugins as AMX Mod X's does: their facades read it again. */
+	get name(): string {
+		return this.named;
+	}
+
+	set name(value: string) {
+		this.named = value;
+		this.set('var_netname', value);
+		this.server.countNameChange(this.id);
+	}
+
+	private named: string;
+
+	constructor(server: FakeServer, id: number, name: string, options: JoinOptions) {
 		super(server, id, 'player');
+		this.named = name;
 		this.alive = options.alive ?? true;
 		this.bot = options.bot ?? false;
 		this.steamId = options.steamId ?? (this.bot ? 'BOT' : `STEAM_0:0:${id}`);
@@ -554,6 +568,8 @@ export class PluginInstance {
 	toldGone = false;
 	/** Where its facade's table of the slots a new player took is (player_slots); 0 until it gives one. */
 	playerSlots = 0;
+	/** Where its facade's count of each slot's name changes is (player_names); 0 until it gives one. */
+	playerNames = 0;
 
 	/** The coroutine scheduler, for a plugin that awaits; null for one that does not. */
 	readonly coroutines: Coroutines | null;
@@ -1082,6 +1098,15 @@ export class FakeServer {
 	private newPlayer(id: number): void {
 		for (const plugin of this.plugins) {
 			if (plugin.playerSlots && id >= 0 && id <= 32) plugin.memory.setCell(plugin.playerSlots + id * 4, 1);
+		}
+		this.countNameChange(id);
+	}
+
+	/** Player `id`'s name changed: each plugin's facade reads it again, as the module's NameChanges has it. */
+	countNameChange(id: number): void {
+		for (const plugin of this.plugins) {
+			const at = plugin.playerNames + id * 4;
+			if (plugin.playerNames && id >= 0 && id <= 32) plugin.memory.setCell(at, plugin.memory.cell(at) + 2);
 		}
 	}
 
@@ -2348,6 +2373,10 @@ export class FakeServer {
 
 		player_slots(this: FakeServer, plugin: PluginInstance, at: number) {
 			plugin.playerSlots = at;
+		},
+
+		player_names(this: FakeServer, plugin: PluginInstance, at: number) {
+			plugin.playerNames = at;
 		},
 
 		// playerChange: the module wakes a plugin for the fields it listens for.

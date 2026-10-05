@@ -37,7 +37,7 @@ const LIMITS: Record<string, number> = {
 	"origin into a vector": 7,
 	"string in": 6,
 	"string out": 26,
-	"player.name": 35,
+	"player.name": 4,
 	"raw hook": 14,
 	"event": 30,
 	"forward to a listener": 12,

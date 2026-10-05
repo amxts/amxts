@@ -14,6 +14,7 @@ import {
 	get_member,
 	get_speak,
 	get_user_info,
+	get_user_name,
 	has_reunion,
 	set_speak,
 	set_user_info,
@@ -69,8 +70,22 @@ async function run() {
 	money(check, bot);
 	const answer = await bot.queryCvar("fps_max");
 	check.expect(answer == null, "queryCvar of a bot is null: there is no one to ask").toBe(true);
+	await rename(check, bot);
 	joinTeam(check);
 	check.done();
+}
+
+/** A name set_user_info gives, as a Pawn plugin gives it: player.name reads AMX Mod X's name at once and a frame later. */
+async function rename(check: Checks, bot: Player) {
+	const own = bot.name;
+	set_user_info(bot.id, "name", "amxts renamed");
+	check.expect(bot.name, "the name after set_user_info is get_user_name's").toBe(get_user_name(bot.id));
+	await sleep(100);
+	check.expect(bot.name, "and a frame later, the new one").toBe("amxts renamed");
+	check.expect(get_user_name(bot.id), "as get_user_name has it").toBe("amxts renamed");
+	set_user_info(bot.id, "name", own);
+	await sleep(100);
+	check.expect(bot.name, "the bot's own name back").toBe(own);
 }
 
 /** The ammo for a weapon the player has: getAmmo reads what setAmmo wrote. */
