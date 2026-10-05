@@ -194,6 +194,7 @@ jobs:
           - amxx: ""
             sanitize: true
           - amxx: ""
+            sanitize: false
             plain: true
     env:
       AMXX: ${{ matrix.amxx }}
