@@ -342,12 +342,14 @@ function ensureImage(): void {
 /**
  * Creates the container with the server's command line, copies the test's
  * folder and the module under test into it, and starts it. The rcon port is
- * published on 127.0.0.1 only.
+ * published on 127.0.0.1 only. hlds is not process 1 (`--init`): the kernel
+ * ignores a signal process 1 sends itself, so an abort - ASan's, after its
+ * report - would leave the server hanging rather than gone.
  */
 function startContainer(argv: string[]): number {
 	ensureImage();
 	if (containerExists()) docker(['rm', '-f', CONTAINER]);
-	const created = docker(['create', '--name', CONTAINER, '-t', '-p', `127.0.0.1:${PORT}:27015/udp`, '--add-host', 'host.docker.internal:host-gateway', ...coreDumpArgs(coresDir), ...SANITIZER_ENV, IMAGE, ...argv]);
+	const created = docker(['create', '--name', CONTAINER, '--init', '-t', '-p', `127.0.0.1:${PORT}:27015/udp`, '--add-host', 'host.docker.internal:host-gateway', ...coreDumpArgs(coresDir), ...SANITIZER_ENV, IMAGE, ...argv]);
 	if (created.status !== 0) throw new Error(`docker create failed: ${created.stderr.trim()}`);
 
 	// The configs a module reads, from the image: Linux offsets, not Windows'.
