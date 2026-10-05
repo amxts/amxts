@@ -22,6 +22,22 @@ export function bitsFloat(cell: number): number {
 	return floatView[0];
 }
 
+/** How many of the bytes are whole UTF-8 characters: a last one cut short is left out. */
+function wholeUtf8(bytes: Uint8Array): number {
+	let lead = bytes.length;
+	while (lead > 0 && (bytes[lead - 1] & 0xC0) === 0x80) lead--;
+	if (lead === 0 || bytes[lead - 1] < 0xC0) return bytes.length;
+	const size = bytes[lead - 1] >= 0xF0 ? 4 : bytes[lead - 1] >= 0xE0 ? 3 : 2;
+	return bytes.length - (lead - 1) < size ? lead - 1 : bytes.length;
+}
+
+// The AMX heap the module passes text through (Frame::inText, outText):
+// cells of the fake's own at addresses past any plugin's memory, which a
+// native reads and writes as it does the plugin's.
+const HEAP = 0x7F000000;
+// The longest text that crosses, in bytes and its terminator (MAX_CROSSING_CELLS).
+const CROSSING_CELLS = 16384;
+
 /** How many of the bytes fit in `max` without cutting a UTF-8 character in two. */
 export function utf8Fit(bytes: Uint8Array, max: number): number {
 	let length = Math.min(bytes.length, max);
@@ -31,6 +47,8 @@ export function utf8Fit(bytes: Uint8Array, max: number): number {
 
 export class Memory {
 	private dataView?: DataView;
+	private heap = new Int32Array(1 << 18);
+	private heapTop = 0;
 
 	constructor(private exports: any) {}
 
@@ -42,11 +60,55 @@ export class Memory {
 	}
 
 	cell(pointer: number): number {
-		return this.view.getInt32(pointer, true);
+		return pointer >= HEAP ? this.heap[(pointer - HEAP) >> 2] : this.view.getInt32(pointer, true);
+	}
+
+	byte(pointer: number): number {
+		return this.view.getUint8(pointer);
 	}
 
 	setCell(pointer: number, value: number): void {
-		this.view.setInt32(pointer, value | 0, true);
+		if (pointer >= HEAP) this.heap[(pointer - HEAP) >> 2] = value | 0;
+		else this.view.setInt32(pointer, value | 0, true);
+	}
+
+	/**
+	 * A native's call as the module's thunk makes it, by the native's marks in
+	 * runtime/natives.txt: an `s` argument is the plugin's string, handed to
+	 * the native as a Pawn string on the heap; a `t` one is a buffer the
+	 * native fills on the heap, back in the plugin as UTF-8 bytes up to its end.
+	 */
+	across(marks: readonly string[], args: number[], call: (cells: number[]) => number): number {
+		const top = this.heapTop;
+		try {
+			const cells = args.map((arg, i) => marks[i] === 's' ? this.heapText(this.string(arg)) : marks[i] === 't' ? this.heapCells(args[i + 1] + 1) : arg);
+			const result = call(cells);
+			marks.forEach((mark, i) => {
+				if (mark !== 't') return;
+				const bytes = this.bytes(cells[i], args[i + 1]);
+				this.setRaw(args[i], Uint8Array.of(...bytes.subarray(0, wholeUtf8(bytes)), 0));
+			});
+			return result;
+		} finally {
+			this.heapTop = top;
+		}
+	}
+
+	/** `count` empty cells of the heap: their address. */
+	private heapCells(count: number): number {
+		const at = this.heapTop;
+		this.heapTop += Math.min(Math.max(count, 1), CROSSING_CELLS);
+		this.heap.fill(0, at, this.heapTop);
+		return HEAP + at * 4;
+	}
+
+	/** Text as a Pawn string on the heap, cut at the longest that crosses, between letters. */
+	private heapText(text: string): number {
+		const bytes = encoder.encode(text);
+		const length = utf8Fit(bytes, CROSSING_CELLS - 1);
+		const at = this.heapCells(length + 1);
+		this.heap.set(bytes.subarray(0, length), (at - HEAP) >> 2);
+		return at;
 	}
 
 	float(pointer: number): number {

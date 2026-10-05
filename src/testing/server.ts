@@ -584,12 +584,13 @@ export class PluginInstance {
 			return (...args: number[]) => bridge.call(this.server, this, ...args);
 		}
 
-		if (this.server.hasNative(name)) return (...args: number[]) => this.server.callNativeImpl(this, name, args);
+		const marks = tables().crossings.get(name) ?? [];
+		if (this.server.hasNative(name)) return (...args: number[]) => this.memory.across(marks, args, cells => this.server.callNativeImpl(this, name, cells));
 
 		// Another plugin's `export function`, called through @amxts/core/natives as AMX
 		// Mod X would route it; whether one exports it is known only at the call.
-		return (...cells: number[]) => {
-			if (this.server.exported.has(name)) return this.server.callFromPlugin(this, name, cells);
+		return (...args: number[]) => {
+			if (this.server.exported.has(name)) return this.memory.across(marks, args, cells => this.server.callFromPlugin(this, name, cells));
 			throw unsimulated(name);
 		};
 	}
@@ -2368,16 +2369,21 @@ export class FakeServer {
 		// The dispatcher: a native with a `...` tail, its arguments laid out as
 		// cells. Every mask letter but `n` is an address in the plugin's memory,
 		// which is what a Pawn frame holds too - so the native gets the cells as
-		// they are, and reads through the addresses itself.
+		// they are, and reads through the addresses itself; an `s` is the
+		// plugin's string, which crosses as a Pawn string on the heap.
 		call(this: FakeServer, plugin: PluginInstance, id: number, argsPtr: number, maskPtr: number, argc: number) {
 			const name = tables().dispatched.get(id);
 			if (!name) throw new Error(`the dispatcher has no native with id ${id}`);
 
 			const args: number[] = [];
-			for (let i = 0; i < argc; i++) args.push(plugin.memory.cell(argsPtr + i * 4));
+			const marks: string[] = [];
+			for (let i = 0; i < argc; i++) {
+				args.push(plugin.memory.cell(argsPtr + i * 4));
+				marks.push(String.fromCharCode(plugin.memory.byte(maskPtr + i)));
+			}
 
 			if (!this.hasNative(name)) throw unsimulated(name);
-			return this.callNativeImpl(plugin, name, args);
+			return plugin.memory.across(marks, args, cells => this.callNativeImpl(plugin, name, cells));
 		},
 	};
 

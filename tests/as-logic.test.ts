@@ -70,13 +70,13 @@ beforeAll(async () => {
 	}
 
 	// A dictionary that has every key but NO_* as itself: lang.translate's
-	// line is the key it was given, a Pawn string of a UTF-8 byte a cell.
+	// line is the key it was given - the plugin's string in, UTF-8 bytes up
+	// to a zero back into its buffer, as the module's thunk crosses them.
 	imports.env.LookupLangKey = (out, size, key) => {
-		const cells = new Int32Array(exports.memory.buffer);
-		if (cells[key >>> 2] === 'N'.charCodeAt(0) && cells[(key >>> 2) + 1] === 'O'.charCodeAt(0) && cells[(key >>> 2) + 2] === '_'.charCodeAt(0)) return 0;
-		let i = 0;
-		for (; i < size && cells[(key >>> 2) + i] !== 0; i++) cells[(out >>> 2) + i] = cells[(key >>> 2) + i];
-		cells[(out >>> 2) + i] = 0;
+		const line = text(key);
+		if (line.startsWith('NO_')) return 0;
+		const bytes = new TextEncoder().encode(line).subarray(0, size);
+		new Uint8Array(exports.memory.buffer).set([...bytes, 0], out);
 		return 1;
 	};
 

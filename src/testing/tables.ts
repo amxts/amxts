@@ -36,6 +36,8 @@ export interface Tables {
 	constants: Map<string, number>;
 	/** The dispatcher's native ids (`NATIVE_x`) to names. */
 	dispatched: Map<number, string>;
+	/** A native's arguments as they cross, by its name: runtime/natives.txt's marks (`s` text in, `t` text back). */
+	crossings: Map<string, string[]>;
 	/** A hookchain's number (hookIdOf) to its short name. */
 	hookNames: Map<number, string>;
 	/** A hookchain by its short name, or by its event name ("takeDamage"). */
@@ -89,6 +91,10 @@ export function tables(): Tables {
 	for (const [, name, id] of generated('natives.ts').matchAll(/^export const NATIVE_(\w+): i32 = (\d+);/gm)) {
 		dispatched.set(Number(id), name);
 	}
+
+	const crossings = new Map<string, string[]>();
+	const natives = readFileSync(join(PLUGINS_ROOT, '../runtime/natives.txt'), 'utf-8');
+	for (const [, name, marks] of natives.matchAll(/^(\w+) \([^)]*\)\S* (\S+)$/gm)) crossings.set(name, marks.split(','));
 
 	const hookNames = new Map<number, string>();
 	const switchBody = constantsSource.slice(constantsSource.indexOf('export function hookIdOf'));
@@ -144,6 +150,7 @@ export function tables(): Tables {
 	cached = {
 		constants,
 		dispatched,
+		crossings,
 		hookNames,
 		hooks,
 		floatFields: fieldsOf(kind => (kind & 3) === 1),
