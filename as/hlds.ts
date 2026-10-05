@@ -16,7 +16,7 @@
 // is one line in the console where it cannot (`settle`).
 import {
 	Call, CellBuffer, Player, TouchEvent, game, server, handled, arg, argText, cellFloat, floatCell,
-	__Switch, __ham, __off, __onCell, __outcome, __sayOnce, __switchedPublic, __whenPrecache, __whenUp
+	__Listeners, __Switch, __ham, __playerOf, __off, __onCell, __outcome, __sayOnce, __switchedPublic, __whenPrecache, __whenUp
 } from "./facade";
 import { Entity } from "./entities";
 import {
@@ -109,7 +109,7 @@ function onMessage<K extends keyof ServerMessageMap>(name: K, listener: (event: 
  * for, and the hook is switched off while none is.
  */
 class Hearers<H> {
-	list: H[] = [];
+	list: __Listeners<H> = new __Listeners<H>();
 	private hook: __Switch = new __Switch();
 	private hooked: bool = false;
 
@@ -122,8 +122,8 @@ class Hearers<H> {
 		this.list.push(hearer);
 		listened.add((on: bool): void => {
 			if (on) this.list.push(hearer);
-			else this.list.splice(this.list.indexOf(hearer), 1);
-			this.hook.set(this.list.length > 0);
+			else this.list.remove(hearer);
+			this.hook.set(this.list.count > 0);
 		});
 	}
 }
@@ -206,8 +206,13 @@ function onSetModel(hearer: (entity: i32, model: string) => void, hook: __Switch
 function heardModel(): void {
 	const entity = <i32>arg(0);
 	const model = argText(1);
-	const hearers = modelHearers.list.slice(0);
-	for (let i = 0; i < hearers.length; i++) hearers[i](entity, model);
+	const hearers = modelHearers.list;
+	const n = hearers.begin();
+	for (let i = 0; i < n; i++) {
+		const hearer = hearers.at(i);
+		if (hearer) hearer(entity, model);
+	}
+	hearers.end();
 }
 
 // One EmitSound hook for every event that hears a sound.
@@ -220,8 +225,13 @@ function onSound(hearer: (entity: i32, sample: string) => void, hook: __Switch):
 function heardSound(): void {
 	const entity = <i32>arg(0);
 	const sample = argText(2);
-	const hearers = soundHearers.list.slice(0);
-	for (let i = 0; i < hearers.length; i++) hearers[i](entity, sample);
+	const hearers = soundHearers.list;
+	const n = hearers.begin();
+	for (let i = 0; i < n; i++) {
+		const hearer = hearers.at(i);
+		if (hearer) hearer(entity, sample);
+	}
+	hearers.end();
 }
 
 // ---------------------------------------------------------------- client commands
@@ -293,8 +303,13 @@ function onDecalsReset(hearer: () => void, hook: __Switch): void {
 }
 
 function decalsReset(a: i32): void {
-	const hearers = decalHearers.list.slice(0);
-	for (let i = 0; i < hearers.length; i++) hearers[i]();
+	const hearers = decalHearers.list;
+	const n = hearers.begin();
+	for (let i = 0; i < n; i++) {
+		const hearer = hearers.at(i);
+		if (hearer) hearer();
+	}
+	hearers.end();
 }
 
 /** The round once its players have respawned: the decals' reset at its HLTV message's time. */
@@ -720,7 +735,7 @@ export function chooseTeamHlds(fire: Fire<ChooseTeamEvent>, hook: __Switch): voi
 	};
 	onCommand("chooseTeam", "jointeam", chosen, hook);
 	onCommand("chooseTeam", "menuselect", (id: i32): void => {
-		const menu = new Player(id).openMenu;
+		const menu = __playerOf(id).openMenu;
 		if (menu == "team" || menu == "teamInGame") chosen(id);
 	}, hook);
 }
@@ -735,7 +750,7 @@ export function chooseAppearanceHlds(fire: Fire<ChooseAppearanceEvent>, hook: __
 	};
 	onCommand("chooseAppearance", "joinclass", chosen, hook);
 	onCommand("chooseAppearance", "menuselect", (id: i32): void => {
-		if (new Player(id).openMenu == "appearance") chosen(id);
+		if (__playerOf(id).openMenu == "appearance") chosen(id);
 	}, hook);
 }
 
@@ -919,7 +934,7 @@ const THROWN: string[] = ["models/w_hegrenade.mdl", "models/w_flashbang.mdl", "m
 export function throwGrenadeHlds(fire: Fire<ThrowGrenadeEvent>, hook: __Switch): void {
 	for (let i = 0; i < THROWN.length; i++) {
 		onThrown(THROWN[i], (grenade: Entity, thrower: i32, fuse: f64): void => {
-			const weapon = thrower > 0 ? new Player(thrower).activeItem : null;
+			const weapon = thrower > 0 ? __playerOf(thrower).activeItem : null;
 			const event = new ThrowGrenadeEvent();
 			event.__give(0, thrower);
 			event.__give(1, weapon != null ? <i32>weapon.id : 0);

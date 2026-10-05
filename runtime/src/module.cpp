@@ -135,6 +135,9 @@ struct Plugin {
 	uint32_t             stackTop = 0;       // __stack_pointer with nothing running; 0 without async
 	std::map<int32_t, Coroutine> coroutines;
 	std::vector<int32_t> running;        // coroutines being run, innermost last
+	// The facade's table of the slots a new player took, in the plugin's
+	// memory (player_slots); 0 until it gives one.
+	int32_t              playerSlots = 0;
 };
 
 /**
@@ -2710,6 +2713,36 @@ static int PluginOf(wasm_module_inst_t inst)
 	return g_currentPlugin;
 }
 
+/**
+ * player_slots(at): the facade's table of PLAYER_DATA_SLOTS cells, one a
+ * player id, where the module writes 1 when a new player takes that slot
+ * (NewPlayer).
+ */
+static void w_playerSlots(wasm_exec_env_t env, int32_t at)
+{
+	wasm_module_inst_t inst = Inst(env);
+	int index = PluginOf(inst);
+	if (index < 0 || !wasm_runtime_validate_app_addr(inst, (uint64_t)at, PLAYER_DATA_SLOTS * sizeof(int32_t)))
+		return;
+	g_plugins[index].playerSlots = at;
+}
+
+/**
+ * A player is connecting to slot `id`: each plugin's Player of the slot is
+ * the one who left, and its facade makes a new one for him.
+ */
+static void NewPlayer(int id)
+{
+	if (id < 0 || id >= PLAYER_DATA_SLOTS)
+		return;
+
+	for (size_t i = 0; i < g_plugins.size(); i++) {
+		Plugin &p = g_plugins[i];
+		if (p.inst && p.playerSlots)
+			((int32_t *)wasm_runtime_addr_app_to_native(p.inst, (uint64_t)p.playerSlots))[id] = 1;
+	}
+}
+
 static const char *PluginName(int index)
 {
 	return index >= 0 && (size_t)index < g_plugins.size() ? g_plugins[index].name.c_str() : "?";
@@ -3001,6 +3034,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "player_data_get_text", (void *)w_playerDataGetText, "(iiii)i", NULL },
 	{ "player_data_set_text", (void *)w_playerDataSetText, "(iii)",   NULL },
 	{ "player_data_set_players", (void *)w_playerDataSetPlayers, "(iii)", NULL },
+	{ "player_slots",           (void *)w_playerSlots,         "(i)",     NULL },
 	{ "player_change_listen",   (void *)w_playerChangeListen,  "(ii)",    NULL },
 	{ "player_change_get",      (void *)w_playerChangeGet,     "(i)F",    NULL },
 	{ "player_change_get_text", (void *)w_playerChangeGetText, "(iii)i",  NULL },
@@ -3426,6 +3460,7 @@ static void ReleasePlugin(int index)
 	p.inst = NULL;
 	p.env = NULL;
 	p.hasTable = false;
+	p.playerSlots = 0;
 	p.title = p.version = p.author = p.description = "";
 	p.depth = 0;
 	p.wake = false;
@@ -4789,6 +4824,12 @@ static cell AMX_NATIVE_CALL n_event(AMX *amx, cell *params)
 	if (strcmp(name, "client_disconnected") == 0 && params[0] >= (cell)(3 * sizeof(cell))) {
 		cell *id = MF_GetAmxAddr(amx, params[3]);
 		leaver.id = id ? (int)*id : 0;
+	}
+
+	if (strcmp(name, "client_connect") == 0 && params[0] >= (cell)(3 * sizeof(cell))) {
+		cell *id = MF_GetAmxAddr(amx, params[3]);
+		if (id)
+			NewPlayer((int)*id);
 	}
 
 	// The responses that came in since the last frame go to their plugins

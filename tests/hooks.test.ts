@@ -18,8 +18,8 @@ test('take_damage: damage is a float argument 4, the victim is read only', () =>
 	const body = classBody('TakeDamageEvent');
 	expect(body).toContain('get damage(): number { return cellFloat(this.__cell(3)); }');
 	expect(body).toContain('set damage(value: number) { this.__set(3, ATYPE_FLOAT, floatCell(value)); }');
-	expect(body).toContain('get player(): Player { return new Player(this.__cell(0)); }');
-	expect(body).toContain('get attacker(): Player { return new Player(this.__cell(2)); }');
+	expect(body).toContain('get player(): Player { return __playerOf(this.__cell(0)); }');
+	expect(body).toContain('get attacker(): Player { return __playerOf(this.__cell(2)); }');
 	expect(body).not.toContain('set player(');
 	expect(body).not.toContain('set attacker(');
 	expect(body).toContain('get damageType(): Damage[]');
@@ -56,7 +56,7 @@ test('game.addEventListener: every chain is a key, with its event and its answer
 
 test('an answer is the chain result, and in a pre hook it stops the chain', () => {
 	expect(hooks).toContain('event.__answer(ATYPE_BOOL, answer ? 1 : 0, post);');
-	expect(hooks).toContain('if (!post) return;');
+	expect(hooks).toContain('if (!post) break;');
 	expect(hooks).toContain('if (!(isBoolean<R>())) ERROR("a canPlayerHearPlayer handler answers with boolean");');
 });
 
@@ -154,9 +154,9 @@ test('the same function under reapi and Ham Sandwich is one event: reapi for its
 	// One a stock hook hears goes to its backend (as/hlds.ts), registered on
 	// the first listener and switched off with the event's last.
 	expect(hooks).toContain('if (!roundEndHldsHooked) { roundEndHldsHooked = true; roundEndHlds(roundEndFireHlds, roundEndBackend); }');
-	expect(hooks).toContain('roundEndBackend.set(roundEndPre.entries.length + roundEndPost.entries.length > 0);');
+	expect(hooks).toContain('roundEndBackend.set(roundEndPre.entries.count + roundEndPost.entries.count > 0);');
 	expect(hooks).toContain('if (post && !newRoundPostHldsHooked) { newRoundPostHldsHooked = true; newRoundPostHlds(newRoundFireHlds, newRoundPostBackend); }');
-	expect(hooks).toContain('newRoundPostBackend.set(newRoundPost.entries.length > 0);');
+	expect(hooks).toContain('newRoundPostBackend.set(newRoundPost.entries.count > 0);');
 	expect(hooks).toMatch(/\tspawn: SpawnEvent;/);
 	expect(hooks).not.toContain('basePlayerSpawn');
 	expect(hooks).toMatch(/\tgameThink: GameThinkEvent;/);

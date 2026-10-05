@@ -275,6 +275,78 @@ export class __Switch {
 	}
 }
 
+/**
+ * @hidden The listeners of one event, walked by its dispatch in place - no
+ * copy, no allocation - with the DOM's rules: a dispatch calls the listeners
+ * there when it began (`begin` gives their count), so one added meanwhile
+ * waits for the next; one removed meanwhile becomes a hole the walk skips,
+ * and the outermost dispatch closes the holes when it ends.
+ *
+ * A listener that traps ends the call without `end`: the list then keeps its
+ * holes - still skipped, a few bytes each - until the plugin stops.
+ */
+export class __Listeners<T> {
+	private items: (T | null)[] = [];
+	private depth: i32 = 0;
+	private holes: bool = false;
+	/** How many listeners there are. */
+	count: i32 = 0;
+
+	push(item: T): void {
+		this.items.push(item);
+		this.count++;
+	}
+
+	/** Takes `item` off; false when it is not there. */
+	remove(item: T): bool {
+		const at = this.items.indexOf(item);
+		if (at < 0) return false;
+		this.removeAt(at);
+		return true;
+	}
+
+	/** Takes the listener at `at` off: a hole while a dispatch walks the list. */
+	removeAt(at: i32): void {
+		this.count--;
+		if (this.depth == 0) {
+			this.items.splice(at, 1);
+			return;
+		}
+
+		unchecked(this.items[at] = null);
+		this.holes = true;
+	}
+
+	/** The listener at `at`, null where one was removed; `at` below `slots`. */
+	at(at: i32): T | null {
+		return unchecked(this.items[at]);
+	}
+
+	/** How many places a walk outside a dispatch goes over, holes included. */
+	get slots(): i32 {
+		return this.items.length;
+	}
+
+	/** A dispatch begins: how many places it walks. */
+	begin(): i32 {
+		this.depth++;
+		return this.items.length;
+	}
+
+	/** A dispatch ends; the outermost one closes the holes. */
+	end(): void {
+		if (--this.depth > 0 || !this.holes) return;
+		this.holes = false;
+		const items = this.items;
+		let kept = 0;
+		for (let i = 0; i < items.length; i++) {
+			const item = unchecked(items[i]);
+			if (item) unchecked(items[kept++] = item);
+		}
+		items.length = kept;
+	}
+}
+
 // AMX Mod X implements a native as a public in some plugin, so this names the
 // host plugin's one public for them all, and the module keeps the name:
 // register_native cannot be undone, so a reload takes the same entry back
@@ -501,7 +573,7 @@ export function __nativeTarget(index: i32, orNone: bool): bool {
 /** @hidden A `Player` argument: the player in that slot, null for 0. */
 export function __nativePlayer(index: i32): Player | null {
 	const id = _arg(index);
-	return id >= 1 ? new Player(id) : null;
+	return id >= 1 ? __playerOf(id) : null;
 }
 
 /**
@@ -1301,7 +1373,7 @@ export interface KillOptions {
 // ---------------------------------------------------------------- bots
 
 import { __textAt, dllfunc, engfunc, global_get, set_pev } from "./natives";
-import { DLLFunc_ClientConnect, DLLFunc_ClientPutInServer, EngFunc_CreateFakeClient, EngFunc_RunPlayerMove, glb_frametime, pev_health } from "./constants";
+import { DLLFunc_ClientConnect, DLLFunc_ClientPutInServer, EngFunc_CreateFakeClient, EngFunc_RunPlayerMove, glb_frametime, MAX_PLAYERS, pev_health } from "./constants";
 import { BUTTON, Button } from "./flags";
 
 /** How long the server's current frame lasts, in seconds. */
@@ -1388,6 +1460,39 @@ export interface Client {
 	joinTeam(team: Team): boolean;
 	/** Asks the player's game for one of its cvars: `await client.queryCvar("fps_max")`, the value as text, or `null` when his game has none. */
 	queryCvar(name: string): Promise<string | null>;
+}
+
+// @ts-ignore: decorator
+@external("env", "player_slots") declare function _playerSlots(at: usize): void;
+
+// One Player a player, so an event hands out no new object and the same
+// player is the same object. The module writes 1 into `newPlayers` at a
+// slot a new player connects to, and the next lookup makes him his own.
+const players = new StaticArray<Player | null>(MAX_PLAYERS + 1);
+const newPlayers = new StaticArray<i32>(MAX_PLAYERS + 1);
+let playersTold = false;
+
+/** @hidden The Player in slot `id`: the same object while that player stays; a new one past the players. */
+export function __playerOf(id: number): Player {
+	const slot = <i32>id;
+	if (<u32>(slot - 1) >= <u32>MAX_PLAYERS) return new Player(id);
+
+	if (!playersTold) {
+		playersTold = true;
+		_playerSlots(changetype<usize>(newPlayers));
+	}
+
+	if (unchecked(newPlayers[slot]) != 0) {
+		unchecked(newPlayers[slot] = 0);
+		unchecked(players[slot] = null);
+	}
+
+	let player = unchecked(players[slot]);
+	if (player == null) {
+		player = new Player(id);
+		unchecked(players[slot] = player);
+	}
+	return player;
 }
 
 /**
@@ -2153,7 +2258,7 @@ function chatCommand(player: number, level: number, cid: number, unused: number)
 	const slash = text.startsWith("/");
 	const at = slash ? findCommand(space < 0 ? text : text.substring(0, space)) : findCommand("say " + text);
 	if (at < 0 || !mayRun(id, at)) { _outcome(0); return; }
-	runCommand(at, id, chatWords(new Player(id), commandInfos[at].usage, slash && space >= 0 ? text.substring(space + 1) : ""));
+	runCommand(at, id, chatWords(__playerOf(id), commandInfos[at].usage, slash && space >= 0 ? text.substring(space + 1) : ""));
 }
 
 /** name a b - a console command, its arguments as the engine split them. */
@@ -2161,7 +2266,7 @@ function consoleCommand(player: number, level: number, cid: number, unused: numb
 	const id = <i32>player;
 	const at = findCommand(read_argv(0));
 	if (at < 0 || !mayRun(id, at)) { _outcome(0); return; }
-	runCommand(at, id, consoleWords(new Player(id), commandInfos[at].usage));
+	runCommand(at, id, consoleWords(__playerOf(id), commandInfos[at].usage));
 }
 
 /**
@@ -2189,7 +2294,7 @@ const waitingServerCommands: string[] = [];
 // plugin. One register_touch per pair of classes, its listeners behind it,
 // switched off while it has none.
 class TouchFilter {
-	listeners: TouchListener[] = [];
+	listeners: __Listeners<TouchListener> = new __Listeners<TouchListener>();
 	hook: __Switch = new __Switch();
 	constructor(public toucher: string, public touched: string) {}
 }
@@ -2736,7 +2841,7 @@ export class ClientMessage {
 
 	/** The player the message goes to; `null` for a message to everyone. */
 	get player(): Player | null {
-		return this.__receiver >= 1 && this.__receiver <= get_maxplayers() ? new Player(this.__receiver) : null;
+		return this.__receiver >= 1 && this.__receiver <= get_maxplayers() ? __playerOf(this.__receiver) : null;
 	}
 
 	/** The message's arguments, by their place: `event.args.text(1)`. */
@@ -2798,7 +2903,7 @@ export class ClientMessage {
 	/** @hidden A player's number argument; `0` or past the players is none. */
 	protected __player(arg: i32): Player | null {
 		const id = <i32>this.__number(arg);
-		return id >= 1 && id <= get_maxplayers() ? new Player(id) : null;
+		return id >= 1 && id <= get_maxplayers() ? __playerOf(id) : null;
 	}
 
 	/** @hidden Three coordinates from the argument on. */
@@ -2842,7 +2947,7 @@ export class ClientMessage {
 // another plugin's hook off instead, so with no listener left the public is
 // switched off in the module.
 class MessageChannel {
-	listeners: ((event: ClientMessage) => void)[] = [];
+	listeners: __Listeners<(event: ClientMessage) => void> = new __Listeners<(event: ClientMessage) => void>();
 	hook: __Switch = new __Switch();
 	constructor(public name: string, public make: () => ClientMessage) {}
 }
@@ -2874,9 +2979,8 @@ function listenToMessage<E>(name: string, listener: (event: E) => void): void {
 function stopListeningToMessage<E>(name: string, listener: (event: E) => void): void {
 	const channel = messageChannel(name);
 	if (channel == null) return;
-	const at = channel.listeners.indexOf(changetype<(event: ClientMessage) => void>(listener));
-	if (at >= 0) channel.listeners.splice(at, 1);
-	channel.hook.set(channel.listeners.length > 0);
+	channel.listeners.remove(changetype<(event: ClientMessage) => void>(listener));
+	channel.hook.set(channel.listeners.count > 0);
 }
 
 function registerMessage(channel: MessageChannel): void {
@@ -2897,9 +3001,13 @@ function messageFired(channel: MessageChannel, receiver: i32): void {
 	const event = channel.make();
 	event.name = channel.name;
 	event.__receiver = receiver;
-	// A copy: a listener that removes itself must not make the next one skip.
-	const listeners = channel.listeners.slice(0);
-	for (let i = 0; i < listeners.length; i++) listeners[i](event);
+	const listeners = channel.listeners;
+	const n = listeners.begin();
+	for (let i = 0; i < n; i++) {
+		const listener = listeners.at(i);
+		if (listener) listener(event);
+	}
+	listeners.end();
 }
 
 // ---------------------------------------------------------------- player fields changing
@@ -2944,7 +3052,7 @@ export class PlayerChangeEvent<F extends string = string> {
 
 	/** The player whose field changed. */
 	get player(): Player {
-		return new Player(this.__slot);
+		return __playerOf(this.__slot);
 	}
 }
 
@@ -2970,7 +3078,7 @@ class PlayerChangeListener {
 	) {}
 }
 
-const playerChangeListeners: PlayerChangeListener[] = [];
+const playerChangeListeners = new __Listeners<PlayerChangeListener>();
 const heardFields: string[] = [];
 
 /** Whether a listener for `field` hears `key`: the field itself, a member of it, or "" for every one. */
@@ -2988,10 +3096,10 @@ function addPlayerChangeListener<E>(field: string, listener: (event: E) => void)
 
 function removePlayerChangeListener<E>(field: string, listener: (event: E) => void): void {
 	const fn = changetype<(event: PlayerChangeEvent) => void>(listener);
-	for (let i = 0; i < playerChangeListeners.length; i++) {
-		const one = playerChangeListeners[i];
-		if (one.field != field || one.listener != fn) continue;
-		playerChangeListeners.splice(i, 1);
+	for (let i = 0; i < playerChangeListeners.slots; i++) {
+		const one = playerChangeListeners.at(i);
+		if (one == null || one.field != field || one.listener != fn) continue;
+		playerChangeListeners.removeAt(i);
 		return;
 	}
 }
@@ -3013,11 +3121,10 @@ function playerChanged(slot: i32): void {
 	const number = _playerChangeGet(2);
 	const text = changeText(2);
 
-	// A copy: a listener that removes itself must not make the next one skip.
-	const listeners = playerChangeListeners.slice(0);
-	for (let i = 0; i < listeners.length; i++) {
-		const one = listeners[i];
-		if (!hears(one.field, key)) continue;
+	const n = playerChangeListeners.begin();
+	for (let i = 0; i < n; i++) {
+		const one = playerChangeListeners.at(i);
+		if (one == null || !hears(one.field, key)) continue;
 		const event = one.make();
 		event.__slot = slot;
 		event.field = key;
@@ -3027,6 +3134,7 @@ function playerChanged(slot: i32): void {
 		event.__text = text;
 		one.listener(event);
 	}
+	playerChangeListeners.end();
 }
 
 // ---------------------------------------------------------------- cvars
@@ -3125,7 +3233,7 @@ export class Cvar {
 	 * Pawn: `get_cvar_pointer`
 	 */
 	pointer: i32 = 0;
-	private listeners: CvarListener[] = [];
+	private listeners = new __Listeners<CvarListener>();
 	private hooked: bool = false;
 
 	constructor(
@@ -3147,7 +3255,7 @@ export class Cvar {
 		const fallback = this.defaultValue;
 		if (pointer == 0 && fallback != null) pointer = create_cvar(this.name, fallback);
 		this.pointer = pointer;
-		if (this.listeners.length > 0) this.hook();
+		if (this.listeners.count > 0) this.hook();
 	}
 
 	private hook(): void {
@@ -3185,14 +3293,18 @@ export class Cvar {
 
 	/** Stops calling a listener added with `addEventListener`. */
 	removeEventListener(type: "change", listener: CvarListener): void {
-		const at = this.listeners.indexOf(listener);
-		if (at >= 0) this.listeners.splice(at, 1);
+		this.listeners.remove(listener);
 	}
 
 	/** @internal Calls the change listeners; the server does it when the cvar changes. A plugin listens with `addEventListener`. */
 	dispatch(event: CvarChangeEvent): void {
-		const listeners = this.listeners.slice(0);
-		for (let i = 0; i < listeners.length; i++) listeners[i](event);
+		const listeners = this.listeners;
+		const n = listeners.begin();
+		for (let i = 0; i < n; i++) {
+			const listener = listeners.at(i);
+			if (listener) listener(event);
+		}
+		listeners.end();
 	}
 }
 
@@ -3292,7 +3404,7 @@ export class Server {
 	get players(): Player[] {
 		const ids = playerIds("h");
 		const list: Player[] = [];
-		for (let i = 0; i < ids.length; i++) list.push(new Player(ids[i]));
+		for (let i = 0; i < ids.length; i++) list.push(__playerOf(ids[i]));
 		return list;
 	}
 
@@ -3320,7 +3432,7 @@ export class Server {
 		const rejected = new Ref<string>("");
 		dllfunc(DLLFunc_ClientConnect, id, name, "127.0.0.1", rejected);
 		dllfunc(DLLFunc_ClientPutInServer, id);
-		return new Player(id);
+		return __playerOf(id);
 	}
 
 	/**
@@ -3662,9 +3774,8 @@ function addTouchListener(listener: TouchListener, toucher: string, touched: str
 function removeTouchListener(listener: TouchListener, toucher: string, touched: string): void {
 	const filter = touchFilter(toucher, touched);
 	if (filter == null) return;
-	const at = filter.listeners.indexOf(listener);
-	if (at >= 0) filter.listeners.splice(at, 1);
-	filter.hook.set(filter.listeners.length > 0);
+	filter.listeners.remove(listener);
+	filter.hook.set(filter.listeners.count > 0);
 }
 
 /** Hands one pair of classes to the engine module; a reload takes the same public back. */
@@ -3677,9 +3788,13 @@ function registerTouch(filter: TouchFilter): void {
 /** The public register_touch calls: (touched, toucher), in its order. */
 function touchFired(filter: TouchFilter, touched: number, toucher: number): void {
 	const event = new TouchEvent(new Entity(toucher), new Entity(touched));
-	// A copy: a listener that removes itself must not make the next one skip.
-	const listeners = filter.listeners.slice(0);
-	for (let i = 0; i < listeners.length; i++) listeners[i](event);
+	const listeners = filter.listeners;
+	const n = listeners.begin();
+	for (let i = 0; i < n; i++) {
+		const listener = listeners.at(i);
+		if (listener) listener(event);
+	}
+	listeners.end();
 }
 
 /** The winner of a round, one of `"TERRORIST"`, `"CT"`, `"draw"`, or `"none"` - a restart without a winner. */
@@ -4811,7 +4926,7 @@ function argumentOf<T>(crossing: string, index: i32): T {
 	if (isReference<T>()) {
 		if (isVector<T>()) return changetype<T>(__nativeVector(index));
 		if (isArray<T>()) return changetype<T>(__forwardNumbers(index, crossesAsFloats<T>(cross)));
-		return nameof<T>() == "Player" ? changetype<T>(new Player(__nativeCell(index))) : changetype<T>(0);
+		return nameof<T>() == "Player" ? changetype<T>(__playerOf(__nativeCell(index))) : changetype<T>(0);
 	}
 	if (isBoolean<T>()) return <T>(__nativeCell(index) != 0);
 	if (isFloat<T>() && cross == CROSS_FLOAT) return <T>reinterpret<f32>(__nativeCell(index));
@@ -4873,7 +4988,7 @@ export class Forward<T1 = NoArgument, T2 = NoArgument, T3 = NoArgument, T4 = NoA
 
 	private handle: i32 = -1;
 	private tag: i32 = -1;
-	private handlers: ((a1: T1, a2: T2, a3: T3, a4: T4, a5: T5, a6: T6, a7: T7, a8: T8, a9: T9, a10: T10, a11: T11, a12: T12, a13: T13, a14: T14, a15: T15, a16: T16, a17: T17, a18: T18, a19: T19, a20: T20, a21: T21, a22: T22, a23: T23, a24: T24, a25: T25, a26: T26, a27: T27, a28: T28, a29: T29, a30: T30, a31: T31, a32: T32) => void)[] = [];
+	private handlers = new __Listeners<(a1: T1, a2: T2, a3: T3, a4: T4, a5: T5, a6: T6, a7: T7, a8: T8, a9: T9, a10: T10, a11: T11, a12: T12, a13: T13, a14: T14, a15: T15, a16: T16, a17: T17, a18: T18, a19: T19, a20: T20, a21: T21, a22: T22, a23: T23, a24: T24, a25: T25, a26: T26, a27: T27, a28: T28, a29: T29, a30: T30, a31: T31, a32: T32) => void>();
 
 	/**
 	 * @param name The forward's name, as Pawn plugins hook it.
@@ -4913,8 +5028,7 @@ export class Forward<T1 = NoArgument, T2 = NoArgument, T3 = NoArgument, T4 = NoA
 
 	/** Stops calling a handler given to `subscribe()`. */
 	unsubscribe(handler: (a1: T1, a2: T2, a3: T3, a4: T4, a5: T5, a6: T6, a7: T7, a8: T8, a9: T9, a10: T10, a11: T11, a12: T12, a13: T13, a14: T14, a15: T15, a16: T16, a17: T17, a18: T18, a19: T19, a20: T20, a21: T21, a22: T22, a23: T23, a24: T24, a25: T25, a26: T26, a27: T27, a28: T28, a29: T29, a30: T30, a31: T31, a32: T32) => void): void {
-		const at = this.handlers.indexOf(handler);
-		if (at >= 0) this.handlers.splice(at, 1);
+		this.handlers.remove(handler);
 	}
 
 	/** Passes the forward's arguments to every `subscribe()` handler; the server calls it, not a plugin. */
@@ -4951,11 +5065,13 @@ export class Forward<T1 = NoArgument, T2 = NoArgument, T3 = NoArgument, T4 = NoA
 		const a30 = argumentOf<T30>(this.crossing, 29);
 		const a31 = argumentOf<T31>(this.crossing, 30);
 		const a32 = argumentOf<T32>(this.crossing, 31);
-		// A copy: a handler that unsubscribes itself must not make the next one skip.
-		const handlers = this.handlers.slice(0);
-		for (let i = 0; i < handlers.length; i++) {
-			handlers[i](a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30, a31, a32);
+		const handlers = this.handlers;
+		const n = handlers.begin();
+		for (let i = 0; i < n; i++) {
+			const handler = handlers.at(i);
+			if (handler) handler(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30, a31, a32);
 		}
+		handlers.end();
 	}
 
 	/**

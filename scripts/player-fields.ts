@@ -721,7 +721,7 @@ export function playerFieldsSource(fields: PlayerField[]): string {
 			'\t\tconst ids = text.split(",");',
 			'\t\tfor (let i = 0; i < ids.length; i++) {',
 			'\t\t\tconst id = I32.parseInt(unchecked(ids[i]));',
-			'\t\t\tif (id > 0) list.push(new Player(id));',
+			'\t\t\tif (id > 0) list.push(__playerOf(id));',
 			'\t\t}',
 			'\t\treturn list;',
 			'\t}',

@@ -552,6 +552,8 @@ export class PluginInstance {
 	readonly uses: string[] = [];
 	/** It called back a function of a plugin unloaded since, and was told so: once. */
 	toldGone = false;
+	/** Where its facade's table of the slots a new player took is (player_slots); 0 until it gives one. */
+	playerSlots = 0;
 
 	/** The coroutine scheduler, for a plugin that awaits; null for one that does not. */
 	readonly coroutines: Coroutines | null;
@@ -1062,6 +1064,7 @@ export class FakeServer {
 	 */
 	fire(name: string, ...args: ArgValue[]): number {
 		const first = typeof args[0] === 'number' || typeof args[0] === 'boolean' ? Number(args[0]) : 0;
+		if (name === 'client_connect') this.newPlayer(first);
 		return this.withCallArgs(args, () => {
 			this.deliver(name);
 
@@ -1073,6 +1076,13 @@ export class FakeServer {
 			}
 			return result;
 		});
+	}
+
+	/** A player connects to slot `id`: each plugin's facade makes him a Player of his own, as the module's NewPlayer has it. */
+	private newPlayer(id: number): void {
+		for (const plugin of this.plugins) {
+			if (plugin.playerSlots && id >= 0 && id <= 32) plugin.memory.setCell(plugin.playerSlots + id * 4, 1);
+		}
 	}
 
 	/** Every Forward.subscribe() of a forward, called with its tag; the arguments are the context's. */
@@ -2334,6 +2344,10 @@ export class FakeServer {
 		// A Player[] field: the ids as text, "3,5".
 		player_data_set_players(this: FakeServer, plugin: PluginInstance, id: number, key: number, value: number) {
 			this.setPlayerData(id, plugin.memory.string(key), plugin.memory.string(value), true);
+		},
+
+		player_slots(this: FakeServer, plugin: PluginInstance, at: number) {
+			plugin.playerSlots = at;
 		},
 
 		// playerChange: the module wakes a plugin for the fields it listens for.
