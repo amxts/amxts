@@ -1,6 +1,9 @@
 // Builds the Linux module and wamrc in Docker, on any machine that has it:
 //
-//   bun run build:linux        runtime/build/linux/amxts_amxx_i386.so and wamrc
+//   bun run build:linux             runtime/build/linux/amxts_amxx_i386.so and wamrc
+//   bun run build:linux --sanitize  the same under AddressSanitizer and UBSan, in
+//                                   runtime/build/linux-sanitize, with the
+//                                   sanitizers' runtimes beside it
 //
 // The toolchain is the amxts-build image (docker/build/Dockerfile): an old
 // Ubuntu for an old glibc, gcc -m32 for the module, a prebuilt LLVM 18 for
@@ -18,7 +21,8 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const OUT = join(CORE, 'runtime/build/linux');
+const SANITIZE = process.argv.includes('--sanitize');
+const OUT = join(CORE, SANITIZE ? 'runtime/build/linux-sanitize' : 'runtime/build/linux');
 const IMAGE = process.env.AMXTS_BUILD_IMAGE ?? 'amxts-build';
 const VOLUME = process.env.AMXTS_BUILD_VOLUME ?? 'amxts-linux-work';
 
@@ -55,6 +59,8 @@ docker([
 	`${OUT}:/out`,
 	'-e',
 	`JOBS=${process.env.JOBS ?? '2'}`,
+	'-e',
+	`SANITIZE=${SANITIZE ? '1' : ''}`,
 	IMAGE,
 	'sh',
 	'/src/docker/build/build.sh',

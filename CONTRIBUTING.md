@@ -103,6 +103,7 @@ cmake -A Win32 -B build -S .
 cmake --build build --config Release      # runtime/build/Release/amxts_amxx.dll
 cd ..
 bun run build:linux                       # runtime/build/linux: amxts_amxx_i386.so, wamrc
+bun run build:linux --sanitize            # runtime/build/linux-sanitize: the same under ASan and UBSan
 ```
 
 The module carries the compiled host plugin and has AMX Mod X load it, so a
@@ -126,6 +127,7 @@ bun run test:server    # the server suites, on a test server of the AMXTS_SERVER
 bun run test:server --linux   # the same suites on a Linux server, in Docker
 bun run test:server --plain   # the same on Linux without ReHLDS, ReGameDLL, ReAPI
 bun run test:server --linux --amxx 1.9.0-git5303   # the same on another AMX Mod X build
+bun run test:server --linux --sanitize   # the same with the module under ASan and UBSan
 bun run test:server --quick   # the same suites compiled as `amxts dev` compiles them
 bun run test:server --only cvar,player   # only these suites, beside what every run loads
 bun run test:release          # the npm packages end to end: a local registry, npx create-amxts, a server in Docker
@@ -135,6 +137,11 @@ bun run test:release          # the npm packages end to end: a local registry, n
 whose packages' sha256 are in `docker/hlds/amxmodx.sha256`. CI runs the
 server suites on three: the image's own (1.10.0-git5474), 1.9.0-git5303 and
 1.10.0-git5486.
+
+`--sanitize` runs the Linux server with the module of `bun run build:linux
+--sanitize`, its C++ under AddressSanitizer and UBSan: a memory error in it
+fails the run with the sanitizer's report, which names the file and line.
+CI runs it too, as the `linux (sanitizers)` job.
 
 `bun run test:release` publishes the nine packages to a local registry of
 its own, makes a project with `npx create-amxts`, builds and tests it and

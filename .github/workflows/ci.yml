@@ -84,16 +84,28 @@ jobs:
   # server image's own, and with --amxx the last of 1.9 - the oldest the docs
   # promise - and the newest of 1.10. A mistake one build lives through can
   # crash another. The Linux files come from the image's own job.
+  # One more job runs them with the module under AddressSanitizer and UBSan
+  # (build:linux --sanitize, test:server --sanitize): a memory error in the
+  # module fails it with the file and line. It does not hold the release back
+  # (continue-on-error) until it has been green for a while.
   linux:
-    name: ${{ matrix.amxx && format('linux (AMX Mod X {0})', matrix.amxx) || 'linux' }}
+    name: ${{ matrix.sanitize && 'linux (sanitizers)' || matrix.amxx && format('linux (AMX Mod X {0})', matrix.amxx) || 'linux' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    continue-on-error: ${{ matrix.sanitize }}
     strategy:
       fail-fast: false
       matrix:
         amxx: ["", 1.9.0-git5303, 1.10.0-git5486]
+        sanitize: [false]
+        include:
+          - amxx: ""
+            sanitize: true
     env:
       AMXX: ${{ matrix.amxx }}
+      SANITIZE: ${{ matrix.sanitize && '--sanitize' || '' }}
+      # The sanitized build's folder has its own wamrc.
+      AMXTS_WAMRC: ${{ matrix.sanitize && format('{0}/amxts/runtime/build/linux-sanitize/wamrc', github.workspace) || '' }}
       # The test server image's tag, and the cache of its layers.
       HLDS: amxts-hlds${{ matrix.amxx && format(':{0}', matrix.amxx) || '' }}
       HLDS_SCOPE: amxts-hlds${{ matrix.amxx && format('-{0}', matrix.amxx) || '' }}
@@ -143,25 +155,25 @@ jobs:
         env:
           JOBS: 4
           AMXTS_BUILD_VOLUME: ${{ github.workspace }}/linux-work
-        run: bun run build:linux
+        run: bun run build:linux $SANITIZE
 
       - name: The server suites on Linux
         working-directory: amxts
-        run: bun run test:server --linux ${AMXX:+--amxx "$AMXX"}
+        run: bun run test:server --linux $SANITIZE ${AMXX:+--amxx "$AMXX"}
       - name: The test server's console
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: test-server-linux${{ matrix.amxx && format('-{0}', matrix.amxx) || '' }}
+          name: test-server-linux${{ matrix.amxx && format('-{0}', matrix.amxx) || '' }}${{ matrix.sanitize && '-sanitize' || '' }}
           path: amxts/dist-wasm/test-server-linux/last-run
           if-no-files-found: ignore
 
       - name: The Linux server kit
-        if: matrix.amxx == ''
+        if: matrix.amxx == '' && !matrix.sanitize
         working-directory: amxts
         run: bun run serverkit --os linux
       - name: The Linux files
-        if: matrix.amxx == ''
+        if: matrix.amxx == '' && !matrix.sanitize
         uses: actions/upload-artifact@v7
         with:
           name: amxts-linux

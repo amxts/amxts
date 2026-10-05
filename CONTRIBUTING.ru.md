@@ -102,6 +102,7 @@ cmake -A Win32 -B build -S .
 cmake --build build --config Release      # runtime/build/Release/amxts_amxx.dll
 cd ..
 bun run build:linux                       # runtime/build/linux: amxts_amxx_i386.so, wamrc
+bun run build:linux --sanitize            # runtime/build/linux-sanitize: the same under ASan and UBSan
 ```
 
 Модуль несёт скомпилированный хост-плагин в себе и сам даёт AMX Mod X его
@@ -125,6 +126,7 @@ bun run test:server    # the server suites, on a test server of the AMXTS_SERVER
 bun run test:server --linux   # the same suites on a Linux server, in Docker
 bun run test:server --plain   # the same on Linux without ReHLDS, ReGameDLL, ReAPI
 bun run test:server --linux --amxx 1.9.0-git5303   # the same on another AMX Mod X build
+bun run test:server --linux --sanitize   # the same with the module under ASan and UBSan
 bun run test:server --quick   # the same suites compiled as `amxts dev` compiles them
 bun run test:server --only cvar,player   # only these suites, beside what every run loads
 bun run test:release          # пакеты npm от начала до конца: локальный реестр, npx create-amxts, сервер в Docker
@@ -134,6 +136,11 @@ bun run test:release          # пакеты npm от начала до конц
 любой, чьи пакеты с sha256 есть в `docker/hlds/amxmodx.sha256`. CI гоняет
 серверные наборы на трёх: своей сборке образа (1.10.0-git5474),
 1.9.0-git5303 и 1.10.0-git5486.
+
+`--sanitize` запускает сервер под Linux с модулем из `bun run build:linux
+--sanitize`, его C++ под AddressSanitizer и UBSan: ошибка памяти в нём
+проваливает прогон отчётом санитайзера, который называет файл и строку.
+CI гоняет и его — задачей `linux (sanitizers)`.
 
 `bun run test:release` публикует девять пакетов в свой локальный реестр,
 создаёт проект через `npx create-amxts`, собирает и тестирует его и

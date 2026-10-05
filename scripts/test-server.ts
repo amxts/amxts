@@ -6,6 +6,7 @@
 //   bun run test:server --linux    the same suites on a Linux server, in Docker
 //   bun run test:server --plain    the same on Linux without ReHLDS, ReGameDLL, ReAPI
 //   bun run test:server --linux --amxx 1.9.0-git5303   on another AMX Mod X build
+//   bun run test:server --linux --sanitize   the module under AddressSanitizer and UBSan
 //   bun run test:server --quick    the suites compiled as `amxts dev` compiles them
 //   bun run test:server --only cvar,player   only these suites
 //
@@ -82,6 +83,9 @@
 // Valve's HLDS with metamod-p and AMX Mod X's stock modules, no reapi. Its
 // container, its build folder and its port (27017) are its own, so it runs
 // beside a --linux one.
+// --sanitize is --linux with the module of `bun run build:linux --sanitize`:
+// hlds starts with the sanitizers' runtime preloaded (hlds_linux itself is not
+// built with it), and a sanitizer's report in the console fails the run.
 import { spawnSync } from 'node:child_process';
 import { createSocket } from 'node:dgram';
 import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -102,7 +106,8 @@ const args = process.argv.slice(2);
 const keep = args.includes('--keep');
 const stopOnly = args.includes('--stop');
 const plain = args.includes('--plain');
-const linux = plain || args.includes('--linux');
+const sanitize = args.includes('--sanitize');
+const linux = plain || sanitize || args.includes('--linux');
 const quick = args.includes('--quick');
 const portArg = args.indexOf('--port');
 const onlyArg = args.indexOf('--only');
@@ -174,7 +179,8 @@ const amxxpc = amxxpcPath();
 const wamrc = wamrcPath();
 const signatures = process.env.AMXTS_NATIVES ?? join(CORE_DIR, 'runtime/natives.txt');
 // AMXTS_TEST_MODULE: another build of the module, e.g. one made beside a running test.
-const moduleDll = process.env.AMXTS_TEST_MODULE ?? modulePath(linux ? 'linux' : 'windows');
+const sanitizedDir = join(CORE_DIR, 'runtime/build/linux-sanitize');
+const moduleDll = process.env.AMXTS_TEST_MODULE ?? (sanitize ? join(sanitizedDir, MODULE_FILE.linux) : modulePath(linux ? 'linux' : 'windows'));
 
 // Plugins a suite needs beside the suites themselves: the modules
 // amxts.config.ts lists, as their owners, in load order, then the project's
@@ -278,6 +284,20 @@ function containerRunning(): boolean {
 	return (docker(['container', 'inspect', '-f', '{{.State.Running}}', CONTAINER]).stdout ?? '').trim() === 'true';
 }
 
+// --sanitize: the runtimes the sanitized module links against go beside
+// hlds_linux (on LD_LIBRARY_PATH), and ASan's is preloaded - it has to come
+// before every other library - with build.sh's libnodeepbind.so after it.
+// Leaks are not looked for (LeakSanitizer has no i386), nor new[] freed with
+// free (AMX Mod X frees a plugin's file so), and a report goes to the console
+// uncoloured, where report() finds it.
+const SANITIZER_LIBS = sanitize ? ['libasan.so.4', 'libubsan.so.0', 'libnodeepbind.so'] : [];
+const SANITIZER_OPTIONS = {
+	LD_PRELOAD: '/hlds/libasan.so.4:/hlds/libnodeepbind.so',
+	ASAN_OPTIONS: 'detect_leaks=0:alloc_dealloc_mismatch=0:abort_on_error=1:symbolize=1:color=never',
+	UBSAN_OPTIONS: 'print_stacktrace=1:symbolize=1:color=never',
+};
+const SANITIZER_ENV = sanitize ? Object.entries(SANITIZER_OPTIONS).flatMap(([name, value]) => ['-e', `${name}=${value}`]) : [];
+
 /**
  * The image from docker/hlds (docker/hlds-plain): SteamCMD and the releases,
  * a few minutes the first time, the cache's answer after that - so a changed
@@ -301,7 +321,7 @@ function ensureImage(): void {
 function startContainer(argv: string[]): number {
 	ensureImage();
 	if (containerExists()) docker(['rm', '-f', CONTAINER]);
-	const created = docker(['create', '--name', CONTAINER, '-t', '-p', `127.0.0.1:${PORT}:27015/udp`, '--add-host', 'host.docker.internal:host-gateway', IMAGE, ...argv]);
+	const created = docker(['create', '--name', CONTAINER, '-t', '-p', `127.0.0.1:${PORT}:27015/udp`, '--add-host', 'host.docker.internal:host-gateway', ...SANITIZER_ENV, IMAGE, ...argv]);
 	if (created.status !== 0) throw new Error(`docker create failed: ${created.stderr.trim()}`);
 
 	// The configs a module reads, from the image: Linux offsets, not Windows'.
@@ -331,6 +351,7 @@ function startContainer(argv: string[]): number {
 		[modulesIni, `${CONTAINER}:${CONTAINER_GAME}/addons/amxmodx/configs/modules.ini`],
 		[join(rootDir, 'amxts'), `${CONTAINER}:${CONTAINER_GAME}/addons/amxts`],
 		[moduleDll, `${CONTAINER}:${CONTAINER_GAME}/addons/amxmodx/modules/${MODULE_FILE.linux}`],
+		...SANITIZER_LIBS.map(file => [join(sanitizedDir, file), `${CONTAINER}:/hlds/${file}`]),
 	]) {
 		const copied = docker(['cp', from, to]);
 		if (copied.status !== 0) throw new Error(`docker cp ${from} failed: ${copied.stderr.trim()}`);
@@ -513,7 +534,9 @@ function discoverSuites(): { suites: Suite[]; plugins: string[]; pawn: string[];
 		const wanted = own.filter(suite => ONLY.length === 0 || ONLY.includes(suite.name));
 		if (own.length === 0 || wanted.length > 0) chosen.push(join(suitesDir, file));
 		if (/^\/\/ @unlisted$/m.test(source)) unlisted.push(file.replace(/\.ts$/, '.aot'));
-		suites.push(...wanted);
+		// The speed check's ratios are the plain module's: under --sanitize its
+		// plugin loads (perf-pawn.sma calls it) but it runs only when --only names it.
+		suites.push(...wanted.filter(suite => !(sanitize && suite.name === 'perf' && ONLY.length === 0)));
 		names.push(...own.map(suite => suite.name));
 	}
 
@@ -653,7 +676,7 @@ function moduleFits(): boolean {
 function freshModule(): boolean {
 	if (moduleFits()) return true;
 	const was = `${moduleDll} is of ${moduleAbiOf(moduleDll) ?? 'no amxts ABI'}, the checkout builds plugins of ${abiIdentity()}`;
-	const steps = [['bun', 'run', 'generate'], linux ? ['bun', 'run', 'build:linux'] : ['cmake', '--build', 'runtime/build', '--config', 'Release']];
+	const steps = [['bun', 'run', 'generate'], linux ? ['bun', 'run', 'build:linux', ...(sanitize ? ['--sanitize'] : [])] : ['cmake', '--build', 'runtime/build', '--config', 'Release']];
 	const commands = steps.map(step => step.join(' ')).join(' && ');
 	const ours = !process.env.AMXTS_TEST_MODULE && existsSync(join(CORE_DIR, linux ? 'docker/build' : 'runtime/build/CMakeCache.txt'));
 	if (!ours) {
@@ -910,7 +933,7 @@ async function main(): Promise<number> {
 
 	for (const needed of [...(linux ? [] : [hlds]), moduleDll, amxxpc, wamrc, signatures]) {
 		if (!existsSync(needed)) {
-			fail(`missing ${needed}${needed === moduleDll && linux ? ' - bun run build:linux builds it' : ''}`);
+			fail(`missing ${needed}${needed === moduleDll && linux ? ` - bun run build:linux${sanitize ? ' --sanitize' : ''} builds it` : ''}`);
 			return 1;
 		}
 	}
@@ -1062,10 +1085,20 @@ async function botCount(password: string): Promise<number> {
 	return status.split('\n').filter(line => /^#\s*\d+\s+"/.test(line) && /\bBOT\b/.test(line)).length;
 }
 
+/** A sanitizer's reports in the console (--sanitize), each from its first line to its SUMMARY: the stack names the file and line. */
+function sanitizerReports(lines: string[]): string[] {
+	return lines.flatMap((line, at) => {
+		if (!/ERROR: AddressSanitizer|: runtime error: /.test(line)) return [];
+		const end = lines.findIndex((one, i) => i > at && /SUMMARY: \w+Sanitizer/.test(one));
+		return [lines.slice(at, end < 0 ? at + 40 : end + 1).join('\n')];
+	});
+}
+
 function report(results: SuiteResult[], problems: string[]): number {
 	const expected = results.flatMap(result => result.suite.expectedLog);
 	const replies = results.flatMap(result => result.output);
 	const errors = errorsIn([...consoleLines(), ...replies, ...amxxLogLines()], expected);
+	const sanitized = sanitizerReports(consoleLines());
 
 	console.log('');
 	for (const result of results) {
@@ -1094,13 +1127,18 @@ function report(results: SuiteResult[], problems: string[]): number {
 		for (const error of errors) console.log(`${error}\n`);
 	}
 
+	if (sanitized.length > 0) {
+		console.log(`\nsanitizer reports (${sanitized.length}):`);
+		for (const one of sanitized) console.log(`${one}\n`);
+	}
+
 	if (problems.some(problem => /exited|went away/.test(problem)) || results.some(result => result.problem === 'the server went away')) {
 		console.log('\nthe last lines of the console:');
 		for (const line of consoleLines().filter(Boolean).slice(-30)) console.log(`  ${line}`);
 	}
 
 	const passed = results.reduce((sum, result) => sum + result.passed, 0);
-	const failed = results.reduce((sum, result) => sum + result.failed, 0) + problems.length + errors.length;
+	const failed = results.reduce((sum, result) => sum + result.failed, 0) + problems.length + errors.length + sanitized.length;
 	console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'}: ${passed} checks passed in ${results.length} suites${failed ? `, ${failed} failures` : ''}`);
 	return failed === 0 ? 0 : 1;
 }

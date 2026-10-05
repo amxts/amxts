@@ -8,6 +8,10 @@
 #   /work   the checkouts and build folders, kept between runs
 #   /out    what comes out: amxts_amxx_i386.so and wamrc
 #
+# SANITIZE=1 builds the module under AddressSanitizer and UBSan instead, in a
+# build folder of its own, and puts the 32-bit runtimes it links against
+# (libasan.so.4, libubsan.so.0) beside it: the test server preloads them.
+#
 # WAMR is cloned at the tag the patch is for and patched here, as
 # CONTRIBUTING.md does it on Windows; the module and wamrc come
 # from that one checkout. The AMX Mod X SDK is pinned to a commit.
@@ -16,6 +20,7 @@ set -eu
 WAMR_TAG=WAMR-2.4.5
 AMXX_COMMIT=${AMXX_COMMIT:-$(cat /src/docker/build/amxmodx.commit)}
 JOBS=${JOBS:-2}
+SANITIZE=${SANITIZE:-}
 
 # /work may hold checkouts made by another user - CI restores it from its
 # cache as the runner's user, while this runs as root - and git refuses a
@@ -49,15 +54,42 @@ cmake -S wamr/wamr-compiler -B build-wamrc -DCMAKE_BUILD_TYPE=Release \
 cmake --build build-wamrc -j "$JOBS" -- --no-print-directory 2>&1 | grep -E "error|Error" || true
 test -x build-wamrc/wamrc
 
-echo "== amxts_amxx_i386.so"
-cmake -S /src/runtime -B build-module -DCMAKE_BUILD_TYPE=Release \
-	-DAMXX=/work/amxmodx -DWAMR_ROOT_DIR=/work/wamr > /dev/null
-cmake --build build-module -j "$JOBS" -- --no-print-directory 2>&1 | grep -E "error|Error" || true
-test -f build-module/amxts_amxx_i386.so
+echo "== amxts_amxx_i386.so${SANITIZE:+ (sanitized)}"
+# Sanitized: the module's own C++ only (module.cpp and the SDK's
+# amxxmodule.cpp) - WAMR and the network libraries are C and stay as they are.
+# Not UBSan's vptr check: the module's typeinfo is its own (hidden, static
+# libstdc++), so every call on an AMX Mod X object, IGameConfig's, would fail it.
+module=build-module
+flags=
+if [ -n "$SANITIZE" ]; then
+	module=build-module-sanitize
+	flags="-fsanitize=address,undefined -fno-sanitize=vptr -fno-omit-frame-pointer -g"
+fi
+cmake -S /src/runtime -B "$module" -DCMAKE_BUILD_TYPE=Release \
+	-DAMXX=/work/amxmodx -DWAMR_ROOT_DIR=/work/wamr \
+	"-DCMAKE_CXX_FLAGS=$flags" "-DCMAKE_SHARED_LINKER_FLAGS=$flags" > /dev/null
+cmake --build "$module" -j "$JOBS" -- --no-print-directory 2>&1 | grep -E "error|Error" || true
+test -f "$module/amxts_amxx_i386.so"
 
 cp -L build-wamrc/wamrc /out/wamrc
-cp build-module/amxts_amxx_i386.so /out/amxts_amxx_i386.so
+cp "$module/amxts_amxx_i386.so" /out/amxts_amxx_i386.so
 chmod 755 /out/wamrc /out/amxts_amxx_i386.so
+if [ -n "$SANITIZE" ]; then
+	cp -L /usr/lib32/libasan.so.4 /usr/lib32/libubsan.so.0 /out/
+	# The server opens libraries with RTLD_DEEPBIND: one opened so frees with
+	# libc's free what ASan's malloc gave it, and the server stops on the
+	# first map. Preloaded after ASan, this opens every library without it.
+	cat > nodeepbind.c <<-'EOF'
+	#define _GNU_SOURCE
+	#include <dlfcn.h>
+	void *dlopen(const char *file, int flags) {
+		static void *(*next)(const char *, int);
+		if (!next) next = (void *(*)(const char *, int))dlsym(RTLD_NEXT, "dlopen");
+		return next(file, flags & ~RTLD_DEEPBIND);
+	}
+	EOF
+	gcc -m32 -shared -fPIC -O2 -o /out/libnodeepbind.so nodeepbind.c -ldl
+fi
 
 # What a server needs: glibc 2.17 or newer for the module, 2.27 for wamrc.
 echo "== done"
