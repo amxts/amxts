@@ -75,12 +75,17 @@ cmake --build build --config Release
 
 `bun run build:linux` собирает и `wamrc` под Linux, в Docker.
 
-**4. SDK AMX Mod X** — на коммите из `docker/build/amxmodx.commit`:
+**4. SDK**: AMX Mod X, а также Half-Life SDK и заголовки Metamod, нужные
+модулю как плагину Metamod, — каждый на коммите из своего файла в
+`docker/build/`:
 
 ```sh
-git init runtime/deps/amxmodx && cd runtime/deps/amxmodx
-git fetch --depth 1 https://github.com/alliedmodders/amxmodx $(cat ../../../docker/build/amxmodx.commit)
-git checkout FETCH_HEAD
+for dep in amxmodx:amxmodx hlsdk:hlsdk metamod:metamod-hl1; do
+  dir=runtime/deps/${dep%%:*}
+  git init $dir
+  git -C $dir fetch --depth 1 https://github.com/alliedmodders/${dep#*:} $(cat docker/build/${dep%%:*}.commit)
+  git -C $dir checkout FETCH_HEAD
+done
 ```
 
 **5. Сгенерированный API.** Сгенерированное не коммитится, поэтому это

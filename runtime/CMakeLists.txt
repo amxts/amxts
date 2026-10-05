@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.20)
 project(amxts_runtime CXX C)
 
 set(AMXX "${CMAKE_CURRENT_SOURCE_DIR}/deps/amxmodx" CACHE PATH "AMX Mod X's source, for the module SDK (public/)")
+# The module is a Metamod plugin too: the SDK built with USE_METAMOD reads the
+# Half-Life SDK's and Metamod's headers, the ones AMX Mod X's own modules use.
+set(HLSDK "${CMAKE_CURRENT_SOURCE_DIR}/deps/hlsdk" CACHE PATH "The Half-Life SDK (alliedmodders/hlsdk)")
+set(METAMOD "${CMAKE_CURRENT_SOURCE_DIR}/deps/metamod" CACHE PATH "Metamod's source (alliedmodders/metamod-hl1)")
 
 # The engine. A plugin arrives as a .aot file that wamrc compiled for i386, so
 # the runtime only needs the AOT loader — no interpreter, no JIT. Both sides
@@ -42,6 +46,12 @@ target_include_directories(amxts_amxx PRIVATE
 	src
 	"${AMXX}/public"
 	"${AMXX}/public/sdk"
+	"${METAMOD}/metamod"
+	"${HLSDK}/common"
+	"${HLSDK}/dlls"
+	"${HLSDK}/engine"
+	"${HLSDK}/pm_shared"
+	"${HLSDK}/public"
 )
 
 set_target_properties(amxts_amxx PROPERTIES PREFIX "")
@@ -51,6 +61,8 @@ if(WIN32)
 	# amxts_amxx.dll
 	set_target_properties(amxts_amxx PROPERTIES OUTPUT_NAME "amxts_amxx")
 	target_link_libraries(amxts_amxx PRIVATE ws2_32 ntdll)
+	# Metamod looks the entry up undecorated; __stdcall decorates it.
+	target_link_options(amxts_amxx PRIVATE "/EXPORT:GiveFnptrsToDll=_GiveFnptrsToDll@8,@1")
 else()
 	# amxts_amxx_i386.so: AMX Mod X on Linux looks a module up as
 	# <name>_amxx_i386.so, where modules.ini says `amxts_amxx` or `amxts`.
@@ -63,7 +75,7 @@ else()
 	# and the watcher would never see a plugin change there.
 	set_target_properties(amxts_amxx PROPERTIES OUTPUT_NAME "amxts_amxx_i386")
 	target_compile_options(amxts_amxx PRIVATE -m32 -fvisibility=hidden -fno-strict-aliasing -Wno-unused-parameter)
-	target_compile_definitions(amxts_amxx PRIVATE HAVE_STDINT_H _FILE_OFFSET_BITS=64)
+	target_compile_definitions(amxts_amxx PRIVATE HAVE_STDINT_H _FILE_OFFSET_BITS=64 LINUX _LINUX POSIX)
 	# The network libraries are built in sections, so what the module does not
 	# call stays out (--gc-sections); src/glibc-compat.c keeps them off glibc 2.25.
 	target_sources(amxts_amxx PRIVATE src/glibc-compat.c)

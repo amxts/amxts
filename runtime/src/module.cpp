@@ -21,6 +21,10 @@
 #include "amxxmodule.h"
 #include "wasm_export.h"
 
+// The Half-Life SDK's min and max macros break the C++ library's headers.
+#undef min
+#undef max
+
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -3530,10 +3534,10 @@ static void InstallFiles()
  * plugins of plugins.ini; natives are bound once every plugin has loaded,
  * whichever list named it. Windows' AMX Mod X passes over the first *.ini its
  * search of the folder finds, which is modules.ini or another before
- * "plugins-" on a server. Both files are written when the module attaches -
- * before AMX Mod X reads its lists, on every map, since a map change reloads
- * the module - and removed when it detaches, so a server whose module is
- * taken out does not load a host nobody serves.
+ * "plugins-" on a server. Both files are written when the module attaches,
+ * once a process - before AMX Mod X first reads its lists; they stay for every
+ * map after - and removed when it detaches, so a server whose module is taken
+ * out does not load a host nobody serves.
  */
 static std::string g_hostFile;
 static std::string g_hostList;
@@ -3553,15 +3557,10 @@ static bool WriteWhole(const std::string &path, const void *data, size_t size)
  *
  * The line does no harm: AMX Mod X loads a plugin of one name once, so the
  * host loads at that line, from the file InstallHost has just written, and
- * plugins-amxts.ini's line is passed over. Once: a map change reloads the
- * module and its memory with it, so the process's environment keeps what has
- * been said.
+ * plugins-amxts.ini's line is passed over.
  */
 static void NoteHostLine(const std::string &pluginsIni)
 {
-	if (getenv("AMXTS_HOST_LINE_NOTED"))
-		return;
-
 	FILE *f = fopen(pluginsIni.c_str(), "r");
 	if (!f)
 		return;
@@ -3583,11 +3582,6 @@ static void NoteHostLine(const std::string &pluginsIni)
 	if (!named)
 		return;
 
-#ifdef _WIN32
-	_putenv("AMXTS_HOST_LINE_NOTED=1");
-#else
-	setenv("AMXTS_HOST_LINE_NOTED", "1", 1);
-#endif
 	MF_PrintSrvConsole("[amxts] %s names " HOST_FILE ": the amxts_amxx module loads the host plugin itself, so that line can go\n",
 	                   pluginsIni.c_str());
 }
@@ -3734,13 +3728,20 @@ static std::deque<Plugin> UnloadPlugins()
 	return before;
 }
 
+/**
+ * Ends a map: every plugin and what lives with them goes, for the next map to
+ * start over - AMX Mod X keeps the module loaded across maps
+ * (OnPluginsUnloaded), and its host plugin, with every native and public the
+ * module took from it, is gone. What lives as long as the process stays:
+ * WAMR, the network thread, the gamedata and its members, the plugin list's
+ * file and the host's.
+ */
 static void Teardown()
 {
-	// The worker stops before the plugins its requests point at go.
-	NetShutdown();
-
 	for (size_t i = 0; i < g_plugins.size(); i++) {
 		Plugin &p = g_plugins[i];
+		// Their requests are let go; the worker goes on for the next map.
+		if (p.inst)   NetForget(p.inst);
 		if (p.env)    wasm_runtime_destroy_exec_env(p.env);
 		if (p.inst)   wasm_runtime_deinstantiate(p.inst);
 		if (p.module) wasm_runtime_unload(p.module);
@@ -3769,6 +3770,22 @@ static void Teardown()
 	g_nativeGeneration++;
 	g_host = NULL;
 	g_currentPlugin = -1;
+	g_callfuncBuffers.clear();
+	g_callfuncMark = -1;
+	g_msgSayText = g_msgTeamInfo = 0;
+
+	// Commands wait for the next map's plugin_init.
+	g_amxxReady = false;
+	g_pendingCommands.clear();
+
+	g_timers.clear();
+	g_trace = false;
+	g_namesChanging = false;
+	ForgetEdicts();
+
+	// The players' fields start over with the plugins.
+	for (int i = 0; i < PLAYER_DATA_SLOTS; i++)
+		ClearPlayerData(i);
 }
 
 // The on-server compiler's file name in addons/amxts/tools.
@@ -4910,11 +4927,6 @@ static cell AMX_NATIVE_CALL n_natives(AMX *amx, cell *params)
 	MF_PrintSrvConsole("[amxts] host native table: %d entries\n",
 		(hdr->libraries - hdr->natives) / hdr->defsize);
 
-	// A new map: every plugin starts over, and what they share on the players
-	// with them.
-	for (int i = 0; i < PLAYER_DATA_SLOTS; i++)
-		ClearPlayerData(i);
-
 	InstallFiles();
 	LoadScripts();
 	return 1;
@@ -5333,10 +5345,18 @@ void OnPluginsLoaded()
 		                   g_hostFile.c_str(), g_hostList.c_str());
 }
 
+/** The map is over: AMX Mod X has let its plugins go, the host among them. */
+void OnPluginsUnloaded()
+{
+	Teardown();
+}
+
 void OnAmxxDetach()
 {
 	FieldsDetach();
 	Teardown();
+	// The worker stops before WAMR goes; its requests are deleted with it.
+	NetShutdown();
 	RemoveHost();
 	wasm_runtime_destroy();
 }

@@ -107,16 +107,18 @@ function commitState(): { commit: string; dirty: boolean } {
 
 // ---------------------------------------------------------------- building
 
-/** The AMX Mod X SDK the module is built against, at the commit the Linux build pins. */
-function ensureAmxxSdk(): void {
-	const want = readFileSync(join(CORE, 'docker/build/amxmodx.commit'), 'utf8').trim();
-	const dir = join(CORE, 'runtime/deps/amxmodx');
-	const have = existsSync(join(dir, '.git')) ? spawnSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf-8' }).stdout.trim() : '';
-	if (have === want) return;
-	if (existsSync(dir)) throw new ReleaseError(`runtime/deps/amxmodx is at ${have || 'no commit'}, the build pins ${want}: move it aside`);
-	run('git', ['init', '-q', dir]);
-	run('git', ['fetch', '-q', '--depth', '1', 'https://github.com/alliedmodders/amxmodx', want], { cwd: dir });
-	run('git', ['checkout', '-q', 'FETCH_HEAD'], { cwd: dir });
+/** The SDKs the module is built against - AMX Mod X's, the Half-Life SDK, Metamod's headers - at the commits the Linux build pins. */
+function ensureSdks(): void {
+	for (const [name, repo] of [['amxmodx', 'amxmodx'], ['hlsdk', 'hlsdk'], ['metamod', 'metamod-hl1']]) {
+		const want = readFileSync(join(CORE, `docker/build/${name}.commit`), 'utf8').trim();
+		const dir = join(CORE, 'runtime/deps', name);
+		const have = existsSync(join(dir, '.git')) ? spawnSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf-8' }).stdout.trim() : '';
+		if (have === want) continue;
+		if (existsSync(dir)) throw new ReleaseError(`runtime/deps/${name} is at ${have || 'no commit'}, the build pins ${want}: move it aside`);
+		run('git', ['init', '-q', dir]);
+		run('git', ['fetch', '-q', '--depth', '1', `https://github.com/alliedmodders/${repo}`, want], { cwd: dir });
+		run('git', ['checkout', '-q', 'FETCH_HEAD'], { cwd: dir });
+	}
 }
 
 /** Whether a checkout has a patch applied: it reverses cleanly. */
@@ -134,7 +136,7 @@ function buildWindows(): string[] {
 	run('bun', ['run', 'host']);
 
 	step('amxts_amxx.dll');
-	ensureAmxxSdk();
+	ensureSdks();
 	run('cmake', ['-A', 'Win32', '-B', 'runtime/build', '-S', 'runtime']);
 	run('cmake', ['--build', 'runtime/build', '--config', 'Release']);
 

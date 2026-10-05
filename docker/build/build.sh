@@ -14,11 +14,14 @@
 #
 # WAMR is cloned at the tag the patch is for and patched here, as
 # CONTRIBUTING.md does it on Windows; the module and wamrc come
-# from that one checkout. The AMX Mod X SDK is pinned to a commit.
+# from that one checkout. The AMX Mod X SDK, the Half-Life SDK and Metamod's
+# headers are each pinned to a commit.
 set -eu
 
 WAMR_TAG=WAMR-2.4.5
 AMXX_COMMIT=${AMXX_COMMIT:-$(cat /src/docker/build/amxmodx.commit)}
+HLSDK_COMMIT=$(cat /src/docker/build/hlsdk.commit)
+METAMOD_COMMIT=$(cat /src/docker/build/metamod.commit)
 JOBS=${JOBS:-2}
 SANITIZE=${SANITIZE:-}
 
@@ -36,12 +39,18 @@ fi
 git -C wamr checkout -q -- .
 git -C wamr apply /src/runtime/patches/wamr-2.4.5-amxts.patch
 
-if [ ! -d amxmodx/.git ] || [ "$(git -C amxmodx rev-parse HEAD)" != "$AMXX_COMMIT" ]; then
-	rm -rf amxmodx
-	git init -q amxmodx
-	git -C amxmodx fetch -q --depth 1 https://github.com/alliedmodders/amxmodx "$AMXX_COMMIT"
-	git -C amxmodx checkout -q FETCH_HEAD
-fi
+# A checkout of an alliedmodders repository at a commit: pinned <dir> <repo> <commit>.
+pinned() {
+	if [ ! -d "$1/.git" ] || [ "$(git -C "$1" rev-parse HEAD)" != "$3" ]; then
+		rm -rf "$1"
+		git init -q "$1"
+		git -C "$1" fetch -q --depth 1 "https://github.com/alliedmodders/$2" "$3"
+		git -C "$1" checkout -q FETCH_HEAD
+	fi
+}
+pinned amxmodx amxmodx "$AMXX_COMMIT"
+pinned hlsdk hlsdk "$HLSDK_COMMIT"
+pinned metamod metamod-hl1 "$METAMOD_COMMIT"
 
 echo "== wamrc"
 # glibc stays dynamic, everything else goes in: the server that runs this
@@ -66,7 +75,7 @@ if [ -n "$SANITIZE" ]; then
 	flags="-fsanitize=address,undefined -fno-sanitize=vptr -fno-omit-frame-pointer -g"
 fi
 cmake -S /src/runtime -B "$module" -DCMAKE_BUILD_TYPE=Release \
-	-DAMXX=/work/amxmodx -DWAMR_ROOT_DIR=/work/wamr \
+	-DAMXX=/work/amxmodx -DHLSDK=/work/hlsdk -DMETAMOD=/work/metamod -DWAMR_ROOT_DIR=/work/wamr \
 	"-DCMAKE_CXX_FLAGS=$flags" "-DCMAKE_SHARED_LINKER_FLAGS=$flags" > /dev/null
 cmake --build "$module" -j "$JOBS" -- --no-print-directory 2>&1 | grep -E "error|Error" || true
 test -f "$module/amxts_amxx_i386.so"

@@ -22,12 +22,10 @@
 //   member more), so on a server with reapi the facade reads them through
 //   reapi instead.
 //
-// The module is no metamod plugin (AMX Mod X would stop reloading it with the
-// map), so it has no engine functions to turn an index into an edict. It finds
-// the engine's edict array once per map instead: a player's edict, which AMX
-// Mod X knows from plugin_init on, or before that an entity's own pev, which
-// fakemeta's get_pdata_int reads out of its object; the array's length is
-// engine's get_global_int(GL_maxEntities).
+// The engine's edict array is found once per map, from the engine's
+// functions Metamod gives the module: it starts at the world's edict
+// (INDEXENT(0)) and is gpGlobals->maxEntities long. The engine makes it anew
+// for every map (Teardown forgets it).
 
 // The engine's edict_t on i386, Windows and Linux alike: 128 bytes of the
 // engine's own, then entvars_t (676 bytes).
@@ -37,9 +35,6 @@
 #define EDICT_ENTVARS      128  // entvars_t v
 #define ENTVARS_SIZE       676
 #define ENTVARS_CONTAINING 520  // edict_t *pContainingEntity, inside entvars_t
-
-// engine_const.inc's GL_maxEntities, get_global_int's index for the length.
-#define GL_MAX_ENTITIES    17
 
 // The id a plugin passes for the game rules rather than an entity.
 #define RULES_ID           (-1)
@@ -102,55 +97,39 @@ static void FieldsDetach()
 	g_entityData = g_rulesData = NULL;
 }
 
-/** A native of the host's table by name, with up to four cells. */
-static cell CallWith(const char *name, int argc, cell a = 0, cell b = 0, cell c = 0, cell d = 0)
-{
-	Args p(argc);
-	p[1] = a; p[2] = b; p[3] = c; p[4] = d;
-	return CallByName(name, p);
-}
-
-/**
- * The engine's edict array, found once per map. `id` is the entity a plugin
- * asks about, whose own pev says where its edict is before plugin_init.
- */
-static bool FindEdicts(int id)
+/** The engine's edict array, found once per map. */
+static bool FindEdicts()
 {
 	if (g_edicts)
 		return true;
 
-	if (g_maxEdicts <= 0)
-		g_maxEdicts = (int)CallWith("get_global_int", 1, GL_MAX_ENTITIES);
-
-	char *edict = NULL;
-	int at = 0;
-	if (g_amxxReady) {
-		// AMX Mod X keeps every player's edict from the server's activation on.
-		edict = (char *)MF_GetPlayerEdict(1);
-		at = 1;
-	} else if (id > 0 && CallWith("pev_valid", 1, id) == 2) {
-		// 2: an entity with the game's object, whose first members are its vtable and pev.
-		cell pev = CallWith("get_pdata_int", 4, id, g_pevOffset / 4, 0, 0);
-		if (pev)
-			edict = (char *)(intptr_t)pev - EDICT_ENTVARS;
-		at = id;
-	}
-
-	if (!edict || g_maxEdicts <= 0) {
-		if (g_amxxReady && !g_edictsSaid) {
+	// Without Metamod's engine functions - a module AMX Mod X could not load
+	// into Metamod - there is no way to it.
+	edict_t *world = gpGlobals && g_engfuncs.pfnPEntityOfEntIndex ? INDEXENT(0) : NULL;
+	if (!world || gpGlobals->maxEntities <= 0) {
+		if (!g_edictsSaid) {
 			g_edictsSaid = true;
-			MF_PrintSrvConsole("[amxts] entity fields read 0 on this map: the engine module (get_global_int) or the edicts were not found\n");
+			MF_PrintSrvConsole("[amxts] entity fields read 0 on this map: the engine's edicts were not found\n");
 		}
 		return false;
 	}
 
-	g_edicts = edict - at * EDICT_SIZE;
+	g_edicts = (char *)world;
+	g_maxEdicts = gpGlobals->maxEntities;
 	return true;
+}
+
+/** A new map: the engine makes its edicts anew. */
+static void ForgetEdicts()
+{
+	g_edicts = NULL;
+	g_maxEdicts = 0;
+	g_edictsSaid = false;
 }
 
 static char *EdictOf(int id)
 {
-	if (id < 0 || !FindEdicts(id) || id >= g_maxEdicts)
+	if (id < 0 || !FindEdicts() || id >= g_maxEdicts)
 		return NULL;
 	char *edict = g_edicts + id * EDICT_SIZE;
 	return *(int *)edict ? NULL : edict; // free
