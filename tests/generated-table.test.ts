@@ -43,8 +43,24 @@ describe('the generated native table', () => {
 			// clocks: Date.now, performance.now and Math.random's seed - and for
 			// a number field plugins add to Player, which crosses as an f64 both ways
 			// (player_data_get, player_data_set).
-			expect(line).toMatch(/^\S+ \(i*F?\)[iF]?$/);
+			expect(line).toMatch(/^\S+ \(i*F?\)[iF]?(?: \S+)?$/);
 		}
+	});
+
+	test('says how a native with a buffer passes each argument, on a line wamrc reads whole', () => {
+		for (const line of signatures.split('\n')) {
+			if (!line.trim() || line.startsWith('#')) continue;
+			// wamrc reads a line into 256 bytes: a longer one would go on as a line of its own.
+			expect(line.length).toBeLessThan(255);
+			const [name, signature, crossing] = line.split(' ');
+			if (!crossing) continue;
+			const params = signature.slice(1, signature.indexOf(')')).length;
+			expect([name, crossing.split(',').length]).toEqual([name, params]);
+			for (const each of crossing.split(',')) expect(each).toMatch(/^(?:v|s|\[(?:\d+|[an]\d+)>?)$/);
+		}
+		// A buffer the native fills, its length after it, a string going in.
+		expect(signatures).toMatch(/^add \(iiii\)i \[a1>,v,s,v$/m);
+		expect(signatures).toMatch(/^admins_flush \(\)i$/m);
 	});
 
 	test('declares the same arity to the plugin as to wamrc', () => {
