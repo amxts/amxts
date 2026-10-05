@@ -81,7 +81,7 @@ import { spawnSync } from 'node:child_process';
 import { createSocket } from 'node:dgram';
 import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import { ABI_SECTION, abiIdentity } from './build-identity';
+import { ABI_SECTION, abiIdentity, releaseLine } from './build-identity';
 import { compilePlugin } from './compile';
 import { compileAll } from './compile-pool';
 import { includeDirs } from './includes';
@@ -639,29 +639,41 @@ interface Refused {
 }
 
 /**
- * The first plugin built, twice more: stamped with another amxts's ABI, and
- * with none, as one built before plugins carried it. The module refuses each
- * with one line and loads the plugins listed after them as usual
- * (scripts/build-identity.ts). The ABI is changed in place, keeping its
- * length, so the section keeps its size.
+ * The first plugin built, three times more: stamped with an ABI of another
+ * line, with one of its line but another hood's hash, and with none, as one
+ * built before plugins carried it. The module refuses each with one line and
+ * loads the plugins listed after them as usual (scripts/build-identity.ts).
+ * The first plugin itself is stamped with another patch of its line, which
+ * the module loads: its suites run as any other's. The ABI is changed in
+ * place, keeping its length, so the section keeps its size.
  */
 function refusedCopies(built: string[]): Refused[] {
 	const abi = abiIdentity();
 	const aot = readFileSync(join(buildDir, built[0]));
 	const at = aot.indexOf(`${ABI_SECTION}\0${abi}`);
 	if (at < 0) throw new Error(`${built[0]} carries no ${ABI_SECTION} section of ${abi}`);
-	const other = abi.replace(/\d/g, '9');
-	const version = (identity: string) => identity.slice(0, identity.indexOf('+'));
-	const copies = [
-		{ file: 'other-abi.aot', section: `${ABI_SECTION}\0${other}`, by: `amxts ${version(other)}` },
-		{ file: 'no-abi.aot', section: `amxts.xyz\0${abi}`, by: 'an older amxts' },
-	];
-	return copies.map(({ file, section, by }) => {
+	const plus = abi.indexOf('+');
+	const [version, hash] = [abi.slice(0, plus), abi.slice(plus)];
+	const line = releaseLine(version);
+	const stamp = (file: string, section: string) => {
 		const bytes = Buffer.from(aot);
 		bytes.write(section, at, 'latin1');
 		writeFileSync(join(buildDir, file), bytes);
-		return { file, line: `[amxts] ${file} was built for ${by}, this is ${version(abi)} - build it again` };
+	};
+	const otherLine = `${version.replace(/\d/g, '9')}${hash}`;
+	const otherHood = `${version}+abi.${'9'.repeat(hash.length - '+abi.'.length)}`;
+	const copies = [
+		{ file: 'other-line.aot', abi: otherLine, by: `amxts ${releaseLine(otherLine)}`, ours: line },
+		{ file: 'other-hood.aot', abi: otherHood, by: `amxts ${otherHood}`, ours: abi },
+		{ file: 'no-abi.aot', abi: null, by: 'an older amxts', ours: line },
+	];
+	const refused = copies.map((copy) => {
+		stamp(copy.file, copy.abi ? `${ABI_SECTION}\0${copy.abi}` : `amxts.xyz\0${abi}`);
+		return { file: copy.file, line: `[amxts] ${copy.file} was built for ${copy.by}, this is ${copy.ours} - build it again` };
 	});
+	const otherPatch = abi.replace(/^(\d+\.\d+\.)(\d)/, (_, head: string, digit: string) => `${head}${digit === '9' ? '8' : '9'}`);
+	stamp(built[0], `${ABI_SECTION}\0${otherPatch}`);
+	return refused;
 }
 
 function stage(built: string[], refused: Refused[], unlisted: string[], pawn: string[], password: string): void {

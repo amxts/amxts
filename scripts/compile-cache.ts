@@ -1,12 +1,15 @@
 // Compiles kept on disk, reused while what they read is the same.
 //
 // A compile is keyed by everything that is not a file it read - the
-// compiler, the hood's scripts, the version the core builds as (a plugin
-// carries it in its ABI), the flags, the project and its config - and
-// stored with every file read it made (scripts/tracked-fs.ts): the entry, what
-// it imports, the facade and the generated API, the module packages. It is
-// taken again only while each of those reads sees the same thing it saw, so a
-// hit is what compiling again would give, byte for byte.
+// compiler, the hood's scripts, the line of the version the core builds as
+// (a plugin carries it in its ABI), the flags, the project and its config -
+// and stored with every file read it made (scripts/tracked-fs.ts): the entry,
+// what it imports, the facade and the generated API, the module packages,
+// the files the ABI's hash is made of. It is taken again only while each of
+// those reads sees the same thing it saw, so a hit is what compiling again
+// would give, byte for byte - but for the patch of the version in its ABI,
+// which the module does not compare (scripts/build-identity.ts): a core's
+// patch release with the same hood takes the plugins of the one before.
 //
 // One key holds one entry: a compile made again replaces the one before, so a
 // cache does not grow with every edit. The testing library keeps its compiles
@@ -16,7 +19,7 @@ import type { Reads } from './tracked-fs';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { coreVersion } from './build-identity';
+import { coreVersion, releaseLine } from './build-identity';
 import { listIncludes } from './includes';
 import { currentProjectDir, loadProject } from './project';
 import { hashOf, recordReads, unchanged } from './tracked-fs';
@@ -120,7 +123,7 @@ export function diskCache(dir: string | null, code: () => string, ownIncludes: s
 	let identity: string | null = null;
 	const fileOf = (parts: unknown[]) => {
 		identity ??= hashOf(`${FORMAT}\n${code()}`);
-		return join(dir!, `${hashOf(JSON.stringify([identity, coreVersion(), projectIdentity(ownIncludes), ...parts]))}.json`);
+		return join(dir!, `${hashOf(JSON.stringify([identity, releaseLine(coreVersion()), projectIdentity(ownIncludes), ...parts]))}.json`);
 	};
 
 	let pruned = false;

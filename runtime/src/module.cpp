@@ -3780,27 +3780,41 @@ static std::string FileAbi(const std::string &path)
 	return data.empty() ? "" : AotAbi(&data[0], data.size());
 }
 
-/** The version of an ABI: 0.2.0 of 0.2.0+abi.1a2b3c4d. */
-static std::string AbiVersion(const std::string &abi)
+/** The line of an ABI's version, major.minor: 0.3 of 0.3.1+abi.1a2b3c4d. */
+static std::string AbiLine(const std::string &abi)
 {
-	return abi.substr(0, abi.find('+'));
+	std::string version = abi.substr(0, abi.find('+'));
+	size_t dot = version.find('.');
+	return version.substr(0, dot == std::string::npos ? dot : version.find('.', dot + 1));
+}
+
+/**
+ * Whether a plugin of the ABI `abi` loads here: one of this module's line and
+ * hash - any patch of 0.3 of the same hood, 0.3.0+abi.1a2b3c4d under
+ * 0.3.1+abi.1a2b3c4d (scripts/build-identity.ts).
+ */
+static bool AbiFits(const std::string &abi)
+{
+	std::string ours = AMXTS_ABI;
+	size_t at = abi.find('+');
+	return at != std::string::npos && AbiLine(abi) == AbiLine(ours) && abi.substr(at) == ours.substr(ours.find('+'));
 }
 
 /**
  * Whether a plugin is of this module's ABI; when not, one line says so. It
- * names the versions when they differ, and the whole ABIs when only the
- * imports do.
+ * names the lines when they differ, and the whole ABIs when only the hood
+ * does.
  */
 static bool OfThisAbi(const char *name, const unsigned char *data, size_t size)
 {
 	std::string abi = AotAbi(data, size);
-	if (abi == AMXTS_ABI)
+	if (AbiFits(abi))
 		return true;
 	std::string ours = AMXTS_ABI;
-	bool sameVersion = AbiVersion(abi) == AbiVersion(ours);
-	std::string built = abi.empty() ? "an older amxts" : "amxts " + (sameVersion ? abi : AbiVersion(abi));
+	bool sameLine = AbiLine(abi) == AbiLine(ours);
+	std::string built = abi.empty() ? "an older amxts" : "amxts " + (sameLine ? abi : AbiLine(abi));
 	MF_PrintSrvConsole("[amxts] %s was built for %s, this is %s - build it again\n",
-	                   name, built.c_str(), (sameVersion ? ours : AbiVersion(ours)).c_str());
+	                   name, built.c_str(), (sameLine ? ours : AbiLine(ours)).c_str());
 	g_refusal = "built for " + built;
 	return false;
 }
@@ -3960,7 +3974,7 @@ static bool LoadEntry(int index)
 	bool loaded = false;
 	if (!p.source.empty()) {
 		p.sourceStamp = FileStamp(p.source.c_str());
-		bool stale = FileStamp(p.path.c_str()) < p.sourceStamp || FileAbi(p.path) != AMXTS_ABI;
+		bool stale = FileStamp(p.path.c_str()) < p.sourceStamp || !AbiFits(FileAbi(p.path));
 		loaded = (!stale || CompilePlugin(p.source, p.path)) && LoadPlugin(index);
 	} else {
 		loaded = LoadPlugin(index);

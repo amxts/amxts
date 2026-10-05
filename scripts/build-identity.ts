@@ -60,24 +60,37 @@ export function buildDefines(build: string, abi: string): string[] {
 //
 // What a plugin and the module have to agree on: the imports the hood
 // declares (`@external("env", ...)` in as/, by name and by the types they
-// take and give) and the natives table wamrc compiles direct calls against
-// (runtime/natives.txt). A plugin of another ABI calls an import the module
-// does not have, or has with another signature, and the server crashes; so
-// the module loads no plugin whose ABI is not its own.
+// take and give); the natives table wamrc compiles direct calls against
+// (runtime/natives.txt), each native with how the module's thunk passes its
+// arguments; and the machine code's ground - the WAMR patch, which both
+// wamrc and the module's runtime are built with, and the versions of WAMR
+// and AssemblyScript the patches are for (AssemblyScript lays out the
+// strings the module reads). A plugin of another ABI calls an import the
+// module does not have, or has with another signature, and the server
+// crashes; so the module loads no plugin whose ABI is not its own.
 //
-// It is the version and a hash of those - `0.2.0+abi.1a2b3c4d`. Not the
-// commit: a module from a release and the plugins built with the core from
-// npm, or a module package's prebuilt plugin, are of one release but not
-// built from one checkout. The version tells releases apart; the hash, builds
-// of one version whose imports differ. The same release rebuilt is the same
-// ABI, and a change that is only the facade's own code needs no rebuilt
-// plugins.
+// It is the version and a hash of those - `0.3.1+abi.1a2b3c4d` - and the
+// module compares the line and the hash: `0.3+abi.1a2b3c4d` (abiLine). A
+// plugin built by any patch of a line loads on any patch's module, and a
+// module package's prebuilt plugin serves the whole line, while the hood is
+// the same; a patch that changes the hood makes another hash, and the
+// plugins are built again. The full version stays in it to be read: the
+// release a module is of (src/system.mjs), what a refusal names.
+//
+// Not the commit: a module from a release and the plugins built with the
+// core from npm, or a module package's prebuilt plugin, are of one release
+// but not built from one checkout. Not the facade's code: it is compiled into
+// each plugin, which carries its own, so plugins of two patches talk only
+// through what is hashed here - and, between a module and the plugins that
+// use it, through the module's surface, whose own hash the module checks
+// when a plugin first calls it (scripts/shared-modules.ts).
 
 /**
  * Raised by hand when the module and the facade change how they talk without
- * an import changing its name or its types: what a cell of an event means,
- * an export the module calls, what names a plugin in a shared module's call
- * (2: its run, not its index).
+ * an import, a native's arguments or the patches changing: what a cell of
+ * an event means, an export the module calls, how a value crosses between
+ * plugins (as/remote.ts), what names a plugin in a shared module's call (2:
+ * its run, not its index). A patch release must not raise it.
  */
 const ABI_REVISION = 2;
 
@@ -110,6 +123,24 @@ export function abiIdentity(): string {
 	const plugins = join(CORE, 'as');
 	const imports = tracked.readdirSync(plugins).filter(file => file.endsWith('.ts')).flatMap(file => importsOf(tracked.readFileSync(join(plugins, file), 'utf8')));
 	const natives = tracked.readFileSync(join(CORE, 'runtime/natives.txt'), 'utf8').split(/\r?\n/).filter(Boolean);
-	const hash = createHash('sha256').update([`revision ${ABI_REVISION}`, ...imports.sort(), ...natives.sort()].join('\n')).digest('hex');
+	// A patch by its name, which carries the upstream version; WAMR's by its content too.
+	const dir = join(CORE, 'runtime/patches');
+	const patches = tracked.readdirSync(dir).filter(file => file.endsWith('.patch')).map(file => (file.startsWith('wamr-') ? `${file}\n${tracked.readFileSync(join(dir, file), 'utf8')}` : file));
+	const hash = createHash('sha256').update([`revision ${ABI_REVISION}`, ...imports.sort(), ...natives.sort(), ...patches.sort()].join('\n')).digest('hex');
 	return `${coreVersion()}+abi.${hash.slice(0, 8)}`;
+}
+
+/** The line of a version, `major.minor`: `0.3` of `0.3.1` and of `0.3.0-rc.1`. */
+export function releaseLine(version: string): string {
+	return version.split('.', 2).join('.');
+}
+
+/**
+ * What the module compares of an ABI: its line and its hash, `0.3+abi.1a2b3c4d`
+ * of `0.3.1+abi.1a2b3c4d`. The modules of two ABIs with one abiLine load each
+ * other's plugins.
+ */
+export function abiLine(abi: string): string {
+	const at = abi.indexOf('+');
+	return at < 0 ? abi : `${releaseLine(abi.slice(0, at))}${abi.slice(at)}`;
 }
