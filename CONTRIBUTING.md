@@ -162,7 +162,10 @@ under 2 GB when it compiles everything, from an empty compile cache (CI);
 one file is `bun test --smol tests/<name>.test.ts`.
 `bun run test:server` compiles its plugins several at once, as a project's
 build does: `AMXTS_BUILD_JOBS`, or `AMXTS_BUILD_MEMORY` in megabytes (3072,
-two at once), says how many.
+two at once), says how many. A module in `runtime/build` that would refuse
+the checkout's plugins - built before the version's line or the API's
+imports and natives changed - is built again first (`bun run generate`,
+then cmake's build, or `bun run build:linux`), with a line saying so.
 `AMXTS_SERVER` (in `.env` beside `package.json`) is a server's
 `addons/amxts` folder. `tests/code-style.test.ts` checks how plugin code
 reads: every finding names the file, the line and the rule.

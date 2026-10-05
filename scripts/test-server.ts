@@ -28,6 +28,11 @@
 // with a line `// @unlisted` lies in plugins/ but not in the plugin list, for
 // a suite to start with amxts_load.
 //
+// The module under test is runtime/build's (AMXTS_TEST_MODULE names another).
+// One that would refuse the run's plugins - built before the version's line
+// or the hood moved on - is built again first, with a line saying so
+// (freshModule).
+//
 // --only <suite>[,<suite>...] builds, loads and checks only the files that
 // hold those suites, beside the plugins every run loads and the files that
 // hold no suite (exports.ts, which a Pawn suite includes). A suite that reads
@@ -81,12 +86,12 @@ import { spawnSync } from 'node:child_process';
 import { createSocket } from 'node:dgram';
 import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import { ABI_SECTION, abiIdentity, releaseLine } from './build-identity';
+import { ABI_SECTION, abiIdentity, abiLine, releaseLine } from './build-identity';
 import { compilePlugin } from './compile';
 import { compileAll } from './compile-pool';
 import { includeDirs } from './includes';
 import { CORE_DIR, CORE_PLUGINS, loadProject, PROJECT_GAME_FOLDERS, projectPlugins, sourcesFor } from './project';
-import { amxxpcPath, MODULE_FILE, modulePath, serverFolder, wamrcPath } from './system';
+import { amxxpcPath, MODULE_FILE, moduleAbiOf, modulePath, serverFolder, wamrcPath } from './system';
 
 // See build-wasm.ts: asc brings a console without error().
 function fail(message: string): void {
@@ -630,6 +635,45 @@ function testCoreIni(): string {
 	].join('\n')}\n`;
 }
 
+// ---------------------------------------------------------------- the module
+
+/** Whether the module under test loads the plugins this checkout builds: its ABI's line and hash are the checkout's. */
+function moduleFits(): boolean {
+	const abi = moduleAbiOf(moduleDll);
+	return abi !== null && abiLine(abi) === abiLine(abiIdentity());
+}
+
+/**
+ * The module under test, built again when it would refuse every plugin of
+ * the run - built before the version's line or the hood moved on - with a
+ * line saying so: `bun run generate`, then cmake's build in runtime/build,
+ * or `bun run build:linux`. One given with AMXTS_TEST_MODULE, or of a core
+ * that is no checkout, is not built here: the run stops and says what to run.
+ */
+function freshModule(): boolean {
+	if (moduleFits()) return true;
+	const was = `${moduleDll} is of ${moduleAbiOf(moduleDll) ?? 'no amxts ABI'}, the checkout builds plugins of ${abiIdentity()}`;
+	const steps = [['bun', 'run', 'generate'], linux ? ['bun', 'run', 'build:linux'] : ['cmake', '--build', 'runtime/build', '--config', 'Release']];
+	const commands = steps.map(step => step.join(' ')).join(' && ');
+	const ours = !process.env.AMXTS_TEST_MODULE && existsSync(join(CORE_DIR, linux ? 'docker/build' : 'runtime/build/CMakeCache.txt'));
+	if (!ours) {
+		fail(`${was} - build it again: ${commands}`);
+		return false;
+	}
+	console.log(`${was} - building it again: ${commands}`);
+	for (const [program, ...args] of steps) {
+		const run = spawnSync(program === 'bun' ? process.execPath : program, args, { cwd: CORE_DIR, encoding: 'utf-8' });
+		if (run.status !== 0) {
+			const said = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim().split('\n').slice(-20).join('\n');
+			fail(`${[program, ...args].join(' ')} failed${run.error ? `: ${run.error.message}` : ''}\n${said}`);
+			return false;
+		}
+	}
+	if (moduleFits()) return true;
+	fail(`${moduleDll} is of ${moduleAbiOf(moduleDll) ?? 'no amxts ABI'} after it was built again, the checkout builds plugins of ${abiIdentity()}`);
+	return false;
+}
+
 // ---------------------------------------------------------------- another ABI
 
 /** A plugin the module has to refuse, and the line it says so with. */
@@ -870,6 +914,7 @@ async function main(): Promise<number> {
 			return 1;
 		}
 	}
+	if (!freshModule()) return 1;
 	if (linux && docker(['version']).status !== 0) {
 		fail('--linux runs the server in Docker, and docker does not answer - is it installed and running?');
 		return 1;

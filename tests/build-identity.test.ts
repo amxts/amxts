@@ -10,7 +10,7 @@
  * plugin of one patch loads on another's module.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // @ts-ignore - bun:test types not available during type checking
@@ -19,7 +19,7 @@ import pkg from '../package.json';
 import { ABI_SECTION, abiIdentity, abiLine, buildDefines, buildIdentity, importsOf, releaseLine } from '../scripts/build-identity';
 import { compilePlugin } from '../scripts/compile';
 import { readSection } from '../scripts/source-map';
-import { wamrcPath } from '../scripts/system';
+import { moduleAbiOf, wamrcPath } from '../scripts/system';
 import { compileWasmFile } from '../src/testing/compile';
 import { cacheCounts, cacheOn } from '../src/testing/compile-cache';
 
@@ -69,6 +69,17 @@ test('the module compares the line and the hash, not the patch', () => {
 	expect(abiLine('0.3.0+abi.1a2b3c4d')).not.toBe(abiLine('0.4.0+abi.1a2b3c4d'));
 	expect(abiLine('0.3.0+abi.1a2b3c4d')).not.toBe(abiLine('0.3.0+abi.99999999'));
 	expect(abiLine('')).toBe('');
+});
+
+test('a module file is read for its ABI: test:server builds one again whose line or hash is not the checkout\'s', () => {
+	const file = join(out, 'amxts_amxx.dll');
+	writeFileSync(file, Buffer.concat([Buffer.from([0x4D, 0x5A, 0, 0xFF]), Buffer.from('0.2.0+1290ba0540\0'), Buffer.from('0.2.0-rc.1+abi.254ad446\0')]));
+	const abi = moduleAbiOf(file)!;
+	expect(abi).toBe('0.2.0-rc.1+abi.254ad446');
+	expect(abiLine(abi)).toBe(abiLine('0.2.3+abi.254ad446'));
+	expect(abiLine(abi)).not.toBe(abiLine('0.3.0+abi.254ad446'));
+	expect(abiLine(abi)).not.toBe(abiLine('0.2.0+abi.0f303e8b'));
+	expect(moduleAbiOf(join(out, 'missing.dll'))).toBeNull();
 });
 
 test('an import is its name and its types: a parameter renamed is the same ABI', () => {

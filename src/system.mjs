@@ -77,8 +77,23 @@ const MODULE_ABI = /(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\+abi\.[0-9a-f]{8}/;
  * @returns {string | null} the version: `0.2.0`
  */
 export function moduleVersion(file) {
+	return moduleAbiMatch(file)?.[1] ?? null;
+}
+
+/**
+ * The ABI a module file loads plugins of, read as moduleVersion reads its
+ * release. Null when there is no file or no such string.
+ * @param {string} file
+ * @returns {string | null} the ABI: `0.2.0+abi.1a2b3c4d`
+ */
+export function moduleAbiOf(file) {
+	return moduleAbiMatch(file)?.[0] ?? null;
+}
+
+/** @param {string} file */
+function moduleAbiMatch(file) {
 	try {
-		return MODULE_ABI.exec(readFileSync(file, 'latin1'))?.[1] ?? null;
+		return MODULE_ABI.exec(readFileSync(file, 'latin1'));
 	} catch {
 		return null;
 	}
