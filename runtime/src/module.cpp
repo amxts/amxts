@@ -39,6 +39,7 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -5724,12 +5725,57 @@ void ClientCommand(edict_t *e)
  * A line a bot sends, as a client's command comes in from the network: the
  * engine splits it and the game's ClientCommand is called through Metamod's
  * table, so AMX Mod X, the module and the game hear it in their order.
- * ReHLDS gives both through its API; plain HLDS on Linux exports them.
+ * ReHLDS gives both through its API; plain HLDS on Linux has them in its
+ * file's symbol table (EngineSymbol).
  * NULL where neither is found (plain HLDS on Windows).
  */
 typedef void (*TokenizeFn)(char *line);
 static TokenizeFn     g_tokenize = NULL;
 static DLL_FUNCTIONS *g_entityApi = NULL;
+
+#ifndef _WIN32
+/**
+ * The address of a symbol of the engine's own table (.symtab): plain HLDS
+ * keeps Cmd_TokenizeString and gEntityInterface local, so dlsym does not see
+ * them. The file is the one the engine's functions were loaded from, the
+ * address its load base plus the symbol's value. NULL when it is not there.
+ */
+static void *EngineSymbol(const char *name)
+{
+	Dl_info info;
+	if (!dladdr((void *)g_engfuncs.pfnPrecacheModel, &info) || !info.dli_fname)
+		return NULL;
+	FILE *f = fopen(info.dli_fname, "rb");
+	if (!f)
+		return NULL;
+	std::vector<char> file;
+	fseek(f, 0, SEEK_END);
+	file.resize((size_t)ftell(f));
+	fseek(f, 0, SEEK_SET);
+	bool read = !file.empty() && fread(&file[0], 1, file.size(), f) == file.size();
+	fclose(f);
+	if (!read || file.size() < sizeof(Elf32_Ehdr))
+		return NULL;
+
+	const Elf32_Ehdr *header = (const Elf32_Ehdr *)&file[0];
+	if (header->e_shoff + (size_t)header->e_shnum * sizeof(Elf32_Shdr) > file.size())
+		return NULL;
+	const Elf32_Shdr *sections = (const Elf32_Shdr *)&file[header->e_shoff];
+	for (int i = 0; i < header->e_shnum; i++) {
+		if (sections[i].sh_type != SHT_SYMTAB || sections[i].sh_link >= header->e_shnum)
+			continue;
+		const Elf32_Shdr &strings = sections[sections[i].sh_link];
+		size_t count = sections[i].sh_size / sizeof(Elf32_Sym);
+		if (sections[i].sh_offset + sections[i].sh_size > file.size() || strings.sh_offset + strings.sh_size > file.size())
+			return NULL;
+		const Elf32_Sym *symbols = (const Elf32_Sym *)&file[sections[i].sh_offset];
+		for (size_t k = 0; k < count; k++)
+			if (symbols[k].st_name < strings.sh_size && !strcmp(&file[strings.sh_offset + symbols[k].st_name], name))
+				return (char *)info.dli_fbase + symbols[k].st_value;
+	}
+	return NULL;
+}
+#endif
 
 static bool FindClientCommandPath()
 {
@@ -5739,12 +5785,8 @@ static bool FindClientCommandPath()
 	}
 #ifndef _WIN32
 	else {
-		void *engine = dlopen("engine_i486.so", RTLD_NOW | RTLD_NOLOAD);
-		if (engine) {
-			g_tokenize = (TokenizeFn)dlsym(engine, "Cmd_TokenizeString");
-			g_entityApi = (DLL_FUNCTIONS *)dlsym(engine, "gEntityInterface");
-			dlclose(engine);
-		}
+		g_tokenize = (TokenizeFn)EngineSymbol("Cmd_TokenizeString");
+		g_entityApi = (DLL_FUNCTIONS *)EngineSymbol("gEntityInterface");
 	}
 #endif
 	return g_tokenize && g_entityApi;
