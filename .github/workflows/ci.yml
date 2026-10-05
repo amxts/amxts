@@ -1,9 +1,10 @@
 # The core's checks, and the server's files of a release.
 #
 # On every push and pull request, side by side: the type check and lint; the
-# test suite in three parts; and the Linux module and wamrc built in Docker,
-# then the server suites on a Linux test server in Docker (bun run test:server
-# --linux), on three AMX Mod X builds. On a tag v*, the Windows files are
+# test suite in three parts; and the Linux module, wamrc and the server suites
+# built once, in Docker, then the suites run on a Linux test server in Docker
+# (bun run test:server --linux), on three AMX Mod X builds and under
+# sanitizers. On a tag v*, the Windows files are
 # built too, on a Windows runner (bun run release:windows), then the nine npm
 # packages are tried end to end with both systems' files (bun run
 # test:release: a local registry, npx create-amxts, typecheck, build, test,
@@ -18,9 +19,9 @@
 # Every job checks the core out as `amxts` and runs .github/actions/setup,
 # which puts the command and the official modules beside it. What does not
 # change from run to run is cached: npm's downloads, the patched AssemblyScript,
-# each test part's compiled plugins, the Docker images, the Linux build's work
-# folder (wamrc and the objects of the module) and the part of LLVM that
-# wamrc.exe links.
+# each test part's compiled plugins, the compiled server suites, the Docker
+# images, the Linux build's work folder (wamrc and the objects of the module)
+# and the part of LLVM that wamrc.exe links.
 name: CI
 
 on:
@@ -80,35 +81,15 @@ jobs:
         working-directory: amxts
         run: bun run test:part ${{ matrix.part }} 3
 
-  # The server suites run on three AMX Mod X builds, one job each: the test
-  # server image's own, and with --amxx the last of 1.9 - the oldest the docs
-  # promise - and the newest of 1.10. A mistake one build lives through can
-  # crash another. The Linux files come from the image's own job.
-  # One more job runs them with the module under AddressSanitizer and UBSan
-  # (build:linux --sanitize, test:server --sanitize): a memory error in the
-  # module fails it with the file and line. It does not hold the release back
-  # (continue-on-error) until it has been green for a while.
-  linux:
-    name: ${{ matrix.sanitize && 'linux (sanitizers)' || matrix.amxx && format('linux (AMX Mod X {0})', matrix.amxx) || 'linux' }}
+  # What the server suites run on, built once for the four jobs below: the
+  # Linux module and wamrc, the module under AddressSanitizer and UBSan, and
+  # every suite compiled for Linux (test:server --linux --build-only), fully
+  # optimised, as `amxts build` compiles. The sanitized module builds while
+  # the suites compile. Also the Linux files of a release.
+  linux-build:
+    name: linux (build)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    continue-on-error: ${{ matrix.sanitize }}
-    strategy:
-      fail-fast: false
-      matrix:
-        amxx: ["", 1.9.0-git5303, 1.10.0-git5486]
-        sanitize: [false]
-        include:
-          - amxx: ""
-            sanitize: true
-    env:
-      AMXX: ${{ matrix.amxx }}
-      SANITIZE: ${{ matrix.sanitize && '--sanitize' || '' }}
-      # The sanitized build's folder has its own wamrc.
-      AMXTS_WAMRC: ${{ matrix.sanitize && format('{0}/amxts/runtime/build/linux-sanitize/wamrc', github.workspace) || '' }}
-      # The test server image's tag, and the cache of its layers.
-      HLDS: amxts-hlds${{ matrix.amxx && format(':{0}', matrix.amxx) || '' }}
-      HLDS_SCOPE: amxts-hlds${{ matrix.amxx && format('-{0}', matrix.amxx) || '' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -124,6 +105,104 @@ jobs:
           load: true
           cache-from: type=gha,scope=amxts-build
           cache-to: type=gha,mode=max,scope=amxts-build
+
+      # The build's work folder - the WAMR and AMX Mod X checkouts, wamrc and
+      # the module's objects - is a folder here instead of a Docker volume,
+      # so it is cached: wamrc is built again only when its inputs change.
+      - uses: actions/cache@v6
+        with:
+          path: linux-work
+          key: linux-work-${{ hashFiles('amxts/docker/build/**', 'amxts/runtime/patches/wamr-*.patch', 'amxts/runtime/CMakeLists.txt', 'amxts/runtime/src/**') }}
+          restore-keys: linux-work-
+      # A compiled suite is kept under a hash of everything it was built
+      # from, so an older run's cache is safe to start from: a change to the
+      # module's C++ alone compiles nothing again.
+      - uses: actions/cache@v6
+        with:
+          path: amxts/node_modules/.cache/amxts/build
+          key: linux-suites-${{ hashFiles('amxts/runtime/patches/**', 'amxts/runtime/natives.txt', 'amxts/as/**', 'amxts/scripts/**', 'amxts/src/**', 'amxts/tests/server/**') }}
+          restore-keys: linux-suites-
+      # The host plugin first: the module carries it.
+      - name: The host plugin
+        working-directory: amxts
+        run: bun run host
+      - name: The Linux module and wamrc
+        working-directory: amxts
+        env:
+          JOBS: 4
+          AMXTS_BUILD_VOLUME: ${{ github.workspace }}/linux-work
+        run: bun run build:linux
+      - name: The sanitized module, and the suites
+        working-directory: amxts
+        env:
+          JOBS: 2
+          AMXTS_BUILD_VOLUME: ${{ github.workspace }}/linux-work
+        run: |
+          bun run build:linux --sanitize > "$RUNNER_TEMP/sanitize.log" 2>&1 &
+          sanitized=$!
+          bun run test:server --linux --build-only
+          wait $sanitized || { cat "$RUNNER_TEMP/sanitize.log"; exit 1; }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-suites
+          path: |
+            amxts/runtime/build/linux
+            amxts/runtime/build/linux-sanitize
+            amxts/dist-wasm/test-server-linux
+            !amxts/dist-wasm/test-server-linux/*.wasm
+          retention-days: 1
+
+      - name: The Linux server kit
+        working-directory: amxts
+        run: bun run serverkit --os linux
+      - name: The Linux files
+        uses: actions/upload-artifact@v7
+        with:
+          name: amxts-linux
+          path: |
+            amxts/runtime/build/linux/amxts_amxx_i386.so
+            amxts/runtime/build/linux/wamrc
+            amxts/dist-server/linux
+
+  # The server suites run on three AMX Mod X builds, one job each: the test
+  # server image's own, and with --amxx the last of 1.9 - the oldest the docs
+  # promise - and the newest of 1.10. A mistake one build lives through can
+  # crash another. One more job runs them with the module under
+  # AddressSanitizer and UBSan (test:server --sanitize): a memory error in the
+  # module fails it with the file and line. It does not hold the release back
+  # (continue-on-error) until it has been green for a while. Each takes the
+  # module and the suites linux-build made (--prebuilt) and builds nothing.
+  linux:
+    name: ${{ matrix.sanitize && 'linux (sanitizers)' || matrix.amxx && format('linux (AMX Mod X {0})', matrix.amxx) || 'linux' }}
+    needs: linux-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    continue-on-error: ${{ matrix.sanitize }}
+    strategy:
+      fail-fast: false
+      matrix:
+        amxx: ["", 1.9.0-git5303, 1.10.0-git5486]
+        sanitize: [false]
+        include:
+          - amxx: ""
+            sanitize: true
+    env:
+      AMXX: ${{ matrix.amxx }}
+      SANITIZE: ${{ matrix.sanitize && '--sanitize' || '' }}
+      # The test server image's tag, and the cache of its layers.
+      HLDS: amxts-hlds${{ matrix.amxx && format(':{0}', matrix.amxx) || '' }}
+      HLDS_SCOPE: amxts-hlds${{ matrix.amxx && format('-{0}', matrix.amxx) || '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: amxts
+      - uses: ./amxts/.github/actions/setup
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux-suites
+          path: amxts
+
+      - uses: docker/setup-buildx-action@v4
       # Every build shares the layers under AMX Mod X: another build's image
       # starts from the default one's cache.
       - name: The Linux test server image
@@ -138,28 +217,9 @@ jobs:
             type=gha,scope=${{ env.HLDS_SCOPE }}
           cache-to: type=gha,mode=max,scope=${{ env.HLDS_SCOPE }}
 
-      # The build's work folder - the WAMR and AMX Mod X checkouts, wamrc and
-      # the module's objects - is a folder here instead of a Docker volume,
-      # so it is cached: wamrc is built again only when its inputs change.
-      - uses: actions/cache@v6
-        with:
-          path: linux-work
-          key: linux-work-${{ hashFiles('amxts/docker/build/**', 'amxts/runtime/patches/wamr-*.patch', 'amxts/runtime/CMakeLists.txt', 'amxts/runtime/src/**') }}
-          restore-keys: linux-work-
-      # The host plugin first: the module carries it.
-      - name: The host plugin
-        working-directory: amxts
-        run: bun run host
-      - name: The Linux module and wamrc
-        working-directory: amxts
-        env:
-          JOBS: 4
-          AMXTS_BUILD_VOLUME: ${{ github.workspace }}/linux-work
-        run: bun run build:linux $SANITIZE
-
       - name: The server suites on Linux
         working-directory: amxts
-        run: bun run test:server --linux $SANITIZE ${AMXX:+--amxx "$AMXX"}
+        run: bun run test:server --linux --prebuilt $SANITIZE ${AMXX:+--amxx "$AMXX"}
       - name: The test server's console
         if: failure()
         uses: actions/upload-artifact@v7
@@ -167,20 +227,6 @@ jobs:
           name: test-server-linux${{ matrix.amxx && format('-{0}', matrix.amxx) || '' }}${{ matrix.sanitize && '-sanitize' || '' }}
           path: amxts/dist-wasm/test-server-linux/last-run
           if-no-files-found: ignore
-
-      - name: The Linux server kit
-        if: matrix.amxx == '' && !matrix.sanitize
-        working-directory: amxts
-        run: bun run serverkit --os linux
-      - name: The Linux files
-        if: matrix.amxx == '' && !matrix.sanitize
-        uses: actions/upload-artifact@v7
-        with:
-          name: amxts-linux
-          path: |
-            amxts/runtime/build/linux/amxts_amxx_i386.so
-            amxts/runtime/build/linux/wamrc
-            amxts/dist-server/linux
 
   # The Windows files: the host plugin, the module that carries it (MSVC,
   # Win32), wamrc.exe against LLVM's prebuilt package and the kit - what a
@@ -247,7 +293,7 @@ jobs:
   # it needs: about 15 minutes, the setup and the packing most of it.
   packages:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: [linux, windows]
+    needs: [linux-build, linux, windows]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -288,7 +334,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check, tests, linux, windows, packages]
+    needs: [check, tests, linux-build, linux, windows, packages]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
