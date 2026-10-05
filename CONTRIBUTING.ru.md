@@ -132,7 +132,7 @@ bun run test:server --linux   # the same suites on a Linux server, in Docker
 bun run test:server --plain   # the same on Linux without ReHLDS, ReGameDLL, ReAPI
 bun run test:server --linux --amxx 1.9.0-git5303   # the same on another AMX Mod X build
 bun run test:server --linux --sanitize   # the same with the module under ASan and UBSan
-bun run test:server --quick   # the same suites compiled as `amxts dev` compiles them
+bun run test:server --full    # the same suites compiled as `amxts build` compiles them
 bun run test:server --only cvar,player   # only these suites, beside what every run loads
 bun run test:release          # пакеты npm от начала до конца: локальный реестр, npx create-amxts, сервер в Docker
 ```
@@ -145,7 +145,9 @@ bun run test:release          # пакеты npm от начала до конц
 `--sanitize` запускает сервер под Linux с модулем из `bun run build:linux
 --sanitize`, его C++ под AddressSanitizer и UBSan: ошибка памяти в нём
 проваливает прогон отчётом санитайзера, который называет файл и строку.
-CI гоняет и его — задачей `linux (sanitizers)`.
+CI гоняет и его — задачей `linux (sanitizers)`. Модуль и наборы CI собирает
+один раз, задачей `linux (build)` (`test:server --linux --build-only`); четыре
+задачи `linux` берут их как есть (`--prebuilt`).
 
 `bun run test:release` публикует девять пакетов в свой локальный реестр,
 создаёт проект через `npx create-amxts`, собирает и тестирует его и
@@ -173,10 +175,17 @@ login`, затем `bun run publish:npm` — все девять, по поря�
 один файл — `bun test --smol tests/<имя>.test.ts`.
 `bun run test:server` компилирует свои плагины по нескольку сразу, как сборка
 проекта: сколько — говорит `AMXTS_BUILD_JOBS` или `AMXTS_BUILD_MEMORY` в
-мегабайтах (3072 — две сразу). Модуль в `runtime/build`, который отказал бы
-плагинам рабочей копии, — собранный до того, как сменилась линейка версии
-или импорты и нативы API, — сначала собирается заново (`bun run generate`,
-затем сборка cmake или `bun run build:linux`), о чём говорит одна строка.
+мегабайтах (3072 — две сразу). Локально они компилируются, как компилирует
+`amxts dev`, — примерно вдвое быстрее, — все, кроме `perf.ts`, который
+измеряет скорость; в CI и с `--full` — как `amxts build`. Компиляция
+хранится в кэше плагинов и берётся снова, пока не изменилось ничего из
+прочитанного ею, так что второй прогон, как и прогон после правки одного
+C++ модуля, не компилирует ничего. Модуль в `runtime/build`, который
+отказал бы плагинам рабочей копии, — собранный до того, как сменилась
+линейка версии или импорты и нативы API, — сначала собирается заново
+(`bun run generate`, затем сборка cmake или `bun run build:linux`), о чём
+говорит одна строка; модуль старше файла из `runtime/src` или
+`runtime/CMakeLists.txt` тоже собирается заново, без `generate`.
 `AMXTS_SERVER` (в `.env` рядом с `package.json`) — папка `addons/amxts`
 сервера. `tests/code-style.test.ts` проверяет, как читается код плагинов:
 каждая находка называет файл, строку и правило.

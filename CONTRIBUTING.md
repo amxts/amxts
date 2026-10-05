@@ -133,7 +133,7 @@ bun run test:server --linux   # the same suites on a Linux server, in Docker
 bun run test:server --plain   # the same on Linux without ReHLDS, ReGameDLL, ReAPI
 bun run test:server --linux --amxx 1.9.0-git5303   # the same on another AMX Mod X build
 bun run test:server --linux --sanitize   # the same with the module under ASan and UBSan
-bun run test:server --quick   # the same suites compiled as `amxts dev` compiles them
+bun run test:server --full    # the same suites compiled as `amxts build` compiles them
 bun run test:server --only cvar,player   # only these suites, beside what every run loads
 bun run test:release          # the npm packages end to end: a local registry, npx create-amxts, a server in Docker
 ```
@@ -146,7 +146,9 @@ server suites on three: the image's own (1.10.0-git5474), 1.9.0-git5303 and
 `--sanitize` runs the Linux server with the module of `bun run build:linux
 --sanitize`, its C++ under AddressSanitizer and UBSan: a memory error in it
 fails the run with the sanitizer's report, which names the file and line.
-CI runs it too, as the `linux (sanitizers)` job.
+CI runs it too, as the `linux (sanitizers)` job. CI builds the module and
+compiles the suites once, in the `linux (build)` job (`test:server --linux
+--build-only`); the four `linux` jobs take them as they are (`--prebuilt`).
 
 `bun run test:release` publishes the nine packages to a local registry of
 its own, makes a project with `npx create-amxts`, builds and tests it and
@@ -174,10 +176,16 @@ under 2 GB when it compiles everything, from an empty compile cache (CI);
 one file is `bun test --smol tests/<name>.test.ts`.
 `bun run test:server` compiles its plugins several at once, as a project's
 build does: `AMXTS_BUILD_JOBS`, or `AMXTS_BUILD_MEMORY` in megabytes (3072,
-two at once), says how many. A module in `runtime/build` that would refuse
-the checkout's plugins - built before the version's line or the API's
-imports and natives changed - is built again first (`bun run generate`,
-then cmake's build, or `bun run build:linux`), with a line saying so.
+two at once), says how many. Locally they compile as `amxts dev` compiles,
+about twice as fast - all but `perf.ts`, which measures speed; in CI and with
+`--full`, as `amxts build` does. A compile is kept in the plugin cache and
+taken again while nothing it read changed, so a second run, or one after a
+change to the module's C++ alone, compiles nothing. A module in
+`runtime/build` that would refuse the checkout's plugins - built before the
+version's line or the API's imports and natives changed - is built again
+first (`bun run generate`, then cmake's build, or `bun run build:linux`),
+with a line saying so; one older than a file of `runtime/src` or
+`runtime/CMakeLists.txt` is built again too, without `generate`.
 `AMXTS_SERVER` (in `.env` beside `package.json`) is a server's
 `addons/amxts` folder. `tests/code-style.test.ts` checks how plugin code
 reads: every finding names the file, the line and the rule.

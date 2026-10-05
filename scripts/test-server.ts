@@ -7,8 +7,10 @@
 //   bun run test:server --plain    the same on Linux without ReHLDS, ReGameDLL, ReAPI
 //   bun run test:server --linux --amxx 1.9.0-git5303   on another AMX Mod X build
 //   bun run test:server --linux --sanitize   the module under AddressSanitizer and UBSan
-//   bun run test:server --quick    the suites compiled as `amxts dev` compiles them
+//   bun run test:server --full     the suites compiled fully, as `amxts build` does
 //   bun run test:server --only cvar,player   only these suites
+//   bun run test:server --build-only   build the suites, start no server
+//   bun run test:server --prebuilt     run the suites --build-only left, building nothing
 //
 // It runs the suites of the project in the current folder, as the build does
 // (scripts/project.ts): the core's own in tests/server, a project's in
@@ -25,14 +27,26 @@
 // server's console must show while that suite runs, as it is - how a check
 // sees what reached the console, and how an error line a suite causes on
 // purpose is told from a real one. A line `// @log-dev <text>` is one for a
-// --quick run alone: what only a dev build's stack frames show. A plugin
+// quick run alone: what only a dev build's stack frames show. A plugin
 // with a line `// @unlisted` lies in plugins/ but not in the plugin list, for
 // a suite to start with amxts_load.
 //
 // The module under test is runtime/build's (AMXTS_TEST_MODULE names another).
 // One that would refuse the run's plugins - built before the version's line
 // or the hood moved on - is built again first, with a line saying so
-// (freshModule).
+// (freshModule), and so is one older than a file of runtime/src or
+// runtime/CMakeLists.txt.
+//
+// The suites compile as `amxts dev` compiles them, about twice as fast - but
+// perf.ts, which measures speed, and every suite in CI or with --full, which
+// compile as `amxts build` does. A compile is kept in the project's plugin
+// cache (scripts/plugin-cache.ts) and taken again while nothing it read has
+// changed: a second run, or one after a change to the module's C++ alone,
+// compiles nothing.
+//
+// --build-only builds the suites into the build folder and stops; --prebuilt
+// takes them from there as they are and builds nothing, the module included:
+// CI builds them once and runs them on every server.
 //
 // --only <suite>[,<suite>...] builds, loads and checks only the files that
 // hold those suites, beside the plugins every run loads and the files that
@@ -86,14 +100,15 @@
 // --sanitize is --linux with the module of `bun run build:linux --sanitize`:
 // hlds starts with the sanitizers' runtime preloaded (hlds_linux itself is not
 // built with it), and a sanitizer's report in the console fails the run.
+import type { Plugin } from './compile';
 import { spawnSync } from 'node:child_process';
 import { createSocket } from 'node:dgram';
-import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { ABI_SECTION, abiIdentity, abiLine, releaseLine } from './build-identity';
-import { compilePlugin } from './compile';
 import { compileAll } from './compile-pool';
 import { includeDirs } from './includes';
+import { pluginCache } from './plugin-cache';
 import { CORE_DIR, CORE_PLUGINS, loadProject, PROJECT_GAME_FOLDERS, projectPlugins, sourcesFor } from './project';
 import { amxxpcPath, MODULE_FILE, moduleAbiOf, modulePath, serverFolder, wamrcPath } from './system';
 
@@ -108,7 +123,12 @@ const stopOnly = args.includes('--stop');
 const plain = args.includes('--plain');
 const sanitize = args.includes('--sanitize');
 const linux = plain || sanitize || args.includes('--linux');
-const quick = args.includes('--quick');
+const buildOnly = args.includes('--build-only');
+const prebuilt = args.includes('--prebuilt');
+/** Whether the suites compile as `amxts dev` compiles them: locally, unless --full says otherwise. */
+const quick = !args.includes('--full') && !process.env.CI;
+/** The suites that compile fully either way: the speed check measures the full build. */
+const FULL = new Set(['perf.ts']);
 const portArg = args.indexOf('--port');
 const onlyArg = args.indexOf('--only');
 const amxxArg = args.indexOf('--amxx');
@@ -540,14 +560,21 @@ function discoverSuites(): { suites: Suite[]; plugins: string[]; pawn: string[];
 		names.push(...own.map(suite => suite.name));
 	}
 
+	// A Pawn file that includes a suite's natives (perf-pawn.sma's <perf>)
+	// is built with that suite only: the include is written by its build.
+	const left = (file: string) => file.endsWith('.sma')
+		&& [...readFileSync(file, 'utf-8').matchAll(/^#include <(\w+)>/gm)].some(([, name]) => files.includes(`${name}.ts`) && !chosen.includes(join(suitesDir, `${name}.ts`)));
 	return {
 		suites,
 		plugins: chosen.filter(f => f.endsWith('.ts')),
-		pawn: chosen.filter(f => f.endsWith('.sma')),
+		pawn: chosen.filter(f => f.endsWith('.sma') && !left(f)),
 		unlisted,
 		unknown: ONLY.filter(name => !names.includes(name)),
 	};
 }
+
+/** Where a Pawn suite is built. */
+const amxxOf = (source: string) => join(buildDir, basename(source).replace(/\.sma$/, '.amxx'));
 
 async function build(plugins: string[], pawn: string[]): Promise<string[] | null> {
 	mkdirSync(buildDir, { recursive: true });
@@ -561,16 +588,23 @@ async function build(plugins: string[], pawn: string[]): Promise<string[] | null
 	}
 
 	const system = linux ? 'linux' : 'windows';
-	const compiled = await compileAll(sources.map((source, index) => ({ source, output: join(buildDir, `${names[index]}.aot`), root: CORE_PLUGINS, wamrc, signatures, system, quick })), {
-		dir: null,
-		includes: [],
-		here: compilePlugin,
-	});
+	const all = sources.map((source, index): Plugin => ({ source, output: join(buildDir, `${names[index]}.aot`), root: CORE_PLUGINS, wamrc, signatures, system, quick: quick && !FULL.has(basename(source)) }));
+	if (prebuilt) {
+		const missing = [...all.map(plugin => plugin.output), ...pawn.map(amxxOf)].filter(file => !existsSync(file));
+		if (missing.length) fail(`--prebuilt: not built - ${missing.join(', ')}`);
+		return missing.length ? null : names.map(name => `${name}.aot`);
+	}
+
+	// What an earlier run compiled from the same files is taken as it is.
+	const cache = pluginCache(project.dir);
+	const fresh = all.filter(plugin => !cache.reuse(plugin));
+	const compiled = await compileAll(fresh, { dir: project.dir, includes: [], here: (plugin, natives) => cache.compile(plugin, natives) });
 	const failed = compiled.findIndex(each => each?.problem);
 	if (failed >= 0) {
-		fail(`${sources[failed]} does not compile:\n${compiled[failed]!.problem!.trim()}`);
+		fail(`${fresh[failed].source} does not compile:\n${compiled[failed]!.problem!.trim()}`);
 		return null;
 	}
+	if (fresh.length < all.length) console.log(`${all.length - fresh.length} of ${all.length} plugins unchanged since the last build`);
 
 	// A Pawn suite includes what the TypeScript ones export, from beside them,
 	// the folders a build looks in (the project's includes/, its server's, the
@@ -578,7 +612,7 @@ async function build(plugins: string[], pawn: string[]): Promise<string[] | null
 	// runtime/host/amxts.inc.
 	const dirs = [buildDir, ...includeDirs(project.dir).filter(dir => existsSync(dir)), join(CORE_DIR, 'runtime/host')];
 	for (const source of pawn) {
-		const output = join(buildDir, basename(source).replace(/\.sma$/, '.amxx'));
+		const output = amxxOf(source);
 		// From its own folder: on Linux amxxpc loads amxxpc32.so from the current one.
 		const result = spawnSync(amxxpc, [source, ...[...new Set(dirs)].map(dir => `-i${dir}`), `-o${output}`], { encoding: 'utf-8', cwd: dirname(amxxpc) });
 		if (result.status !== 0 || !existsSync(output)) {
@@ -666,19 +700,29 @@ function moduleFits(): boolean {
 	return abi !== null && abiLine(abi) === abiLine(abiIdentity());
 }
 
+/** Whether a file the module is built from - runtime/src, runtime/CMakeLists.txt - changed after it was built. */
+function moduleStale(): boolean {
+	const src = join(CORE_DIR, 'runtime/src');
+	if (!existsSync(src)) return false;
+	const built = statSync(moduleDll).mtimeMs;
+	return [join(CORE_DIR, 'runtime/CMakeLists.txt'), ...readdirSync(src).map(file => join(src, file))].some(file => statSync(file).mtimeMs > built);
+}
+
 /**
  * The module under test, built again when it would refuse every plugin of
  * the run - built before the version's line or the hood moved on - with a
  * line saying so: `bun run generate`, then cmake's build in runtime/build,
- * or `bun run build:linux`. One given with AMXTS_TEST_MODULE, or of a core
+ * or `bun run build:linux`; and, without generating, when its sources
+ * changed after it was built. One given with AMXTS_TEST_MODULE, or of a core
  * that is no checkout, is not built here: the run stops and says what to run.
  */
 function freshModule(): boolean {
-	if (moduleFits()) return true;
-	const was = `${moduleDll} is of ${moduleAbiOf(moduleDll) ?? 'no amxts ABI'}, the checkout builds plugins of ${abiIdentity()}`;
-	const steps = [['bun', 'run', 'generate'], linux ? ['bun', 'run', 'build:linux', ...(sanitize ? ['--sanitize'] : [])] : ['cmake', '--build', 'runtime/build', '--config', 'Release']];
-	const commands = steps.map(step => step.join(' ')).join(' && ');
 	const ours = !process.env.AMXTS_TEST_MODULE && existsSync(join(CORE_DIR, linux ? 'docker/build' : 'runtime/build/CMakeCache.txt'));
+	const fits = moduleFits();
+	if (fits && !(ours && moduleStale())) return true;
+	const was = fits ? `${moduleDll} is older than its sources` : `${moduleDll} is of ${moduleAbiOf(moduleDll) ?? 'no amxts ABI'}, the checkout builds plugins of ${abiIdentity()}`;
+	const steps = [...(fits ? [] : [['bun', 'run', 'generate']]), linux ? ['bun', 'run', 'build:linux', ...(sanitize ? ['--sanitize'] : [])] : ['cmake', '--build', 'runtime/build', '--config', 'Release']];
+	const commands = steps.map(step => step.join(' ')).join(' && ');
 	if (!ours) {
 		fail(`${was} - build it again: ${commands}`);
 		return false;
@@ -931,25 +975,28 @@ async function main(): Promise<number> {
 		return 0;
 	}
 
-	for (const needed of [...(linux ? [] : [hlds]), moduleDll, amxxpc, wamrc, signatures]) {
+	// --prebuilt compiles nothing, --build-only starts nothing.
+	for (const needed of [...(linux || buildOnly ? [] : [hlds]), moduleDll, ...(prebuilt ? [] : [amxxpc, wamrc]), signatures]) {
 		if (!existsSync(needed)) {
 			fail(`missing ${needed}${needed === moduleDll && linux ? ` - bun run build:linux${sanitize ? ' --sanitize' : ''} builds it` : ''}`);
 			return 1;
 		}
 	}
-	if (!freshModule()) return 1;
-	if (linux && docker(['version']).status !== 0) {
-		fail('--linux runs the server in Docker, and docker does not answer - is it installed and running?');
-		return 1;
-	}
+	if (!prebuilt && !freshModule()) return 1;
+	if (!buildOnly) {
+		if (linux && docker(['version']).status !== 0) {
+			fail('--linux runs the server in Docker, and docker does not answer - is it installed and running?');
+			return 1;
+		}
 
-	stopLeftover();
+		stopLeftover();
 
-	// The port has to be nobody's: not the server's, not anyone else's.
-	const taken = linux ? undefined : hldsProcesses().find(p => new RegExp(`\\+port\\s+${PORT}\\b`).test(p.commandLine));
-	if (taken || !(await portIsFree(PORT))) {
-		fail(`port ${PORT} is in use${taken ? ` by hlds pid ${taken.pid}` : ''} - pass --port or set AMXTS_TEST_PORT`);
-		return 1;
+		// The port has to be nobody's: not the server's, not anyone else's.
+		const taken = linux ? undefined : hldsProcesses().find(p => new RegExp(`\\+port\\s+${PORT}\\b`).test(p.commandLine));
+		if (taken || !(await portIsFree(PORT))) {
+			fail(`port ${PORT} is in use${taken ? ` by hlds pid ${taken.pid}` : ''} - pass --port or set AMXTS_TEST_PORT`);
+			return 1;
+		}
 	}
 
 	const started = performance.now();
@@ -958,10 +1005,11 @@ async function main(): Promise<number> {
 		fail(`--only: no suite ${unknown.join(', ')} in ${suitesDir}`);
 		return 1;
 	}
-	await startWeb(suites);
 	const built = await build(plugins, pawn);
 	if (!built) return 1;
-	console.log(`built ${built.length} plugins and ${pawn.length} Pawn suite(s) (${((performance.now() - started) / 1000).toFixed(1)}s)`);
+	console.log(`${prebuilt ? 'took' : 'built'} ${built.length} plugins and ${pawn.length} Pawn suite(s) (${((performance.now() - started) / 1000).toFixed(1)}s)`);
+	if (buildOnly) return 0;
+	await startWeb(suites);
 
 	const password = `amxts-${Math.random().toString(36).slice(2, 12)}`;
 	const refused = refusedCopies(built);
