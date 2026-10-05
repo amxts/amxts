@@ -42,7 +42,7 @@ const LIMITS: Record<string, number> = {
 	"event": 30,
 	"forward to a listener": 12,
 	"relay with no listener": 1.5,
-	"Pawn calls a plugin": 12,
+	"Pawn calls a plugin": 2,
 	"timer armed": 7,
 	"timer firing": 7,
 	"command": 2,

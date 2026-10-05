@@ -351,11 +351,9 @@ export class __Listeners<T> {
 	}
 }
 
-// AMX Mod X implements a native as a public in some plugin, so this names the
-// host plugin's one public for them all, and the module keeps the name:
-// register_native cannot be undone, so a reload takes the same entry back
-// rather than registering the name twice. Natives are asked for before any
-// plugin starts, which is why plugins are loaded from plugin_natives at all.
+// The module gives AMX Mod X the name, and keeps it until the server stops: a
+// reload takes the same entry back. A Pawn plugin binds its natives as it
+// loads, which is why plugins are loaded from plugin_natives at all.
 /**
  * Exports a native for other plugins - Pawn ones included - to call.
  *

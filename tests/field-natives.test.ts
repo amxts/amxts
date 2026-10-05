@@ -50,10 +50,8 @@ test('a server event hands its listener every argument, all twelve of pfn_playba
 	expect(server.log).toContain('played 26 at 1,2,3 delay 0.5 last 1');
 });
 
-test('every exported native is the host plugin\'s one public, and its heap holds long text', () => {
-	expect(host).toContain('public __amxts_native(plugin, params)\n{\n\treturn amxts_native(plugin, params);\n}');
-	expect(host).toContain('native amxts_native(caller, argc);');
-	expect(host).not.toMatch(/__amxts_nat\d/);
+test('the host has no public for exported natives, and its heap holds long text', () => {
+	expect(host).not.toContain('amxts_native(');
 	// 16384 cells a string and more than one of them at a time.
 	expect(Number(host.match(/^#pragma dynamic (\d+)$/m)?.[1])).toBeGreaterThanOrEqual(4 * 16384);
 });

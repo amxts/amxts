@@ -135,24 +135,6 @@ const CALLBACK_ARGS = 8;
 const CALLBACK_PARAMS = Array.from({ length: CALLBACK_ARGS }, (_, i) => String.fromCharCode(97 + i));
 
 /**
- * The one public behind every native a plugin exports.
- *
- * AMX Mod X implements a native as a public in some plugin, and
- * register_native names it - so every native a plugin here exports names this
- * one. It only says who called and how many arguments came: the module works
- * out which native it was from the caller, and reads the arguments itself,
- * with get_param, while this call is still the native being run - so there is
- * no limit on how many natives or arguments, and a string or an array among
- * them is read in the caller's memory rather than copied through here.
- */
-const NATIVE_PUBLIC = [
-	`public __amxts_native(plugin, params)`,
-	`{`,
-	`\treturn amxts_native(plugin, params);`,
-	`}`,
-].join('\n');
-
-/**
  * The arguments arrive as declared parameters, not through getarg().
  *
  * getarg() dereferences: Pawn passes variadic arguments by reference, so
@@ -839,14 +821,9 @@ native amxts_event(index, const types[], ...);
 // one means changing the other.
 native amxts_callback(slot, argc, ${CALLBACK_PARAMS.join(', ')});
 // Loads the plugins. Called from plugin_natives rather than plugin_init,
-// because AMX Mod X wants a native registered before any plugin that calls it
-// has been loaded - and a plugin here registers its own by running.
+// because AMX Mod X binds a plugin's natives before it finalizes the plugins
+// - and a plugin here exports its own by running.
 native amxts_natives();
-// amxts_native(caller, argc) - __amxts_native below, standing in for every
-// native a plugin exported. caller is the plugin that called it: the module
-// reads which native it called off it, and it is where a string or an array
-// argument's memory lives; the module reads the arguments with get_param.
-native amxts_native(caller, argc);
 
 public plugin_init()
 {
@@ -898,9 +875,6 @@ public amxts_native_filter(const name[], index, trap)
 
 // ---------------------------------------------------------------- forwards
 ${forwards.filter(f => !MODULE_FORWARDS.has(f.name)).map(forwardStub).join('\n\n')}
-
-// ------------------------------------------------- natives plugins export
-${NATIVE_PUBLIC}
 
 // ---------------------------------------------------------------- callback slots
 ${Array.from({ length: CALLBACK_SLOTS }, (_, i) => callbackSlot(i)).join('\n\n')}

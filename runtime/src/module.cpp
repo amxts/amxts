@@ -55,6 +55,7 @@
 #include <set>
 #include <unordered_map>
 #include <algorithm>
+#include <utility>
 
 // ---------------------------------------------------------------- amx layout
 
@@ -374,20 +375,22 @@ struct Slot : Handler {
 static Slot g_slots[MAX_CALLBACK_SLOTS];
 static int  g_slotCount = 0;
 
-// The most arguments an exported native reads: AMX Mod X's own limit for a
-// dynamic native (CALLFUNC_MAXPARAMS), past which get_param has nothing.
+// The most arguments an exported native reads, as the author's docs say:
+// AMX Mod X's limit for a native a plugin registers (CALLFUNC_MAXPARAMS).
 #define MAX_NATIVE_ARGS  64
 
 /**
  * A native a plugin exports for other plugins to call.
  *
- * AMX Mod X implements a native as a public, so exporting one from
- * WebAssembly means telling register_native about the host plugin's one
- * public for all of them, __amxts_native. Which native a call is for is read
- * off the caller (ExportedFor), so there is one entry per name and no limit
- * but memory. The name is kept because register_native cannot be undone: on a
- * reload the same plugin takes its own entry back rather than registering the
- * name twice.
+ * The exported natives are the module's own: one list given to MF_AddNatives
+ * (g_exportedList), which AMX Mod X takes only in AMXX_Attach - so it is
+ * given once a process, with room - but keeps by its pointer and reads again
+ * as each plugin loads. A name goes into it the first time a plugin exports
+ * it and stays for the process: a plugin that loads later binds it, and a
+ * name added mid-map reaches the Pawn plugins of the next map. The entry at
+ * slot k is ExportedEntry<k>, so a call knows its native by its function
+ * alone; g_exported[k] is that native's handler, the plugin that exports it
+ * now, or none (SLOT_ORPHANED) - a call then answers 0.
  */
 struct Exported : Handler {
 	std::string name;
@@ -395,6 +398,28 @@ struct Exported : Handler {
 
 static std::vector<Exported> g_exported;
 static std::map<std::string, size_t> g_exportedByName;
+
+// The names the list has room for over the process.
+#define MAX_EXPORTED 4096
+
+static AMX_NATIVE_INFO g_exportedList[MAX_EXPORTED + 1];
+
+static cell CallExported(size_t slot, AMX *amx, cell *params);
+
+template <size_t K>
+static cell AMX_NATIVE_CALL ExportedEntry(AMX *amx, cell *params)
+{
+	return CallExported(K, amx, params);
+}
+
+template <size_t... K>
+static const AMX_NATIVE *ExportedEntries(std::index_sequence<K...>)
+{
+	static const AMX_NATIVE entries[] = { ExportedEntry<K>... };
+	return entries;
+}
+
+static const AMX_NATIVE *const g_exportedEntries = ExportedEntries(std::make_index_sequence<MAX_EXPORTED>());
 
 /** A native of the host's table: its function, and its index there. */
 struct Resolved {
@@ -438,6 +463,32 @@ static const char *NativeEntry(AMX *amx, int index, AMX_NATIVE *fn)
 		: ((FuncStub *)e)->name;
 }
 
+/** Points entry `index` of an AMX image's native table at `fn`: what its call instruction runs from then on. */
+static void SetNativeEntry(AMX *amx, int index, AMX_NATIVE fn)
+{
+	AmxHeader *hdr = (AmxHeader *)amx->base;
+	((FuncStubNT *)(amx->base + hdr->natives + index * hdr->defsize))->address = (ucell)(size_t)(void *)fn;
+}
+
+/**
+ * Binds `native` in every loaded script whose entry of its name is unbound,
+ * as AMX Mod X binds a module's list when a plugin loads. The host's
+ * plugin_natives loads the TypeScript plugins after the Pawn plugins before
+ * it have loaded; they are finalized after it, and find the name bound. Once
+ * they are, an unbound entry is a plugin's that failed to load, and one a
+ * native filter took points elsewhere: a name added then reaches the next map.
+ */
+static void BindLoaded(const AMX_NATIVE_INFO &native)
+{
+	for (int i = 0; AMX *amx = MF_GetScriptAmx(i); i++) {
+		for (int k = 0, count = NativeCount(amx); k < count; k++) {
+			AMX_NATIVE fn = NULL;
+			if (!strcmp(NativeEntry(amx, k, &fn), native.name) && !fn)
+				SetNativeEntry(amx, k, native.func);
+		}
+	}
+}
+
 // A native the module does itself in place of the one in the host's table (g_ownNatives).
 static AMX_NATIVE OwnNative(const char *name, AMX_NATIVE fn);
 
@@ -470,15 +521,6 @@ static Resolved FindNative(const char *name)
 #define UT_NATIVE 3
 
 /**
- * The host's native this module is calling right now, by its index in the
- * host's table; -1 for none. usertags[UT_NATIVE] says the same only until
- * the host runs another native: a native another TypeScript plugin exported
- * runs the host's __amxts_native, whose call to amxts_native overwrites it
- * before n_native can read which native it was (ExportedFor).
- */
-static int g_invoked = -1;
-
-/**
  * Calls a native of the host's table the way the AMX's own call instruction
  * does.
  *
@@ -492,12 +534,9 @@ static int g_invoked = -1;
 static cell Invoke(const Resolved &native, cell *params)
 {
 	long running = g_host->usertags[UT_NATIVE];
-	int invoked = g_invoked;
 	g_host->usertags[UT_NATIVE] = native.index;
-	g_invoked = native.index;
 	cell result = native.fn(g_host, params);
 	g_host->usertags[UT_NATIVE] = running;
-	g_invoked = invoked;
 	return result;
 }
 
@@ -739,8 +778,9 @@ static cell CallWithHandle(const char *name, cell handle)
 static cell *g_callArgs = NULL;
 static int   g_callArgc = 0;
 static AMX  *g_callAmx = NULL;
-// The plugin that called an exported native, or -1 for anything else. The
-// core's own natives file their caller's cvars under it.
+// Whether the call is an exported native's (CALLER_OF_AMX), whose caller()
+// is the plugin of g_callAmx, or -1 for anything else.
+#define CALLER_OF_AMX (-2)
 static int   g_caller = -1;
 // How many cells each array argument has, -1 where nobody said: a forward's,
 // for arg_length(). NULL for a call that carries no sizes.
@@ -1912,11 +1952,31 @@ static int32_t w_argc(wasm_exec_env_t env)
 	return g_callArgc;
 }
 
-/** caller() - which plugin called the exported native that is running. */
+/**
+ * caller() - which plugin called the exported native that is running: its
+ * AMX Mod X id, as get_plugin(-1) answers it in that plugin, asked only here.
+ * get_plugin writes the plugin's texts wherever it is told, so it is told one
+ * empty cell of that plugin's heap.
+ */
 static int32_t w_caller(wasm_exec_env_t env)
 {
 	(void)env;
-	return g_caller;
+	if (g_caller != CALLER_OF_AMX)
+		return -1;
+	Resolved getPlugin = FindNative("get_plugin");
+	cell mark = g_callAmx->hea;
+	cell addr = 0;
+	cell *phys = NULL;
+	if (!getPlugin.fn || MF_AmxAllot(g_callAmx, 1, &addr, &phys) != AMX_ERR_NONE)
+		return -1;
+
+	// get_plugin(-1, name, 0, title, 0, version, 0, author, 0, status, 0)
+	cell params[12] = { 11 * sizeof(cell), -1 };
+	for (int i = 2; i < 12; i += 2)
+		params[i] = addr;
+	cell id = getPlugin.fn(g_callAmx, params);
+	g_callAmx->hea = mark;
+	return id;
 }
 
 /**
@@ -2592,39 +2652,31 @@ static int32_t w_export(wasm_exec_env_t env, int32_t name, int32_t fn)
 	std::string wanted = AsString(Inst(env), name);
 	int32_t tag = TakeTag();
 
-	// The same plugin coming back after a reload takes its own entry: AMX Mod X
-	// has no way to unregister a native, so the name is already taken - by us.
+	// A name the list has - from this map, an earlier one or a plugin before a
+	// reload - is this plugin's now.
 	std::map<std::string, size_t>::iterator it = g_exportedByName.find(wanted);
-	if (it != g_exportedByName.end()) {
-		Exported &again = g_exported[it->second];
-		again.plugin = g_currentPlugin;
-		again.fn = (uint32_t)fn;
-		again.tag = tag;
-		Bind(again);
-		return (int32_t)it->second;
+	size_t slot = it != g_exportedByName.end() ? it->second : g_exported.size();
+	if (slot == MAX_EXPORTED) {
+		MF_PrintSrvConsole("[amxts] no room for the native %s: the server has %d exported natives' names until it restarts\n", wanted.c_str(), MAX_EXPORTED);
+		return -1;
+	}
+	if (slot == g_exported.size()) {
+		g_exported.push_back(Exported());
+		g_exported[slot].name = wanted;
+		g_exportedByName[wanted] = slot;
+		// AMX Mod X keeps the name's pointer for the process: it is never freed.
+		g_exportedList[slot].name = strdup(wanted.c_str());
+		g_exportedList[slot].func = g_exportedEntries[slot];
+		BindLoaded(g_exportedList[slot]);
 	}
 
-	Exported exported;
+	Exported &exported = g_exported[slot];
 	exported.plugin = g_currentPlugin;
 	exported.fn = (uint32_t)fn;
 	exported.shape = SHAPE_WIDE;
 	exported.tag = tag;
-	exported.name = wanted;
 	Bind(exported);
-	g_exported.push_back(exported);
-	g_exportedByName[wanted] = g_exported.size() - 1;
-
-	// Every exported native is the host's one public: n_native tells them apart.
-	cell mark = g_host->hea;
-	Args params(3);
-	params[1] = PushString(wanted.c_str());
-	params[2] = PushString("__amxts_native");
-	params[3] = 0;
-
-	CallNative("register_native", params);
-	g_host->hea = mark;
-
-	return (int32_t)(g_exported.size() - 1);
+	return (int32_t)slot;
 }
 
 // ---------------------------------------------------------------- player fields
@@ -3749,9 +3801,8 @@ static void ReleasePlugin(int index)
 		slot.plugin = SLOT_ORPHANED;
 	}
 
-	// AMX Mod X has no way to take a native back, so the entries are kept and
-	// w_export gives each one to whichever plugin claims its name again.
-	// Until then, calling one answers 0.
+	// The names stay in the list (Exported): w_export gives each one to
+	// whichever plugin claims it again, and until then a call answers 0.
 	for (size_t i = 0; i < g_exported.size(); i++)
 		if (g_exported[i].plugin == index)
 			g_exported[i].plugin = SLOT_ORPHANED;
@@ -3811,10 +3862,10 @@ static void Teardown()
 		g_slots[i].used = false;
 	g_slotCount = 0;
 
-	// register_native cannot be undone either, but the AMX image holding those
-	// publics is going away with everything else, so there is nothing to keep.
-	g_exported.clear();
-	g_exportedByName.clear();
+	// The exported natives' names stay in the list for the next map's plugins;
+	// a call answers 0 until a plugin exports the name again.
+	for (Exported &e : g_exported)
+		e.plugin = SLOT_ORPHANED;
 
 	// Raw AMX_NATIVE pointers harvested from an AMX image that is about to be
 	// replaced. Keeping them across a map change is a call into freed memory.
@@ -4881,77 +4932,30 @@ static cell AMX_NATIVE_CALL n_natives(AMX *amx, cell *params)
 }
 
 /**
- * Which exported native a call through the host's __amxts_native is for.
+ * A call of the exported native at `slot` (ExportedEntry): from a Pawn
+ * plugin's call instruction, or from the host's table for a TypeScript plugin
+ * calling another's native (Invoke).
  *
- * AMX Mod X runs a dynamic native inside the caller's call instruction, and
- * that instruction set usertags[UT_NATIVE] of the calling AMX to the native's
- * index in its table (amx_Callback) - which names it. When the caller is the
- * host itself - a TypeScript plugin calling a native another one exports -
- * the host's slot has been overwritten on the way here, and Invoke kept the
- * index instead (g_invoked).
+ * The arguments are the call's own cells, read in place: a string or an
+ * array among them is an address in the calling AMX, which is where
+ * argString() and argArray() read it.
  */
-static Exported *ExportedFor(AMX *caller)
+static cell CallExported(size_t slot, AMX *amx, cell *params)
 {
-	if (!caller)
-		return NULL;
-
-	int index = caller == g_host ? g_invoked : (int)caller->usertags[UT_NATIVE];
-	if (index < 0 || index >= NativeCount(caller))
-		return NULL;
-
-	std::map<std::string, size_t>::iterator it = g_exportedByName.find(NativeEntry(caller, index, NULL));
-	return it == g_exportedByName.end() ? NULL : &g_exported[it->second];
-}
-
-/**
- * amxts_native(caller, argc) - a native a plugin exported.
- *
- * `caller` is the plugin that made the call, which the host public is handed
- * and which nothing else here can work out. It says which native this is
- * (ExportedFor), and it matters for a string or an array argument: what
- * arrives is an address, and the memory it points into is that plugin's, so
- * argString() and argArray() have to be told where to look.
- *
- * The arguments themselves are read here, with get_param, while this is still
- * the native AMX Mod X is running - not pushed through the host public, which
- * used to cap them at eight. They are copied first: the handler may call
- * another dynamic native, and get_param would then answer for that one.
- */
-static cell AMX_NATIVE_CALL n_native(AMX *amx, cell *params)
-{
-	int caller = (int)params[1];
-	AMX *from = MF_GetScriptAmx(caller);
-	Exported *exported = ExportedFor(from);
-	if (!exported)
-		return 0;
-
-	int given = (int)params[2];
+	int given = (int)(params[0] / sizeof(cell));
 	if (given > MAX_NATIVE_ARGS) given = MAX_NATIVE_ARGS;
-	if (given < 0) given = 0;
 
-	cell args[MAX_NATIVE_ARGS];
-	for (int i = 0; i < given; i++) {
-		cell mark = g_host->hea;
-		Args p(1);
-		p[1] = i + 1;
-		args[i] = CallNative("get_param", p);
-		g_host->hea = mark;
-	}
-
-	int n = given > MAX_EVENT_ARGS ? MAX_EVENT_ARGS : given;
-
-	// A string argument points into the calling plugin's memory, not the
-	// host's, so that is the AMX argText() reads from.
-	CallArgs context(args, given, from, caller);
+	CallArgs context(params + 1, given, amx, CALLER_OF_AMX);
 
 	// nativeFn's handler takes the first four as parameters; a generated
 	// wrapper takes none and reads every one itself.
+	int n = given > MAX_EVENT_ARGS ? MAX_EVENT_ARGS : given;
 	uint32_t argv[MAX_EVENT_ARGS];
 	for (int i = 0; i < n; i++)
-		argv[i] = (uint32_t)(int32_t)args[i];
+		argv[i] = (uint32_t)(int32_t)params[i + 1];
 
 	// Whatever the handler said with ret(); nothing said is nothing returned.
-	return Fire(*exported, argv, n, 0);
+	return Fire(g_exported[slot], argv, n, 0);
 }
 
 /**
@@ -5973,7 +5977,6 @@ static cell AMX_NATIVE_CALL n_setPlayerDataString(AMX *amx, cell *params)
 
 AMX_NATIVE_INFO g_natives[] = {
 	{ "amxts_natives",  n_natives  },
-	{ "amxts_native",   n_native   },
 	{ "amxts_event",    n_event    },
 	{ "amxts_callback", n_callback },
 	{ "amxts_get_player_data",        n_getPlayerData       },
@@ -6007,6 +6010,7 @@ void OnAmxxAttach()
 		MF_PrintSrvConsole("[amxts] generated natives failed to register\n");
 
 	MF_AddNatives(g_natives);
+	MF_AddNatives(g_exportedList);
 	MF_RegAuthFunc(OnAuthorized);
 	FieldsAttach();
 	HookDrops();
