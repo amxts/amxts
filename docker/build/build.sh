@@ -52,6 +52,17 @@ pinned amxmodx amxmodx "$AMXX_COMMIT"
 pinned hlsdk hlsdk "$HLSDK_COMMIT"
 pinned metamod metamod-hl1 "$METAMOD_COMMIT"
 
+# cmake's build of a folder, quiet when it works. When it fails, the script
+# stops with the compiler's errors - the lines saying error and those after
+# each, or the log's end - and the folder's last good build is not taken.
+build() {
+	if ! cmake --build "$1" -j "$JOBS" -- --no-print-directory > "$1.log" 2>&1; then
+		grep -E -A5 "error|Error" "$1.log" >&2 || tail -n 50 "$1.log" >&2
+		echo "== the build in $1 failed" >&2
+		exit 1
+	fi
+}
+
 echo "== wamrc"
 # glibc stays dynamic, everything else goes in: the server that runs this
 # may not have the libtinfo or libstdc++ this image has.
@@ -60,8 +71,7 @@ cmake -S wamr/wamr-compiler -B build-wamrc -DCMAKE_BUILD_TYPE=Release \
 	"-DCMAKE_EXE_LINKER_FLAGS=-Wl,--as-needed -static-libstdc++ -static-libgcc" \
 	-DZLIB_LIBRARY=/usr/lib/x86_64-linux-gnu/libz.a \
 	-DTerminfo_LIBRARIES=/usr/lib/x86_64-linux-gnu/libtinfo.a > /dev/null
-cmake --build build-wamrc -j "$JOBS" -- --no-print-directory 2>&1 | grep -E "error|Error" || true
-test -x build-wamrc/wamrc
+build build-wamrc
 
 echo "== amxts_amxx_i386.so${SANITIZE:+ (sanitized)}"
 # Sanitized: the module's own C++ only (module.cpp and the SDK's
@@ -77,8 +87,7 @@ fi
 cmake -S /src/runtime -B "$module" -DCMAKE_BUILD_TYPE=Release \
 	-DAMXX=/work/amxmodx -DHLSDK=/work/hlsdk -DMETAMOD=/work/metamod -DWAMR_ROOT_DIR=/work/wamr \
 	"-DCMAKE_CXX_FLAGS=$flags" "-DCMAKE_SHARED_LINKER_FLAGS=$flags" > /dev/null
-cmake --build "$module" -j "$JOBS" -- --no-print-directory 2>&1 | grep -E "error|Error" || true
-test -f "$module/amxts_amxx_i386.so"
+build "$module"
 
 cp -L build-wamrc/wamrc /out/wamrc
 cp "$module/amxts_amxx_i386.so" /out/amxts_amxx_i386.so
