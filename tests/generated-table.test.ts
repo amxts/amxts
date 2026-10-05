@@ -17,6 +17,13 @@ import { describe, expect, test } from 'bun:test';
 const signatures = readFileSync('runtime/natives.txt', 'utf-8');
 const declarations = readFileSync('as/natives.ts', 'utf-8');
 const thunks = readFileSync('runtime/src/natives.h', 'utf-8');
+const constants = readFileSync('as/constants.ts', 'utf-8');
+
+/** The body of a native's thunk. */
+function thunkOf(name: string): string {
+	const thunk = thunks.slice(thunks.indexOf(`static int32_t w_${name}(`));
+	return thunk.slice(0, thunk.indexOf('\n}'));
+}
 
 /** name -> how many cells the signature says it takes */
 function signatureArities(): Map<string, number> {
@@ -107,13 +114,25 @@ describe('the generated native table', () => {
 		}
 	});
 
+	test('copies a buffer of the size its include names, both ways', () => {
+		// get_players(players[MAX_PLAYERS], ...): the size is a name the
+		// includes define, 32 or 33 as the AMX Mod X version says.
+		const players = Number(constants.match(/^export const MAX_PLAYERS: i32 = (\d+);/m)![1]);
+		expect([32, 33]).toContain(players);
+
+		const body = thunkOf('get_players');
+		expect(body).not.toContain('f.fits');
+		expect(body).toContain(`p[1] = f.in(a0, ${players});`);
+		expect(body).toContain(`f.out(a0, ${players}, p[1]);`);
+		expect(signatures).toMatch(new RegExp(`^get_players \\(iiii\\)i(?: \\[${players}>,|$)`, 'm'));
+	});
+
 	test('copies a buffer of a guessed size as far as the plugin\'s memory goes, the same both ways', () => {
-		// get_players(players[MAX_PLAYERS], ...): the size is a name, so a guess.
-		// Asked for a whole 128 cells from a buffer at the end of the memory, the
-		// module would refuse them and fail the plugin's call with "out of bounds
+		// trim(text[]): no size and no length beside it, so a guess. Asked for a
+		// whole 128 cells from a buffer at the end of the memory, the module
+		// would refuse them and fail the plugin's call with "out of bounds
 		// memory access"; it counts what fits once and copies that both ways.
-		const getPlayers = thunks.slice(thunks.indexOf('static int32_t w_get_players('));
-		const body = getPlayers.slice(0, getPlayers.indexOf('\n}'));
+		const body = thunkOf('trim');
 		expect(body).toContain('int32_t n0 = f.fits(a0, 128);');
 		expect(body).toContain('p[1] = f.in(a0, n0);');
 		expect(body).toContain('f.out(a0, n0, p[1]);');

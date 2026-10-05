@@ -20,6 +20,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IncludeParser } from '../src/parser/include-parser';
 import { listIncludes, parseOrder, readInclude, resolveTransitive } from './includes';
+import { evaluate } from './pawn-value';
 
 const includesDir = './includes';
 
@@ -147,15 +148,19 @@ function isLength(p: Parameter | undefined): boolean {
 /**
  * How many cells a buffer parameter spans.
  *
- * A literal size in the declaration is the truth. Otherwise AMX Mod X's own
- * convention holds: the parameter after the array is its length, and the
- * plugin passes it, so the thunk reads it at runtime — `A(n)` below is that
- * argument. `&x` is one cell. Else it is a guess, DEFAULT_CELLS at most.
+ * The size in the declaration is the truth: a number, or a name or an
+ * expression the includes define (`players[MAX_PLAYERS]`), resolved as the
+ * constants are. Otherwise AMX Mod X's own convention holds: the parameter
+ * after the array is its length, and the plugin passes it, so the thunk reads
+ * it at runtime — `A(n)` below is that argument. `&x` is one cell. Else it is
+ * a guess, DEFAULT_CELLS at most, and the generator lists it.
  */
 function cellCount(native: NativeFunction, index: number): string {
 	const p = native.params[index];
 	if (p.isRef && !p.isArray) return '1';
-	if (p.arraySize && /^\d+$/.test(p.arraySize)) return p.arraySize;
+
+	const size = p.arraySize ? evaluate(p.arraySize, known) : null;
+	if (size !== null && size > 0) return String(size);
 
 	if (isLength(native.params[index + 1])) return `a${index + 1}`;
 
@@ -301,6 +306,113 @@ const chosen = Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.n
 // Both are written below, from this one list.
 const dispatched = Array.from(new Map(variadic.map(n => [n.name, n])).values())
 	.sort((a, b) => a.name.localeCompare(b.name));
+
+// ---------------------------------------------------------------- as/constants.ts
+//
+// Resolved before the thunks are written: an array's size can name one (cellCount).
+
+/** A string constant, which a few of them are. */
+function stringValue(raw: string): string | null {
+	const text = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/, '').trim();
+	return /^".*"$/.test(text) ? text : null;
+}
+
+const nativeNames = new Set(chosen.map(n => n.name));
+const known = new Map<string, number>();
+const constantLines: string[] = [];
+let skippedConstants = 0;
+
+function emit(member: Member, value: number | string): void {
+	if (member.docs) constantLines.push(`/** ${member.docs.split('\n')[0]} */`);
+	constantLines.push(typeof value === 'number'
+		? `export const ${member.name}: i32 = ${value};`
+		: `export const ${member.name}: string = ${value};`);
+}
+
+function taken(name: string): boolean {
+	return known.has(name) || nativeNames.has(name) || RESERVED.has(name);
+}
+
+/**
+ * Items are emitted in as many passes as it takes.
+ *
+ * One constant refers to another across includes, and the includes are not
+ * parsed in dependency order: reapi's hookchain ids are
+ * `MAX_REGION_RANGE * ht_player`, and both of those names live in a file
+ * parsed after the one that uses them. Going round again until a pass resolves
+ * nothing new costs three or four passes.
+ */
+let pending = values;
+
+while (pending.length) {
+	const left: Item[] = [];
+	let emitted = 0;
+
+	for (const item of pending) {
+		if (item.kind === 'constant') {
+			const member = item.member;
+			if (taken(member.name)) continue;
+
+			const text = stringValue(member.value!);
+			if (text !== null) {
+				emit(member, text);
+				known.set(member.name, 0);
+				emitted++;
+				continue;
+			}
+
+			const value = evaluate(member.value!, known);
+			if (value === null) {
+				left.push(item);
+				continue;
+			}
+
+			emit(member, value);
+			known.set(member.name, value);
+			emitted++;
+			continue;
+		}
+
+		// An enum: its members count from each other, so the first one that
+		// cannot be resolved stops the counting. Pawn's own auto-increment
+		// works the same way, and reapi opens every hookchain region with a
+		// computed member - counting past one of those from zero is what made
+		// the JavaScript generator register unrelated hookchains.
+		let auto: number | null = 0;
+		let stuck = false;
+
+		for (const member of item.members) {
+			if (taken(member.name)) {
+				if (known.has(member.name)) auto = known.get(member.name)! + 1;
+				continue;
+			}
+
+			const value: number | null = member.value !== undefined
+				? evaluate(member.value, known)
+				: auto;
+
+			if (value === null) {
+				// A name it needs may still be waiting on another include.
+				if (member.value !== undefined && /[A-Z_]/i.test(member.value)) stuck = true;
+				auto = null;
+				continue;
+			}
+
+			emit(member, value);
+			known.set(member.name, value);
+			auto = value + 1;
+			emitted++;
+		}
+
+		if (stuck) left.push(item);
+	}
+
+	if (!emitted) break;
+	pending = left;
+}
+
+for (const item of pending)
+	skippedConstants += item.kind === 'constant' ? 1 : item.members.length;
 
 // ------------------------------------------------------------------ as/natives.ts
 
@@ -1131,142 +1243,6 @@ ${dispatched.map(n => `\t"${lookupName(n.name)}",`).join('\n')}
 `,
 );
 
-// ---------------------------------------------------------------- as/constants.ts
-
-/**
- * A Pawn value as a number, or null when it is not one.
- *
- * Every name that resolved earlier is substituted for its value first, so
- * `MAX_REGION_RANGE * ht_player` becomes `1024 * 3`. Tag casts (`any:x`,
- * `hooks_tables_e:ht_player`) are noise here and go. What is refused is
- * anything still carrying a name: emitting it would produce a file that does
- * not compile, and guessing would be worse.
- */
-function evaluate(raw: string, known: Map<string, number>): number | null {
-	const text = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/, '').trim();
-	if (!text) return null;
-
-	const untagged = text.replace(/\b[A-Z_]\w*:(?=[\w(])/gi, '');
-	const substituted = untagged.replace(/\b[A-Z_]\w*\b/gi, (name) => {
-		const value = known.get(name);
-		return value === undefined ? name : String(value);
-	});
-
-	if (!/^[-+*/%()<>|&^~\s\d]+$/.test(substituted)) return null;
-
-	try {
-		// Only numbers and operators got this far: a constant expression, not code.
-		// oxlint-disable-next-line no-new-func
-		const value = new Function(`return (${substituted});`)();
-		return Number.isInteger(value) ? value : null;
-	} catch {
-		return null;
-	}
-}
-
-/** A string constant, which a few of them are. */
-function stringValue(raw: string): string | null {
-	const text = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/, '').trim();
-	return /^".*"$/.test(text) ? text : null;
-}
-
-const nativeNames = new Set(chosen.map(n => n.name));
-const known = new Map<string, number>();
-const constantLines: string[] = [];
-let skippedConstants = 0;
-
-function emit(member: Member, value: number | string): void {
-	if (member.docs) constantLines.push(`/** ${member.docs.split('\n')[0]} */`);
-	constantLines.push(typeof value === 'number'
-		? `export const ${member.name}: i32 = ${value};`
-		: `export const ${member.name}: string = ${value};`);
-}
-
-function taken(name: string): boolean {
-	return known.has(name) || nativeNames.has(name) || RESERVED.has(name);
-}
-
-/**
- * Items are emitted in as many passes as it takes.
- *
- * One constant refers to another across includes, and the includes are not
- * parsed in dependency order: reapi's hookchain ids are
- * `MAX_REGION_RANGE * ht_player`, and both of those names live in a file
- * parsed after the one that uses them. Going round again until a pass resolves
- * nothing new costs three or four passes.
- */
-let pending = values;
-
-while (pending.length) {
-	const left: Item[] = [];
-	let emitted = 0;
-
-	for (const item of pending) {
-		if (item.kind === 'constant') {
-			const member = item.member;
-			if (taken(member.name)) continue;
-
-			const text = stringValue(member.value!);
-			if (text !== null) {
-				emit(member, text);
-				known.set(member.name, 0);
-				emitted++;
-				continue;
-			}
-
-			const value = evaluate(member.value!, known);
-			if (value === null) {
-				left.push(item);
-				continue;
-			}
-
-			emit(member, value);
-			known.set(member.name, value);
-			emitted++;
-			continue;
-		}
-
-		// An enum: its members count from each other, so the first one that
-		// cannot be resolved stops the counting. Pawn's own auto-increment
-		// works the same way, and reapi opens every hookchain region with a
-		// computed member - counting past one of those from zero is what made
-		// the JavaScript generator register unrelated hookchains.
-		let auto: number | null = 0;
-		let stuck = false;
-
-		for (const member of item.members) {
-			if (taken(member.name)) {
-				if (known.has(member.name)) auto = known.get(member.name)! + 1;
-				continue;
-			}
-
-			const value: number | null = member.value !== undefined
-				? evaluate(member.value, known)
-				: auto;
-
-			if (value === null) {
-				// A name it needs may still be waiting on another include.
-				if (member.value !== undefined && /[A-Z_]/i.test(member.value)) stuck = true;
-				auto = null;
-				continue;
-			}
-
-			emit(member, value);
-			known.set(member.name, value);
-			auto = value + 1;
-			emitted++;
-		}
-
-		if (stuck) left.push(item);
-	}
-
-	if (!emitted) break;
-	pending = left;
-}
-
-for (const item of pending)
-	skippedConstants += item.kind === 'constant' ? 1 : item.members.length;
-
 writeNatives();
 
 /**
@@ -1449,3 +1425,7 @@ writeFileSync(
 console.log(`${chosen.length} natives (${typedCount} typed), ${dispatched.length} variadic through the dispatcher (${variadicTyped} typed) (${skipped.length} skipped), ${known.size} constants (${skippedConstants} skipped), ${hooks.size} hookchains`);
 for (const reason of skipped.slice(0, 5)) console.log(`  ${reason}`);
 if (skipped.length > 5) console.log(`  ... and ${skipped.length - 5} more`);
+
+// A buffer whose size neither the include nor a length beside it gives.
+const guessed = chosen.filter(n => bufferCells(n).some((cells, i) => cells === `n${i}`)).map(n => n.name);
+console.log(`${guessed.length} natives copy a guessed size, ${DEFAULT_CELLS} cells at most: ${guessed.join(', ')}`);
