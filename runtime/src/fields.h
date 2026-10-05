@@ -107,7 +107,7 @@ static cell CallWith(const char *name, int argc, cell a = 0, cell b = 0, cell c 
 {
 	Args p(argc);
 	p[1] = a; p[2] = b; p[3] = c; p[4] = d;
-	return CallNative(name, p);
+	return CallByName(name, p);
 }
 
 /**

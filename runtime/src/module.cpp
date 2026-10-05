@@ -225,9 +225,40 @@ struct Handler {
 	 */
 	int      whereArg = -1;
 	cell     whereValue = 0;
+	/**
+	 * What Fire calls, looked up once, when the handler is registered (Bind):
+	 * the function, the kinds of its parameters, and whether every one is an
+	 * i32 and takes its cell as it is. NULL when the plugin exports no table;
+	 * Fire then calls it by its index.
+	 */
+	wasm_function_inst_t func = NULL;
+	uint32_t       count = 0;
+	bool           cells = false;
+	wasm_valkind_t kinds[MAX_EVENT_ARGS + 1];
 };
 
-static std::map<std::string, std::vector<Handler> > g_events;
+/** Looks up what Fire calls for `h` (Handler.func): once, as its plugin registers it. */
+static void Bind(Handler &h)
+{
+	h.func = NULL;
+	if (h.plugin < 0 || (size_t)h.plugin >= g_plugins.size())
+		return;
+	Plugin &p = g_plugins[h.plugin];
+	if (!p.inst || !p.hasTable)
+		return;
+
+	wasm_function_inst_t func = wasm_table_get_func_inst(p.inst, &p.table, h.fn);
+	// More parameters than Fire passes: called by its index, it traps on its type.
+	if (!func || wasm_func_get_param_count(func, p.inst) > (uint32_t)(MAX_EVENT_ARGS + 1))
+		return;
+
+	h.count = wasm_func_get_param_count(func, p.inst);
+	wasm_func_get_param_types(func, p.inst, h.kinds);
+	h.cells = true;
+	for (uint32_t i = 0; i < h.count; i++)
+		h.cells = h.cells && h.kinds[i] == WASM_I32;
+	h.func = func;
+}
 
 /**
  * Forward.subscribe(): a TypeScript plugin listening to a forward by name.
@@ -246,16 +277,43 @@ struct Subscription {
 	int32_t tag;
 };
 
+/**
+ * The listeners of one forward the host relays: its handlers (on) and its
+ * Forward subscribers (subscribe).
+ *
+ * A dispatch walks the lists in place, by index, up to the length they had
+ * when it began, so a handler added meanwhile waits for the next call. One
+ * taken off meanwhile is only marked (HANDLER_GONE) and passed over, and the
+ * lists lose their marks when the outermost dispatch returns: erasing it
+ * then and there would move the next one under the walk's index.
+ */
+struct Forward {
+	std::vector<Handler>      handlers;
+	std::vector<Subscription> subscribers;
+	int                       depth = 0;
+	bool                      holes = false;
+};
+
+// A handler taken off its forward during a dispatch of it (Forward).
+#define HANDLER_GONE (-1)
+
+// g_forwardNames and FORWARD_*: the forwards the host relays, by the number
+// its publics hand amxts_event.
+#include "forwards.h"
+
+static Forward g_forwards[FORWARD_COUNT];
+
+// The subscribers of the forwards the host has no public for, which only
+// emit_local delivers.
 static std::map<std::string, std::vector<Subscription> > g_subscriptions;
 
 // A callback slot is one public in the host plugin (__amxts_cb0 .. __amxts_cb511).
 // AMXX natives take a callback as the name of a public, so registering one
 // means parking the wasm function here and passing the public's name along.
-struct Slot {
+// The handler's fields are the slot's: its plugin, or one of the SLOT_*
+// owners below for the module's own.
+struct Slot : Handler {
 	bool     used;
-	int      plugin;
-	uint32_t fn;
-	int      shape;
 	/**
 	 * What the caller gets when the handler says nothing.
 	 *
@@ -305,8 +363,6 @@ struct Slot {
 	// off; the plugin registering it again switches it back on (TakeSlot).
 	const char *disable;
 	const char *enable;
-	// The closure's number for the plugin's dispatcher, 0 for a plain function (Handler.tag).
-	int32_t  tag;
 	/**
 	 * Switched off by its plugin while what it delivers has no listener
 	 * (w_slotOn): a call answers the fallback without entering the plugin.
@@ -347,11 +403,8 @@ static int  g_slotCount = 0;
  * reload the same plugin takes its own entry back rather than registering the
  * name twice.
  */
-struct Exported {
-	int         plugin;
-	uint32_t    fn;
+struct Exported : Handler {
 	std::string name;
-	int32_t     tag;
 };
 
 static std::vector<Exported> g_exported;
@@ -630,7 +683,37 @@ struct Args {
 	operator cell *() { return p; }
 };
 
-static cell CallNative(const char *name, cell *params)
+/** A native a thunk has already resolved, and the image it came from. */
+struct Cached {
+	Resolved native;
+	int      generation;
+};
+
+/**
+ * The same call, without asking who it is every time.
+ *
+ * This is what the generated thunks use. The name is only read once per map,
+ * which is what keeps a native call at the couple of nanoseconds the direct
+ * call was worth having.
+ */
+static cell CallCached(Cached &cached, const char *name, cell *params)
+{
+	if (cached.generation != g_nativeGeneration) {
+		cached.native = FindNative(name);
+		cached.generation = g_nativeGeneration;
+	}
+
+	if (!cached.native.fn)
+		return 0;
+
+	return Invoke(cached.native, params);
+}
+
+/**
+ * A native of the host's table by a name known only as the module runs - the
+ * switch a slot keeps (Slot.disable), a field's native: looked up each call.
+ */
+static cell CallByName(const char *name, cell *params)
 {
 	Resolved native = FindNative(name);
 	if (!native.fn)
@@ -638,12 +721,20 @@ static cell CallNative(const char *name, cell *params)
 	return Invoke(native, params);
 }
 
+/**
+ * A native of the host's table by its name, a literal: each call site keeps
+ * it resolved (Cached), as a thunk does, so the name is looked up once a map
+ * rather than in a std::map on every call.
+ */
+#define CallNative(name, params) \
+	([](cell *p) { static Cached cached = { { NULL, 0 }, 0 }; return CallCached(cached, "" name, p); }(params))
+
 /** A native that takes one handle: DisableHookChain(handle) and its like. */
 static cell CallWithHandle(const char *name, cell handle)
 {
 	Args params(1);
 	params[1] = handle;
-	return CallNative(name, params);
+	return CallByName(name, params);
 }
 
 /**
@@ -695,32 +786,6 @@ struct CallArgs {
 		g_callArgs = args; g_callArgc = argc; g_callAmx = amx; g_caller = caller; g_callLengths = lengths;
 	}
 };
-
-/** A native a thunk has already resolved, and the image it came from. */
-struct Cached {
-	Resolved native;
-	int      generation;
-};
-
-/**
- * The same call, without asking who it is every time.
- *
- * This is what the generated thunks use. The name is only read once per map,
- * which is what keeps a native call at the couple of nanoseconds the direct
- * call was worth having.
- */
-static cell CallCached(Cached &cached, const char *name, cell *params)
-{
-	if (cached.generation != g_nativeGeneration) {
-		cached.native = FindNative(name);
-		cached.generation = g_nativeGeneration;
-	}
-
-	if (!cached.native.fn)
-		return 0;
-
-	return Invoke(cached.native, params);
-}
 
 /**
  * A native's call frame on the AMX side: what a buffer parameter is copied
@@ -1389,35 +1454,44 @@ static void DropFrom(std::vector<T> &list, Belongs belongs)
 	list.erase(std::remove_if(list.begin(), list.end(), belongs), list.end());
 }
 
-// on(event, handler, shape) - a forward the generated host plugin relays.
-static void w_on(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t shape)
-{
-	if (g_currentPlugin < 0)
-		return;
+/** Which handler of the plugin's a forward's list holds (Forward). */
+static Handler &HandlerOf(Handler &h) { return h; }
+static Handler &HandlerOf(Subscription &s) { return s.handler; }
 
-	Handler h;
-	h.plugin = g_currentPlugin;
-	h.fn = (uint32_t)fn;
-	h.shape = shape;
-	g_events[AsString(Inst(env), name)].push_back(h);
+/**
+ * Takes out of a list of `f` every entry `belongs` names; during a dispatch
+ * of `f` it only marks them, and the dispatch takes them out (Forward).
+ */
+template <typename T, typename Belongs>
+static void DropFrom(Forward &f, std::vector<T> &list, Belongs belongs)
+{
+	if (!f.depth) {
+		DropFrom(list, belongs);
+		return;
+	}
+	for (size_t i = 0; i < list.size(); i++) {
+		if (belongs(list[i])) {
+			HandlerOf(list[i]).plugin = HANDLER_GONE;
+			f.holes = true;
+		}
+	}
 }
 
-// off(event, handler) - the plugin's handler of a forward taken off again,
-// once its event has no listener left: the forward stops reaching it.
-static void w_off(wasm_exec_env_t env, int32_t name, int32_t fn)
+/** The number of a forward the host relays (FORWARD_*), or -1 for one it does not. */
+static int ForwardIndex(const std::string &name)
 {
-	std::map<std::string, std::vector<Handler> >::iterator it = g_events.find(AsString(Inst(env), name));
-	if (it == g_events.end())
-		return;
-	int plugin = g_currentPlugin;
-	DropFrom(it->second, [plugin, fn](const Handler &h) { return h.plugin == plugin && h.fn == (uint32_t)fn; });
+	for (int i = 0; i < FORWARD_COUNT; i++)
+		if (name == g_forwardNames[i])
+			return i;
+	return -1;
 }
 
 // on_cell(event, handler, shape, arg, value) - on, for the calls whose
 // argument `arg` is `value` alone.
 static void w_on_cell(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t shape, int32_t arg, int32_t value)
 {
-	if (g_currentPlugin < 0)
+	int forward = ForwardIndex(AsString(Inst(env), name));
+	if (g_currentPlugin < 0 || forward < 0)
 		return;
 
 	Handler h;
@@ -1426,7 +1500,26 @@ static void w_on_cell(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t sha
 	h.shape = shape;
 	h.whereArg = arg;
 	h.whereValue = value;
-	g_events[AsString(Inst(env), name)].push_back(h);
+	Bind(h);
+	g_forwards[forward].handlers.push_back(h);
+}
+
+// on(event, handler, shape) - a forward the generated host plugin relays.
+static void w_on(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t shape)
+{
+	w_on_cell(env, name, fn, shape, -1, 0);
+}
+
+// off(event, handler) - the plugin's handler of a forward taken off again,
+// once its event has no listener left: the forward stops reaching it.
+static void w_off(wasm_exec_env_t env, int32_t name, int32_t fn)
+{
+	int forward = ForwardIndex(AsString(Inst(env), name));
+	if (forward < 0)
+		return;
+	int plugin = g_currentPlugin;
+	Forward &f = g_forwards[forward];
+	DropFrom(f, f.handlers, [plugin, fn](const Handler &h) { return h.plugin == plugin && h.fn == (uint32_t)fn; });
 }
 
 /** Whether the host plugin has a public for this forward, so AMX Mod X delivers it. */
@@ -1449,14 +1542,64 @@ static void w_subscribe(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t t
 	s.handler.fn = (uint32_t)fn;
 	s.handler.shape = SHAPE_NARROW;   // the tag; the arguments are in the context
 	s.tag = tag;
-	g_subscriptions[forward].push_back(s);
+	Bind(s.handler);
+
+	int index = ForwardIndex(forward);
+	(index >= 0 ? g_forwards[index].subscribers : g_subscriptions[forward]).push_back(s);
 }
 
-static cell Fire(const Handler &h, uint32_t *argv, int argc, cell fallback);
+static cell Fire(Handler h, uint32_t *argv, int argc, cell fallback);
+
+/** A dispatch of `f` has returned: the outermost takes out what was marked during it (Forward). */
+static void EndDispatch(Forward &f)
+{
+	if (--f.depth > 0 || !f.holes)
+		return;
+	f.holes = false;
+	DropFrom(f.handlers, [](const Handler &h) { return h.plugin == HANDLER_GONE; });
+	DropFrom(f.subscribers, [](const Subscription &s) { return s.handler.plugin == HANDLER_GONE; });
+}
 
 /**
- * Calls every subscriber of a forward. The arguments are the call's context,
- * which whoever delivers has set (CallArgs): a subscriber reads them from there.
+ * A forward to its subscribers, then to its handlers, each list walked in
+ * place (Forward); the highest a handler answered. The arguments are the
+ * call's context, which the caller has set (CallArgs): the first cells, a
+ * player event's id, go in as a handler's parameters too, and the rest it
+ * reads from there.
+ */
+static cell Dispatch(Forward &f, const cell *args, int argc)
+{
+	f.depth++;
+
+	for (size_t k = 0, end = f.subscribers.size(); k < end; k++) {
+		uint32_t tag = (uint32_t)f.subscribers[k].tag;
+		Fire(f.subscribers[k].handler, &tag, 1, 0);
+	}
+
+	uint32_t argv[MAX_EVENT_ARGS] = { 0 };
+	int n = argc > MAX_EVENT_ARGS ? MAX_EVENT_ARGS : argc;
+	for (int i = 0; i < n; i++)
+		argv[i] = (uint32_t)(int32_t)args[i];
+
+	cell result = 0;
+	for (size_t h = 0, end = f.handlers.size(); h < end; h++) {
+		const Handler &handler = f.handlers[h];
+		int where = handler.whereArg;
+		if (where >= 0 && (where >= argc || args[where] != handler.whereValue))
+			continue;
+		cell one = Fire(handler, argv, n, 0);
+		if (one > result)
+			result = one;
+	}
+
+	EndDispatch(f);
+	return result;
+}
+
+/**
+ * Calls every subscriber of a forward the host does not relay. The arguments
+ * are the call's context, which whoever delivers has set (CallArgs): a
+ * subscriber reads them from there.
  */
 static void DeliverToSubscribers(const std::string &forward)
 {
@@ -1599,6 +1742,7 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 				g_slots[i].taskId = -1;
 				g_slots[i].generation++;
 				g_slots[i].off = false;
+				Bind(g_slots[i]);
 				if (g_slots[i].enable && g_slots[i].handle)
 					CallWithHandle(g_slots[i].enable, g_slots[i].handle);
 				if (reused)
@@ -1632,6 +1776,7 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 	g_slots[slot].disable = NULL;
 	g_slots[slot].enable = NULL;
 	g_slots[slot].off = false;
+	Bind(g_slots[slot]);
 	if (slot >= g_slotCount)
 		g_slotCount = slot + 1;
 
@@ -2266,7 +2411,8 @@ static int32_t w_call(wasm_exec_env_t env, int32_t id, int32_t argsPtr, int32_t 
 		backCount++;
 	}
 
-	cell r = CallNative(g_dispatchedNatives[id], p);
+	static Cached natives[sizeof(g_dispatchedNatives) / sizeof(g_dispatchedNatives[0])];
+	cell r = CallCached(natives[id], g_dispatchedNatives[id], p);
 
 	for (int i = 0; i < backCount; i++)
 		f.out(back[i].ptr, back[i].cells, back[i].addr);
@@ -2397,10 +2543,17 @@ static int32_t w_export(wasm_exec_env_t env, int32_t name, int32_t fn)
 		again.plugin = g_currentPlugin;
 		again.fn = (uint32_t)fn;
 		again.tag = tag;
+		Bind(again);
 		return (int32_t)it->second;
 	}
 
-	Exported exported = { g_currentPlugin, (uint32_t)fn, wanted, tag };
+	Exported exported;
+	exported.plugin = g_currentPlugin;
+	exported.fn = (uint32_t)fn;
+	exported.shape = SHAPE_WIDE;
+	exported.tag = tag;
+	exported.name = wanted;
+	Bind(exported);
 	g_exported.push_back(exported);
 	g_exportedByName[wanted] = g_exported.size() - 1;
 
@@ -2451,9 +2604,7 @@ static std::map<std::string, PlayerValue> g_playerData[PLAYER_DATA_SLOTS];
  * A field is the name the plugin declared, or an object field's member,
  * "glow.enabled" - which "glow" also hears.
  */
-struct FieldListener {
-	int                      plugin;
-	uint32_t                 fn;
+struct FieldListener : Handler {
 	std::vector<std::string> fields;
 };
 
@@ -2480,7 +2631,7 @@ static bool FieldMatches(const std::vector<std::string> &fields, const std::stri
 	return false;
 }
 
-static cell Fire(const Handler &h, uint32_t *argv, int argc, cell fallback);
+static cell Fire(Handler h, uint32_t *argv, int argc, cell fallback);
 
 /**
  * A write changed player `id`'s `key`: every plugin listening for it hears
@@ -2501,12 +2652,8 @@ static void FieldChanged(int id, const std::string &key, const PlayerValue &prev
 	for (size_t i = 0; i < listeners.size(); i++) {
 		if (!FieldMatches(listeners[i].fields, key))
 			continue;
-		Handler h;
-		h.plugin = listeners[i].plugin;
-		h.fn = listeners[i].fn;
-		h.shape = SHAPE_NARROW;
 		uint32_t slot = (uint32_t)id;
-		Fire(h, &slot, 1, 0);
+		Fire(listeners[i], &slot, 1, 0);
 	}
 
 	g_fieldChange = outer;
@@ -2672,7 +2819,9 @@ static void w_playerChangeListen(wasm_exec_env_t env, int32_t field, int32_t fn)
 	FieldListener listener;
 	listener.plugin = g_currentPlugin;
 	listener.fn = (uint32_t)fn;
+	listener.shape = SHAPE_NARROW;
 	listener.fields.push_back(name);
+	Bind(listener);
 	g_fieldListeners.push_back(listener);
 }
 
@@ -3069,7 +3218,7 @@ static NativeSymbol g_wasmNatives[] = {
  * PLUGIN_HANDLED or PLUGIN_CONTINUE. call_indirect checks the type, so the
  * shape recorded at registration is what decides.
  */
-static cell Fire(const Handler &h, uint32_t *argv, int argc, cell fallback)
+static cell Fire(Handler h, uint32_t *argv, int argc, cell fallback)
 {
 	// An orphaned slot, one belonging to the module rather than a plugin, or a
 	// plugin that is not running.
@@ -3080,13 +3229,13 @@ static cell Fire(const Handler &h, uint32_t *argv, int argc, cell fallback)
 
 	// A closure's dispatcher takes its tag before the cells (Handler.tag).
 	int first = h.tag ? 1 : 0;
-	uint32_t call[MAX_EVENT_ARGS + 1];
+	uint32_t call[MAX_EVENT_ARGS + 1] = { 0 };
 	int n = ((h.shape == SHAPE_WIDE) ? MAX_EVENT_ARGS : 1) + first;
 
 	if (first)
 		call[0] = (uint32_t)h.tag;
-	for (int i = first; i < n; i++)
-		call[i] = (i - first < argc) ? argv[i - first] : 0;
+	for (int i = first; i < n && i - first < argc; i++)
+		call[i] = argv[i - first];
 
 	int prev = g_currentPlugin;
 	g_currentPlugin = h.plugin;
@@ -3100,39 +3249,38 @@ static cell Fire(const Handler &h, uint32_t *argv, int argc, cell fallback)
 
 	if (g_trace) MF_PrintSrvConsole("[amxts] TRACE fire plugin=%d fn=%u n=%d a0=%d\n", h.plugin, h.fn, n, (int)call[0]);
 
-	// A plugin's `number` is JavaScript's - an f64 - and every argument here
-	// is a cell, an i32. Passed as raw cells, a handler declared
-	// `tick(handle: number)` read the i32 1000 as the bits of a double: a
-	// denormal next to zero, so clearTimeout(handle) stopped nothing and a
-	// countdown ran on into the negatives. So the handler's own parameter
-	// types decide how each cell goes in: converted by value to f64 (or f32,
-	// i64) where that is what the function takes.
-	wasm_function_inst_t func = p.hasTable ? wasm_table_get_func_inst(p.inst, &p.table, h.fn) : NULL;
 	bool called;
 
 	// Counted so that the plugin's jobs run when the last of its calls on the
 	// native stack returns, and never inside one of them - see DrainJobs.
 	p.depth++;
 
-	if (func) {
-		uint32_t count = wasm_func_get_param_count(func, p.inst);
-		wasm_valkind_t kinds[MAX_EVENT_ARGS + 1];
-		wasm_val_t args[MAX_EVENT_ARGS + 1];
-		if (count > (uint32_t)(MAX_EVENT_ARGS + 1)) count = MAX_EVENT_ARGS + 1;
-		wasm_func_get_param_types(func, p.inst, kinds);
-
-		for (uint32_t i = 0; i < count; i++) {
-			int32_t cellValue = (int32_t)(i < (uint32_t)n ? call[i] : 0);
-			args[i].kind = kinds[i];
-			switch (kinds[i]) {
-				case WASM_F64: args[i].of.f64 = (double)cellValue; break;
-				case WASM_F32: args[i].of.f32 = (float)cellValue; break;
-				case WASM_I64: args[i].of.i64 = (int64_t)cellValue; break;
-				default:       args[i].kind = WASM_I32; args[i].of.i32 = cellValue; break;
+	if (h.func && h.cells) {
+		// Every parameter an i32: the cells go in as they are, and `call` has
+		// room for the result.
+		called = wasm_runtime_call_wasm(p.env, h.func, h.count, call);
+	}
+	else if (h.func) {
+		// A plugin's `number` is JavaScript's - an f64 - and every argument
+		// here is a cell, an i32. Passed as raw cells, a handler declared
+		// `tick(handle: number)` read the i32 1000 as the bits of a double: a
+		// denormal next to zero, so clearTimeout(handle) stopped nothing and
+		// a countdown ran on into the negatives. So the handler's own
+		// parameter types decide how each cell goes in: converted by value to
+		// f64 (or f32, i64) where that is what the function takes, laid out
+		// in cells as WAMR reads them.
+		uint32_t cells[2 * (MAX_EVENT_ARGS + 1)];
+		uint32_t used = 0;
+		for (uint32_t i = 0; i < h.count; i++) {
+			int32_t cellValue = (int32_t)call[i];
+			switch (h.kinds[i]) {
+				case WASM_F64: { double v = cellValue; memcpy(&cells[used], &v, 8); used += 2; break; }
+				case WASM_I64: { int64_t v = cellValue; memcpy(&cells[used], &v, 8); used += 2; break; }
+				case WASM_F32: { float v = (float)cellValue; memcpy(&cells[used], &v, 4); used++; break; }
+				default:       cells[used++] = (uint32_t)cellValue; break;
 			}
 		}
-
-		called = wasm_runtime_call_wasm_a(p.env, func, 0, NULL, count, args);
+		called = wasm_runtime_call_wasm(p.env, h.func, used, cells);
 	}
 	else {
 		called = wasm_runtime_call_indirect(p.env, h.fn, n, call);
@@ -3469,8 +3617,10 @@ static void ReleasePlugin(int index)
 	p.coroutines.clear();
 	p.running.clear();
 
-	for (std::map<std::string, std::vector<Handler> >::iterator it = g_events.begin(); it != g_events.end(); ++it)
-		DropFrom(it->second, [index](const Handler &h) { return h.plugin == index; });
+	for (Forward &f : g_forwards) {
+		DropFrom(f, f.handlers, [index](const Handler &h) { return h.plugin == index; });
+		DropFrom(f, f.subscribers, [index](const Subscription &s) { return s.handler.plugin == index; });
+	}
 	for (std::map<std::string, std::vector<Subscription> >::iterator it = g_subscriptions.begin(); it != g_subscriptions.end(); ++it)
 		DropFrom(it->second, [index](const Subscription &s) { return s.handler.plugin == index; });
 	DropFrom(g_fieldListeners, [index](const FieldListener &l) { return l.plugin == index; });
@@ -3515,7 +3665,8 @@ static std::deque<Plugin> UnloadPlugins()
 
 	std::deque<Plugin> before;
 	before.swap(g_plugins);
-	g_events.clear();
+	for (Forward &f : g_forwards)
+		f = Forward();
 	g_subscriptions.clear();
 	g_services.clear();
 	g_fieldListeners.clear();
@@ -3537,7 +3688,8 @@ static void Teardown()
 	}
 
 	g_plugins.clear();
-	g_events.clear();
+	for (Forward &f : g_forwards)
+		f = Forward();
 	g_subscriptions.clear();
 	g_services.clear();
 	g_fieldListeners.clear();
@@ -3952,6 +4104,29 @@ static bool OfThisAbi(const char *name, const unsigned char *data, size_t size)
 }
 
 /**
+ * Binds what plugin `index` registered at its top level (Bind): it ran
+ * before the plugin had its instance and its table to look them up in.
+ */
+static void BindAll(int index)
+{
+	for (Forward &f : g_forwards) {
+		for (Handler &h : f.handlers)
+			if (h.plugin == index) Bind(h);
+		for (Subscription &s : f.subscribers)
+			if (s.handler.plugin == index) Bind(s.handler);
+	}
+	for (std::map<std::string, std::vector<Subscription> >::iterator it = g_subscriptions.begin(); it != g_subscriptions.end(); ++it)
+		for (Subscription &s : it->second)
+			if (s.handler.plugin == index) Bind(s.handler);
+	for (int i = 0; i < g_slotCount; i++)
+		if (g_slots[i].used && g_slots[i].plugin == index) Bind(g_slots[i]);
+	for (Exported &e : g_exported)
+		if (e.plugin == index) Bind(e);
+	for (FieldListener &l : g_fieldListeners)
+		if (l.plugin == index) Bind(l);
+}
+
+/**
  * Loads the .aot of the plugin at `index` - an entry of the list or of
  * amxts_load, not running - and runs its top level. false, with g_refusal
  * saying why, when it cannot; what it took is then ReleasePlugin's to free.
@@ -4040,6 +4215,7 @@ static bool LoadPlugin(int index)
 	p.inst = inst;
 	// The exported function table, for Fire to read handler signatures from.
 	p.hasTable = wasm_runtime_get_export_table_inst(inst, "table", &p.table);
+	BindAll(index);
 
 	p.env = wasm_runtime_create_exec_env(inst, 64 * 1024);
 	if (!p.env) {
@@ -4334,15 +4510,12 @@ static void RegisterServerCommand(const char *command, int owner, const char *in
  */
 static void FireInit(int only = -1)
 {
-	std::map<std::string, std::vector<Handler> >::iterator it = g_events.find("plugin_init");
-	if (it == g_events.end())
-		return;
-
-	// A copy: a listener that adds another must not move this loop's floor.
-	std::vector<Handler> handlers = it->second;
-	for (size_t i = 0; i < handlers.size(); i++)
-		if (only < 0 || handlers[i].plugin == only)
-			Fire(handlers[i], NULL, 0, 0);
+	Forward &f = g_forwards[FORWARD_PLUGIN_INIT];
+	f.depth++;
+	for (size_t i = 0, end = f.handlers.size(); i < end; i++)
+		if (only < 0 || f.handlers[i].plugin == only)
+			Fire(f.handlers[i], NULL, 0, 0);
+	EndDispatch(f);
 }
 
 
@@ -4747,12 +4920,6 @@ static cell AMX_NATIVE_CALL n_native(AMX *amx, cell *params)
 
 	int n = given > MAX_EVENT_ARGS ? MAX_EVENT_ARGS : given;
 
-	Handler h;
-	h.plugin = exported->plugin;
-	h.fn = exported->fn;
-	h.tag = exported->tag;
-	h.shape = SHAPE_WIDE;
-
 	// A string argument points into the calling plugin's memory, not the
 	// host's, so that is the AMX argText() reads from.
 	CallArgs context(args, given, from, caller);
@@ -4764,7 +4931,7 @@ static cell AMX_NATIVE_CALL n_native(AMX *amx, cell *params)
 		argv[i] = (uint32_t)(int32_t)args[i];
 
 	// Whatever the handler said with ret(); nothing said is nothing returned.
-	return Fire(h, argv, n, 0);
+	return Fire(*exported, argv, n, 0);
 }
 
 // amxts_init() — called from the host plugin's plugin_init
@@ -4796,8 +4963,9 @@ static cell AMX_NATIVE_CALL n_init(AMX *amx, cell *params)
 }
 
 /**
- * amxts_event(const name[], const types[], ...) - a forward the host plugin
- * relays, to the plugins' listeners and Forward subscribers.
+ * amxts_event(index, const types[], ...) - a forward the host plugin
+ * relays, to the plugins' listeners and Forward subscribers. `index` is its
+ * number in g_forwardNames, which the host's public passes.
  *
  * `types` has a letter per argument - `n` a cell, `f` a float, `s` a string,
  * `a` an array with its size after it when the include gives one: "na3s".
@@ -4809,11 +4977,9 @@ static cell AMX_NATIVE_CALL n_init(AMX *amx, cell *params)
  */
 static cell AMX_NATIVE_CALL n_event(AMX *amx, cell *params)
 {
-	int len = 0;
-	char name[64];
-	const char *src = MF_GetAmxString(amx, params[1], 0, &len);
-	strncpy(name, src ? src : "", sizeof(name) - 1);
-	name[sizeof(name) - 1] = 0;
+	int forward = (int)params[1];
+	if (forward < 0 || forward >= FORWARD_COUNT)
+		return 0;
 
 	// A player who left takes his fields with him - after every plugin
 	// has heard him go, so a listener of the leave can still read it.
@@ -4821,12 +4987,12 @@ static cell AMX_NATIVE_CALL n_event(AMX *amx, cell *params)
 		int id;
 		~ClearOnReturn() { if (id > 0) ClearPlayerData(id); }
 	} leaver = { 0 };
-	if (strcmp(name, "client_disconnected") == 0 && params[0] >= (cell)(3 * sizeof(cell))) {
+	if (forward == FORWARD_CLIENT_DISCONNECTED && params[0] >= (cell)(3 * sizeof(cell))) {
 		cell *id = MF_GetAmxAddr(amx, params[3]);
 		leaver.id = id ? (int)*id : 0;
 	}
 
-	if (strcmp(name, "client_connect") == 0 && params[0] >= (cell)(3 * sizeof(cell))) {
+	if (forward == FORWARD_CLIENT_CONNECT && params[0] >= (cell)(3 * sizeof(cell))) {
 		cell *id = MF_GetAmxAddr(amx, params[3]);
 		if (id)
 			NewPlayer((int)*id);
@@ -4834,26 +5000,21 @@ static cell AMX_NATIVE_CALL n_event(AMX *amx, cell *params)
 
 	// The responses that came in since the last frame go to their plugins
 	// first, whoever listens to the frame.
-	if (strcmp(name, "server_frame") == 0)
+	if (forward == FORWARD_SERVER_FRAME)
 		NetFrame();
 
-	// Reachable before amxts_init: AMX Mod X dispatches plugin_natives and
-	// plugin_modules ahead of plugin_init. Nothing is loaded yet, so nothing
-	// handled this.
-	if (g_plugins.empty())
-		return 0;
-
 	// Most forwards the host relays - a frame, a player thinking - nobody
-	// listens to: they cost this much and no more.
-	std::map<std::string, std::vector<Handler> >::iterator it = g_events.find(name);
-	bool listened = it != g_events.end() && !it->second.empty();
-	if (!listened && g_subscriptions.find(name) == g_subscriptions.end())
+	// listens to: they cost this much and no more. Before amxts_init, as AMX
+	// Mod X dispatches plugin_natives and plugin_modules, nothing listens yet.
+	Forward &f = g_forwards[forward];
+	if (f.handlers.empty() && f.subscribers.empty())
 		return 0;
 
 	int argc = (int)(params[0] / sizeof(cell)) - 2;
 	if (argc > MAX_FORWARD_ARGS)
 		argc = MAX_FORWARD_ARGS;
 
+	int len = 0;
 	const char *types = MF_GetAmxString(amx, params[2], 1, &len);
 	cell args[MAX_FORWARD_ARGS];
 	int32_t lengths[MAX_FORWARD_ARGS];
@@ -4876,30 +5037,7 @@ static cell AMX_NATIVE_CALL n_event(AMX *amx, cell *params)
 	}
 
 	CallArgs context(args, argc, amx, -1, lengths);
-	DeliverToSubscribers(name);
-	if (!listened)
-		return 0;
-
-	// The first cells as the handler's parameters - a player event's id; the
-	// rest it reads from the context. A copy: a listener that adds another
-	// must not move this loop's floor.
-	std::vector<Handler> handlers = it->second;
-	uint32_t argv[MAX_EVENT_ARGS] = { 0 };
-	int n = argc > MAX_EVENT_ARGS ? MAX_EVENT_ARGS : argc;
-	for (int i = 0; i < n; i++)
-		argv[i] = (uint32_t)(int32_t)args[i];
-
-	cell result = 0;
-	for (size_t h = 0; h < handlers.size(); h++) {
-		int where = handlers[h].whereArg;
-		if (where >= 0 && (where >= argc || args[where] != handlers[h].whereValue))
-			continue;
-		cell one = Fire(handlers[h], argv, n, 0);
-		if (one > result)
-			result = one;
-	}
-
-	return result;
+	return Dispatch(f, args, argc);
 }
 
 // amxts_callback(slot, numargs, a .. h) - the host plugin's pool of publics.
@@ -4966,12 +5104,6 @@ static cell AMX_NATIVE_CALL n_callback(AMX *amx, cell *params)
 
 	int n = given > MAX_EVENT_ARGS ? MAX_EVENT_ARGS : given;
 
-	Handler h;
-	h.plugin = g_slots[slot].plugin;
-	h.fn = g_slots[slot].fn;
-	h.tag = g_slots[slot].tag;
-	h.shape = g_slots[slot].shape;
-
 	// The arguments of this call, for arg() and argText() - all of them, not
 	// only the four about to be pushed. They live in the host plugin, which is
 	// where a string among them lives too.
@@ -4989,7 +5121,7 @@ static cell AMX_NATIVE_CALL n_callback(AMX *amx, cell *params)
 	uint32_t generation = g_slots[slot].generation;
 	bool oneShot = g_slots[slot].oneShot;
 
-	cell result = Fire(h, argv, n, g_slots[slot].fallback);
+	cell result = Fire(g_slots[slot], argv, n, g_slots[slot].fallback);
 
 	// A task has now fired, and set_task without a repeat flag does not fire
 	// again. Its slot goes back, or a plugin arming one a round runs out -
