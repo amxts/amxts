@@ -23,5 +23,17 @@
 
 // The frame: the timers, the responses, the watcher and the `frame` event.
 #define FN_StartFrame_Post StartFrame_Post
+// The clients' and the server's events, heard where AMX Mod X hears them, after it.
+#define FN_DispatchSpawn DispatchSpawn
+#define FN_ServerActivate_Post ServerActivate_Post
+#define FN_ServerDeactivate ServerDeactivate
+#define FN_ClientConnect ClientConnect
+#define FN_ClientConnect_Post ClientConnect_Post
+#define FN_ClientDisconnect ClientDisconnect
+#define FN_ClientPutInServer_Post ClientPutInServer_Post
+#define FN_ClientUserInfoChanged_Post ClientUserInfoChanged_Post
+#define FN_ClientKill_Post ClientKill_Post
+#define FN_CmdStart_Post CmdStart_Post
+#define FN_ChangeLevel ChangeLevel
 
 #endif

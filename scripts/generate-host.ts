@@ -4,7 +4,7 @@ import type { MessageField } from './client-messages';
 //
 // The host plugin holds no logic. It exists for exactly three reasons:
 //   1. pull natives into its table so the module can resolve them by name;
-//   2. relay AMXX forwards into the plugins through amxts_event();
+//   2. relay the AMXX forwards the module does not raise itself, through amxts_event();
 //   3. keep a pool of publics that the plugins' callbacks attach to.
 // scripts/compile-host.ts compiles it into runtime/src/host.h: the module
 // carries it and has AMX Mod X load it, so a server installs the module alone.
@@ -29,14 +29,33 @@ const CALLBACK_SLOTS = 512; // must match MAX_CALLBACK_SLOTS in runtime/src/modu
 // default of 4096 cells for both would not hold one long text. 512 KB.
 const HOST_CELLS = 131072;
 
-// plugin_init belongs to the host plugin itself — it bootstraps the runtime.
-// Both are written by hand below: plugin_init bootstraps the runtime, and
+// Both are written by hand below: plugin_init names the host, and
 // plugin_natives loads the plugins before AMX Mod X asks anyone for natives.
+// The module raises plugin_init itself, from ServerActivate.
 const SKIP_FORWARDS = new Set(['plugin_init', 'plugin_natives']);
 
-// Forwards the module fires itself, from Metamod: the host has no public for
-// them, and they keep their number and their event.
-const MODULE_FORWARDS = new Set(['server_frame']);
+// Forwards the module fires itself, from its own Metamod hooks of the
+// functions AMX Mod X fires them from: the host has no public for them, and
+// they keep their number and their event.
+const MODULE_FORWARDS = new Set([
+	'plugin_precache',
+	'plugin_cfg',
+	'plugin_end',
+	'OnAutoConfigsBuffered',
+	'OnConfigsExecuted',
+	'client_connect',
+	'client_connectex',
+	'client_authorized',
+	'client_putinserver',
+	'client_infochanged',
+	'client_disconnected',
+	'client_remove',
+	'client_kill',
+	'client_impulse',
+	'client_cmdStart',
+	'server_frame',
+	'server_changelevel',
+]);
 
 function isFloat(p: Parameter): boolean {
 	return /Float/.test(p.type);
@@ -813,7 +832,6 @@ new __amxts_null = 0;
 
 ${includes.map(i => `#include <${i}>`).join('\n')}
 
-native amxts_init();
 native amxts_event(index, const types[], ...);
 // Eight arguments: the arity must match n_callback in runtime/src/module.cpp,
 // which reads exactly this many cells. They are in different files, so changing
@@ -832,7 +850,6 @@ native amxts_native(caller, argc);
 public plugin_init()
 {
 	register_plugin("amxts Runtime Host", "0.1", "amxts");
-	amxts_init();
 }
 
 // AMX Mod X asks for natives before it asks anything else, and a plugin here

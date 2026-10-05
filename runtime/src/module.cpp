@@ -19,12 +19,15 @@
 #include <mutex>
 #include <thread>
 #include "amxxmodule.h"
+#include "usercmd.h"
+#include <resdk/engine/rehlds_api.h>
 #include "wasm_export.h"
 
 // The Half-Life SDK's min and max macros break the C++ library's headers.
 #undef min
 #undef max
 
+#include <stdarg.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,9 +37,11 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/mman.h>
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -432,6 +437,9 @@ static const char *NativeEntry(AMX *amx, int index, AMX_NATIVE *fn)
 		: ((FuncStub *)e)->name;
 }
 
+// A native the module does itself in place of the one in the host's table (g_ownNatives).
+static AMX_NATIVE OwnNative(const char *name, AMX_NATIVE fn);
+
 static Resolved FindNative(const char *name)
 {
 	Resolved none = { NULL, 0 };
@@ -446,7 +454,7 @@ static Resolved FindNative(const char *name)
 	for (int i = 0; i < count; i++) {
 		AMX_NATIVE fn = NULL;
 		if (!strcmp(NativeEntry(g_host, i, &fn), name)) {
-			Resolved found = { fn, i };
+			Resolved found = { OwnNative(name, fn), i };
 			g_nativeCache[name] = found;
 			return found;
 		}
@@ -477,7 +485,7 @@ static int g_invoked = -1;
  * the name of a native that is not there - by usertags[UT_NATIVE], which its
  * call instruction sets before every native. A call from here goes around
  * that instruction, so the slot is set here: without it the error names
- * whichever of the host's own natives was running, amxts_init or
+ * whichever of the host's own natives was running, amxts_natives or
  * amxts_event, and which module is missing is anyone's guess.
  */
 static cell Invoke(const Resolved &native, cell *params)
@@ -4986,12 +4994,14 @@ static cell AMX_NATIVE_CALL n_native(AMX *amx, cell *params)
 	return Fire(*exported, argv, n, 0);
 }
 
-// amxts_init() — called from the host plugin's plugin_init
-static cell AMX_NATIVE_CALL n_init(AMX *amx, cell *params)
+/**
+ * plugin_init's part, from ServerActivate's post, after AMX Mod X's. The
+ * plugins are already running: amxts_natives loaded them. What is left is the
+ * module's own commands, the watcher, and telling the plugins that the
+ * server is up.
+ */
+static void StartServer()
 {
-	// The plugins are already running: amxts_natives loaded them. What is left
-	// is the part that belongs to plugin_init - the module's own commands, the
-	// watcher, and telling the plugins that the server is up.
 	g_amxxReady = true;
 
 	for (size_t i = 0; i < g_pendingCommands.size(); i++) {
@@ -5010,7 +5020,6 @@ static cell AMX_NATIVE_CALL n_init(AMX *amx, cell *params)
 	RegisterServerCommand("amxts_trace", SLOT_TRACE, "log every handler call, for cornering a crash");
 
 	FireInit();
-	return 1;
 }
 
 /**
@@ -5032,32 +5041,10 @@ static cell AMX_NATIVE_CALL n_event(AMX *amx, cell *params)
 	if (forward < 0 || forward >= FORWARD_COUNT)
 		return 0;
 
-	// A player who left takes his fields with him - after every plugin
-	// has heard him go, so a listener of the leave can still read it.
-	struct ClearOnReturn {
-		int id;
-		~ClearOnReturn() { if (id > 0) ClearPlayerData(id); }
-	} leaver = { 0 };
-	if (forward == FORWARD_CLIENT_DISCONNECTED && params[0] >= (cell)(3 * sizeof(cell))) {
-		cell *id = MF_GetAmxAddr(amx, params[3]);
-		leaver.id = id ? (int)*id : 0;
-	}
-
-	if (forward == FORWARD_CLIENT_CONNECT && params[0] >= (cell)(3 * sizeof(cell))) {
-		cell *id = MF_GetAmxAddr(amx, params[3]);
-		if (id)
-			NewPlayer((int)*id);
-	}
-
-	if (forward == FORWARD_CLIENT_INFOCHANGED && params[0] >= (cell)(3 * sizeof(cell))) {
-		cell *id = MF_GetAmxAddr(amx, params[3]);
-		if (id && *id >= 0 && *id < PLAYER_DATA_SLOTS)
-			NameChanges((int)*id, 1);
-	}
-
-	// Most forwards the host relays - a frame, a player thinking - nobody
-	// listens to: they cost this much and no more. Before amxts_init, as AMX
-	// Mod X dispatches plugin_natives and plugin_modules, nothing listens yet.
+	// Most forwards the host relays - a player thinking, an entity's think -
+	// nobody listens to: they cost this much and no more. Before plugin_init,
+	// as AMX Mod X dispatches plugin_natives and plugin_modules, nothing
+	// listens yet.
 	Forward &f = g_forwards[forward];
 	if (f.handlers.empty() && f.subscribers.empty())
 		return 0;
@@ -5092,20 +5079,655 @@ static cell AMX_NATIVE_CALL n_event(AMX *amx, cell *params)
 	return Dispatch(f, args, argc);
 }
 
+// ---------------------------------------------------------------- the clients and the server
+
+// AMX Mod X fires its forwards from its own Metamod hooks, and AMX Mod X is
+// ahead of the module in Metamod's list, so the module's hook of the same
+// function and phase comes after it: Pawn plugins hear each event first.
+// The engine module's forwards
+// (client_kill, client_impulse, client_cmdStart) are heard in the post,
+// after every pre hook: that module is loaded when a plugin needs it, after
+// the module in the list, and a pre would come before it.
+
+/** Every slot a client can take, 0 unused. */
+#define CLIENT_SLOTS 33
+
+/** Whether anything listens to forward `index`: when nothing does, an event costs this check. */
+static bool Heard(int index)
+{
+	const Forward &f = g_forwards[index];
+	return g_host && (!f.handlers.empty() || !f.subscribers.empty());
+}
+
+/**
+ * Forward `index` to its listeners, with `args` as the call's context
+ * (CallArgs). A string argument is pushed onto the host's heap by the
+ * caller, which a HostHeap takes back.
+ */
+static cell Raise(int index, cell *args, int argc)
+{
+	CallArgs context(args, argc, g_host);
+	return Dispatch(g_forwards[index], args, argc);
+}
+
+static void Raise(int index)
+{
+	if (Heard(index))
+		Raise(index, NULL, 0);
+}
+
+/** A player's event: the player's id its one argument. */
+static cell RaiseFor(int index, int id)
+{
+	cell args[1] = { id };
+	return Heard(index) ? Raise(index, args, 1) : 0;
+}
+
+/** What is pushed onto the host's heap while it lives goes when it does. */
+struct HostHeap {
+	cell mark;
+	HostHeap() : mark(g_host->hea) {}
+	~HostHeap() { g_host->hea = mark; }
+};
+
+/** Whether the map has started (ServerActivate) and not ended (ServerDeactivate). */
+static bool g_activated = false;
+
+/** Whether this map's precache has been raised: at the first spawn, the world's. */
+static bool g_precached = false;
+
+/** Whether the precache event is running: the one time the game takes a precache. */
+static bool g_precaching = false;
+
+/**
+ * AMX Mod X's view of each client, kept the same way: connected
+ * (CPlayer::initialized, from client_connect) and in the game (ingame, from
+ * client_putinserver), until the slot is let go.
+ */
+static bool g_connected[CLIENT_SLOTS];
+static bool g_inGame[CLIENT_SLOTS];
+
+// ---- the configs
+
+/**
+ * OnConfigsExecuted's clock, AMX Mod X's: its task tick, every 0.1 s of the
+ * game's time from ServerActivate's post. The first tick at or after 6.1 s
+ * queues the map's configs, and the next fires the forward, after the
+ * engine has run them. The module keeps the same tick from the same moment,
+ * so its event comes in the same frame as AMX Mod X's forward, after it.
+ */
+static float g_configTick = 0;
+static float g_configsDue = 0;
+static int   g_configTicks = 0; // ticks at or after g_configsDue, up to 2
+
+static void ConfigTick()
+{
+	if (!g_activated || g_configTicks >= 2 || gpGlobals->time < g_configTick)
+		return;
+	g_configTick = gpGlobals->time + 0.1f;
+	if (gpGlobals->time >= g_configsDue && ++g_configTicks == 2)
+		Raise(FORWARD_ONCONFIGSEXECUTED);
+}
+
+// ---- client_authorized
+
+/**
+ * The clients AMX Mod X has authorized and is about to tell its plugins
+ * about: it calls the module's function (MF_RegAuthFunc) right before the
+ * forward, at all three places it fires it - a client's connect, its 0.7 s
+ * check, a bot's info. The module's own hook of the same function, after
+ * AMX Mod X's, raises them, so Pawn plugins hear it first.
+ */
+static std::vector<std::pair<int, std::string> > g_authorized;
+
+static void OnAuthorized(int id, const char *authid)
+{
+	if (id > 0 && id < CLIENT_SLOTS)
+		g_authorized.push_back(std::make_pair(id, std::string(authid ? authid : "")));
+}
+
+static void RaiseAuthorized()
+{
+	if (g_authorized.empty())
+		return;
+	std::vector<std::pair<int, std::string> > now;
+	now.swap(g_authorized);
+	for (size_t i = 0; i < now.size() && Heard(FORWARD_CLIENT_AUTHORIZED); i++) {
+		HostHeap heap;
+		cell args[2] = { now[i].first, PushString(now[i].second.c_str()) };
+		Raise(FORWARD_CLIENT_AUTHORIZED, args, 2);
+	}
+}
+
+// ---- a client comes
+
+static void Connected(int id)
+{
+	g_connected[id] = true;
+	NewPlayer(id);
+	RaiseFor(FORWARD_CLIENT_CONNECT, id);
+}
+
+static void PutInServer(int id)
+{
+	g_inGame[id] = true;
+	RaiseFor(FORWARD_CLIENT_PUTINSERVER, id);
+}
+
+/** A slot's edict as an id, 0 for an edict that is not a client's. */
+static int ClientId(const edict_t *e)
+{
+	int id = e ? ENTINDEX((edict_t *)e) : 0;
+	return id > 0 && id < CLIENT_SLOTS && id <= gpGlobals->maxClients ? id : 0;
+}
+
+// ---- a client leaves
+
+/**
+ * client_disconnected, then the player's fields go - after every plugin has
+ * heard him go, so a listener of the leave can still read them.
+ */
+static void Disconnected(int id, bool dropped, const char *reason)
+{
+	if (Heard(FORWARD_CLIENT_DISCONNECTED)) {
+		HostHeap heap;
+		cell args[4] = { id, dropped, PushString(reason), (cell)strlen(reason) };
+		Raise(FORWARD_CLIENT_DISCONNECTED, args, 4);
+	}
+	ClearPlayerData(id);
+}
+
+/** The slot is let go: client_remove, for a client that had it. */
+static void Removed(int id, bool dropped, const char *reason)
+{
+	bool had = g_connected[id] || g_inGame[id];
+	g_connected[id] = g_inGame[id] = false;
+	if (had && Heard(FORWARD_CLIENT_REMOVE)) {
+		HostHeap heap;
+		cell args[3] = { id, dropped, PushString(reason) };
+		Raise(FORWARD_CLIENT_REMOVE, args, 3);
+	}
+}
+
+/**
+ * A client the engine's SV_DropClient is taking off the server - a kick, a
+ * timeout, a quit - with the reason it gives: the one place the reason is
+ * known. The module's hook of it is outside AMX Mod X's, so a Pawn plugin's
+ * client_disconnected comes first, inside; the game's ClientDisconnect,
+ * which SV_DropClient calls for a client in the game, is where the module
+ * raises its own, and its client_remove comes once SV_DropClient returns,
+ * after AMX Mod X's. A client that was not in the game yet hears both then.
+ * `id` is 0 until known: plain HLDS's hook sees only the engine's client.
+ */
+struct Drop {
+	int         id;
+	const char *reason;
+	bool        heard;
+	Drop       *outer;
+};
+
+static Drop *g_drop = NULL;
+
+/** A client SV_DropClient has let go and whose ClientDisconnect did not come: its edict no longer has a user id. */
+static int Gone()
+{
+	for (int id = 1; id < CLIENT_SLOTS && id <= gpGlobals->maxClients; id++)
+		if (g_connected[id] && GETPLAYERUSERID(INDEXENT(id)) == -1)
+			return id;
+	return 0;
+}
+
+static void Dropped(Drop &d)
+{
+	g_drop = d.outer;
+	int id = d.id ? d.id : Gone();
+	if (!id)
+		return;
+	if (!d.heard && g_connected[id])
+		Disconnected(id, true, d.reason);
+	Removed(id, true, d.reason);
+}
+
+// ReHLDS: SV_DropClient's hookchain, ahead of AMX Mod X's hook in it.
+static IRehldsApi *g_rehlds = NULL;
+
+static void DropClient_RH(IRehldsHook_SV_DropClient *chain, IGameClient *client, bool crash, const char *reason)
+{
+	Drop d = { ClientId(client->GetEdict()), reason, false, g_drop };
+	g_drop = &d;
+	chain->callNext(client, crash, reason);
+	Dropped(d);
+}
+
+/** The engine's ReHLDS API, or NULL on plain HLDS or a ReHLDS too old for it. */
+static IRehldsApi *FindRehlds()
+{
+#ifdef _WIN32
+	HMODULE engine = GetModuleHandleA("swds.dll");
+	CreateInterfaceFn create = engine ? (CreateInterfaceFn)GetProcAddress(engine, CREATEINTERFACE_PROCNAME) : NULL;
+#else
+	void *engine = dlopen("engine_i486.so", RTLD_NOW | RTLD_NOLOAD);
+	CreateInterfaceFn create = engine ? (CreateInterfaceFn)dlsym(engine, CREATEINTERFACE_PROCNAME) : NULL;
+	if (engine)
+		dlclose(engine);
+#endif
+	IRehldsApi *api = create ? (IRehldsApi *)create(VREHLDS_HLDS_API_VERSION, NULL) : NULL;
+	if (!api || api->GetMajorVersion() != REHLDS_API_VERSION_MAJOR || api->GetMinorVersion() < REHLDS_API_VERSION_MINOR)
+		return NULL;
+	return api;
+}
+
+/**
+ * Plain HLDS: an engine function taken over at its first five bytes, a jump
+ * to the module's. The module calls the original by putting the bytes back
+ * for the length of the call, so no instruction of it is moved; what goes
+ * back is what was there - the function's own start, or AMX Mod X's jump to
+ * its own detour of it, which is then inside the module's.
+ */
+struct EntryHook {
+	unsigned char *at;
+	void          *to;
+	unsigned char  saved[5];
+	unsigned char  jump[5];
+	bool           on;
+};
+
+static void WriteCode(unsigned char *at, const unsigned char *bytes)
+{
+#ifdef _WIN32
+	DWORD was;
+	VirtualProtect(at, 5, PAGE_EXECUTE_READWRITE, &was);
+	memcpy(at, bytes, 5);
+	VirtualProtect(at, 5, was, &was);
+	FlushInstructionCache(GetCurrentProcess(), at, 5);
+#else
+	uintptr_t page = (uintptr_t)sysconf(_SC_PAGESIZE);
+	unsigned char *start = (unsigned char *)((uintptr_t)at & ~(page - 1));
+	size_t length = (size_t)(at + 5 - start);
+	mprotect(start, length, PROT_READ | PROT_WRITE | PROT_EXEC);
+	memcpy(at, bytes, 5);
+	mprotect(start, length, PROT_READ | PROT_EXEC);
+#endif
+}
+
+static void HookOn(EntryHook &h)
+{
+	if (!h.at || h.on)
+		return;
+	memcpy(h.saved, h.at, 5);
+	int32_t offset = (int32_t)((unsigned char *)h.to - (h.at + 5));
+	h.jump[0] = 0xE9; // jmp rel32
+	memcpy(h.jump + 1, &offset, 4);
+	WriteCode(h.at, h.jump);
+	h.on = true;
+}
+
+/** Puts back what was there, unless something wrote over the jump since: AMX Mod X turning its own detour off at a map's end. */
+static void HookOff(EntryHook &h)
+{
+	if (h.on && !memcmp(h.at, h.jump, 5))
+		WriteCode(h.at, h.saved);
+	h.on = false;
+}
+
+static EntryHook g_dropClient = { NULL, NULL, { 0 }, { 0 }, false };
+
+typedef void (*DropClientFn)(void *client, int crash, const char *format, ...);
+
+// void SV_DropClient(client_t *cl, qboolean crash, const char *fmt, ...)
+static void DropClient_Hooked(void *client, int crash, const char *format, ...)
+{
+	char reason[1024];
+	va_list ap;
+	va_start(ap, format);
+	vsnprintf(reason, sizeof(reason), format, ap);
+	va_end(ap);
+
+	Drop d = { 0, reason, false, g_drop };
+	g_drop = &d;
+	HookOff(g_dropClient);
+	((DropClientFn)g_dropClient.at)(client, crash, "%s", reason);
+	HookOn(g_dropClient);
+	Dropped(d);
+}
+
+/** SV_DropClient's hook: ReHLDS's hookchain, else the gamedata's signature of it. */
+static void HookDrops()
+{
+	g_rehlds = FindRehlds();
+	if (g_rehlds) {
+		g_rehlds->GetHookchains()->SV_DropClient()->registerHook(DropClient_RH, HC_PRIORITY_DEFAULT + 1);
+		return;
+	}
+
+	void *address = NULL;
+	if (g_entityData && g_entityData->GetMemSig("SV_DropClient", &address) && address) {
+		g_dropClient.at = (unsigned char *)address;
+		g_dropClient.to = (void *)DropClient_Hooked;
+		return;
+	}
+	MF_PrintSrvConsole("[amxts] SV_DropClient was not found (no ReHLDS, no signature in the gamedata): \"disconnected\" comes without the reason\n");
+}
+
+static void UnhookDrops()
+{
+	if (g_rehlds)
+		g_rehlds->GetHookchains()->SV_DropClient()->unregisterHook(DropClient_RH);
+	HookOff(g_dropClient);
+	g_rehlds = NULL;
+}
+
+// ---- the natives the module does itself
+
+/**
+ * precache_model, precache_sound and precache_generic: AMX Mod X's refuse
+ * outside its own plugin_precache, which comes before the module's precache
+ * event. The engine takes a precache only while the map loads, and a late
+ * one stops the server, so these refuse outside the event too.
+ */
+static cell Precache(AMX *amx, cell *params, int (*precache)(char *))
+{
+	if (!g_precaching) {
+		MF_LogError(amx, AMX_ERR_NATIVE, "Precaching not allowed");
+		return 0;
+	}
+	int length = 0;
+	const char *path = MF_GetAmxString(amx, params[1], 0, &length);
+	return precache((char *)STRING(ALLOC_STRING(path)));
+}
+
+static int PrecacheModel(char *path) { return PRECACHE_MODEL(path); }
+static int PrecacheSound(char *path) { return PRECACHE_SOUND(path); }
+static int PrecacheGeneric(char *path) { return PRECACHE_GENERIC(path); }
+
+static cell AMX_NATIVE_CALL n_precacheModel(AMX *amx, cell *params) { return Precache(amx, params, PrecacheModel); }
+static cell AMX_NATIVE_CALL n_precacheSound(AMX *amx, cell *params) { return Precache(amx, params, PrecacheSound); }
+static cell AMX_NATIVE_CALL n_precacheGeneric(AMX *amx, cell *params) { return Precache(amx, params, PrecacheGeneric); }
+
+/** The command a cmdStart event is about, while its listeners run. */
+static usercmd_t *g_cmd = NULL;
+
+// engine_const.inc's usercmd_* entries.
+enum {
+	USERCMD_FORWARDMOVE = 1, USERCMD_SIDEMOVE, USERCMD_UPMOVE,
+	USERCMD_LERP_MSEC = 6, USERCMD_MSEC, USERCMD_LIGHTLEVEL, USERCMD_BUTTONS, USERCMD_IMPULSE, USERCMD_WEAPONSELECT, USERCMD_IMPACT_INDEX,
+	USERCMD_VIEWANGLES = 15, USERCMD_IMPACT_POSITION,
+};
+
+/** The floats of an entry: one for a move, three for a vector; NULL for a whole number's. */
+static float *CmdFloats(usercmd_t *c, int type, int *count)
+{
+	*count = type >= USERCMD_VIEWANGLES ? 3 : 1;
+	switch (type) {
+		case USERCMD_FORWARDMOVE:     return &c->forwardmove;
+		case USERCMD_SIDEMOVE:        return &c->sidemove;
+		case USERCMD_UPMOVE:          return &c->upmove;
+		case USERCMD_VIEWANGLES:      return (float *)&c->viewangles;
+		case USERCMD_IMPACT_POSITION: return (float *)&c->impact_position;
+		default:                      return NULL;
+	}
+}
+
+/**
+ * get_usercmd(type, ...) and set_usercmd(type, ...) on the command of the
+ * cmdStart event that is running: a whole number is returned (get) or read
+ * from the second argument (set), a float and a vector go through it. 0
+ * outside the event, as the engine module answers outside its forward.
+ */
+static cell Usercmd(AMX *amx, cell *params, bool set)
+{
+	if (!g_cmd)
+		return 0;
+	int type = (int)params[1];
+	cell *value = params[0] >= (cell)(2 * sizeof(cell)) ? MF_GetAmxAddr(amx, params[2]) : NULL;
+	int count = 0;
+	float *floats = CmdFloats(g_cmd, type, &count);
+	if (floats) {
+		if (!value)
+			return 0;
+		for (int i = 0; i < count; i++) {
+			if (set) memcpy(&floats[i], &value[i], 4);
+			else memcpy(&value[i], &floats[i], 4);
+		}
+		return 1;
+	}
+
+	int number = set && value ? (int)*value : 0;
+	switch (type) {
+		case USERCMD_LERP_MSEC:    if (set) g_cmd->lerp_msec = (short)number; else return g_cmd->lerp_msec; break;
+		case USERCMD_MSEC:         if (set) g_cmd->msec = (byte)number; else return g_cmd->msec; break;
+		case USERCMD_LIGHTLEVEL:   if (set) g_cmd->lightlevel = (byte)number; else return g_cmd->lightlevel; break;
+		case USERCMD_BUTTONS:      if (set) g_cmd->buttons = (unsigned short)number; else return g_cmd->buttons; break;
+		case USERCMD_IMPULSE:      if (set) g_cmd->impulse = (byte)number; else return g_cmd->impulse; break;
+		case USERCMD_WEAPONSELECT: if (set) g_cmd->weaponselect = (byte)number; else return g_cmd->weaponselect; break;
+		case USERCMD_IMPACT_INDEX: if (set) g_cmd->impact_index = number; else return g_cmd->impact_index; break;
+		default:                   return 0;
+	}
+	return 1;
+}
+
+static cell AMX_NATIVE_CALL n_getUsercmd(AMX *amx, cell *params) { return Usercmd(amx, params, false); }
+static cell AMX_NATIVE_CALL n_setUsercmd(AMX *amx, cell *params) { return Usercmd(amx, params, true); }
+
+/**
+ * Natives of the host's table the module does itself, in place of the
+ * module that registers them: what they work on is the module's event now
+ * (FindNative).
+ */
+static const AMX_NATIVE_INFO g_ownNatives[] = {
+	{ "precache_model",   n_precacheModel   },
+	{ "precache_sound",   n_precacheSound   },
+	{ "precache_generic", n_precacheGeneric },
+	{ "get_usercmd",      n_getUsercmd      },
+	{ "set_usercmd",      n_setUsercmd      },
+};
+
+static AMX_NATIVE OwnNative(const char *name, AMX_NATIVE fn)
+{
+	for (const AMX_NATIVE_INFO &own : g_ownNatives)
+		if (!strcmp(own.name, name))
+			return own.func;
+	return fn;
+}
+
+// ---- Metamod's hooks
+
+/** The world's spawn, the first of a map's: the plugins have loaded (amxts_natives), and they precache. */
+int DispatchSpawn(edict_t *e)
+{
+	if (!g_precached) {
+		g_precached = true;
+		g_precaching = true;
+		Raise(FORWARD_PLUGIN_PRECACHE);
+		g_precaching = false;
+	}
+	RETURN_META_VALUE(MRES_IGNORED, 0);
+}
+
+/**
+ * The map has loaded: plugin_init, plugin_cfg and OnAutoConfigsBuffered, as
+ * AMX Mod X fires them in its post before this; its configs are queued, not
+ * run, so they run after all three. AMX Mod X's task tick starts here.
+ */
+void ServerActivate_Post(edict_t *edicts, int count, int clients)
+{
+	if (g_activated)
+		RETURN_META(MRES_IGNORED);
+	g_activated = true;
+	HookOn(g_dropClient);
+
+	g_configTick = gpGlobals->time;
+	g_configsDue = gpGlobals->time + 6.1f;
+	g_configTicks = 0;
+
+	if (g_host)
+		StartServer();
+	Raise(FORWARD_PLUGIN_CFG);
+	Raise(FORWARD_ONAUTOCONFIGSBUFFERED);
+	RETURN_META(MRES_IGNORED);
+}
+
+/** The map ends: every client leaves it, as AMX Mod X tells its plugins, then plugin_end. */
+void ServerDeactivate()
+{
+	if (!g_activated)
+		RETURN_META(MRES_IGNORED);
+
+	for (int id = 1; id < CLIENT_SLOTS && id <= gpGlobals->maxClients; id++) {
+		if (g_connected[id])
+			Disconnected(id, false, "");
+		if (g_inGame[id])
+			Removed(id, false, "");
+		g_connected[id] = g_inGame[id] = false;
+	}
+
+	g_authorized.clear();
+	g_activated = false;
+	g_precached = false;
+	HookOff(g_dropClient);
+	Raise(FORWARD_PLUGIN_END);
+	RETURN_META(MRES_IGNORED);
+}
+
+/** client_connectex: the place to turn a client away, unless a Pawn plugin did. */
+BOOL ClientConnect(edict_t *e, const char *name, const char *address, char reason[128])
+{
+	int id = ClientId(e);
+	if (!id || META_RESULT_STATUS >= MRES_SUPERCEDE || !Heard(FORWARD_CLIENT_CONNECTEX))
+		RETURN_META_VALUE(MRES_IGNORED, TRUE);
+
+	HostHeap heap;
+	cell args[4] = { id, PushString(name), PushString(address), PushString(reason) };
+	if (Raise(FORWARD_CLIENT_CONNECTEX, args, 4) > 0)
+		RETURN_META_VALUE(MRES_SUPERCEDE, FALSE);
+	RETURN_META_VALUE(MRES_IGNORED, TRUE);
+}
+
+/** client_connect for a client that is not a bot (a bot's comes with its info), then client_authorized if AMX Mod X fired it. */
+BOOL ClientConnect_Post(edict_t *e, const char *name, const char *address, char reason[128])
+{
+	int id = ClientId(e);
+	if (id && !MF_IsPlayerBot(id))
+		Connected(id);
+	RaiseAuthorized();
+	RETURN_META_VALUE(MRES_IGNORED, TRUE);
+}
+
+void ClientPutInServer_Post(edict_t *e)
+{
+	int id = ClientId(e);
+	if (id && !MF_IsPlayerBot(id))
+		PutInServer(id);
+	RETURN_META(MRES_IGNORED);
+}
+
+/**
+ * client_infochanged; for a bot not in the game yet, its connect,
+ * authorized and putinserver too, as AMX Mod X makes them up for a bot here.
+ */
+void ClientUserInfoChanged_Post(edict_t *e, char *info)
+{
+	int id = ClientId(e);
+	if (!id)
+		RETURN_META(MRES_IGNORED);
+
+	NameChanges(id, 1);
+	RaiseFor(FORWARD_CLIENT_INFOCHANGED, id);
+	if (!g_inGame[id] && MF_IsPlayerBot(id)) {
+		Connected(id);
+		RaiseAuthorized();
+		PutInServer(id);
+	}
+	RETURN_META(MRES_IGNORED);
+}
+
+/** The game's ClientDisconnect: SV_DropClient's own call (Drop), or a client leaving another way. */
+void ClientDisconnect(edict_t *e)
+{
+	int id = ClientId(e);
+	if (!id)
+		RETURN_META(MRES_IGNORED);
+
+	Drop *d = g_drop;
+	if (d && !d->heard && (!d->id || d->id == id)) {
+		d->id = id;
+		d->heard = true;
+		if (g_connected[id])
+			Disconnected(id, true, d->reason);
+		RETURN_META(MRES_IGNORED);
+	}
+
+	if (g_connected[id])
+		Disconnected(id, false, "");
+	Removed(id, false, "");
+	RETURN_META(MRES_IGNORED);
+}
+
+/** client_kill, unless a Pawn plugin blocked it: the status a post sees is the pre's. */
+void ClientKill_Post(edict_t *e)
+{
+	int id = ClientId(e);
+	if (id && META_RESULT_STATUS < MRES_SUPERCEDE)
+		RaiseFor(FORWARD_CLIENT_KILL, id);
+	RETURN_META(MRES_IGNORED);
+}
+
+/**
+ * client_impulse, unless a Pawn plugin took the impulse (it is 0 then), and
+ * client_cmdStart. The game takes the command's impulse and moves the player
+ * after CmdStart, so a listener still changes them.
+ */
+void CmdStart_Post(const edict_t *player, const struct usercmd_s *cmd, unsigned int seed)
+{
+	// Every player's every frame: what nobody listens to costs these checks.
+	bool impulse = cmd->impulse && Heard(FORWARD_CLIENT_IMPULSE);
+	int id = impulse || Heard(FORWARD_CLIENT_CMDSTART) ? ClientId(player) : 0;
+	if (!id)
+		RETURN_META(MRES_IGNORED);
+
+	usercmd_t *outer = g_cmd;
+	g_cmd = (usercmd_t *)cmd;
+	if (impulse) {
+		cell args[2] = { id, g_cmd->impulse };
+		if (Raise(FORWARD_CLIENT_IMPULSE, args, 2) > 0)
+			g_cmd->impulse = 0;
+	}
+	RaiseFor(FORWARD_CLIENT_CMDSTART, id);
+	g_cmd = outer;
+	RETURN_META(MRES_IGNORED);
+}
+
+/** server_changelevel: the map the game changes to, unless a Pawn plugin stopped it. */
+void ChangeLevel(const char *map, const char *landmark)
+{
+	if (META_RESULT_STATUS >= MRES_SUPERCEDE || !Heard(FORWARD_SERVER_CHANGELEVEL))
+		RETURN_META(MRES_IGNORED);
+
+	HostHeap heap;
+	cell args[1] = { PushString(map) };
+	if (Raise(FORWARD_SERVER_CHANGELEVEL, args, 1) > 0)
+		RETURN_META(MRES_SUPERCEDE);
+	RETURN_META(MRES_IGNORED);
+}
+
 // ---------------------------------------------------------------- the frame
 
 /**
  * Metamod's StartFrame, after the game's: once a server frame. What came in
- * since the last frame goes to the plugins first - the responses, the names
- * that changed - then the timers that are due, then the frame's listeners.
+ * since the last frame goes to the plugins first - the clients AMX Mod X's
+ * 0.7 s check authorized, the names that changed, the responses - then the
+ * timers that are due, AMX Mod X's task tick for the configs, then the
+ * frame's listeners.
  * The watcher last, since a reload throws the instances away.
  */
 void StartFrame_Post()
 {
+	RaiseAuthorized();
 	if (g_namesChanging)
 		NamesChanged();
 	NetFrame();
 	RunTimers();
+	ConfigTick();
 
 	Forward &f = g_forwards[FORWARD_SERVER_FRAME];
 	if (!f.handlers.empty() || !f.subscribers.empty()) {
@@ -5278,7 +5900,6 @@ static cell AMX_NATIVE_CALL n_setPlayerDataString(AMX *amx, cell *params)
 AMX_NATIVE_INFO g_natives[] = {
 	{ "amxts_natives",  n_natives  },
 	{ "amxts_native",   n_native   },
-	{ "amxts_init",     n_init     },
 	{ "amxts_event",    n_event    },
 	{ "amxts_callback", n_callback },
 	{ "amxts_get_player_data",        n_getPlayerData       },
@@ -5312,7 +5933,9 @@ void OnAmxxAttach()
 		MF_PrintSrvConsole("[amxts] generated natives failed to register\n");
 
 	MF_AddNatives(g_natives);
+	MF_RegAuthFunc(OnAuthorized);
 	FieldsAttach();
+	HookDrops();
 	ReadListFile();
 	InstallHost();
 }
@@ -5338,6 +5961,8 @@ void OnPluginsUnloaded()
 
 void OnAmxxDetach()
 {
+	MF_UnregAuthFunc(OnAuthorized);
+	UnhookDrops();
 	FieldsDetach();
 	Teardown();
 	// The worker stops before WAMR goes; its requests are deleted with it.

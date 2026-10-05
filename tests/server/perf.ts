@@ -6,8 +6,8 @@
 // best of three runs. A limit is changed on purpose, with the measurement
 // that moves it.
 import { hook } from "@amxts/core";
-import { LibType_Library } from "@amxts/core/constants";
-import { DisableHookChain, get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, strlen } from "@amxts/core/natives";
+import { EngFunc_RunPlayerMove, LibType_Library } from "@amxts/core/constants";
+import { DisableHookChain, engfunc, get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, strlen } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
 const TRIES = 3;
@@ -41,7 +41,7 @@ const LIMITS: Record<string, number> = {
 	"raw hook": 14,
 	"event": 30,
 	"forward to a listener": 12,
-	"relay with no listener": 6,
+	"relay with no listener": 1.5,
 	"Pawn calls a plugin": 12,
 	"timer armed": 7,
 	"timer firing": 7,
@@ -76,12 +76,6 @@ export function perf_report(what: string, value: Float) {
 /** A result of this side's that only Pawn can time: a forward, a command, a call from Pawn. */
 export function perf_ours(what: string, value: Float) {
 	ours.set(what, value);
-}
-
-/** Starts or stops listening to impulses, for perf-pawn.sma to time its forward with and without a listener. */
-export function perf_listen(on: boolean) {
-	if (on) server.addEventListener("impulse", onImpulse);
-	else server.removeEventListener("impulse", onImpulse);
 }
 
 /** The native Pawn calls here, against one another Pawn plugin registers. */
@@ -205,6 +199,17 @@ function onTimer() {
 
 server.addCommand("amxts_perf_command", onCommand);
 
+/**
+ * Nanoseconds a move of the bot with an impulse takes: the game's CmdStart,
+ * which the module hears the impulse in. The impulse is one the game ignores.
+ */
+function impulseNs(id: number) {
+	const angles = [0, 0, 0];
+	return nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) engfunc(EngFunc_RunPlayerMove, id, angles, 0, 0, 0, 0, 1, 0);
+	});
+}
+
 /** Nanoseconds a reset of the player's speed - a ResetMaxSpeed hookchain - takes. */
 function resetNs(id: number) {
 	return nsEach(FEW, () => {
@@ -262,6 +267,11 @@ function measure(player: Player) {
 	const raw = hook("reset_max_speed", onRawReset, true);
 	ours.set("raw hook", resetNs(id) - before);
 	DisableHookChain(raw);
+
+	before = impulseNs(id);
+	server.addEventListener("impulse", onImpulse);
+	ours.set("forward to a listener", impulseNs(id) - before);
+	server.removeEventListener("impulse", onImpulse);
 
 	before = resetNs(id);
 	game.addEventListener("resetMaxSpeed", onReset);

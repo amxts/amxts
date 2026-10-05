@@ -49,7 +49,9 @@ new Float:g_fsink;
 new g_writes;
 new g_commands;
 
-// client_impulse, which perf.ts hears through the host; one to a public of
+// Three forwards: client_impulse, which no plugin has a public for - the
+// module hears a player's impulse in the game's CmdStart itself, so a
+// forward of that name costs what one nobody hears does; one to a public of
 // this plugin's; one nobody hears.
 new g_impulse, g_heard, g_nobody;
 
@@ -289,10 +291,8 @@ public measure()
 
 	report_each("relay with no listener", FORWARD_NOBODY, id, FEW);
 	report_ours("relay with no listener", FORWARD_RELAYED, id, FEW);
+	// perf.ts times its own listener, on a bot's impulse.
 	report_each("forward to a listener", FORWARD_PAWN, id, FEW);
-	perf_listen(true);
-	report_ours("forward to a listener", FORWARD_RELAYED, id, FEW);
-	perf_listen(false);
 
 	report_each("Pawn calls a plugin", ECHO_PAWN, id, FEW);
 	report_ours("Pawn calls a plugin", ECHO_OURS, id, FEW);
