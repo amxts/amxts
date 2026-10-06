@@ -3,7 +3,9 @@
 // moved every frame, its command is read in cmdStart, joins the spectators -
 // after the game's team, as a dead player who changed teams once a round may
 // only change to them - and leaves when kicked: disconnected with the
-// reason, then remove.
+// reason, then remove. A bot that takes the slot of the one that left is not
+// heard spawning while the game counts it out (it spawns the bot as it joins,
+// with the fields the last one left), and its spawn in a team is heard.
 import { IN_USE, usercmd_buttons } from "@amxts/core/constants";
 import { get_usercmd } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
@@ -41,6 +43,11 @@ function onCommand({ player }: ClientCmdStartEvent) {
 	if (player.id == walking?.id) buttons = get_usercmd(usercmd_buttons);
 }
 server.addEventListener("frame", () => walking?.move({ forward: 250, buttons: ["use"] }));
+/** The spawns heard, as `<id> <hasDisconnected>`. */
+const spawns: string[] = [];
+game.addEventListener("playerSpawn", ({ player }) => {
+	spawns.push(`${player.id} ${player.hasDisconnected}`);
+}, { post: true });
 
 server.addServerCommand("amxts_test_bots", run);
 
@@ -90,5 +97,24 @@ async function run() {
 	check.expect(leave.length == 2 && leave[0].startsWith(`${id} disconnected true `) && leave[0].includes("bye now"), "disconnected: dropped, with the kick's reason").toBe(true);
 	check.expect(leave.length == 2 && leave[1].startsWith(`${id} remove true `) && leave[1].includes("bye now"), "remove: dropped, with the same reason").toBe(true);
 	check.expect(server.players.some(player => player.id == id && player.name == NAME), "it is gone from server.players").toBe(false);
+
+	// The engine gives a bot the first free slot: the ones before it are filled first.
+	spawns.length = 0;
+	const fillers: Player[] = [];
+	let next = server.addBot(NAME);
+	while (next != null && next.id != id) {
+		fillers.push(next);
+		next = server.addBot(NAME);
+	}
+	check.expect(next != null ? next.id : 0, "a bot takes the slot the kicked one left").toBe(id);
+	check.expect(spawns.filter(spawn => spawn.endsWith("true")).join(), "no spawn is heard while the game counts the bot out").toBe("");
+	if (next != null) {
+		next.joinTeam("CT");
+		next.respawn();
+		await sleep(300);
+		check.expect(spawns.includes(`${id} false`), `its spawn in the team is heard (${spawns.join()})`).toBe(true);
+		next.kick();
+	}
+	for (let i = 0; i < fillers.length; i++) fillers[i].kick();
 	check.done();
 }
