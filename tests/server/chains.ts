@@ -34,11 +34,12 @@ game.addEventListener("takeDamage", (event) => {
 }, true);
 
 // A raw hook made at the top level, before the plugin has its instance: its
-// `number` parameters still get the cells as numbers.
+// `number` parameters still get the cells as numbers. A server without
+// ReGameDLL has no such hook (0).
 function onTakeDamage(self: number) {
 	if (running) hooked = self;
 }
-hook("take_damage", onTakeDamage);
+const topLevelHook = hook("take_damage", onTakeDamage);
 
 function block(): number {
 	return 0;
@@ -72,7 +73,7 @@ server.addServerCommand("amxts_test_chains", () => {
 	check.expect(`${took} ${result}`, "the game's answer reaches the caller and the post listener").toBe("1 1");
 	const pawnFirst = hasModule("reapi") ? "pawn pre,ts pre,ts post,pawn post" : "ts pre,ts post";
 	check.expect(order.join(","), "Pawn's handler comes first before the game and last after it").toBe(pawnFirst);
-	check.expect(hooked, "a raw hook made at the top level reads its arguments as numbers").toBe(bot.id);
+	if (topLevelHook != 0) check.expect(hooked, "a raw hook made at the top level reads its arguments as numbers").toBe(bot.id);
 
 	game.addEventListener("takeDamage", block);
 	result = -1;
