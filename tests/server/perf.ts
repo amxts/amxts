@@ -15,6 +15,9 @@ const MANY = 1_000_000;
 const FEW = 100_000;
 const FRAMES = 10_000;
 const TIMERS = 300;
+// The turns impulseListenerNs takes, and the moves of each.
+const IMPULSE_ROUNDS = 31;
+const IMPULSE_RUN = 10_000;
 
 /** What Pawn measured, by name: nanoseconds an operation, or milliseconds a whole run. */
 const pawn = new Map<string, number>();
@@ -212,14 +215,34 @@ menu.addItem({
 });
 
 /**
- * Nanoseconds a move of the bot with an impulse takes: the game's CmdStart,
- * which the module hears the impulse in. The impulse is one the game ignores.
+ * Milliseconds `count` moves of the bot with an impulse take: the game's
+ * CmdStart, which the module hears the impulse in. The impulse is one the
+ * game ignores.
  */
-function impulseNs(id: number) {
+function impulseMs(id: number, count: number) {
 	const angles = [0, 0, 0];
-	return nsEach(FEW, () => {
-		for (let i = 0; i < FEW; i++) engfunc(EngFunc_RunPlayerMove, id, angles, 0, 0, 0, 0, 1, 0);
-	});
+	const start = performance.now();
+	for (let i = 0; i < count; i++) engfunc(EngFunc_RunPlayerMove, id, angles, 0, 0, 0, 0, 1, 0);
+	return performance.now() - start;
+}
+
+/**
+ * Nanoseconds an impulse listener adds to a move of the bot. A move is many
+ * times the listener's cost, and it drifts with the bot's state: so the moves
+ * without the listener and with it are run in turns, a short run each, and
+ * the median of the differences is taken.
+ */
+function impulseListenerNs(id: number) {
+	const differences: number[] = [];
+	for (let round = 0; round < IMPULSE_ROUNDS; round++) {
+		const without = impulseMs(id, IMPULSE_RUN);
+		server.addEventListener("impulse", onImpulse);
+		const heard = impulseMs(id, IMPULSE_RUN);
+		server.removeEventListener("impulse", onImpulse);
+		differences.push((heard - without) * 1_000_000 / IMPULSE_RUN);
+	}
+	differences.sort((a, b) => a - b);
+	return differences[Math.floor(IMPULSE_ROUNDS / 2)];
 }
 
 /**
@@ -291,10 +314,7 @@ function measure(player: Player) {
 	ours.set("raw hook", resetNs(id) - before);
 	unhook(raw);
 
-	before = impulseNs(id);
-	server.addEventListener("impulse", onImpulse);
-	ours.set("forward to a listener", impulseNs(id) - before);
-	server.removeEventListener("impulse", onImpulse);
+	ours.set("forward to a listener", impulseListenerNs(id));
 
 	before = resetNs(id);
 	game.addEventListener("resetMaxSpeed", onReset);
@@ -322,7 +342,7 @@ function compare(check: Checks, writes: number) {
 	const heard = FEW * TRIES;
 	check.expect(resets, "the listener heard every reset").toBe(heard);
 	check.expect(rawResets, "the raw hook heard every reset").toBe(heard);
-	check.expect(impulses, "the listener heard every impulse").toBe(heard);
+	check.expect(impulses, "the listener heard every impulse").toBe(IMPULSE_ROUNDS * IMPULSE_RUN);
 	check.expect(commands, "the handler got every command").toBe(heard);
 	check.expect(pawn.get("commands") ?? -1, "Pawn's handler got every command").toBe(heard);
 	check.expect(choices, "the menu got every choice").toBe(heard);
