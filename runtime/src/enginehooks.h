@@ -319,6 +319,45 @@ static void MessagesAttach(bool on)
 		MessageHooks(on);
 }
 
+// ---------------------------------------------------------------- the facade's messages
+
+// Metamod's engine table with every plugin's hooks in it, as AMX Mod X's
+// emessage_begin calls it: a message sent through it is heard as the game's
+// own. What a field's setter sends with the field - the HUD's money, the
+// armour's kind - is a call each here, not an AMX Mod X native's.
+static enginefuncs_t *g_hookedEngine = NULL;
+
+/** send_one(player, type): a message to one player in the game begun; 0, and nothing begun, for one who is not. */
+static int32_t w_sendOne(wasm_exec_env_t env, int32_t player, int32_t type)
+{
+	if (!g_hookedEngine)
+		GET_HOOK_TABLES(PLID, &g_hookedEngine, NULL, NULL);
+	if (!g_hookedEngine || type < 1 || player < 1 || player > gpGlobals->maxClients || !MF_IsPlayerIngame(player))
+		return 0;
+	g_hookedEngine->pfnMessageBegin(MSG_ONE, type, NULL, INDEXENT(player));
+	return 1;
+}
+
+static void w_sendByte(wasm_exec_env_t env, int32_t value)
+{
+	g_hookedEngine->pfnWriteByte(value);
+}
+
+static void w_sendLong(wasm_exec_env_t env, int32_t value)
+{
+	g_hookedEngine->pfnWriteLong(value);
+}
+
+static void w_sendString(wasm_exec_env_t env, int32_t text)
+{
+	g_hookedEngine->pfnWriteString(AsString(Inst(env), text).c_str());
+}
+
+static void w_sendEnd(wasm_exec_env_t env)
+{
+	g_hookedEngine->pfnMessageEnd();
+}
+
 // ---------------------------------------------------------------- the log
 
 // A log line's most arguments, and AMX Mod X's.
@@ -882,4 +921,9 @@ static void ForgetOtherPoints()
 	{ "cvar_hook",      (void *)w_cvar_hook,      "(ii)i",   NULL }, \
 	{ "touch_hook",     (void *)w_touch_hook,     "(iii)i",  NULL }, \
 	{ "stock_hook",     (void *)w_stock_hook,     "(iii)i",  NULL }, \
-	{ "query_cvar",     (void *)w_query_cvar,     "(ii)i",   NULL },
+	{ "query_cvar",     (void *)w_query_cvar,     "(ii)i",   NULL }, \
+	{ "send_one",       (void *)w_sendOne,        "(ii)i",   NULL }, \
+	{ "send_byte",      (void *)w_sendByte,       "(i)",     NULL }, \
+	{ "send_long",      (void *)w_sendLong,       "(i)",     NULL }, \
+	{ "send_string",    (void *)w_sendString,     "(i)",     NULL }, \
+	{ "send_end",       (void *)w_sendEnd,        "()",      NULL },

@@ -1131,10 +1131,19 @@ function hamCall(fn: i32, id: number, options: ActionOptions): Call {
 @external("env", "member_set_text") declare function _memberSetText(id: i32, slot: i32, text: string): void;
 // @ts-ignore: decorator
 @external("env", "game_rules")      declare function _gameRules(): i32;
-// The native itself, given an origin of cells that is made once (NOWHERE):
-// its wrapper makes one from an array on every call.
+// A message a setter sends with its field, to one player in the game, through
+// the engine as the game's own go: every plugin's message hooks hear it.
+// send_one answers 0, and begins nothing, for a player who is not in the game.
 // @ts-ignore: decorator
-@external("env", "emessage_begin")  declare function _emessageBegin(dest: i32, type: i32, origin: usize, player: i32): i32;
+@external("env", "send_one")        declare function _sendOne(player: i32, type: i32): i32;
+// @ts-ignore: decorator
+@external("env", "send_byte")       declare function _sendByte(value: i32): void;
+// @ts-ignore: decorator
+@external("env", "send_long")       declare function _sendLong(value: i32): void;
+// @ts-ignore: decorator
+@external("env", "send_string")     declare function _sendString(text: string): void;
+// @ts-ignore: decorator
+@external("env", "send_end")        declare function _sendEnd(): void;
 
 /** The id the module reads the game rules' members by. */
 const RULES: i32 = -1;
@@ -1330,10 +1339,8 @@ function sendTeamScore(team: string, score: number): void {
  * a player who is not in the game.
  */
 function messageTo(id: number, message: GameMessage): bool {
-	if (is_user_connected(id) == 0) return false;
 	if (message.id == 0) message.id = get_user_msgid(message.name);
-	_emessageBegin(MSG_ONE, message.id, changetype<usize>(NOWHERE), <i32>id);
-	return true;
+	return _sendOne(<i32>id, message.id) != 0;
 }
 
 /** A message the setters send: its name, and its id, looked up the first time it is sent. */
@@ -1349,32 +1356,29 @@ const NIGHT_VISION_TOGGLE = new GameMessage("NVGToggle");
 const STATUS_ICON = new GameMessage("StatusIcon");
 const ITEM_STATUS = new GameMessage("ItemStatus");
 
-/** The origin a message to one player is sent from: none. */
-const NOWHERE = new StaticArray<i32>(3);
-
 /** The player's money, and the Money message that shows it on his HUD, flashing - what cs_set_user_money sends. */
 function setMoney(id: number, cell: i32): void {
 	setMemberCell(id, ${AT.money}, cell);
 	if (!messageTo(id, MONEY)) return;
-	ewrite_long(cell);
-	ewrite_byte(1);
-	emessage_end();
+	_sendLong(cell);
+	_sendByte(1);
+	_sendEnd();
 }
 
 /** The player's armour kind, and ArmorType: whether his HUD shows a helmet. */
 function setKevlar(id: number, cell: i32): void {
 	setMemberCell(id, ${AT.kevlar}, cell);
 	if (!messageTo(id, ARMOR_TYPE)) return;
-	ewrite_byte(cell == ARMOR_VESTHELM ? 1 : 0);
-	emessage_end();
+	_sendByte(cell == ARMOR_VESTHELM ? 1 : 0);
+	_sendEnd();
 }
 
 /** The flashlight's charge, and FlashBat: the bar on his HUD. */
 function setFlashlightBattery(id: number, cell: i32): void {
 	setMemberCell(id, ${AT.flashlightBattery}, cell);
 	if (!messageTo(id, FLASHLIGHT_BATTERY)) return;
-	ewrite_byte(cell);
-	emessage_end();
+	_sendByte(cell);
+	_sendEnd();
 }
 
 /** Whether he owns night vision goggles, told to his buy menu (ItemStatus). */
@@ -1387,8 +1391,8 @@ function setNightVision(id: number, cell: i32): void {
 function setNightVisionOn(id: number, cell: i32): void {
 	setMemberCell(id, ${AT.nightVisionOn}, cell);
 	if (!messageTo(id, NIGHT_VISION_TOGGLE)) return;
-	ewrite_byte(cell);
-	emessage_end();
+	_sendByte(cell);
+	_sendEnd();
 }
 
 /**
@@ -1399,14 +1403,14 @@ function setDefuser(id: number, cell: i32): void {
 	setMemberCell(id, ${AT.defuser}, cell);
 	setEntvarCell(id, ${offsetOf('var_body')}, cell);
 	if (messageTo(id, STATUS_ICON)) {
-		ewrite_byte(cell);
-		ewrite_string("defuser");
+		_sendByte(cell);
+		_sendString("defuser");
 		if (cell != 0) {
-			ewrite_byte(0);
-			ewrite_byte(160);
-			ewrite_byte(0);
+			_sendByte(0);
+			_sendByte(160);
+			_sendByte(0);
 		}
-		emessage_end();
+		_sendEnd();
 	}
 	sendItemStatus(id);
 }
@@ -1414,8 +1418,8 @@ function setDefuser(id: number, cell: i32): void {
 /** ItemStatus: the night vision and the defuse kit the player owns, which his buy menu shows. */
 function sendItemStatus(id: number): void {
 	if (!messageTo(id, ITEM_STATUS)) return;
-	ewrite_byte((memberCell(id, ${AT.nightVision}) != 0 ? 1 : 0) | (memberCell(id, ${AT.defuser}) != 0 ? 2 : 0));
-	emessage_end();
+	_sendByte((memberCell(id, ${AT.nightVision}) != 0 ? 1 : 0) | (memberCell(id, ${AT.defuser}) != 0 ? 2 : 0));
+	_sendEnd();
 }
 
 /**

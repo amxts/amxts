@@ -2574,6 +2574,28 @@ export class FakeServer {
 			}
 		},
 
+		// What a field's setter sends with the field: emessage_* to one player in the game.
+		send_one(this: FakeServer, plugin: PluginInstance, player: number, type: number) {
+			if (this.callNativeImpl(plugin, 'is_user_connected', [player]) === 0) return 0;
+			return this.callNativeImpl(plugin, 'emessage_begin', [MSG_ONE, type, 0, player]);
+		},
+
+		send_byte(this: FakeServer, plugin: PluginInstance, value: number) {
+			this.writing?.args.push(value);
+		},
+
+		send_long(this: FakeServer, plugin: PluginInstance, value: number) {
+			this.writing?.args.push(value);
+		},
+
+		send_string(this: FakeServer, plugin: PluginInstance, text: number) {
+			this.writing?.args.push(plugin.memory.string(text));
+		},
+
+		send_end(this: FakeServer, plugin: PluginInstance) {
+			this.callNativeImpl(plugin, 'emessage_end', []);
+		},
+
 		ent_entity(this: FakeServer, plugin: PluginInstance, id: number, offset: number) {
 			const at = tables().entvarAt.get(offset);
 			return at ? fieldCell(this.entities.get(id), at.field) : 0;
