@@ -32,6 +32,14 @@ unions of string literals, closures, optional properties and `undefined`,
 with a number by `+`, `async`/`await`, overloads, object types in place,
 return types read off the body, `Date` in the server's time zone.
 
+It also tunes the runtime (`std/assembly/rt/`) for a plugin, which makes
+many small objects over a small live heap: a small block freed (up to 124
+bytes) goes on a list of its size, and the next allocation of that size
+takes it without TLSF's search, split or merge; and the incremental collector
+starts a cycle only once the heap has doubled and grown 1 MB more
+(`ASC_GC_IDLEGAP`), not 1 KB, since a cycle visits every root and every
+live object.
+
 After changing `src/` or `std/` in `runtime/deps/assemblyscript`, rebuild it
 and write the patch back from there:
 

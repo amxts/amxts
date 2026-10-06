@@ -14422,6 +14422,101 @@ index 8ed6063..efa6398 100644
 +function isWordChar(c: i32): bool {
 +  return c >= 0x30 && c <= 0x39 || c >= 0x41 && c <= 0x5A || c == 0x5F || c >= 0x61 && c <= 0x7A;
  }
+diff --git a/std/assembly/rt/itcms.ts b/std/assembly/rt/itcms.ts
+index ba2e09e..8a13216 100644
+--- a/std/assembly/rt/itcms.ts
++++ b/std/assembly/rt/itcms.ts
+@@ -373,7 +373,7 @@ export function __collect(): void {
+   // perform a full cycle
+   step();
+   while (state != STATE_IDLE) step();
+-  threshold = <usize>(<u64>total * IDLEFACTOR / 100) + GRANULARITY;
++  threshold = <usize>(<u64>total * IDLEFACTOR / 100) + IDLEGAP;
+   if (TRACE) trace("GC (full) done at cur/max", 2, total, memory.size() << 16);
+   if (RTRACE || PROFILE) oncollect(total);
+ }
+@@ -390,6 +390,14 @@ export function __collect(): void {
+ // @ts-ignore: decorator
+ @inline const IDLEFACTOR: usize = isDefined(ASC_GC_IDLEFACTOR) ? ASC_GC_IDLEFACTOR : 200;
+ 
++/**
++ * amxts: how much more is allocated, at least, before the next cycle starts.
++ * A cycle visits every root and every live object: with a small heap and
++ * the gap GRANULARITY alone, it ran every few hundred allocations.
++ */
++// @ts-ignore: decorator
++@inline const IDLEGAP: usize = isDefined(ASC_GC_IDLEGAP) ? ASC_GC_IDLEGAP : 1024 * 1024;
++
+ /** Threshold of memory used by objects to exceed before interrupting again. */
+ // @ts-ignore: decorator
+ @lazy let threshold: usize = ((<usize>memory.size() << 16) - __heap_base) >> 1;
+@@ -405,9 +413,9 @@ function interrupt(): void {
+       if (TRACE) trace("└ GC (auto) done at cur/max", 2, total, memory.size() << 16);
+       if (IDLEFACTOR % 100 == 0) {
+         // optimization for the default GC parameters which idle factor is 200%
+-        threshold = total * (IDLEFACTOR / 100) + GRANULARITY;
++        threshold = total * (IDLEFACTOR / 100) + IDLEGAP;
+       } else {
+-        threshold = <usize>((<u64>total * IDLEFACTOR) / 100) + GRANULARITY;
++        threshold = <usize>((<u64>total * IDLEFACTOR) / 100) + IDLEGAP;
+       }
+       if (PROFILE) onyield(total);
+       return;
+diff --git a/std/assembly/rt/tlsf.ts b/std/assembly/rt/tlsf.ts
+index 3d135a3..d7551f3 100644
+--- a/std/assembly/rt/tlsf.ts
++++ b/std/assembly/rt/tlsf.ts
+@@ -556,6 +556,19 @@ export function freeBlock(root: Root, block: Block): void {
+   insertBlock(root, block);
+ }
+ 
++// amxts: a small block freed goes on a list of its size, and the next
++// allocation of that size takes it back: no search, split or merge. It stays
++// a used block to TLSF, so no neighbour merges with it, and it is not given
++// back to TLSF for other sizes. Its first word links the list. The sizes are
++// TLSF's own (16 n + 12 on 32 bits), a list each, up to SMALL_MAX.
++
++// @ts-ignore: decorator
++@inline const SMALL_MAX: usize = 124;
++
++/** The lists' heads, by a block's size >> AL_BITS. */
++// @ts-ignore: decorator
++@lazy let SMALL = memory.data(<i32>(((SMALL_MAX >> AL_BITS) + 1) << alignof<usize>()));
++
+ /** Checks that a used block is valid to be freed or reallocated. */
+ function checkUsedBlock(ptr: usize): Block {
+   let block = changetype<Block>(ptr - BLOCK_OVERHEAD);
+@@ -569,6 +582,14 @@ function checkUsedBlock(ptr: usize): Block {
+ // @ts-ignore: decorator
+ @global @unsafe
+ export function __alloc(size: usize): usize {
++  if (size <= SMALL_MAX) {
++    let head = SMALL + (computeSize(size) >> AL_BITS << alignof<usize>());
++    let block = load<usize>(head);
++    if (block) {
++      store<usize>(head, load<usize>(block, BLOCK_OVERHEAD));
++      return block + BLOCK_OVERHEAD;
++    }
++  }
+   if (!ROOT) initialize();
+   return changetype<usize>(allocateBlock(ROOT, size)) + BLOCK_OVERHEAD;
+ }
+@@ -587,6 +608,14 @@ export function __realloc(ptr: usize, size: usize): usize {
+ @global @unsafe
+ export function __free(ptr: usize): void {
+   if (ptr < __heap_base) return;
++  let block = checkUsedBlock(ptr);
++  let size = block.mmInfo & ~TAGS_MASK;
++  if (size <= SMALL_MAX) {
++    let head = SMALL + (size >> AL_BITS << alignof<usize>());
++    store<usize>(ptr, load<usize>(head));
++    store<usize>(head, changetype<usize>(block));
++    return;
++  }
+   if (!ROOT) initialize();
+-  freeBlock(ROOT, checkUsedBlock(ptr));
++  freeBlock(ROOT, block);
+ }
 diff --git a/std/assembly/set.ts b/std/assembly/set.ts
 index ca2d6e4..b8959cf 100644
 --- a/std/assembly/set.ts
