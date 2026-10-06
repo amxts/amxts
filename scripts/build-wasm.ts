@@ -45,7 +45,7 @@ import { serverIncludes } from './includes';
 import { pluginCache } from './plugin-cache';
 import { includeName } from './plugin-natives';
 import { fromRegistry, prebuiltOf, prebuiltSurface } from './prebuilt';
-import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, projectPlugins, sourcesFor } from './project';
+import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, projectPlugins, sourcesFor, staleCopies } from './project';
 import { sharedModulesBuild } from './shared-modules';
 import { describeSystem, serverFolder, serverSystem, SYSTEM_NAME, WAMRC_PACKAGE, wamrcPath } from './system';
 import { c, live, log, progress, since } from './ui';
@@ -160,6 +160,10 @@ interface Target {
 /** The project's own plugins: the .ts files at the top of its plugins folder. */
 function ownPlugins(): Target[] {
 	return projectPlugins(project).map(source => ({ source, name: basename(source).replace(/\.ts$/, '') }));
+}
+
+for (const copy of staleCopies(project)) {
+	log.warn(`${shown(copy)} is a copy of amxts's own API from an older version, not a plugin: delete it (npx amxts upgrade does)`);
 }
 
 for (const plugin of ownPlugins()) {
