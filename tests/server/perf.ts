@@ -31,7 +31,7 @@ const ours = new Map<string, number>();
  * with room for a noisy machine and another system.
  */
 const LIMITS: Record<string, number> = {
-	"native": 3.5,
+	"native": 3,
 	"money read": 1,
 	"health read": 2.5,
 	"health write": 2.5,
@@ -47,7 +47,7 @@ const LIMITS: Record<string, number> = {
 	"relay with no listener": 1.5,
 	"Pawn calls a plugin": 2,
 	"timer armed": 4,
-	"timer firing": 7,
+	"timer firing": 6,
 	"command": 2,
 	"menu choice": 3,
 	"remainder": 2.5,

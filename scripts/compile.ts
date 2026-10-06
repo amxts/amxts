@@ -53,6 +53,9 @@ export interface Plugin {
 /** Binaryen's optimisation level: a quick build's, and a full one's - asc's own --optimize. */
 const OPTIMIZE = { quick: 1, full: 3 };
 
+/** The size, in Binaryen's nodes, up to which a full build inlines any function (inlineSmall). */
+const INLINE_SIZE = 30;
+
 /** The hood's exports every plugin carries; see compilePlugin. */
 export const HOOD_EXPORTS = '__amxts_exports.ts';
 
@@ -269,6 +272,7 @@ export function finishing(hoodExports: string, level: number | null, done: (firs
 			module.emitBinary = (url?: string) => {
 				const imports = new Set(functionsOf(module).map(each => each.imported));
 				if (hoodExports === ASYNC_EXPORTS || !imports.has(WAKE_IMPORT)) {
+					if (level === null) inlineSmall(module);
 					if (imports.has(SUSPEND_IMPORT)) asyncify(module, level ?? OPTIMIZE.full);
 					else if (level !== null) optimize(module, level);
 				}
@@ -290,6 +294,22 @@ function functionsOf(module: any): { name: string; imported: string | null }[] {
 	const functions = Array.from({ length: module.getNumFunctions() }, (_, i) => binaryen.getFunctionInfo(module.getFunctionByIndex(i)));
 	const ordered = [...functions.filter(info => info.module), ...functions.filter(info => !info.module)];
 	return ordered.map(info => ({ name: info.name, imported: info.module ? `${info.module}.${info.base}` : null }));
+}
+
+/**
+ * A full build's small functions inlined where they are called. Every
+ * function asc writes calls ~stack_check, its shadow stack's guard, and
+ * Binaryen does not inline a function that calls another unless it is
+ * tiny - so a getter or an array's element read stayed a call, a frame
+ * and a check each.
+ */
+function inlineSmall(module: any) {
+	const always = binaryen.getAlwaysInlineMaxSize();
+	binaryen.setOptimizeLevel(OPTIMIZE.full);
+	binaryen.setShrinkLevel(0);
+	binaryen.setAlwaysInlineMaxSize(INLINE_SIZE);
+	module.runPasses(['inlining-optimizing']);
+	binaryen.setAlwaysInlineMaxSize(always);
 }
 
 /** Binaryen's optimisation at `level`: what a quick build runs in place of asc's. */
