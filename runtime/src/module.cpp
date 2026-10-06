@@ -38,8 +38,10 @@
 #include <time.h>
 #ifdef _WIN32
 #include <windows.h>
+#include <intrin.h>
 #else
 #include <dlfcn.h>
+#include <pthread.h>
 #include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -6592,6 +6594,32 @@ static bool FindClientCommandPath()
 	return g_tokenize && g_entityApi;
 }
 
+/** The lowest address of this thread's stack, as far as it is reserved; 0 when it cannot be told. */
+static const char *StackLow()
+{
+#ifdef _WIN32
+	return (const char *)((NT_TIB *)NtCurrentTeb())->StackLimit;
+#else
+	static const char *low = NULL;
+	pthread_attr_t attr;
+	if (!low && pthread_getattr_np(pthread_self(), &attr) == 0) {
+		void *at = NULL;
+		size_t size = 0;
+		pthread_attr_getstack(&attr, &at, &size);
+		pthread_attr_destroy(&attr);
+		low = (const char *)at;
+	}
+	return low;
+#endif
+}
+
+// The top of the frame of the function it is written in: its locals lie below.
+#ifdef _MSC_VER
+#define FRAME_TOP() ((const char *)_AddressOfReturnAddress())
+#else
+#define FRAME_TOP() ((const char *)__builtin_frame_address(0))
+#endif
+
 // bot_cmd(id, line) - the bot sends `line`.
 static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line)
 {
@@ -6612,12 +6640,15 @@ static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line)
 	// (a deque, whose strings stay where they are as it grows).
 	// The engine's Cmd_Args is NULL for a command with no argument.
 	// Outside a command's dispatch the engine's line is whatever was split
-	// last, by anyone - a bot's own code among them - and Cmd_Args may point
-	// into a stack that is gone: it is not read, and an empty line goes back.
+	// last, by anyone, and inside one a game or bot's code may have split a
+	// line of its own on the stack since: Cmd_Args then points into a frame
+	// that has returned - at or below this one - and the line is not read.
+	// An empty line goes back instead.
 	static std::deque<std::string> restored;
 	static size_t depth = 0;
 	const char *args = g_commandDepth > 0 && CMD_ARGC() > 0 ? CMD_ARGS() : NULL;
-	std::string outer = g_commandDepth > 0 && CMD_ARGC() > 0 ? std::string(CMD_ARGV(0)) + " " + (args ? args : "") : "";
+	bool gone = args && args >= StackLow() && args < FRAME_TOP();
+	std::string outer = g_commandDepth > 0 && CMD_ARGC() > 0 && !gone ? std::string(CMD_ARGV(0)) + " " + (args ? args : "") : "";
 	std::string text = AsString(Inst(env), line);
 	g_tokenize(&text[0]);
 	depth++;
