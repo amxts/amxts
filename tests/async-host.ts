@@ -28,7 +28,7 @@ interface Coroutine {
 interface Task {
 	at: number;
 	fn: number;
-	id: number;
+	slot: number;
 	order: number;
 }
 
@@ -54,7 +54,6 @@ export class AsyncHost {
 	private depth = 0;
 	private wake = false;
 	private entering = false;
-	private nextId = 0x60000000;
 	private order = 0;
 	private top = 0;
 
@@ -87,15 +86,18 @@ export class AsyncHost {
 			const forward = text(name);
 			this.events.set(forward, [...(this.events.get(forward) ?? []), fn]);
 		};
-		env.task = (secondsBits: number, fn: number, id: number) => {
+		env.task = (secondsBits: number, fn: number) => {
 			const seconds = new Float32Array(new Int32Array([secondsBits]).buffer)[0];
+			// The lowest free slot, as module.cpp reuses them.
+			let slot = 0;
+			while (this.tasks.some(task => task.slot === slot)) slot++;
 			// The delay crossed as an f32: 0.1 s is 100.0000015 ms, rounded back here.
-			this.tasks.push({ at: this.now + Math.round(seconds * 1000), fn, id, order: this.order++ });
-			return 0;
+			this.tasks.push({ at: this.now + Math.round(seconds * 1000), fn, slot, order: this.order++ });
+			return slot;
 		};
-		env.stop_task = (id: number) => {
+		env.stop_task = (slot: number) => {
 			const before = this.tasks.length;
-			this.tasks = this.tasks.filter(task => task.id !== id);
+			this.tasks = this.tasks.filter(task => task.slot !== slot);
 			return before - this.tasks.length;
 		};
 
@@ -147,7 +149,6 @@ export class AsyncHost {
 		env.co_wake = () => {
 			this.wake = true;
 		};
-		env.co_id = () => this.nextId++;
 
 		const instance = new WebAssembly.Instance(module, { env });
 		this.exports = instance.exports;
@@ -186,7 +187,7 @@ export class AsyncHost {
 			if (!due) break;
 			this.tasks.splice(this.tasks.indexOf(due), 1);
 			this.now = Math.max(this.now, due.at);
-			this.enter(() => this.callIndirect(due.fn, [due.id]));
+			this.enter(() => this.callIndirect(due.fn, [due.slot]));
 		}
 		this.now = until;
 	}

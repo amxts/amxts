@@ -55,9 +55,9 @@ import { Vector } from "./vector";
 // @ts-ignore: decorator
 @external("env", "bot_cmd")      declare function _botCmd(id: i32, line: string): void;
 // @ts-ignore: decorator
-@external("env", "task")         declare function _task(secondsBits: i32, fn: i32, id: i32, repeat: i32): i32;
+@external("env", "task")         declare function _task(secondsBits: i32, fn: i32, repeat: i32): i32;
 // @ts-ignore: decorator
-@external("env", "stop_task")    declare function _stopTask(id: i32): i32;
+@external("env", "stop_task")    declare function _stopTask(slot: i32): i32;
 // @ts-ignore: decorator
 @external("env", "outcome")      declare function _outcome(value: i32): void;
 // @ts-ignore: decorator
@@ -126,8 +126,6 @@ const SHAPE_WIDE: i32 = 1;
 
 // @ts-ignore: decorator
 @external("env", "tag")   declare function _tag(tag: i32): void;
-// @ts-ignore: decorator
-@external("env", "co_id") declare function _uniqueId(): i32;
 
 // A function handed to the host is called by its table index. A closure is
 // its table entry and its variables together, so for a closure the host gets
@@ -4139,30 +4137,38 @@ export function cmdWide(name: string, handler: WideHandler, flag: FlagName = "al
 /** The function a timer runs: `() => ...`. */
 export type TimerHandler = () => void;
 
-// The timers that are armed, by handle. The module fires a timer by calling one
-// function with its id; that function is timerFired, which calls the handler
-// from here - with its closure, which a bare table index would lose. A timeout
-// and an interval are kept apart, so a timer is its handler and nothing more.
-const timeouts = new Map<i32, TimerHandler>();
-const intervals = new Map<i32, TimerHandler>();
+// The timers that are armed, by the slot the module keeps each in. The module
+// fires a timer by calling timeoutFired or intervalFired with its slot, which
+// call the handler from here - with its closure, which a bare table index
+// would lose. A slot takes the next timer once its own is done, so a handle
+// is the slot and how many timers it has had (TIMER_SLOTS apart): a handle
+// kept after its timer has fired cannot stop the slot's next one.
+const timers: (TimerHandler | null)[] = [];
+const timerHandles: f64[] = [];
+const TIMER_SLOTS: f64 = 1 << 24;
+// Past it a handle would lose its slot to the f64's precision: the count starts again.
+const TIMER_HANDLES_END: f64 = 4503599627370496; // 2^52
 
-function timerFired(handle: i32): void {
-	if (timeouts.has(handle)) {
-		const handler = timeouts.get(handle);
-		timeouts.delete(handle);
-		handler();
-	} else if (intervals.has(handle)) intervals.get(handle)();
+function timeoutFired(slot: i32): void {
+	const handler = unchecked(timers[slot]);
+	unchecked(timers[slot] = null);
+	if (handler) handler();
 }
 
-function armTimer(handler: TimerHandler, ms: number, repeat: bool): i32 {
-	// The module's timer ids are one space for every plugin, and a timer is
-	// stopped by its id: the handle comes from the module, so no other plugin
-	// has it and clearTimeout here cannot stop a timer there.
-	const handle = _uniqueId();
-	(repeat ? intervals : timeouts).set(handle, handler);
+function intervalFired(slot: i32): void {
+	const handler = unchecked(timers[slot]);
+	if (handler) handler();
+}
+
+function armTimer(handler: TimerHandler, ms: number, repeat: bool): number {
 	// The delay crosses as the bit pattern of a 32-bit float: every signature
 	// in the module's table is all-i on purpose.
-	_task(floatCell(ms / 1000.0), timerFired.index, handle, repeat ? 1 : 0);
+	const slot = _task(floatCell(ms / 1000.0), repeat ? intervalFired.index : timeoutFired.index, repeat ? 1 : 0);
+	if (slot < 0) return 0;
+	const last = slot < timerHandles.length ? unchecked(timerHandles[slot]) : 0;
+	const handle = (last > 0 && last < TIMER_HANDLES_END ? last : <f64>slot) + TIMER_SLOTS;
+	timerHandles[slot] = handle;
+	timers[slot] = handler;
 	return handle;
 }
 
@@ -4225,8 +4231,10 @@ export function setInterval(handler: TimerHandler, ms: number): number {
  * Pawn: `remove_task`
  */
 export function clearTimeout(handle: number): void {
-	const id = <i32>handle;
-	if (timeouts.delete(id) || intervals.delete(id)) _stopTask(id);
+	const slot = <i32>(<i64>handle & (<i64>TIMER_SLOTS - 1));
+	if (slot >= timers.length || unchecked(timerHandles[slot]) != handle || !unchecked(timers[slot])) return;
+	unchecked(timers[slot] = null);
+	_stopTask(slot);
 }
 
 /** Stops the interval with this handle; the same as `clearTimeout`. */

@@ -41,11 +41,9 @@
 // @ts-ignore: decorator
 @external("env", "co_wake") declare function __co_host_wake(): void;
 // @ts-ignore: decorator
-@external("env", "co_id") declare function __co_host_id(): i32;
+@external("env", "task") declare function __co_host_task(secondsBits: i32, fn: i32, repeat: i32): i32;
 // @ts-ignore: decorator
-@external("env", "task") declare function __co_host_task(secondsBits: i32, fn: i32, id: i32, repeat: i32): i32;
-// @ts-ignore: decorator
-@external("env", "stop_task") declare function __co_host_stop_task(id: i32): i32;
+@external("env", "stop_task") declare function __co_host_stop_task(slot: i32): i32;
 // @ts-ignore: decorator
 @external("env", "on") declare function __co_host_on(event: string, fn: i32, shape: i32): void;
 
@@ -1167,9 +1165,8 @@ function __co_reportUnhandled(): void {
 	/** A signal that aborts by itself after `ms`, with an Error named `"TimeoutError"`. */
 	static timeout(ms: number): AbortSignal {
 		const signal = new AbortSignal();
-		const id = __co_host_id();
-		__timeouts.set(id, signal);
-		__co_host_task(reinterpret<i32>(<f32>(ms / 1000.0)), __co_timeoutFired.index, id, 0);
+		const slot = __co_host_task(reinterpret<i32>(<f32>(ms / 1000.0)), __co_timeoutFired.index, 0);
+		if (slot >= 0) __timeouts[slot] = signal;
 		return signal;
 	}
 
@@ -1263,13 +1260,14 @@ class __CoroutineAbort extends __AbortWatch {
 	}
 }
 
+// AbortSignal.timeout's signals, by the slot the module keeps their timers in.
 // @ts-ignore: decorator
-@lazy const __timeouts = new Map<i32, AbortSignal>();
+@lazy const __timeouts: (AbortSignal | null)[] = [];
 
-function __co_timeoutFired(id: i32): void {
-	if (!__timeouts.has(id)) return;
-	const signal = __timeouts.get(id);
-	__timeouts.delete(id);
+function __co_timeoutFired(slot: i32): void {
+	const signal = unchecked(__timeouts[slot]);
+	unchecked(__timeouts[slot] = null);
+	if (!signal) return;
 	const error = new Error("The operation was aborted due to timeout");
 	error.name = "TimeoutError";
 	signal.__abort(error);
@@ -1314,28 +1312,31 @@ function __co_timeoutFired(id: i32): void {
 class __Sleep extends __AbortWatch {
 	guard: __AbortGuard | null = null;
 
-	constructor(public promise: Promise<void>, public id: i32) {
+	// The slot the module keeps its timer in, -1 before it is armed.
+	slot: i32 = -1;
+
+	constructor(public promise: Promise<void>) {
 		super();
 	}
 
 	run(reason: Error): void {
-		if (!__sleeps.has(this.id)) return;
-		__sleeps.delete(this.id);
-		__co_host_stop_task(this.id);
+		if (this.slot < 0 || unchecked(__sleeps[this.slot]) != this) return;
+		unchecked(__sleeps[this.slot] = null);
+		__co_host_stop_task(this.slot);
 		(this.guard as __AbortGuard).release();
 		this.promise.__reject(reason);
 	}
 }
 
+// The sleeps that wait, by the slot the module keeps their timers in.
 // @ts-ignore: decorator
-@lazy const __sleeps = new Map<i32, __Sleep>();
+@lazy const __sleeps: (__Sleep | null)[] = [];
 
 /** @hidden the facade's sleep(): fulfilled after `ms`, rejected if a signal aborts first. */
 // @ts-ignore: decorator
 @global export function __co_sleep(ms: f64, signal: AbortSignal | null): Promise<void> {
 	const promise = __co_promise<void>();
-	const id = __co_host_id();
-	const sleep = new __Sleep(promise, id);
+	const sleep = new __Sleep(promise);
 	const guard = new __AbortGuard(sleep, signal);
 	sleep.guard = guard;
 
@@ -1346,15 +1347,17 @@ class __Sleep extends __AbortWatch {
 		return promise;
 	}
 
-	__sleeps.set(id, sleep);
-	__co_host_task(reinterpret<i32>(<f32>(ms / 1000.0)), __co_sleepFired.index, id, 0);
+	const slot = __co_host_task(reinterpret<i32>(<f32>(ms / 1000.0)), __co_sleepFired.index, 0);
+	if (slot < 0) return promise;
+	sleep.slot = slot;
+	__sleeps[slot] = sleep;
 	return promise;
 }
 
-function __co_sleepFired(id: i32): void {
-	if (!__sleeps.has(id)) return;
-	const sleep = __sleeps.get(id);
-	__sleeps.delete(id);
+function __co_sleepFired(slot: i32): void {
+	const sleep = unchecked(__sleeps[slot]);
+	unchecked(__sleeps[slot] = null);
+	if (!sleep) return;
 	(sleep.guard as __AbortGuard).release();
 	sleep.promise.__fulfillVoid();
 }

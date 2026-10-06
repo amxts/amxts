@@ -13,7 +13,7 @@ import { pawnLayout } from '../../scripts/plugin-natives';
 // against the players and entities below. An import neither covers throws,
 // naming itself, the first time the plugin calls it.
 import { compile } from './compile';
-import { Coroutines, nextTaskId } from './coroutines';
+import { Coroutines } from './coroutines';
 import { installKitFor } from './kits';
 import { bitsFloat, floatBits, Memory, utf8Fit } from './memory';
 import { fieldCell, NATIVES, setFieldCell, WEAPON_NAMES } from './natives';
@@ -87,7 +87,8 @@ interface Slot extends Handler {
 
 interface Task {
 	slot: Slot;
-	id: number;
+	/** The timer's own slot, which task hands the plugin: the lowest free one, as module.cpp reuses them. */
+	timer: number;
 	interval: number;
 	due: number;
 	repeat: boolean;
@@ -1106,7 +1107,7 @@ export class FakeServer {
 			if (due.repeat) due.due += due.interval;
 			else this.tasks.splice(this.tasks.indexOf(due), 1);
 
-			this.withCallArgs([due.id], () => this.call(due.slot, [due.id], 0));
+			this.withCallArgs([due.timer], () => this.call(due.slot, [due.timer], 0));
 		}
 
 		this.time = until;
@@ -2310,20 +2311,21 @@ export class FakeServer {
 			this.players.find(each => each.id === id)?.command(plugin.memory.string(line));
 		},
 
-		task(this: FakeServer, plugin: PluginInstance, secondsBits: number, fn: number, id: number, repeat: number) {
+		task(this: FakeServer, plugin: PluginInstance, secondsBits: number, fn: number, repeat: number) {
 			const slot = this.takeSlot(plugin, fn, 0, '', 0);
 			const interval = Math.round(bitsFloat(secondsBits) * 1000);
-			this.tasks.push({ slot, id, interval, due: this.time + interval, repeat: repeat !== 0, order: this.taskOrder++ });
-			return slot.index;
+			let timer = 0;
+			while (this.tasks.some(task => task.timer === timer)) timer++;
+			this.tasks.push({ slot, timer, interval, due: this.time + interval, repeat: repeat !== 0, order: this.taskOrder++ });
+			return timer;
 		},
 
-		// remove_task with `outside`: every task of that id, whoever armed it.
-		stop_task(this: FakeServer, plugin: PluginInstance, id: number) {
-			const before = this.tasks.length;
-			for (let i = this.tasks.length - 1; i >= 0; i--) {
-				if (this.tasks[i].id === id) this.tasks.splice(i, 1);
-			}
-			return before - this.tasks.length;
+		// The calling plugin's timer in that slot.
+		stop_task(this: FakeServer, plugin: PluginInstance, timer: number) {
+			const at = this.tasks.findIndex(task => task.timer === timer && task.slot.plugin === plugin);
+			if (at < 0) return 0;
+			this.tasks.splice(at, 1);
+			return 1;
 		},
 
 		hook(this: FakeServer, plugin: PluginInstance, id: number, fn: number, post: number) {
@@ -2473,11 +2475,6 @@ export class FakeServer {
 
 		tag(this: FakeServer, _plugin: PluginInstance, tag: number) {
 			this.pendingTag = tag;
-		},
-
-		// A plugin that never awaits still takes its timers' handles from here.
-		co_id(this: FakeServer, _plugin: PluginInstance) {
-			return nextTaskId();
 		},
 
 		export(this: FakeServer, plugin: PluginInstance, name: number, fn: number) {

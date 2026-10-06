@@ -26,11 +26,6 @@
 // arguments. A plugin that never makes a Promise exports none of this and
 // pays nothing for it.
 
-// Timer ids for setTimeout, sleep() and AbortSignal.timeout(), one sequence
-// for every plugin: the timer queue finds a timer by id alone, so two plugins
-// counting from the same number would stop each other's timers.
-static int32_t g_nextCoId = 0x60000000;
-
 /**
  * Calls one of the scheduler's exports, or Asyncify's, with up to three i32
  * arguments. Returns the i32 it gives back; `ok` says whether it trapped.
@@ -259,13 +254,4 @@ static void w_co_wake(wasm_exec_env_t env)
 	int index = PluginOf(Inst(env));
 	if (index >= 0)
 		g_plugins[index].wake = true;
-}
-
-// co_id() - a task id no other plugin has.
-static int32_t w_co_id(wasm_exec_env_t env)
-{
-	(void)env;
-	if (g_nextCoId >= 0x7fff0000)
-		g_nextCoId = 0x60000000;
-	return g_nextCoId++;
 }

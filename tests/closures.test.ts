@@ -112,3 +112,14 @@ test('a plugin clearing its own timer does not stop another plugin\'s', async ()
 	expect(server.log).toContain('the keeper\'s timer fired');
 	expect(server.log).not.toContain('the clearer\'s timer fired');
 });
+
+test('the handle of a timer that has fired does not stop the next timer in its slot', async () => {
+	const server = await loadPlugin(['tests/as/timer-clearer.ts', 'tests/as/timer-keeper.ts']);
+	server.native('arm_first');
+	server.advance(10);
+	server.native('clear_fired');
+	server.advance(2000);
+
+	expect(server.log).toContain('the first timer fired');
+	expect(server.log).toContain('the slot\'s next timer fired');
+});

@@ -24,15 +24,6 @@ interface Coroutine {
 	drop: boolean;
 }
 
-// co_id(): a task id no other plugin on the server has, as module.cpp's is -
-// one counter for every plugin.
-let nextId = 0x60000000;
-
-/** The next of those ids. @internal */
-export function nextTaskId(): number {
-	return nextId++;
-}
-
 export class Coroutines {
 	/** What a trap inside a coroutine said: it drops that one coroutine, as on the server. */
 	readonly traps: string[] = [];
@@ -81,7 +72,6 @@ export class Coroutines {
 				this.exports.asyncify_start_unwind(coroutine.buffer);
 			},
 			co_wake: () => { this.wake = true; },
-			co_id: nextTaskId,
 		};
 	}
 

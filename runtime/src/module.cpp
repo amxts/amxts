@@ -2594,52 +2594,104 @@ static int32_t w_slot(wasm_exec_env_t env, int32_t fn, int32_t shape, int32_t ke
 
 // ---------------------------------------------------------------- timers
 //
-// setTimeout, setInterval and sleep: a binary heap by due time, walked once a
-// frame (RunTimers, from StartFrame). Arming is a push, clearing takes the
-// timer out of g_armed - its entry in the heap is dropped when it comes up -
-// and firing calls the plugin directly. No AMX Mod X task, so no limit.
+// setTimeout, setInterval and sleep: a slot each, and a binary heap of the
+// armed slots by due time, walked once a frame (RunTimers, from StartFrame).
+// task hands the plugin its timer's slot, which the plugin keeps the timer
+// by: arming takes a free slot and pushes it, clearing takes it out of the
+// heap and frees it, firing calls the plugin directly. No AMX Mod X task, so
+// no limit.
 
-struct TimerEntry {
+struct Timer {
+	Handler  handler;
 	double   due;
-	uint64_t order;   // arming order: two timers due together fire as armed
-	int32_t  id;
+	double   every;     // a repeating timer's period in seconds; < 0 fires once
+	uint64_t order;     // arming order: two timers due together fire as armed
+	uint32_t serial;    // counts the slot's timers: one cleared and armed again is another
+	int32_t  heapAt;    // its place in g_timerHeap, -1 while it is not there
+	int32_t  nextFree;  // the next free slot, while this one is free
+	bool     armed;
 };
 
-struct ArmedTimer {
-	Handler handler;
-	double  every;    // a repeating timer's period in seconds; < 0 fires once
-};
-
-/** The earliest due on top of the heap, then the earliest armed. */
-static bool LaterTimer(const TimerEntry &a, const TimerEntry &b)
-{
-	return a.due != b.due ? a.due > b.due : a.order > b.order;
-}
-
-static std::vector<TimerEntry> g_timerHeap;
-static std::unordered_map<int32_t, ArmedTimer> g_armed;
+static std::vector<Timer> g_timerSlots;
+static std::vector<int32_t> g_timerHeap;   // armed slots, the earliest due on top
+static int32_t g_freeTimer = -1;
 static uint64_t g_timerOrder = 0;
 
 // When the frame looks at the plugins' files next (WatchPlugins).
 static float g_nextWatch = 0;
 
-static void QueueTimer(double due, int32_t id)
+/** Whether slot `a` fires before slot `b`: the earlier due, then the earlier armed. */
+static bool Earlier(int32_t a, int32_t b)
 {
-	TimerEntry e = { due, g_timerOrder++, id };
-	g_timerHeap.push_back(e);
-	std::push_heap(g_timerHeap.begin(), g_timerHeap.end(), LaterTimer);
+	const Timer &x = g_timerSlots[a], &y = g_timerSlots[b];
+	return x.due != y.due ? x.due < y.due : x.order < y.order;
+}
+
+static void PlaceTimer(size_t at, int32_t slot)
+{
+	g_timerHeap[at] = slot;
+	g_timerSlots[slot].heapAt = (int32_t)at;
+}
+
+/** Moves the slot at `at` up or down the heap, to where its due puts it. */
+static void SiftTimer(size_t at)
+{
+	int32_t slot = g_timerHeap[at];
+	while (at > 0 && Earlier(slot, g_timerHeap[(at - 1) / 2])) {
+		PlaceTimer(at, g_timerHeap[(at - 1) / 2]);
+		at = (at - 1) / 2;
+	}
+	for (size_t n = g_timerHeap.size(), child; (child = 2 * at + 1) < n; at = child) {
+		if (child + 1 < n && Earlier(g_timerHeap[child + 1], g_timerHeap[child]))
+			child++;
+		if (!Earlier(g_timerHeap[child], slot))
+			break;
+		PlaceTimer(at, g_timerHeap[child]);
+	}
+	PlaceTimer(at, slot);
+}
+
+static void QueueTimer(int32_t slot, double due)
+{
+	g_timerSlots[slot].due = due;
+	g_timerSlots[slot].order = g_timerOrder++;
+	g_timerHeap.push_back(slot);
+	SiftTimer(g_timerHeap.size() - 1);
+}
+
+static void UnqueueTimer(int32_t slot)
+{
+	size_t at = (size_t)g_timerSlots[slot].heapAt;
+	g_timerSlots[slot].heapAt = -1;
+	int32_t last = g_timerHeap.back();
+	g_timerHeap.pop_back();
+	if (at < g_timerHeap.size()) {
+		PlaceTimer(at, last);
+		SiftTimer(at);
+	}
+}
+
+static void FreeTimer(int32_t slot)
+{
+	Timer &t = g_timerSlots[slot];
+	if (t.heapAt >= 0)
+		UnqueueTimer(slot);
+	t.armed = false;
+	t.nextFree = g_freeTimer;
+	g_freeTimer = slot;
 }
 
 /**
- * task(seconds, handler, id, repeat) - fires `handler(id)` after `seconds`,
- * and every `seconds` after that when `repeat` is set. The ids are the
- * module's own (co_id), so no other plugin's timer has one.
+ * task(seconds, handler, repeat) - fires `handler(slot)` after `seconds`, and
+ * every `seconds` after that when `repeat` is set; returns the timer's slot,
+ * -1 outside a plugin's call. The slot is the timer's until it has fired
+ * once, or until stop_task, and then the next timer's.
  *
  * The delay arrives as the bit pattern of a 32-bit float rather than as an f32
  * parameter: keeping every signature to `i` means the table wamrc reads
  * cannot disagree with the module about anything but arity.
  */
-static int32_t w_task(wasm_exec_env_t env, int32_t secondsBits, int32_t fn, int32_t id, int32_t repeat)
+static int32_t w_task(wasm_exec_env_t env, int32_t secondsBits, int32_t fn, int32_t repeat)
 {
 	(void)env;
 	int32_t tag = TakeTag();
@@ -2651,7 +2703,16 @@ static int32_t w_task(wasm_exec_env_t env, int32_t secondsBits, int32_t fn, int3
 	if (!(seconds > 0))
 		seconds = 0;
 
-	ArmedTimer &t = g_armed[id];
+	int32_t slot = g_freeTimer;
+	if (slot >= 0) {
+		g_freeTimer = g_timerSlots[slot].nextFree;
+	}
+	else {
+		slot = (int32_t)g_timerSlots.size();
+		g_timerSlots.push_back(Timer());
+	}
+
+	Timer &t = g_timerSlots[slot];
 	t.handler = Handler();
 	t.handler.plugin = g_currentPlugin;
 	t.handler.fn = (uint32_t)fn;
@@ -2659,16 +2720,23 @@ static int32_t w_task(wasm_exec_env_t env, int32_t secondsBits, int32_t fn, int3
 	t.handler.tag = tag;
 	Bind(t.handler);
 	t.every = repeat ? seconds : -1;
+	t.serial++;
+	t.heapAt = -1;
+	t.armed = true;
 
-	QueueTimer(gpGlobals->time + seconds, id);
-	return 0;
+	QueueTimer(slot, gpGlobals->time + seconds);
+	return slot;
 }
 
-/** stopTask(id) - the timer does not fire again; 1 if it was armed. */
-static int32_t w_stopTask(wasm_exec_env_t env, int32_t id)
+/** stop_task(slot) - the calling plugin's timer there does not fire again; 1 if it was armed. */
+static int32_t w_stopTask(wasm_exec_env_t env, int32_t slot)
 {
 	(void)env;
-	return g_armed.erase(id) ? 1 : 0;
+	if (slot < 0 || (size_t)slot >= g_timerSlots.size() || !g_timerSlots[slot].armed
+	    || g_timerSlots[slot].handler.plugin != g_currentPlugin)
+		return 0;
+	FreeTimer(slot);
+	return 1;
 }
 
 /**
@@ -2678,39 +2746,44 @@ static int32_t w_stopTask(wasm_exec_env_t env, int32_t id)
  */
 static void RunTimers()
 {
-	if (g_timerHeap.empty())
+	if (g_timerHeap.empty() || g_timerSlots[g_timerHeap[0]].due > gpGlobals->time)
 		return;
 
+	struct Due { int32_t slot; uint32_t serial; };
+	// Kept from frame to frame, so a frame allocates nothing; a handler
+	// never runs a frame, so this is never walked twice at once.
+	static std::vector<Due> due;
+	due.clear();
 	double now = gpGlobals->time;
-	std::vector<int32_t> due;
-	while (!g_timerHeap.empty() && g_timerHeap.front().due <= now) {
-		std::pop_heap(g_timerHeap.begin(), g_timerHeap.end(), LaterTimer);
-		due.push_back(g_timerHeap.back().id);
-		g_timerHeap.pop_back();
+	while (!g_timerHeap.empty() && g_timerSlots[g_timerHeap[0]].due <= now) {
+		int32_t slot = g_timerHeap[0];
+		UnqueueTimer(slot);
+		due.push_back({ slot, g_timerSlots[slot].serial });
 	}
 
 	for (size_t i = 0; i < due.size(); i++) {
-		std::unordered_map<int32_t, ArmedTimer>::iterator it = g_armed.find(due[i]);
-		if (it == g_armed.end())
-			continue;   // cleared, or its plugin is gone
+		Timer &t = g_timerSlots[due[i].slot];
+		if (!t.armed || t.serial != due[i].serial)
+			continue;   // cleared by a handler before it, and maybe armed again
 
 		// A copy: the handler may clear this timer or arm others.
-		Handler h = it->second.handler;
-		if (it->second.every < 0)
-			g_armed.erase(it);
+		Handler h = t.handler;
+		if (t.every < 0)
+			FreeTimer(due[i].slot);
 		else
-			QueueTimer(now + it->second.every, due[i]);
+			QueueTimer(due[i].slot, now + t.every);
 
-		uint32_t argv[1] = { (uint32_t)due[i] };
+		uint32_t argv[1] = { (uint32_t)due[i].slot };
 		Fire(h, argv, 1, 0);
 	}
 }
 
-/** A stopped plugin's timers go; their entries in the heap are dropped as they come up. */
+/** A stopped plugin's timers go. */
 static void DropTimers(int plugin)
 {
-	for (std::unordered_map<int32_t, ArmedTimer>::iterator it = g_armed.begin(); it != g_armed.end(); )
-		it = it->second.handler.plugin == plugin ? g_armed.erase(it) : ++it;
+	for (size_t slot = 0; slot < g_timerSlots.size(); slot++)
+		if (g_timerSlots[slot].armed && g_timerSlots[slot].handler.plugin == plugin)
+			FreeTimer((int32_t)slot);
 }
 
 // The most arguments one dispatched call carries: a forward's 32 after
@@ -3757,7 +3830,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "clcmd",        (void *)w_clcmd,        "(iiii)", NULL },
 	{ "srvcmd",       (void *)w_srvcmd,       "(iii)", NULL },
 	{ "bot_cmd",      (void *)w_botCmd,       "(ii)", NULL },
-	{ "task",         (void *)w_task,         "(iiii)i", NULL },
+	{ "task",         (void *)w_task,         "(iii)i",  NULL },
 	{ "stop_task",    (void *)w_stopTask,     "(i)i", NULL },
 	{ "tag",          (void *)w_tag,          "(i)",  NULL },
 	{ "call",         (void *)w_call,         "(iiii)i", NULL },
@@ -3774,7 +3847,6 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "co_spawn",     (void *)w_co_spawn,     "(iiiii)i", NULL },
 	{ "co_suspend",   (void *)w_co_suspend,   "(i)",    NULL },
 	{ "co_wake",      (void *)w_co_wake,      "()",     NULL },
-	{ "co_id",        (void *)w_co_id,        "()i",    NULL },
 	{ "player_data_get",      (void *)w_playerDataGet,     "(ii)F",   NULL },
 	{ "player_data_set",      (void *)w_playerDataSet,     "(iiF)",   NULL },
 	{ "player_data_get_text", (void *)w_playerDataGetText, "(iiii)i", NULL },
@@ -4289,7 +4361,8 @@ static void Teardown()
 
 	g_timers.clear();
 	g_timerHeap.clear();
-	g_armed.clear();
+	g_timerSlots.clear();
+	g_freeTimer = -1;
 	g_nextWatch = 0;
 	g_trace = false;
 	g_namesChanging = false;
@@ -4713,8 +4786,8 @@ static void BindAll(int index)
 		if (e.plugin == index) Bind(e);
 	for (FieldListener &l : g_fieldListeners)
 		if (l.plugin == index) Bind(l);
-	for (std::pair<const int32_t, ArmedTimer> &t : g_armed)
-		if (t.second.handler.plugin == index) Bind(t.second.handler);
+	for (Timer &t : g_timerSlots)
+		if (t.armed && t.handler.plugin == index) Bind(t.handler);
 	for (std::map<std::string, Forward> *commands : { &g_clientCommands, &g_serverCommands })
 		for (std::map<std::string, Forward>::iterator it = commands->begin(); it != commands->end(); ++it)
 			for (Handler &h : it->second.handlers)

@@ -102,7 +102,7 @@ static void PrintFailure(int index, const Failure &failure, const char *context 
 struct Task {
 	double   at;
 	uint32_t fn;
-	int32_t  id;
+	int32_t  slot;
 	int      order;
 };
 
@@ -156,20 +156,32 @@ static int32_t w_stackText(wasm_exec_env_t env, int32_t frames, int32_t count, i
 	return 0;
 }
 
-static int32_t w_task(wasm_exec_env_t env, int32_t secondsBits, int32_t fn, int32_t id, int32_t repeat)
+/** The lowest slot no task has, as the module reuses them. */
+static int32_t FreeSlot()
+{
+	for (int32_t slot = 0;; slot++) {
+		bool taken = false;
+		for (const Task &task : g_tasks)
+			taken = taken || task.slot == slot;
+		if (!taken)
+			return slot;
+	}
+}
+
+static int32_t w_task(wasm_exec_env_t env, int32_t secondsBits, int32_t fn, int32_t repeat)
 {
 	float seconds;
 	memcpy(&seconds, &secondsBits, 4);
-	Task task = { g_now + (double)(int)(seconds * 1000.0f + 0.5f), (uint32_t)fn, id, g_order++ };
+	Task task = { g_now + (double)(int)(seconds * 1000.0f + 0.5f), (uint32_t)fn, FreeSlot(), g_order++ };
 	g_tasks.push_back(task);
-	return 0;
+	return task.slot;
 }
 
-static int32_t w_stopTask(wasm_exec_env_t env, int32_t id)
+static int32_t w_stopTask(wasm_exec_env_t env, int32_t slot)
 {
 	size_t before = g_tasks.size();
 	for (size_t i = g_tasks.size(); i-- > 0;)
-		if (g_tasks[i].id == id)
+		if (g_tasks[i].slot == slot)
 			g_tasks.erase(g_tasks.begin() + i);
 	return (int32_t)(before - g_tasks.size());
 }
@@ -225,7 +237,7 @@ static NativeSymbol g_natives[] = {
 	{ "console.error", (void *)w_error,      "(i)",      NULL },
 	{ "stack_frames",  (void *)w_stackFrames, "(ii)i",   NULL },
 	{ "stack_text",    (void *)w_stackText,  "(iiii)i",  NULL },
-	{ "task",          (void *)w_task,       "(iiii)i",  NULL },
+	{ "task",          (void *)w_task,       "(iii)i",   NULL },
 	{ "stop_task",     (void *)w_stopTask,   "(i)i",     NULL },
 	{ "on",            (void *)w_on,         "(iii)",    NULL },
 	{ "hook",          (void *)w_hook,       "(iii)i",   NULL },
@@ -238,7 +250,6 @@ static NativeSymbol g_natives[] = {
 	{ "co_spawn",      (void *)w_co_spawn,   "(iiiii)i", NULL },
 	{ "co_suspend",    (void *)w_co_suspend, "(i)",      NULL },
 	{ "co_wake",       (void *)w_co_wake,    "()",       NULL },
-	{ "co_id",         (void *)w_co_id,      "()i",      NULL },
 };
 
 /** module.cpp's Fire, cut down: a handler by table index, its cells converted to its parameters. */
@@ -311,7 +322,7 @@ static void Advance(double ms)
 		Task task = g_tasks[due];
 		g_tasks.erase(g_tasks.begin() + due);
 		if (task.at > g_now) g_now = task.at;
-		Fire(task.fn, &task.id, 1);
+		Fire(task.fn, &task.slot, 1);
 	}
 	g_now = until;
 }
