@@ -90,8 +90,9 @@ if(MSVC)
 	# constructor the older runtimes have.
 	target_compile_definitions(amxts_amxx PRIVATE _CRT_SECURE_NO_WARNINGS HAVE_STDINT_H _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
 	target_compile_options(amxts_amxx PRIVATE /wd4996)
+	# The module and WAMR optimised as one: what a plugin calls on every
+	# native, field and event - WAMR's calls, its intrinsics - inlined across
+	# files. Not on Linux: built so with GCC 7's LTO, plain HLDS stopped on
+	# start (Z_Free: NULL pointer).
+	set_property(TARGET amxts_amxx PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()
-
-# The module and WAMR optimised as one: what a plugin calls on every native,
-# field and event - WAMR's calls, its intrinsics - inlined across files.
-set_property(TARGET amxts_amxx PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
