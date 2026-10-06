@@ -36,8 +36,8 @@ const LIMITS: Record<string, number> = {
 	"health read": 2.5,
 	"health write": 2.5,
 	"money with its HUD": 2.5,
-	"origin read": 50,
-	"origin into a vector": 7,
+	"origin read": 45,
+	"origin into a vector": 5,
 	"string in": 6,
 	"string out": 26,
 	"player.name": 4,
@@ -52,7 +52,7 @@ const LIMITS: Record<string, number> = {
 	"menu choice": 3,
 	"remainder": 2.5,
 	"fractions": 0.5,
-	"hot path": 5,
+	"hot path": 3,
 };
 
 let sink = 0;

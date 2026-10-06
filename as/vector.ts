@@ -8,27 +8,27 @@
 
 /** Three numbers, x y z, with the math a plugin needs on them. */
 export class Vector extends Array<number> {
-	// x, y and z read and write their element without the index's check: a
-	// Vector is made with room for three, which a shorter length leaves in
-	// place, and the check was a call - most of what reading one cost.
+	// x, y and z are loads and stores at the array's data: a Vector is made
+	// with room for three, which a shorter length leaves in place. An index,
+	// even unchecked, was a call - and a write a checked one, which may grow.
 	constructor(x: number = 0.0, y: number = 0.0, z: number = 0.0) {
 		super(3);
-		unchecked(this[0] = x);
-		unchecked(this[1] = y);
-		unchecked(this[2] = z);
+		store<f64>(this.dataStart, x);
+		store<f64>(this.dataStart, y, 8);
+		store<f64>(this.dataStart, z, 16);
 	}
 
 	/** The x coordinate, `vector[0]`. */
-	get x() { return unchecked(this[0]); }
-	set x(value: number) { unchecked(this[0] = value); }
+	@inline get x(): number { return load<f64>(this.dataStart); }
+	@inline set x(value: number) { store<f64>(this.dataStart, value); }
 
 	/** The y coordinate, `vector[1]`. */
-	get y() { return unchecked(this[1]); }
-	set y(value: number) { unchecked(this[1] = value); }
+	@inline get y(): number { return load<f64>(this.dataStart, 8); }
+	@inline set y(value: number) { store<f64>(this.dataStart, value, 8); }
 
 	/** The z coordinate, `vector[2]`. */
-	get z() { return unchecked(this[2]); }
-	set z(value: number) { unchecked(this[2] = value); }
+	@inline get z(): number { return load<f64>(this.dataStart, 16); }
+	@inline set z(value: number) { store<f64>(this.dataStart, value, 16); }
 
 	/** A new vector: this one plus `other`, number by number. */
 	add(other: number[]) {

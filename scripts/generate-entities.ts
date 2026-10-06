@@ -1189,9 +1189,10 @@ function entvarVector(id: number, offset: i32): Vector {
 
 /** A vector entvar written into a Vector the plugin keeps: get<Field>(target). */
 function entvarVectorInto(id: number, offset: i32, target: Vector): Vector {
-	target.x = cellFloat(_entGet(<i32>id, offset));
-	target.y = cellFloat(_entGet(<i32>id, offset + 4));
-	target.z = cellFloat(_entGet(<i32>id, offset + 8));
+	const entity = <i32>id;
+	target.x = <f64>reinterpret<f32>(_entGet(entity, offset));
+	target.y = <f64>reinterpret<f32>(_entGet(entity, offset + 4));
+	target.z = <f64>reinterpret<f32>(_entGet(entity, offset + 8));
 	return target;
 }
 
