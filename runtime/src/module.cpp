@@ -6116,14 +6116,24 @@ static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line)
 	}
 
 	// The line being run - a command whose handler sends this - is put back
-	// after, for whatever reads it next.
+	// after, for whatever reads it next. The engine's Cmd_Args points into
+	// the line it split until it splits another, so the line put back lives
+	// on: one a depth, for a bot's command sent while another is handled
+	// (a deque, whose strings stay where they are as it grows).
 	// The engine's Cmd_Args is NULL for a command with no argument.
+	static std::deque<std::string> restored;
+	static size_t depth = 0;
 	const char *args = CMD_ARGS();
 	std::string outer = CMD_ARGC() > 0 ? std::string(CMD_ARGV(0)) + " " + (args ? args : "") : "";
 	std::string text = AsString(Inst(env), line);
 	g_tokenize(&text[0]);
+	depth++;
 	g_entityApi->pfnClientCommand(INDEXENT(id));
-	g_tokenize(&outer[0]);
+	depth--;
+	if (restored.size() <= depth)
+		restored.resize(depth + 1);
+	restored[depth].swap(outer);
+	g_tokenize(&restored[depth][0]);
 }
 
 // ---------------------------------------------------------------- the frame
