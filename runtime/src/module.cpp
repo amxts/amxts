@@ -5548,7 +5548,16 @@ static AMX_NATIVE OwnNative(const char *name, AMX_NATIVE fn)
 
 // ---- Metamod's hooks
 
-static void AlertMessage(ALERT_TYPE type, const char *format, ...);
+// Metamod-R's call of a hook with a variable list of arguments does not keep
+// the stack aligned as GCC's i386 code expects, which AddressSanitizer's
+// frames are laid out by: the hook aligns it itself.
+#ifdef _WIN32
+#define ALIGNED_ENTRY
+#else
+#define ALIGNED_ENTRY __attribute__((force_align_arg_pointer))
+#endif
+
+static ALIGNED_ENTRY void AlertMessage(ALERT_TYPE type, const char *format, ...);
 
 /**
  * An entity's spawn: the world's, the first of a map's, after the plugins
@@ -5749,7 +5758,7 @@ void ChangeLevel(const char *map, const char *landmark)
  * plugin's plugin_log blocked the line; handled() there keeps it out of the
  * log. read_logdata, read_logargc and read_logargv read it while they run.
  */
-static void AlertMessage(ALERT_TYPE type, const char *format, ...)
+static ALIGNED_ENTRY void AlertMessage(ALERT_TYPE type, const char *format, ...)
 {
 	if (type != at_logged || (!g_logHooked && !Heard(FORWARD_PLUGIN_LOG)))
 		RETURN_META(MRES_IGNORED);
