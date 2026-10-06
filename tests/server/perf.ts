@@ -37,7 +37,7 @@ const LIMITS: Record<string, number> = {
 	"health write": 2.5,
 	"money with its HUD": 2.5,
 	"origin read": 45,
-	"origin into a vector": 5,
+	"origin into a vector": 4,
 	"string in": 6,
 	"string out": 26,
 	"player.name": 4,

@@ -1114,6 +1114,8 @@ function hamCall(fn: i32, id: number, options: ActionOptions): Call {
 // @ts-ignore: decorator
 @external("env", "ent_set")         declare function _entSet(id: i32, offset: i32, cell: i32): void;
 // @ts-ignore: decorator
+@external("env", "ent_vector")      declare function _entVector(id: i32, offset: i32, out: usize): void;
+// @ts-ignore: decorator
 @external("env", "ent_entity")      declare function _entEntity(id: i32, offset: i32): i32;
 // @ts-ignore: decorator
 @external("env", "ent_set_entity")  declare function _entSetEntity(id: i32, offset: i32, index: i32): void;
@@ -1189,10 +1191,7 @@ function entvarVector(id: number, offset: i32): Vector {
 
 /** A vector entvar written into a Vector the plugin keeps: get<Field>(target). */
 function entvarVectorInto(id: number, offset: i32, target: Vector): Vector {
-	const entity = <i32>id;
-	target.x = <f64>reinterpret<f32>(_entGet(entity, offset));
-	target.y = <f64>reinterpret<f32>(_entGet(entity, offset + 4));
-	target.z = <f64>reinterpret<f32>(_entGet(entity, offset + 8));
+	_entVector(<i32>id, offset, target.dataStart);
 	return target;
 }
 

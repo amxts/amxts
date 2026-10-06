@@ -187,6 +187,18 @@ static void w_entSet(wasm_exec_env_t env, int32_t id, int32_t offset, int32_t ce
 		*(int32_t *)at = cell;
 }
 
+/** A vector entvar's three floats into the plugin's three numbers at `out`; zeros for none. */
+static void w_entVector(wasm_exec_env_t env, int32_t id, int32_t offset, int32_t out)
+{
+	wasm_module_inst_t inst = Inst(env);
+	if (!wasm_runtime_validate_app_addr(inst, (uint64_t)out, 3 * sizeof(double)))
+		return;
+	double *to = (double *)wasm_runtime_addr_app_to_native(inst, (uint64_t)out);
+	const float *at = offset <= ENTVARS_SIZE - 12 ? (const float *)EntvarAt(id, offset) : NULL;
+	for (int i = 0; i < 3; i++)
+		to[i] = at ? at[i] : 0.0;
+}
+
 /** An edict_t * entvar - owner, enemy, aiment - as the entity's index. */
 static int32_t w_entEntity(wasm_exec_env_t env, int32_t id, int32_t offset)
 {
@@ -379,6 +391,7 @@ static int32_t w_gameRules(wasm_exec_env_t env)
 #define FIELD_NATIVES \
 	{ "ent_get",         (void *)w_entGet,        "(ii)i",    NULL }, \
 	{ "ent_set",         (void *)w_entSet,        "(iii)",    NULL }, \
+	{ "ent_vector",      (void *)w_entVector,     "(iii)",    NULL }, \
 	{ "ent_entity",      (void *)w_entEntity,     "(ii)i",    NULL }, \
 	{ "ent_set_entity",  (void *)w_entSetEntity,  "(iii)",    NULL }, \
 	{ "member_slot",     (void *)w_memberSlot,    "(ii)i",    NULL }, \

@@ -2566,6 +2566,14 @@ export class FakeServer {
 			if (at) setFieldCell(this.entities.get(id), at.field, cell, at.component);
 		},
 
+		// A vector entvar into the plugin's three numbers at `out`.
+		ent_vector(this: FakeServer, plugin: PluginInstance, id: number, offset: number, out: number) {
+			for (let i = 0; i < 3; i++) {
+				const at = tables().entvarAt.get(offset + i * 4);
+				plugin.memory.setNumber(out + i * 8, at ? bitsFloat(fieldCell(this.entities.get(id), at.field, at.component)) : 0);
+			}
+		},
+
 		ent_entity(this: FakeServer, plugin: PluginInstance, id: number, offset: number) {
 			const at = tables().entvarAt.get(offset);
 			return at ? fieldCell(this.entities.get(id), at.field) : 0;
