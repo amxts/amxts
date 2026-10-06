@@ -6,6 +6,7 @@
 // heard once. On plain HLDS the bomb's events are the game's log lines,
 // written here as the game writes them.
 // It plays a whole round, so it runs after round-end (the suites go by name).
+import { __hasChains } from "@amxts/core";
 import { Checks } from "@amxts/core/check";
 import { elog_message, get_user_authid, get_user_userid } from "@amxts/core/natives";
 
@@ -107,7 +108,7 @@ async function run() {
 	check.expect(winner, "roundEnd: the winner").toBe("CT");
 	check.expect(reason, "roundEnd: the reason").toBe("ctsWin");
 
-	if (!hasModule("reapi")) {
+	if (!__hasChains(false)) {
 		// Plain HLDS hears the bomb's defuse as the game's log lines.
 		const defuser = server.players.filter(player => player.isBot)[1];
 		const named = `"${defuser.name}<${get_user_userid(defuser.id)}><${get_user_authid(defuser.id)}><CT>"`;

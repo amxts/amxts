@@ -101,13 +101,17 @@ interface Cvar {
 	hooks: Slot[];
 }
 
-/** The hookchain being run, for GetHookChainReturn and friends. */
+/** The hooked call being run: what chain_set writes and arg(-1) reads. */
 export interface Chain {
 	shape: HookShape;
 	answer: Value;
 	args: HookArg[];
-	/** SetHookChainReturn ran: reapi lets a chain that answers be stopped only then. */
+	/** The arguments as cells, which arg() reads: a float as its bits, a vector as three. */
+	cells: ArgValue[];
+	/** A listener answered (chain_set(-1)): the game's own answer is not taken. */
 	answered?: boolean;
+	/** A Ham Sandwich function's call: a boolean answer is a number, as Ham Sandwich gives it. */
+	ham?: boolean;
 }
 
 /** What firing a hookchain came to. */
@@ -199,6 +203,12 @@ export interface ServerOptions {
 	timeZone?: string;
 	/** Whether reapi finds Reunion, so a player's `authType`, `protocol` and `authKey` are his own. Not unless said. */
 	reunion?: boolean;
+	/**
+	 * Whether the server has ReGameDLL's and ReHLDS's hookchains, which the
+	 * module hooks itself. As it has reapi (`modules`) unless said: a server
+	 * without reapi is plain HLDS's model.
+	 */
+	chains?: boolean;
 }
 
 export type TeamName = 'UNASSIGNED' | 'TERRORIST' | 'CT' | 'SPECTATOR';
@@ -234,10 +244,10 @@ const SLOT_REUSED = 0x10000;
 /** A request that tells an owner a plugin which called it stopped: RPC_GONE in module.cpp, KIND_GONE in as/remote.ts. */
 const RPC_GONE = 2;
 const PLUGIN_HANDLED = 1;
-const HC_SUPERCEDE = 1;
-const HC_BREAK = 2;
-// A Ham Sandwich hook's answer that blocks the game's function, and fakemeta's.
-const HAM_SUPERCEDE = 4;
+// What a hooked function's listener says: the game's function does not run;
+// and the listeners after it do not either (OUTCOME_* in gamehooks.h).
+const OUTCOME_BREAK = 2;
+// fakemeta's answer that blocks the game's function.
 const FMRES_SUPERCEDE = 4;
 // A message argument's types, as get_msg_argtype answers.
 const ARG_BYTE = 1;
@@ -636,6 +646,8 @@ export class FakeServer {
 	readonly modules: Set<string>;
 	/** Whether reapi finds Reunion (has_reunion). */
 	readonly reunion: boolean;
+	/** Whether the module finds ReGameDLL's and ReHLDS's hookchains (game_api). */
+	readonly chains: boolean;
 	/** Milliseconds since the map started; advance() moves it. */
 	time = 0;
 	/** Date.now() when the map started. */
@@ -801,6 +813,7 @@ export class FakeServer {
 		this.maxPlayers = options.maxPlayers ?? 32;
 		this.modules = new Set(options.modules ?? ['reapi', 'cstrike', 'fun', 'hamsandwich', 'engine', 'fakemeta', 'nvault', 'resemiclip']);
 		this.reunion = options.reunion ?? false;
+		this.chains = options.chains ?? this.modules.has('reapi');
 		this.entityIds = this.maxPlayers + 1;
 		this.timeZone = options.timeZone;
 		// AMX Mod X's own, which a test may set: the languages.
@@ -1140,7 +1153,18 @@ export class FakeServer {
 	fireHook(event: string, args: HookArg[] = [], options: { result?: Value } = {}): HookResult {
 		const shape = tables().hooks.get(event);
 		if (!shape) throw new Error(`no hookchain named "${event}" in as/hooks.ts`);
+		const listeners = this.hookchains.get(shape.kind) ?? { pre: [], post: [] };
+		return this.runChain(shape, listeners.pre, listeners.post, args, options.result, false);
+	}
 
+	/**
+	 * A hooked call, as the module's hook runs it (gamehooks.h): the pre
+	 * listeners - one that answers or blocks keeps the game's function from
+	 * running, one that breaks stops every listener after it - then the
+	 * game's function, then the post listeners. The listeners read the
+	 * arguments as cells and write them (chain_set); -1 is the answer.
+	 */
+	private runChain(shape: HookShape, pre: Slot[], post: Slot[], args: HookArg[], result: Value | undefined, ham: boolean): HookResult {
 		const cells: ArgValue[] = args.map((a, i) => Array.isArray(a)
 			? a.map(floatBits)
 			: typeof a === 'string'
@@ -1149,10 +1173,8 @@ export class FakeServer {
 					? (a ? 1 : 0)
 					: shape.floats.has(i) ? floatBits(a) : a | 0);
 		const handed = cells.slice(0, 4).map(c => typeof c === 'number' ? c : 0);
-
-		const nothing: Value = shape.answer === constant('ATYPE_BOOL') ? false : shape.answer === constant('ATYPE_STRING') ? '' : 0;
-		const chain: Chain = { shape, answer: nothing, args: [...args] };
-		const listeners = this.hookchains.get(shape.kind) ?? { pre: [], post: [] };
+		const nothing: Value = shape.answer === 'text' ? '' : shape.answer === 'bool' && !ham ? false : 0;
+		const chain: Chain = { shape, answer: nothing, args: [...args], cells, ham };
 
 		const previous = this.chain;
 		this.chain = chain;
@@ -1160,39 +1182,52 @@ export class FakeServer {
 		try {
 			let prevented = false;
 			let broken = false;
-
-			for (const slot of [...listeners.pre]) {
-				const said = this.withCallArgs(cells, () => this.call(slot, handed, slot.fallback));
-				// What reapi answers a plugin that blocks a chain with a return value
-				// before setting one - a run time error, and the block does not hold.
-				if ((said === HC_SUPERCEDE || said === HC_BREAK) && shape.answer >= 0 && !chain.answered) {
-					throw new Error(`${event}: Can't suppress original function call without new return value set, so you must call SetHookChainReturn.`);
+			const walk = (slots: Slot[], before: boolean) => {
+				for (const slot of [...slots]) {
+					if (slot.off) continue;
+					const said = this.withCallArgs(cells, () => this.call(slot, handed, 0));
+					if (said === OUTCOME_BREAK) {
+						broken = true;
+						return;
+					}
+					if (said !== 0 && before) prevented = true;
 				}
-				if (said === HC_SUPERCEDE) prevented = true;
-				if (said === HC_BREAK) {
-					prevented = broken = true;
-					break;
-				}
-			}
+			};
 
-			if (!prevented) chain.answer = options.result ?? nothing;
-
-			if (!broken) {
-				// A vector is an array reapi copies back into the game's: what
-				// a pre listener wrote in it is what the game and the post
-				// listeners get.
-				cells.forEach((cell, i) => {
-					if (Array.isArray(cell)) chain.args[i] = cell.map(bitsFloat);
-				});
-				for (const slot of [...listeners.post]) {
-					this.withCallArgs(cells, () => this.call(slot, handed, slot.fallback));
-				}
-			}
-
-			return { prevented, result: chain.answer, args: chain.args };
+			walk(pre, true);
+			if (!prevented && !broken && !chain.answered) chain.answer = result ?? nothing;
+			// A vector is written where the game keeps it: what a pre listener
+			// wrote in it is what the game and the post listeners get.
+			cells.forEach((cell, i) => {
+				if (Array.isArray(cell)) chain.args[i] = cell.map(bitsFloat);
+			});
+			if (!broken) walk(post, false);
+			return { prevented: prevented || broken, result: chain.answer, args: chain.args };
 		} finally {
 			this.chain = previous;
 		}
+	}
+
+	/** What a listener wrote through chain_set: argument `index`, or the answer at -1. @internal */
+	chainSet(index: number, value: ArgValue): void {
+		const chain = this.chain;
+		if (!chain) throw new Error('chain_set outside a hooked call');
+		if (index < 0) {
+			const answer = chain.shape.answer;
+			chain.answer = typeof value !== 'number' ? value as Value : answer === 'float' ? bitsFloat(value) : answer === 'bool' && !chain.ham ? value !== 0 : value;
+			chain.answered = true;
+			return;
+		}
+		chain.cells[index] = value;
+		chain.args[index] = typeof value !== 'number' ? value as HookArg : chain.shape.floats.has(index) ? bitsFloat(value) : value;
+	}
+
+	/** The answer of the hooked call as a cell, as arg(-1) reads it. @internal */
+	chainAnswer(): ArgValue {
+		const answer = this.chain?.answer ?? 0;
+		if (typeof answer === 'boolean') return answer ? 1 : 0;
+		if (typeof answer === 'number') return this.chain?.shape.answer === 'float' ? floatBits(answer) : answer | 0;
+		return answer;
 	}
 
 	/**
@@ -1268,33 +1303,8 @@ export class FakeServer {
 	 */
 	runHam(shape: HookShape, id: number, args: HookArg[], result?: Value): HookResult {
 		const classname = this.entities.get(id)?.classname ?? (id >= 1 && id <= this.maxPlayers ? 'player' : '');
-		const all = [id, ...args];
-		const cells: ArgValue[] = all.map((a, i) => Array.isArray(a)
-			? a.map(floatBits)
-			: typeof a === 'string'
-				? a
-				: typeof a === 'boolean'
-					? (a ? 1 : 0)
-					: shape.floats.has(i) ? floatBits(a) : a | 0);
-		const handed = cells.slice(0, 4).map(c => typeof c === 'number' ? c : 0);
-		const nothing: Value = shape.answer === constant('ATYPE_STRING') ? '' : 0;
-		const chain: Chain = { shape, answer: nothing, args: all };
 		const listeners = (post: boolean) => this.hams.get(`${shape.ham}:${classname}:${post ? 'post' : 'pre'}`) ?? [];
-
-		const previous = this.chain;
-		this.chain = chain;
-
-		try {
-			let prevented = false;
-			for (const slot of [...listeners(false)]) {
-				if (this.withCallArgs(cells, () => this.call(slot, handed, slot.fallback)) >= HAM_SUPERCEDE) prevented = true;
-			}
-			if (!prevented) chain.answer = result ?? nothing;
-			for (const slot of [...listeners(true)]) this.withCallArgs(cells, () => this.call(slot, handed, slot.fallback));
-			return { prevented, result: chain.answer, args: chain.args };
-		} finally {
-			this.chain = previous;
-		}
+		return this.runChain(shape, listeners(false), listeners(true), [id, ...args], result, true);
 	}
 
 	/**
@@ -1826,7 +1836,7 @@ export class FakeServer {
 		return { superseded, answer: this.forwardAnswer };
 	}
 
-	/** Switches a hook off or on by the handle RegisterHookChain or RegisterHam gave. @internal */
+	/** Switches a hook off or on by its handle: the module's (hook_on), or a raw RegisterHookChain's or RegisterHam's. @internal */
 	switchHook(handle: number, on: boolean): number {
 		const slot = this.hookSlots.get(handle);
 		if (!slot) throw new Error(`the fake server knows no hook handle ${handle}`);
@@ -2217,7 +2227,7 @@ export class FakeServer {
 			return this.hookSlots.size;
 		},
 
-		// RegisterHam: kept by the function's id and the class, for hamCall().
+		// A Ham Sandwich function hooked on a class: kept by the function's id and the class, for runHam().
 		ham(this: FakeServer, plugin: PluginInstance, id: number, entityClass: number, fn: number, post: number) {
 			const slot = this.takeSlot(plugin, fn, SHAPE_WIDE, `ham:${id}:${post}`, 0);
 			const key = `${id}:${plugin.memory.string(entityClass)}:${post ? 'post' : 'pre'}`;
@@ -2227,6 +2237,52 @@ export class FakeServer {
 			this.hookSlots.set(this.hookSlots.size + 1, slot);
 			return this.hookSlots.size;
 		},
+
+		hook_on(this: FakeServer, _plugin: PluginInstance, handle: number, on: number) {
+			this.switchHook(handle, on !== 0);
+		},
+
+		chain_set(this: FakeServer, _plugin: PluginInstance, index: number, value: number) {
+			this.chainSet(index, value);
+		},
+
+		chain_set_text(this: FakeServer, plugin: PluginInstance, index: number, text: number) {
+			this.chainSet(index, plugin.memory.string(text));
+		},
+
+		game_api(this: FakeServer, _plugin: PluginInstance) {
+			return this.chains ? 3 : 0;
+		},
+
+		// One phase of a chain's listeners for game.endRound's dispatch, as module.cpp's chain_dispatch.
+		chain_dispatch(this: FakeServer, plugin: PluginInstance, id: number, post: number, at: number, count: number, result: number) {
+			const kind = tables().hookNames.get(id);
+			const shape = kind === undefined ? undefined : tables().hooks.get(kind);
+			if (!kind || !shape) return 0;
+			const cells: ArgValue[] = Array.from({ length: count }, (_, i) => plugin.memory.cell(at + i * 4));
+			const args: HookArg[] = cells.map((cell, i) => shape.floats.has(i) ? bitsFloat(cell as number) : cell as number);
+			const previous = this.chain;
+			this.chain = { shape, answer: result !== 0, args, cells };
+			let said = 0;
+			try {
+				for (const slot of [...(this.hookchains.get(kind)?.[post ? 'post' : 'pre'] ?? [])]) {
+					if (slot.off) continue;
+					const outcome = this.withCallArgs(cells, () => this.call(slot, cells.slice(0, 4).map(Number), 0));
+					if (outcome === OUTCOME_BREAK) {
+						said |= 2;
+						break;
+					}
+					if (outcome !== 0 && !post) said |= 1;
+				}
+			} finally {
+				this.chain = previous;
+			}
+			cells.forEach((cell, i) => plugin.memory.setCell(at + i * 4, Number(cell)));
+			return said;
+		},
+
+		// ExecuteHam, which ham_bypass comes before, runs no listener here anyway.
+		ham_bypass(this: FakeServer, _plugin: PluginInstance, _fn: number, _id: number) {},
 
 		tag(this: FakeServer, _plugin: PluginInstance, tag: number) {
 			this.pendingTag = tag;
@@ -2248,12 +2304,12 @@ export class FakeServer {
 		},
 
 		arg(this: FakeServer, plugin: PluginInstance, index: number) {
-			const value = this.callArgs?.[index];
+			const value = index === -1 && this.chain ? this.chainAnswer() : this.callArgs?.[index];
 			return typeof value === 'number' ? value | 0 : typeof value === 'boolean' ? +value : 0;
 		},
 
 		arg_text(this: FakeServer, plugin: PluginInstance, index: number, out: number, max: number) {
-			const value = this.callArgs?.[index];
+			const value = index === -1 && this.chain ? this.chainAnswer() : this.callArgs?.[index];
 			return plugin.memory.setBytes(out, max, typeof value === 'string' ? value : '');
 		},
 
@@ -2271,7 +2327,7 @@ export class FakeServer {
 		},
 
 		arg_array(this: FakeServer, plugin: PluginInstance, index: number, out: number, count: number) {
-			const given = this.callArgs?.[index];
+			const given = index === -1 && this.chain ? [0, 0, 0] : this.callArgs?.[index];
 			const value = given instanceof Pointer
 				? Array.from({ length: count }, (_, i) => given.plugin.memory.cell(given.at + i * 4))
 				: given;
@@ -2281,6 +2337,10 @@ export class FakeServer {
 		},
 
 		set_arg_array(this: FakeServer, plugin: PluginInstance, index: number, cells: number, count: number) {
+			if (index === -1 && this.chain) {
+				this.chainSet(-1, 0);
+				return count;
+			}
 			const value = this.callArgs?.[index];
 			if (!Array.isArray(value) || count < 0) return 0;
 			for (let i = 0; i < count; i++) value[i] = plugin.memory.cell(cells + i * 4);

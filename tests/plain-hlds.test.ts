@@ -39,8 +39,8 @@ test('without reapi a player\'s event is Ham Sandwich\'s on "player", a weapon\'
 
 test('an event nothing on plain HLDS hears says so once, and is not listened for', async () => {
 	const server = await loadPlugin(PLUGIN, PLAIN);
-	const said = server.logLines.filter(line => line.includes('needs ReAPI'));
-	expect(said).toEqual(['warning: fallDamage needs ReAPI, which this server does not have: its listeners are never called']);
+	const said = server.logLines.filter(line => line.includes('needs ReGameDLL'));
+	expect(said).toEqual(['warning: fallDamage needs ReGameDLL, which this server does not have: its listeners are never called']);
 });
 
 test('without reapi a player spawns through Ham Sandwich\'s Spawn, after the game: preventDefault() is said once', async () => {
@@ -153,7 +153,7 @@ test('with reapi a player\'s event is reapi\'s chain', async () => {
 	expect(server.hookchains.get('take_damage')?.pre.length).toBe(1);
 	expect(server.hookchains.get('round_end')?.post.length).toBe(1);
 	expect([...server.hams.keys()]).toEqual([]);
-	expect(server.log).not.toContain('needs ReAPI');
+	expect(server.log).not.toContain('needs ReGameDLL');
 });
 
 test.each([['with reapi', {}], ['without', PLAIN]])('fields read where the game keeps them, %s', async (_: string, options: typeof PLAIN | object) => {
@@ -208,7 +208,7 @@ test('each of them is heard on plain HLDS, fully or with its gaps, or is not, wi
 test('the game events page lists what plain HLDS does not give of each, in both languages', () => {
 	const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 	// Cyrillic on purpose: the Russian page's heading.
-	for (const [lang, heading] of [['en', '## A server without ReAPI'], ['ru', '## Сервер без ReAPI']] as const) {
+	for (const [lang, heading] of [['en', '## A server without ReGameDLL'], ['ru', '## Сервер без ReGameDLL']] as const) {
 		const page = readFileSync(`docs/${lang}/2.core/02.hooks.md`, 'utf8');
 		const section = page.slice(page.indexOf(heading), page.indexOf('\n## ', page.indexOf(heading) + 1));
 		const rows = [...section.matchAll(/^\| `(\w+)` \| (.+) \|$/gm)].map(([, event, text]) => `${event}: ${text}`);
@@ -254,7 +254,7 @@ test('a project for plain HLDS does not build a listener for an event nothing th
 	});
 
 	const failed = await setup({ rootDir: dir }).then(() => '', (error: Error) => error.message);
-	expect(failed).toMatch(/rounds\.ts:3: "fallDamage" needs ReAPI, and amxts\.config\.ts's target is "hlds" - nothing on plain HLDS hears it/);
+	expect(failed).toMatch(/rounds\.ts:3: "fallDamage" is ReGameDLL's or ReHLDS's own, and amxts\.config\.ts's target is "hlds" - nothing on plain HLDS hears it/);
 	// takeDamage is Ham Sandwich's there, roundEnd the game's log line: both build.
 	expect(failed).not.toContain('takeDamage');
 	expect(failed).not.toContain('roundEnd');

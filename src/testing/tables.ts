@@ -17,6 +17,17 @@ function generated(file: string): string {
 	}
 }
 
+/** A hook's answer, by how its event's result getter reads it: text and a vector are only Ham Sandwich's. */
+function answerOf(result: string | undefined): HookAnswer {
+	if (!result) return 'none';
+	if (result.includes('__resultText')) return 'text';
+	if (result.includes('__resultVector')) return 'vector';
+	if (result.startsWith('cellFloat')) return 'float';
+	return result.endsWith('!= 0') ? 'bool' : 'int';
+}
+
+export type HookAnswer = 'int' | 'float' | 'bool' | 'text' | 'vector' | 'none';
+
 /** A hookchain as the fake fires it: which arguments are floats or text, and what it answers. */
 export interface HookShape {
 	/** reapi's short name: "take_damage". */
@@ -25,8 +36,8 @@ export interface HookShape {
 	floats: Set<number>;
 	/** Zero-based arguments the event reads as text. */
 	texts: Set<number>;
-	/** The ATYPE_* the chain answers with, or -1 for a chain that answers nothing. */
-	answer: number;
+	/** What the chain answers with: a number, a float, a boolean, text, a vector, or nothing. */
+	answer: HookAnswer;
 	/** The Ham_* function a Ham Sandwich hook of the event is on, when it has one. */
 	ham?: number;
 }
@@ -110,15 +121,14 @@ export function tables(): Tables {
 		const kind = body.match(/private readonly kind: string = "(\w+)";/)?.[1];
 		if (!kind) continue;
 
-		// The answer's ATYPE_*: a cell's, or text or a vector, which only Ham Sandwich answers.
-		const result = body.match(/get result\(\)[^{]*\{[^}]*this\.__result(?:Cell\((ATYPE_\w+)\)|(Text|Vector)\(\))/);
-		const answer = !result ? '' : result[1] ?? (result[2] === 'Text' ? 'ATYPE_STRING' : 'ATYPE_VECTOR');
+		const result = body.match(/get result\(\)[^{]*\{ return ([^;]*);/)?.[1];
+		const answer = answerOf(result);
 		const ham = body.match(/private static readonly ham: i32 = (Ham_\w+);/)?.[1];
 		const shape: HookShape = {
 			kind,
 			floats: new Set([...body.matchAll(/cellFloat\(this\.__cell\((\d+)\)\)/g)].map(m => Number(m[1]))),
 			texts: new Set([...body.matchAll(/this\.__text\((\d+)\)/g)].map(m => Number(m[1]))),
-			answer: answer ? constants.get(answer) ?? -1 : -1,
+			answer,
 			...(ham ? { ham: constants.get(ham) } : {}),
 		};
 

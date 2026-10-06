@@ -9,6 +9,7 @@
 //   bun run test:server --linux --sanitize   the module under AddressSanitizer and UBSan
 //   bun run test:server --full     the suites compiled fully, as `amxts build` does
 //   bun run test:server --only cvar,player   only these suites
+//   bun run test:server --no-reapi   the server without ReAPI: ReHLDS and ReGameDLL alone
 //   bun run test:server --build-only   build the suites, start no server
 //   bun run test:server --prebuilt     run the suites --build-only left, building nothing
 //
@@ -127,6 +128,8 @@ const stopOnly = args.includes('--stop');
 const plain = args.includes('--plain');
 const sanitize = args.includes('--sanitize');
 const linux = plain || sanitize || args.includes('--linux');
+/** Whether the server runs without ReAPI: ReHLDS and ReGameDLL still there, the module hooking their chains itself. */
+const noReapi = args.includes('--no-reapi');
 const buildOnly = args.includes('--build-only');
 const prebuilt = args.includes('--prebuilt');
 /** Whether the suites compile as `amxts dev` compiles them: locally, unless --full says otherwise. */
@@ -372,6 +375,7 @@ function startContainer(argv: string[]): number {
 		const added = readFileSync(projectModules, 'utf-8').split(/\r?\n/).map(line => line.trim()).filter(line => line && !line.startsWith(';') && !lines.includes(line));
 		writeFileSync(modulesIni, [...lines, ...added].join('\n'));
 	}
+	if (noReapi) writeFileSync(modulesIni, withoutReapi(readFileSync(modulesIni, 'utf-8')));
 	// The project's files first: a modules.ini or a stale amxts module it
 	// carries in addons/ is overwritten by the merged list and the module under test.
 	for (const [from, to] of [
@@ -673,6 +677,11 @@ function removeOwnDir(dir: string): void {
 	}
 }
 
+/** A modules.ini without its `reapi` line, for --no-reapi. */
+function withoutReapi(modules: string): string {
+	return modules.split(/\r?\n/).filter(line => line.trim().toLowerCase() !== 'reapi').join('\n');
+}
+
 /**
  * core.ini of the server, with every folder AMX Mod X writes to moved into the
  * test's. The Linux container is the test's own, so its modules stay where
@@ -825,10 +834,12 @@ function stage(built: string[], refused: Refused[], unlisted: string[], pawn: st
 	// The container's modules and configs come from its image (startContainer).
 	if (!linux) {
 		for (const file of readdirSync(join(serverAmxx, 'modules'))) {
-			if (file.toLowerCase() !== 'amxts_amxx.dll') copyFileSync(join(serverAmxx, 'modules', file), join(amxx, 'modules', file));
+			const name = file.toLowerCase();
+			if (name !== 'amxts_amxx.dll' && !(noReapi && name.startsWith('reapi'))) copyFileSync(join(serverAmxx, 'modules', file), join(amxx, 'modules', file));
 		}
 		copyFileSync(moduleDll, join(amxx, 'modules', 'amxts_amxx.dll'));
-		copyFileSync(join(serverAmxx, 'configs', 'modules.ini'), join(amxx, 'modules.ini'));
+		const modules = readFileSync(join(serverAmxx, 'configs', 'modules.ini'), 'utf-8');
+		writeFileSync(join(amxx, 'modules.ini'), noReapi ? withoutReapi(modules) : modules);
 		for (const file of CONFIGS_READ) {
 			const from = join(serverAmxx, 'configs', file);
 			if (existsSync(from)) copyFileSync(from, join(amxx, 'configs', file));

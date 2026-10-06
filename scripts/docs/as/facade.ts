@@ -2936,27 +2936,59 @@ export default {
 	},
 	'hook': {
 		en: `
-			Registers a reapi hookchain with a raw handler of four numbers - the low
-			level under \`game.addEventListener\`, which is what a plugin uses.
+			Hooks a ReGameDLL or ReHLDS hookchain with a raw handler of four numbers -
+			the low level under \`game.addEventListener\`, which is what a plugin uses.
+			The handler reads the arguments past the fourth with \`arg()\`, and blocks the
+			game's function with \`handled()\`.
 
 			The name is reapi's, without the class where it is not needed:
-			\`"restart_round"\`, \`"player_spawn"\`; the editor completes them. The numbers
-			behind the names come from reapi's includes, so they must be the ones of the
-			reapi the server runs. Returns the hook's handle.
+			\`"restart_round"\`, \`"player_spawn"\`; the editor completes them. Returns the
+			hook's handle for \`unhook\`, or \`0\` when the server has not the chain's API -
+			ReGameDLL for the game's chains, ReHLDS for the engine's.
 
-			Pawn: \`RegisterHookChain\`, \`EnableHookChain\`, \`DisableHookChain\`
+			Pawn: \`RegisterHookChain\`
 		`,
 		ru: `
-			Регистрирует хукчейн reapi с сырым обработчиком из четырёх чисел — нижний
-			уровень под \`game.addEventListener\`, которым пользуется плагин.
+			Перехватывает хукчейн ReGameDLL или ReHLDS сырым обработчиком из четырёх
+			чисел — нижний уровень под \`game.addEventListener\`, которым пользуется
+			плагин. Аргументы после четвёртого обработчик читает через \`arg()\`, а
+			функцию игры блокирует через \`handled()\`.
 
 			Имя — из reapi, без класса там, где он не нужен: \`"restart_round"\`,
-			\`"player_spawn"\`; редактор их дополняет. Числа за именами берутся из
-			инклудов reapi, поэтому инклуды должны быть от того reapi, что стоит на
-			сервере. Возвращает дескриптор хука.
+			\`"player_spawn"\`; редактор их дополняет. Возвращает дескриптор хука для
+			\`unhook\` или \`0\`, если на сервере нет API этого хукчейна — ReGameDLL для
+			хукчейнов игры, ReHLDS для хукчейнов движка.
 
-			Pawn: \`RegisterHookChain\`, \`EnableHookChain\`, \`DisableHookChain\`
+			Pawn: \`RegisterHookChain\`
 		`,
+	},
+	'unhook': {
+		en: `
+			Takes off a hook \`hook\` made: its handler is not called again.
+
+			Pawn: \`DisableHookChain\`
+		`,
+		ru: `
+			Снимает хук, который поставил \`hook\`: его обработчик больше не вызывается.
+
+			Pawn: \`DisableHookChain\`
+		`,
+	},
+	'__hookOn': {
+		en: `@hidden Switches a hook the hood made off and on (as/hooks.ts).`,
+		ru: `@hidden Выключает и включает хук, поставленный капотом (as/hooks.ts).`,
+	},
+	'__chainSet': {
+		en: `@hidden Writes an argument of the hooked call that is running; \`-1\` is its answer.`,
+		ru: `@hidden Записывает аргумент идущего перехваченного вызова; \`-1\` — его ответ.`,
+	},
+	'__chainSetText': {
+		en: `@hidden Writes a text argument of the hooked call that is running; \`-1\` is its answer.`,
+		ru: `@hidden Записывает текстовый аргумент идущего перехваченного вызова; \`-1\` — его ответ.`,
+	},
+	'__hasChains': {
+		en: `@hidden Whether the server has the hookchains of ReHLDS (\`rehlds\`) or of ReGameDLL.`,
+		ru: `@hidden Есть ли на сервере хукчейны ReHLDS (\`rehlds\`) или ReGameDLL.`,
 	},
 
 	'PluginInfo': {

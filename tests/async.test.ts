@@ -225,10 +225,8 @@ describe('semantics', () => {
 	test('an async game listener answers the chain only before its first await', () => {
 		const host = run('answerEarly');
 		host.fireHooks();
-		// SetHookChainReturn(ATYPE_FLOAT, 0) through the dispatcher, then handled().
-		expect(host.log.length).toBe(2);
-		expect(host.log[0]).toMatch(/^native \d+ with 2 argument\(s\)$/);
-		expect(host.log[1]).toBe('outcome 1');
+		// The answer, 0 (a float's bits), then handled().
+		expect(host.log).toEqual(['chain_set -1 0', 'outcome 1']);
 
 		host.log.length = 0;
 		host.call('answerLate');

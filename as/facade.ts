@@ -34,7 +34,7 @@ import {
 	register_message, get_msg_args, get_msg_argtype, get_msg_arg_int, get_msg_arg_float, get_msg_arg_string,
 	set_msg_arg_int, set_msg_arg_float, set_msg_arg_string, get_user_userid,
 	emessage_begin, ewrite_byte, ewrite_short, ewrite_string, emessage_end, elog_message,
-	has_reunion, REU_GetAuthtype, REU_GetProtocol, REU_GetAuthKey, DisableHamForward, EnableHamForward
+	has_reunion, REU_GetAuthtype, REU_GetProtocol, REU_GetAuthKey
 } from "./natives";
 // Promise, async/await and AbortSignal, as the globals they are in JavaScript.
 import "./promise";
@@ -2343,8 +2343,9 @@ class TouchFilter {
 const touchFilters: TouchFilter[] = [];
 const waitingTouches: TouchFilter[] = [];
 
-// A Ham Sandwich hook waiting for plugin_init: RegisterHam makes an entity of
-// the class to find its function, which is not for the moment a plugin loads.
+// A Ham Sandwich function's hook waiting for plugin_init: the module makes an
+// entity of the class to find the class's functions, which is not for the
+// moment a plugin loads.
 class HamRegistration {
 	constructor(public fn: i32, public classname: string, public handler: WideHandler, public post: bool, public hook: __Switch | null) {}
 }
@@ -2355,15 +2356,12 @@ function registerHam(registration: HamRegistration): void {
 	const handle = _ham(registration.fn, registration.classname, hostIndex(registration.handler, true), registration.post ? 1 : 0);
 	const hook = registration.hook;
 	if (hook == null || handle == 0) return;
-	hook.add((on: bool): void => {
-		if (on) EnableHamForward(handle);
-		else DisableHamForward(handle);
-	});
+	hook.add((on: bool): void => _hookOn(handle, on ? 1 : 0));
 }
 
 /**
- * @hidden The hood of a game event Ham Sandwich delivers (as/hooks.ts):
- * `fn` hooked on the class, a reload taking its slot back, switched by `hook`.
+ * @hidden The hood of a game event of a Ham Sandwich function (as/hooks.ts):
+ * `fn` hooked on the class, switched by `hook`.
  */
 export function __ham(fn: i32, classname: string, handler: WideHandler, post: bool, hook: __Switch | null = null): void {
 	const registration = new HamRegistration(fn, classname, handler, post, hook);
@@ -3667,10 +3665,28 @@ export class Game extends GameFields {
 	endRound(options: EndRoundOptions): void {
 		const status = max(WINNER_NAMES.indexOf(options.winner), 0);
 		const delay = options.delay ?? 5.0;
+		const dispatch = options.dispatch ?? false;
+		// The roundEnd listeners of amxts plugins are on ReGameDLL's chain, which
+		// neither ReAPI's dispatch nor the game's log lines go through: told
+		// through the module, before the round ends and after, as written there.
+		const cells = roundEndCells;
+		if (dispatch && __hasChains(false)) {
+			unchecked(cells[0] = status);
+			unchecked(cells[1] = ROUND_REASONS[status]);
+			unchecked(cells[2] = floatCell(delay));
+			if (_chainDispatch(RG_RoundEnd, 0, changetype<usize>(cells), 3, 0) != 0) return;
+			this.finishRound(unchecked(cells[0]), unchecked(cells[1]), cellFloat(unchecked(cells[2])), options, true);
+			_chainDispatch(RG_RoundEnd, 1, changetype<usize>(cells), 3, 1);
+			return;
+		}
+		this.finishRound(status, ROUND_REASONS[status], delay, options, dispatch);
+	}
+
+	private finishRound(status: i32, reason: i32, delay: f64, options: EndRoundOptions, dispatch: bool): void {
 		const message = options.message ?? "default";
 		const sound = options.sound ?? "default";
 		if (__hasReapi()) {
-			rg_round_end(delay, status, ROUND_REASONS[status], message, sound, options.dispatch ?? false);
+			rg_round_end(delay, status, reason, message, sound, dispatch);
 			return;
 		}
 
@@ -3678,12 +3694,12 @@ export class Game extends GameFields {
 		// TerminateRound: the winner, the moment the next round starts, and the
 		// round marked as ending, so the game does not end it again meanwhile;
 		// then the message and the sound.
-		this.roundWinner = options.winner;
+		this.roundWinner = WINNER_NAMES[status];
 		this.roundEnding = true;
 		this.newRoundTime = this.time + delay;
 		const text = message == "default" ? ROUND_MESSAGES[status] : message;
 		const radio = sound == "default" ? ROUND_SOUNDS[status] : sound;
-		if (!(options.dispatch ?? false)) {
+		if (!dispatch) {
 			if (text.length > 0) client_print(0, print_center, text);
 			if (radio.length > 0) broadcastAudio(`%!MRAD_${radio}`);
 			return;
@@ -3895,7 +3911,7 @@ import {
 	nvault_open, nvault_set, nvault_remove, rg_round_end, client_print
 } from "./natives";
 import { ET_IGNORE, ET_STOP, FP_ARRAY, FP_CELL, FP_FLOAT, FP_STRING } from "./constants";
-import { ROUND_NONE, ROUND_CTS_WIN, ROUND_TERRORISTS_WIN, ROUND_END_DRAW, print_center } from "./constants";
+import { ROUND_NONE, ROUND_CTS_WIN, ROUND_TERRORISTS_WIN, ROUND_END_DRAW, RG_RoundEnd, print_center } from "./constants";
 import { PluginInitEvent, PluginPrecacheEvent, ServerEventMap, ServerMessageMap, addServerListener, protocolMessageNames, removeServerListener } from "./events";
 
 function variantOf(variant: VariantName): number {
@@ -4621,20 +4637,30 @@ export function __setField<T>(call: Call, kind: i32, value: T, element: number, 
 }
 
 // @ts-ignore: decorator
-@external("env", "hook") declare function _hook(id: i32, fn: i32, post: i32): i32;
+@external("env", "hook")           declare function _hook(id: i32, fn: i32, post: i32): i32;
 // @ts-ignore: decorator
-@external("env", "ham")  declare function _ham(id: i32, entityClass: string, fn: i32, post: i32): i32;
+@external("env", "ham")            declare function _ham(id: i32, entityClass: string, fn: i32, post: i32): i32;
+// @ts-ignore: decorator
+@external("env", "hook_on")        declare function _hookOn(handle: i32, on: i32): void;
+// @ts-ignore: decorator
+@external("env", "chain_set")      declare function _chainSet(index: i32, cell: i32): void;
+// @ts-ignore: decorator
+@external("env", "chain_set_text") declare function _chainSetText(index: i32, text: string): void;
+// @ts-ignore: decorator
+@external("env", "game_api")       declare function _gameApi(): i32;
 
 /**
- * Registers a reapi hookchain with a raw handler of four numbers - the low
- * level under `game.addEventListener`, which is what a plugin uses.
+ * Hooks a ReGameDLL or ReHLDS hookchain with a raw handler of four numbers -
+ * the low level under `game.addEventListener`, which is what a plugin uses.
+ * The handler reads the arguments past the fourth with `arg()`, and blocks the
+ * game's function with `handled()`.
  *
  * The name is reapi's, without the class where it is not needed:
- * `"restart_round"`, `"player_spawn"`; the editor completes them. The numbers
- * behind the names come from reapi's includes, so they must be the ones of the
- * reapi the server runs. Returns the hook's handle.
+ * `"restart_round"`, `"player_spawn"`; the editor completes them. Returns the
+ * hook's handle for `unhook`, or `0` when the server has not the chain's API -
+ * ReGameDLL for the game's chains, ReHLDS for the engine's.
  *
- * Pawn: `RegisterHookChain`, `EnableHookChain`, `DisableHookChain`
+ * Pawn: `RegisterHookChain`
  */
 export function hook(name: HookName, handler: WideHandler, post: bool = false): number {
 	const id = hookIdOf(name);
@@ -4645,6 +4671,40 @@ export function hook(name: HookName, handler: WideHandler, post: bool = false): 
 	}
 
 	return _hook(id, hostIndex(handler, true), post ? 1 : 0);
+}
+
+/**
+ * Takes off a hook `hook` made: its handler is not called again.
+ *
+ * Pawn: `DisableHookChain`
+ */
+export function unhook(handle: number): void {
+	_hookOn(<i32>handle, 0);
+}
+
+/** @hidden Switches a hook the hood made off and on (as/hooks.ts). */
+export function __hookOn(handle: i32, on: bool): void {
+	_hookOn(handle, on ? 1 : 0);
+}
+
+/** @hidden Writes an argument of the hooked call that is running; `-1` is its answer. */
+export function __chainSet(index: i32, cell: i32): void {
+	_chainSet(index, cell);
+}
+
+/** @hidden Writes a text argument of the hooked call that is running; `-1` is its answer. */
+export function __chainSetText(index: i32, text: string): void {
+	_chainSetText(index, text);
+}
+
+// What the server has of ReGameDLL's and ReHLDS's hookchains: 1 the game's,
+// 2 the engine's, asked once; -1 not asked yet.
+let gameApi: i32 = -1;
+
+/** @hidden Whether the server has the hookchains of ReHLDS (`rehlds`) or of ReGameDLL. */
+export function __hasChains(rehlds: bool): bool {
+	if (gameApi < 0) gameApi = _gameApi();
+	return (gameApi & (rehlds ? 2 : 1)) != 0;
 }
 
 // AMX Mod X has one entry per .amxx file and every plugin here shares the
@@ -4802,6 +4862,12 @@ const WINNER_NAMES: RoundWinner[] = ["none", "CT", "TERRORIST", "draw"];
 
 /** The reason a round ends with, by WinStatus number: rg_round_end's `event`. */
 const ROUND_REASONS: i32[] = [ROUND_NONE, ROUND_CTS_WIN, ROUND_TERRORISTS_WIN, ROUND_END_DRAW];
+
+// game.endRound's arguments of ReGameDLL's RoundEnd, as its listeners leave them.
+const roundEndCells = new StaticArray<i32>(3);
+
+// @ts-ignore: decorator
+@external("env", "chain_dispatch") declare function _chainDispatch(id: i32, post: i32, cells: usize, count: i32, result: i32): i32;
 
 // The game's message and radio phrase for a round's end, by WinStatus
 // number: what rg_round_end's "default" stands for.

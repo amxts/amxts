@@ -100,7 +100,7 @@ export class AsyncHost {
 		};
 
 		// A hookchain: its handlers by hook id, and what they told the game -
-		// handled() is outcome(1); SetHookChainReturn goes through `call`.
+		// handled() is outcome(1), the answer chain_set(-1, cell).
 		env.hook = (id: number, fn: number, post: number) => {
 			this.hooks.push({ id, fn, post: post !== 0 });
 			return this.hooks.length;
@@ -108,6 +108,11 @@ export class AsyncHost {
 		env.outcome = (value: number) => {
 			this.log.push(`outcome ${value}`);
 		};
+		env.chain_set = (index: number, cell: number) => {
+			this.log.push(`chain_set ${index} ${cell}`);
+		};
+		// The server has ReGameDLL's and ReHLDS's hookchains.
+		env.game_api = () => 3;
 		env.call = (native: number, args: number, mask: number, argc: number) => {
 			this.log.push(`native ${native} with ${argc} argument(s)`);
 			return 0;

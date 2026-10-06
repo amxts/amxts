@@ -17,19 +17,19 @@ function classBody(name: string): string {
 test('take_damage: damage is a float argument 4, the victim is read only', () => {
 	const body = classBody('TakeDamageEvent');
 	expect(body).toContain('get damage(): number { return cellFloat(this.__cell(3)); }');
-	expect(body).toContain('set damage(value: number) { this.__set(3, ATYPE_FLOAT, floatCell(value)); }');
+	expect(body).toContain('set damage(value: number) { this.__set(3, floatCell(value)); }');
 	expect(body).toContain('get player(): Player { return __playerOf(this.__cell(0)); }');
 	expect(body).toContain('get attacker(): Player { return __playerOf(this.__cell(2)); }');
 	expect(body).not.toContain('set player(');
 	expect(body).not.toContain('set attacker(');
 	expect(body).toContain('get damageType(): Damage[]');
-	expect(body).toContain('get result(): number { return this.__resultCell(ATYPE_INTEGER); }');
+	expect(body).toContain('get result(): number { return this.__resultCell(); }');
 	// Read only: a handler answers by returning.
 	expect(body).not.toContain('set result(');
 });
 
 test('fall damage returns a float result', () => {
-	expect(classBody('FallDamageEvent')).toContain('get result(): number { return cellFloat(this.__resultCell(ATYPE_FLOAT)); }');
+	expect(classBody('FallDamageEvent')).toContain('get result(): number { return cellFloat(this.__resultCell()); }');
 });
 
 test('start_sound: the sound is a string that can be rewritten', () => {
@@ -55,7 +55,7 @@ test('game.addEventListener: every chain is a key, with its event and its answer
 });
 
 test('an answer is the chain result, and in a pre hook it stops the chain', () => {
-	expect(hooks).toContain('event.__answer(ATYPE_BOOL, answer ? 1 : 0, post);');
+	expect(hooks).toContain('event.__answer(answer ? 1 : 0, post);');
 	expect(hooks).toContain('if (!post) break;');
 	expect(hooks).toContain('if (!(isBoolean<R>())) ERROR("a canPlayerHearPlayer handler answers with boolean");');
 });
@@ -69,16 +69,16 @@ test('listener and sender are players', () => {
 test('preventDefault and stopImmediatePropagation are on every event', () => {
 	expect(hooks).toContain('preventDefault() {');
 	expect(hooks).toContain('stopImmediatePropagation() {');
-	expect(hooks).toContain('__outcome(this.__ham ? HAM_SUPERCEDE : HC_BREAK);');
+	expect(hooks).toContain('__outcome(OUTCOME_BREAK);');
 });
 
 test('chains reapi leaves the return type out of answer as ReGameDLL returns', () => {
 	// regamedll_api.h: IHookChain<bool, ...> IReGameHook_RoundEnd and friends.
-	// Read as void, preventDefault() on round_end blocked without an answer and
-	// reapi refused it on every map change.
-	expect(classBody('RoundEndEvent')).toContain('preventDefault(): void { this.__block(ATYPE_BOOL); }');
-	expect(classBody('ChooseTeamEvent')).toContain('preventDefault(): void { this.__block(ATYPE_INTEGER); }');
-	expect(hooks).toContain('SetHookChainReturn(atype, atype == ATYPE_FLOAT ? floatCell(0.0) : 0);');
+	// Read as void, preventDefault() on round_end blocked without an answer.
+	expect(classBody('RoundEndEvent')).toContain('preventDefault(): void { this.__block(); }');
+	expect(classBody('ChooseTeamEvent')).toContain('preventDefault(): void { this.__block(); }');
+	// Blocked, the function answers the neutral value.
+	expect(hooks).toContain('__chainSet(-1, 0);');
 	expect(classBody('HealEvent')).toContain('get result(): number');
 	expect(classBody('ItemRestrictedEvent')).toContain('get result(): boolean');
 });
@@ -144,13 +144,13 @@ test('a Ham Sandwich function reapi has no chain for is an event of its own, nam
 test('the same function under reapi and Ham Sandwich is one event: reapi for its own class, Ham Sandwich for another', () => {
 	expect(classBody('TakeDamageEvent')).toContain('private static readonly ham: i32 = Ham_TakeDamage;');
 	expect(classBody('TakeDamageEvent')).toContain('get entity(): Entity');
-	// Without reapi, Ham Sandwich hears the chain's own class too: "player".
-	expect(hooks).toContain('if ((classname.length > 0 && classname != "player") || !__hasReapi()) { takeDamageHams.add(classname.length > 0 ? classname : "player", post, takeDamageFire, entry); return; }');
-	expect(hooks).toContain('if ((classname.length > 0 && classname != "player") || !__hasReapi()) { takeDamageHams.remove(classname.length > 0 ? classname : "player", post, fn); return; }');
-	// A weapon chain's own class is every weapon: a class narrows it to Ham Sandwich, and without reapi it hooks every weapon's.
-	expect(hooks).toContain('if ((classname.length > 0) || !__hasReapi()) { canDeployHams.add(classname.length > 0 ? classname : EVERY_WEAPON, post, canDeployFire, entry); return; }');
+	// Without ReGameDLL, the Ham Sandwich function hears the chain's own class too: "player".
+	expect(hooks).toContain('if ((classname.length > 0 && classname != "player") || !__hasChains(false)) { takeDamageHams.add(classname.length > 0 ? classname : "player", post, takeDamageFire, entry); return; }');
+	expect(hooks).toContain('if ((classname.length > 0 && classname != "player") || !__hasChains(false)) { takeDamageHams.remove(classname.length > 0 ? classname : "player", post, fn); return; }');
+	// A weapon chain's own class is every weapon: a class narrows it to the Ham Sandwich function, and without ReGameDLL it hooks every weapon's.
+	expect(hooks).toContain('if ((classname.length > 0) || !__hasChains(false)) { canDeployHams.add(classname.length > 0 ? classname : EVERY_WEAPON, post, canDeployFire, entry); return; }');
 	// A chain of ReGameDLL's own that nothing on plain HLDS hears says so there, once, and is not added.
-	expect(hooks).toContain('if (!__hasReapi()) { __sayOnce("fallDamage needs ReAPI, which this server does not have: its listeners are never called"); return; }');
+	expect(hooks).toContain('if (!__hasChains(false)) { __sayOnce("fallDamage needs ReGameDLL, which this server does not have: its listeners are never called"); return; }');
 	// One a stock hook hears goes to its backend (as/hlds.ts), registered on
 	// the first listener and switched off with the event's last.
 	expect(hooks).toContain('if (!roundEndHldsHooked) { roundEndHldsHooked = true; roundEndHlds(roundEndFireHlds, roundEndBackend); }');

@@ -1,11 +1,12 @@
 // The game events and game rules fields of ReGameDLL's and ReHLDS's own,
-// which reapi alone delivers, on a server without it - plain HLDS - through
-// the stock modules: AMX Mod X's logevents and messages, Ham Sandwich,
-// fakemeta, cstrike, a client's commands. scripts/hlds-events.ts says, for
-// each, what plain HLDS gives and what it does not.
+// which their hookchains alone deliver, on a server without them - plain
+// HLDS - through the stock hooks: AMX Mod X's logevents and messages, Ham
+// Sandwich's functions (the module's own hook in a vtable), fakemeta,
+// cstrike, a client's commands. scripts/hlds-events.ts says, for each, what
+// plain HLDS gives and what it does not.
 //
 // `<event>Hlds(fire, hook)` is registered once, on the event's first listener,
-// when the server has no reapi (as/hooks.ts), and everything it registers is
+// when the server has not the chain's API (as/hooks.ts), and everything it registers is
 // switched by `hook`: off while the event has no listener, so that what it
 // hears does not reach the plugin for nothing. It makes the event with the fields
 // the stock hook knows - by the argument's place in reapi's hookchain, as the
@@ -31,7 +32,7 @@ import {
 	ThrowFlashbangEvent, ThrowGrenadeEvent, ThrowHeGrenadeEvent, ThrowSmokeGrenadeEvent
 } from "./hooks";
 import {
-	GetHamReturnInteger, NATIVE_dllfunc, NATIVE_engfunc, NATIVE_forward_return, NATIVE_register_event,
+	NATIVE_dllfunc, NATIVE_engfunc, NATIVE_forward_return, NATIVE_register_event,
 	NATIVE_register_logevent, cs_get_user_money, find_ent_by_model, get_cvar_float, get_ent_data,
 	get_gametime, get_maxplayers, get_orig_retval, get_timeleft, get_user_info, get_user_name,
 	get_user_userid, is_user_alive, is_user_connected, pev_valid, read_argv, read_logargv, read_logdata, register_clcmd, register_forward,
@@ -836,14 +837,10 @@ export function playerBlindHlds(fire: Fire<PlayerBlindEvent>, hook: __Switch): v
 	}, true, hook);
 }
 
-// Ham Sandwich's by-address answer.
-const hamAnswer = new StaticArray<i32>(1);
-
-/** A player got a weapon: Ham Sandwich's AddPlayerItem after the game, when it took the item. */
+/** A player got a weapon: Ham Sandwich's AddPlayerItem after the game, when it took the item - its answer, arg(-1). */
 export function playerGotWeaponHlds(fire: Fire<PlayerGotWeaponEvent>, hook: __Switch): void {
 	__ham(Ham_AddPlayerItem, "player", (id: number, item: number, c: number, d: number): void => {
-		GetHamReturnInteger(changetype<i32>(hamAnswer));
-		if (hamAnswer[0] == 0) return;
+		if (arg(-1) == 0) return;
 		const event = new PlayerGotWeaponEvent();
 		event.__give(0, <i32>id);
 		event.__give(1, <i32>item);

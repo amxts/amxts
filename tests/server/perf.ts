@@ -5,9 +5,9 @@
 // checks ratios, not times, so it holds on any machine; each figure is the
 // best of three runs. A limit is changed on purpose, with the measurement
 // that moves it.
-import { hook } from "@amxts/core";
+import { hook, unhook } from "@amxts/core";
 import { EngFunc_RunPlayerMove, LibType_Library } from "@amxts/core/constants";
-import { DisableHookChain, engfunc, get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, strlen } from "@amxts/core/natives";
+import { engfunc, get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, strlen } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
 const TRIES = 3;
@@ -38,8 +38,8 @@ const LIMITS: Record<string, number> = {
 	"string in": 6,
 	"string out": 26,
 	"player.name": 4,
-	"raw hook": 14,
-	"event": 30,
+	"raw hook": 4,
+	"event": 14,
 	"forward to a listener": 12,
 	"relay with no listener": 1.5,
 	"Pawn calls a plugin": 2,
@@ -277,7 +277,7 @@ function measure(player: Player) {
 	let before = resetNs(id);
 	const raw = hook("reset_max_speed", onRawReset, true);
 	ours.set("raw hook", resetNs(id) - before);
-	DisableHookChain(raw);
+	unhook(raw);
 
 	before = impulseNs(id);
 	server.addEventListener("impulse", onImpulse);

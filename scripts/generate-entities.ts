@@ -1088,9 +1088,18 @@ const UNNAMED = i32.MIN_VALUE;
 // A use's type, USE_OFF to USE_TOGGLE in their numbers' order.
 const USE_TYPES: UseType[] = ["off", "on", "set", "toggle"];
 
-/** An action's call: every plugin's listeners run on it, unless \`{ hooks: false }\`. */
+// @ts-ignore: decorator
+@external("env", "ham_bypass") declare function _hamBypass(fn: i32, id: i32): void;
+
+/**
+ * An action's call: every plugin's listeners run on it, unless
+ * \`{ hooks: false }\` - then the module's own hook of the function lets this
+ * one call past (ham_bypass), as Ham Sandwich's ExecuteHam goes past its own.
+ */
 function hamCall(fn: i32, id: number, options: ActionOptions): Call {
-	return new Call((options.hooks ?? true) ? NATIVE_ExecuteHamB : NATIVE_ExecuteHam).num(fn).num(id);
+	const hooks = options.hooks ?? true;
+	if (!hooks) _hamBypass(fn, <i32>id);
+	return new Call(hooks ? NATIVE_ExecuteHamB : NATIVE_ExecuteHam).num(fn).num(id);
 }
 
 // ---------------------------------------------------------------- fields

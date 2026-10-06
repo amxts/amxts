@@ -66,7 +66,6 @@ interface Param {
 	kind: Kind;
 	index: number; // the argument's position, as arg() counts
 	settable: boolean;
-	atype: string;
 	pawn: string; // the argument as reapi writes it
 	named?: Named; // an enum or a set of flags, read as names
 }
@@ -355,7 +354,6 @@ function namedBlock(n: Named) {
 
 interface Result {
 	kind: 'int' | 'float' | 'bool' | 'string' | 'vector' | 'Player' | 'Weapon' | 'Entity';
-	atype: string;
 	pawn: string;
 }
 
@@ -524,19 +522,14 @@ function paramsOf(hook: string, constant: string, raw: string) {
 		used.add(name);
 
 		let kind: Kind = 'int';
-		let atype = 'ATYPE_INTEGER';
 		if (vector) {
 			kind = 'vector';
-			atype = 'ATYPE_VECTOR';
 		} else if (isArray) {
 			kind = 'string';
-			atype = 'ATYPE_STRING';
 		} else if (tag === 'Float') {
 			kind = 'float';
-			atype = 'ATYPE_FLOAT';
 		} else if (tag === 'bool') {
 			kind = 'bool';
-			atype = 'ATYPE_BOOL';
 		} else if (named) {
 			kind = named.flags ? 'flags' : 'enum';
 		} else if (/damage.?type/i.test(rawName)) {
@@ -549,7 +542,7 @@ function paramsOf(hook: string, constant: string, raw: string) {
 			kind = rawName === 'this' ? classOf(constant.split('_')[1] ?? '') : playerIndex ? 'Player' : entityOf(rawName);
 		}
 		const settable = !(kind === 'Player' || kind === 'Weapon' || kind === 'Entity');
-		params.push({ name, kind, index, settable, atype, pawn: text, ...(named ? { named } : {}) });
+		params.push({ name, kind, index, settable, pawn: text, ...(named ? { named } : {}) });
 	});
 
 	return params;
@@ -576,17 +569,15 @@ const UNDOCUMENTED_RESULTS: Record<string, string> = {
 function resultOf(hook: string, raw: string): Result | null {
 	const type = raw.trim();
 	if (type === '' || type === '-' || type === 'void') return null;
-	if (/^(?:int|BOOL|enum \w+)$/.test(type)) return { kind: 'int', atype: 'ATYPE_INTEGER', pawn: type };
-	if (type === 'bool') return { kind: 'bool', atype: 'ATYPE_BOOL', pawn: type };
-	if (type === 'float') return { kind: 'float', atype: 'ATYPE_FLOAT', pawn: type };
+	if (/^(?:int|BOOL|enum \w+)$/.test(type)) return { kind: 'int', pawn: type };
+	if (type === 'bool') return { kind: 'bool', pawn: type };
+	if (type === 'float') return { kind: 'float', pawn: type };
 	const pointer = type.match(/^(C\w+) \*/);
-	// reapi hands a class pointer back as the entity's index - its own docs say
-	// "CGrenade * (Entity index of smokegrenade)" - and checks the type asked
-	// for: ATYPE_CLASSPTR there failed with "incompatible type, expected
-	// 'ATYPE_INTEGER'", the smoke throw handler died, and the frost grenade
-	// lost its glow and trail.
-	if (pointer) return { kind: classOf(pointer[1]), atype: 'ATYPE_INTEGER', pawn: type };
-	if (/^(?:edict_t|Edict) \*/.test(type)) return { kind: 'Entity', atype: 'ATYPE_EDICT', pawn: type };
+	// A class pointer is answered as the entity's index - reapi's docs say
+	// "CGrenade * (Entity index of smokegrenade)" - and the module makes it
+	// the object again.
+	if (pointer) return { kind: classOf(pointer[1]), pawn: type };
+	if (/^(?:edict_t|Edict) \*/.test(type)) return { kind: 'Entity', pawn: type };
 	skipped.push({ hook, what: `result \`${type}\`` });
 	return null;
 }
@@ -638,18 +629,18 @@ function fieldOf(p: Param, own?: Text) {
 		Weapon: `return new Weapon(this.__cell(${n}));`,
 		Entity: `return new Entity(this.__cell(${n}));`,
 	};
-	// Written through the event, which knows whether reapi or Ham Sandwich
-	// delivered it (HookEvent.__set). Only Ham Sandwich takes an entity back,
-	// so only its own events have that setter.
+	// Written through the event (HookEvent.__set). An entity is written back
+	// only on a Ham Sandwich function's own events, the only ones with that
+	// setter.
 	const set: Record<Kind, string> = {
-		int: `this.__set(${n}, ${p.atype}, value);`,
-		float: `this.__set(${n}, ${p.atype}, floatCell(value));`,
-		bool: `this.__set(${n}, ${p.atype}, value ? 1 : 0);`,
+		int: `this.__set(${n}, value);`,
+		float: `this.__set(${n}, floatCell(value));`,
+		bool: `this.__set(${n}, value ? 1 : 0);`,
 		string: `this.__setText(${n}, value);`,
-		damage: `this.__set(${n}, ${p.atype}, DAMAGE.maskOf(values));`,
-		enum: `this.__set(${n}, ${p.atype}, ${fn}Cell(value, this.__cell(${n})));`,
-		flags: `this.__set(${n}, ${p.atype}, ${family}.maskOf(values) | (this.__cell(${n}) & ${others}));`,
-		use: `this.__set(${n}, ${p.atype}, max(USE_TYPES.indexOf(value), 0));`,
+		damage: `this.__set(${n}, DAMAGE.maskOf(values));`,
+		enum: `this.__set(${n}, ${fn}Cell(value, this.__cell(${n})));`,
+		flags: `this.__set(${n}, ${family}.maskOf(values) | (this.__cell(${n}) & ${others}));`,
+		use: `this.__set(${n}, max(USE_TYPES.indexOf(value), 0));`,
 		vector: `this.__setVector(${n}, value);`,
 		Player: `this.__setEntity(${n}, value.id);`,
 		Weapon: `this.__setEntity(${n}, value.id);`,
@@ -666,7 +657,7 @@ function fieldOf(p: Param, own?: Text) {
 
 function resultField(r: Result) {
 	const type = TYPES[r.kind];
-	const cell = `this.__resultCell(${r.atype})`;
+	const cell = 'this.__resultCell()';
 	const get = r.kind === 'float'
 		? `cellFloat(${cell})`
 		: r.kind === 'bool'
@@ -691,20 +682,18 @@ function resultField(r: Result) {
 	return [
 		...lines,
 		``,
-		// reapi refuses to suppress a chain that returns something until it has
-		// an answer: "Can't suppress original function call without new return
-		// value set". A handler that only blocks has none, so blocking answers
-		// the neutral value first - what the Pawn core did by hand before its
-		// HC_SUPERCEDE, and what the port lost: protection let damage through.
+		// A function blocked still answers its caller: the neutral value,
+		// what the Pawn core set by hand before its HC_SUPERCEDE - without
+		// it, protection let damage through.
 		`\t${renderDoc(say(
 			`Blocks the game's function; it answers ${r.kind === 'bool' ? 'false' : '0'}.\n\nPawn: \`HC_SUPERCEDE\`, \`HAM_SUPERCEDE\``,
 			`Блокирует функцию игры; она отвечает ${r.kind === 'bool' ? 'false' : '0'}.\n\nPawn: \`HC_SUPERCEDE\`, \`HAM_SUPERCEDE\``,
 		), '\t')}`,
-		`\tpreventDefault(): void { this.__block(${r.atype}); }`,
+		`\tpreventDefault(): void { this.__block(); }`,
 	].join('\n');
 }
 
-/** How a handler's answer becomes the cell SetHookChainReturn takes. */
+/** How a handler's answer becomes the cell the game is answered with. */
 function answerCell(r: Result, value: string) {
 	if (r.kind === 'float') return `floatCell(${value})`;
 	if (r.kind === 'bool') return `${value} ? 1 : 0`;
@@ -712,11 +701,11 @@ function answerCell(r: Result, value: string) {
 	return `<i32>${value}.id`;
 }
 
-/** The listener's answer handed to the game, through the event: reapi's or Ham Sandwich's. */
+/** The listener's answer handed to the game, through the event. */
 function answerCall(r: Result, value: string) {
 	if (r.kind === 'string') return `event.__answerText(${value}, post);`;
 	if (r.kind === 'vector') return `event.__answerVector(${value}, post);`;
-	return `event.__answer(${r.atype}, ${answerCell(r, value)}, post);`;
+	return `event.__answer(${answerCell(r, value)}, post);`;
 }
 
 /** How asyncAnswer reads an async listener's early answer - see AsyncListener. */
@@ -757,16 +746,20 @@ function gameSummary(camel: string, comment: string) {
 	return ours ? pick(ours.summary, DOCS_LANG) : description && description !== '-' ? description : '';
 }
 
+/** The API a chain is of: ReHLDS's for the engine's, ReGameDLL's for the game's. */
+const apiOf = (rehlds: boolean) => (rehlds ? 'ReHLDS' : 'ReGameDLL');
+
 /**
- * What a reapi event's tooltip says of a server without reapi - plain HLDS:
- * what it does not give there (scripts/hlds-events.ts), or that nothing hears
- * it. An event heard fully says nothing.
+ * What a hookchain event's tooltip says of a server without its API - plain
+ * HLDS: what it does not give there (scripts/hlds-events.ts), or that nothing
+ * hears it. An event heard fully says nothing.
  */
-function withoutReapi(camel: string) {
+function withoutChains(camel: string, rehlds: boolean) {
 	const heard = HEARD[camel];
-	if (heard?.gaps) return say(`Without ReAPI (plain HLDS): ${heard.gaps.en}.`, `Без ReAPI (чистый HLDS): ${heard.gaps.ru}.`);
+	const api = apiOf(rehlds);
+	if (heard?.gaps) return say(`Without ${api} (plain HLDS): ${heard.gaps.en}.`, `Без ${api} (чистый HLDS): ${heard.gaps.ru}.`);
 	if (heard) return '';
-	return say('Without ReAPI (plain HLDS) nothing hears it.', 'Без ReAPI (чистый HLDS) его ничто не слышит.');
+	return say(`Without ${api} (plain HLDS) nothing hears it.`, `Без ${api} (чистый HLDS) его ничто не слышит.`);
 }
 
 /** Two texts as sentences one after the other: the first ended with its full stop. */
@@ -787,6 +780,8 @@ interface EventSpec {
 	kind: string;
 	/** reapi's short name, for hook(). */
 	hook?: string;
+	/** A chain of ReHLDS's, the engine's, rather than ReGameDLL's. */
+	rehlds: boolean;
 	ham?: HamFunction;
 	params: Param[];
 	result: Result | null;
@@ -891,37 +886,36 @@ const hamOf = new Map(HAM_FUNCTIONS.filter(f => f.reapi).map(f => [f.reapi!, f])
 const hamDocs = new Map<string, string>();
 for (const m of readFileSync(includePath('ham_const'), 'utf8').matchAll(/\/\*\*((?:(?!\*\/)[\s\S])*?)\*\/\s*(Ham_\w+)/g)) hamDocs.set(m[2], m[1]);
 
-const HAM_KINDS: Record<HamKind, { kind: Kind; atype: string; pawn: (name: string) => string }> = {
-	entity: { kind: 'Entity', atype: 'ATYPE_INTEGER', pawn: name => name },
-	player: { kind: 'Player', atype: 'ATYPE_INTEGER', pawn: name => name },
-	weapon: { kind: 'Weapon', atype: 'ATYPE_INTEGER', pawn: name => name },
-	int: { kind: 'int', atype: 'ATYPE_INTEGER', pawn: name => name },
-	float: { kind: 'float', atype: 'ATYPE_FLOAT', pawn: name => `Float:${name}` },
-	bool: { kind: 'bool', atype: 'ATYPE_BOOL', pawn: name => `bool:${name}` },
-	vector: { kind: 'vector', atype: 'ATYPE_VECTOR', pawn: name => `Float:${name}[3]` },
-	string: { kind: 'string', atype: 'ATYPE_STRING', pawn: name => `${name}[]` },
-	damage: { kind: 'damage', atype: 'ATYPE_INTEGER', pawn: name => name },
-	use: { kind: 'use', atype: 'ATYPE_INTEGER', pawn: name => name },
+const HAM_KINDS: Record<HamKind, { kind: Kind; pawn: (name: string) => string }> = {
+	entity: { kind: 'Entity', pawn: name => name },
+	player: { kind: 'Player', pawn: name => name },
+	weapon: { kind: 'Weapon', pawn: name => name },
+	int: { kind: 'int', pawn: name => name },
+	float: { kind: 'float', pawn: name => `Float:${name}` },
+	bool: { kind: 'bool', pawn: name => `bool:${name}` },
+	vector: { kind: 'vector', pawn: name => `Float:${name}[3]` },
+	string: { kind: 'string', pawn: name => `${name}[]` },
+	damage: { kind: 'damage', pawn: name => name },
+	use: { kind: 'use', pawn: name => name },
 };
 
 const HAM_RESULTS: Record<Exclude<HamAnswer, 'none'>, Result> = {
-	int: { kind: 'int', atype: 'ATYPE_INTEGER', pawn: 'Integer' },
-	bool: { kind: 'bool', atype: 'ATYPE_BOOL', pawn: 'Integer' },
-	float: { kind: 'float', atype: 'ATYPE_FLOAT', pawn: 'Float' },
-	// ATYPE_EDICT stands for "an entity" to HookEvent: Ham Sandwich answers it with SetHamReturnEntity.
-	entity: { kind: 'Entity', atype: 'ATYPE_EDICT', pawn: 'Entity' },
-	string: { kind: 'string', atype: 'ATYPE_STRING', pawn: 'String' },
-	vector: { kind: 'vector', atype: 'ATYPE_VECTOR', pawn: 'Vector' },
+	int: { kind: 'int', pawn: 'Integer' },
+	bool: { kind: 'bool', pawn: 'Integer' },
+	float: { kind: 'float', pawn: 'Float' },
+	entity: { kind: 'Entity', pawn: 'Entity' },
+	string: { kind: 'string', pawn: 'String' },
+	vector: { kind: 'vector', pawn: 'Vector' },
 };
 
 /** A Ham Sandwich function's arguments as fields: `this` first, then the rest, each writable. */
 function hamParams(f: HamFunction): Param[] {
 	const self = HAM_KINDS[f.target];
 	return [
-		{ name: f.target, kind: self.kind, index: 0, settable: false, atype: self.atype, pawn: 'this' },
+		{ name: f.target, kind: self.kind, index: 0, settable: false, pawn: 'this' },
 		...f.params.map((param, i) => {
 			const shape = HAM_KINDS[param.kind];
-			return { name: param.name, kind: shape.kind, index: i + 1, settable: true, atype: shape.atype, pawn: shape.pawn(param.name) };
+			return { name: param.name, kind: shape.kind, index: i + 1, settable: true, pawn: shape.pawn(param.name) };
 		}),
 	];
 }
@@ -952,11 +946,12 @@ for (const [hook, id] of [...idOfName].sort((a, b) => a[0].localeCompare(b[0])))
 		Name: `${pascal(camel)}Event`,
 		kind: hook,
 		hook,
+		rehlds: constant.startsWith('RH_'),
 		ham,
 		params: paramsOf(hook, constant, paramsLine),
 		result: resultOf(hook, line(comment, 'Return type') || UNDOCUMENTED_RESULTS[constant] || ''),
-		// An event Ham Sandwich delivers too is heard the same without reapi.
-		summary: ham ? gameSummary(camel, comment) : sentences(gameSummary(camel, comment), withoutReapi(camel)),
+		// An event Ham Sandwich's function delivers too is heard the same without ReGameDLL.
+		summary: ham ? gameSummary(camel, comment) : sentences(gameSummary(camel, comment), withoutChains(camel, constant.startsWith('RH_'))),
 		pawn: `\`${constant}\`${paramsLine ? ` ${paramsLine}` : ''}${ham ? `, \`${ham.ham}\`` : ''}`,
 		extra: [],
 	};
@@ -979,6 +974,7 @@ for (const f of HAM_FUNCTIONS.filter(row => !row.reapi && !HIDDEN_EVENTS.has(row
 		camel: f.event,
 		Name: `${pascal(f.event)}Event`,
 		kind: f.ham,
+		rehlds: false,
 		ham: f,
 		params: hamParams(f),
 		result: f.answer === 'none' ? null : HAM_RESULTS[f.answer],
@@ -998,13 +994,13 @@ const eventKeys: string[] = [];
 const answerKeys: string[] = [];
 
 /**
- * When a listener goes to Ham Sandwich rather than reapi's chain: when it
- * names a class other than the chain's own, or the server has no reapi. A
- * weapon chain's own class is every weapon, so any class narrows it to Ham
- * Sandwich; a player chain's is "player".
+ * When a listener goes to the Ham Sandwich function rather than the chain:
+ * when it names a class other than the chain's own, or the server has no
+ * ReGameDLL. A weapon chain's own class is every weapon, so any class
+ * narrows it to the function; a player chain's is "player".
  */
 function toHam(ham: HamFunction) {
-	return `(${ham.target === 'weapon' ? 'classname.length > 0' : 'classname.length > 0 && classname != "player"'}) || !__hasReapi()`;
+	return `(${ham.target === 'weapon' ? 'classname.length > 0' : 'classname.length > 0 && classname != "player"'}) || !__hasChains(false)`;
 }
 
 /** The class Ham Sandwich hooks for a listener: the one named, or the chain's own - "player", or every weapon. */
@@ -1076,9 +1072,8 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 	// made goes through the same loop, Run, for each phase.
 	const open = heard
 		? [
-				`function ${camel}Fire(entries: HookEntries<${Name}, ${T}>, post: bool, ham: bool): void {`,
+				`function ${camel}Fire(entries: HookEntries<${Name}, ${T}>, post: bool): void {`,
 				`\tconst event = new ${Name}();`,
-				`\tevent.__ham = ham;`,
 				`\t${camel}Run(event, entries, post);`,
 				`}`,
 				`function ${camel}FireHlds(event: ${Name}, post: bool): void {`,
@@ -1091,9 +1086,8 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 				`function ${camel}Run(event: ${Name}, entries: HookEntries<${Name}, ${T}>, post: bool): void {`,
 			]
 		: [
-				`function ${camel}Fire(entries: HookEntries<${Name}, ${T}>, post: bool, ham: bool): void {`,
+				`function ${camel}Fire(entries: HookEntries<${Name}, ${T}>, post: bool): void {`,
 				`\tconst event = new ${Name}();`,
-				`\tevent.__ham = ham;`,
 			];
 	const fire = result
 		? [
@@ -1134,8 +1128,8 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 		...(ham ? [`const ${camel}Hams = new HamHooks<${Name}, ${T}>(${ham.ham});`] : []),
 		...(hook
 			? [
-					`function ${camel}FirePre(a: number, b: number, c: number, d: number) { ${camel}Fire(${camel}Pre.entries, false, false); }`,
-					`function ${camel}FirePost(a: number, b: number, c: number, d: number) { ${camel}Fire(${camel}Post.entries, true, false); }`,
+					`function ${camel}FirePre(a: number, b: number, c: number, d: number) { ${camel}Fire(${camel}Pre.entries, false); }`,
+					`function ${camel}FirePost(a: number, b: number, c: number, d: number) { ${camel}Fire(${camel}Post.entries, true); }`,
 				]
 			: []),
 	].join('\n'));
@@ -1158,19 +1152,18 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 			? `\t\t\tif (idof<R>() != idof<Promise<void>>()) ERROR("an async ${camel} listener answers nothing: return the ${TYPES[result.kind]} without await");`
 			: `\t\t\tif (idof<R>() != idof<Promise<${T}>>() && idof<R>() != idof<Promise<void>>()) ERROR("an async ${camel} listener answers with Promise<${TYPES[result.kind]}>");`;
 
-	// reapi's chain is registered on the first listener of a phase
-	// (ChainPhase); a Ham Sandwich hook on the first listener for its class
-	// (HamHooks).
-	const reapiHook = hook ? [`\t\t(post ? ${camel}Post : ${camel}Pre).add(entry, "${hook}", post ? ${camel}FirePost : ${camel}FirePre, post);`] : [];
+	// The chain is hooked on the first listener of a phase (ChainPhase); a
+	// Ham Sandwich function on the first listener for its class (HamHooks).
+	const chainHook = hook ? [`\t\t(post ? ${camel}Post : ${camel}Pre).add(entry, "${hook}", post ? ${camel}FirePost : ${camel}FirePre, post);`] : [];
 	const guard = refusal(spec);
-	// A chain of ReGameDLL's or ReHLDS's own: without reapi nothing delivers it, and the console says so once.
-	const reapiOnly = hook && !ham && !heard ? `\t\tif (!__hasReapi()) { __sayOnce("${camel} needs ReAPI, which this server does not have: its listeners are never called"); return; }` : '';
+	// A chain of ReGameDLL's or ReHLDS's own: without its API nothing delivers it, and the console says so once.
+	const chainOnly = hook && !ham && !heard ? `\t\tif (!__hasChains(${spec.rehlds})) { __sayOnce("${camel} needs ${apiOf(spec.rehlds)}, which this server does not have: its listeners are never called"); return; }` : '';
 	// One a stock hook hears instead: its backend is registered on the first
 	// listener, its post one on the first post listener, each switched off
 	// while it has none (removal).
 	const hlds = heard
 		? [
-				`\t\tif (!__hasReapi()) {`,
+				`\t\tif (!__hasChains(${spec.rehlds})) {`,
 				`\t\t\tif (!${camel}HldsHooked) { ${camel}HldsHooked = true; ${camel}Hlds(${camel}FireHlds, ${camel}Backend); }`,
 				...(heard.post ? [`\t\t\tif (post && !${camel}PostHldsHooked) { ${camel}PostHldsHooked = true; ${camel}PostHlds(${camel}FireHlds, ${camel}PostBackend); }`] : []),
 				`\t\t\t(post ? ${camel}Post : ${camel}Pre).entries.push(entry);`,
@@ -1184,20 +1177,20 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 	adds.push([
 		`\tif (idof<E>() == idof<${Name}>()) {`,
 		...(guard ? [guard] : []),
-		...(reapiOnly ? [reapiOnly] : []),
+		...(chainOnly ? [chainOnly] : []),
 		`\t\tconst entry = new HookEntry<${Name}, ${T}>();`,
 		`\t\tif (isVoid<R>()) entry.silent = changetype<(event: ${Name}) => void>(listener);`,
 		`\t\t// @ts-ignore: TypeScript does not know R is a Promise here; the compiler checks it`,
 		`\t\telse if (isReference<R>() && isDefined(changetype<R>(0).__hasValue)) {`,
 		...(promiseGuard ? [promiseGuard] : []),
-		`\t\t\tentry.silent = changetype<(event: ${Name}) => void>(asyncListener(changetype<usize>(listener), ${answerKind(result)}, ${result ? result.atype : 0}, post));`,
+		`\t\t\tentry.silent = changetype<(event: ${Name}) => void>(asyncListener(changetype<usize>(listener), ${answerKind(result)}, post));`,
 		`\t\t\tentry.source = changetype<usize>(listener);`,
 		`\t\t}`,
 		...answerBranch,
 		...(ham && hook ? [`\t\tif (${toHam(ham)}) { ${camel}Hams.add(${hamOwnClass(ham)}, post, ${camel}Fire, entry); return; }`] : []),
 		...(ham && !hook ? [`\t\t${camel}Hams.add(${hamClass(ham)}, post, ${camel}Fire, entry);`] : []),
 		...hlds,
-		...reapiHook,
+		...chainHook,
 		`\t\treturn;`,
 		`\t}`,
 	].join('\n'));
@@ -1225,16 +1218,10 @@ writeFileSync('./as/hooks.ts', `// GENERATED by scripts/generate-hooks.ts — do
 // Player, a Weapon or an Entity - what the handler returns is the game's
 // answer, and blocking without one is \`event.preventDefault()\`. Listen with
 // \`game.addEventListener("takeDamage", ...)\`.
-import { Call, Player, RoundWinner, Team, TouchEvent, UseType, Vector, WideHandler, arg, argText, cellFloat, floatCell, handled, hook, __Listeners, __Switch, __ham, __hasReapi, __outcome, __nativeVector, __playerOf, __setNativeVector, __sayOnce, __weaponClassnames } from "./facade";
+import { Player, RoundWinner, Team, TouchEvent, UseType, Vector, WideHandler, arg, argText, cellFloat, floatCell, handled, hook, __chainSet, __chainSetText, __hasChains, __hookOn, __Listeners, __Switch, __ham, __outcome, __nativeVector, __playerOf, __setNativeVector, __sayOnce, __weaponClassnames } from "./facade";
 import { Entity, HitGroup, Weapon, WeaponKind } from "./entities";
 import {
-	DisableHookChain, EnableHookChain, GetHookChainReturn, SetHookChainArg, SetHookChainReturn, NATIVE_SetHookChainArg,
-	GetHamReturnEntity, GetHamReturnFloat, GetHamReturnInteger, GetHamReturnString, GetHamReturnVector,
-	SetHamParamEntity, SetHamParamFloat, SetHamParamInteger, SetHamParamString, SetHamParamVector,
-	SetHamReturnEntity, SetHamReturnFloat, SetHamReturnInteger, SetHamReturnString, SetHamReturnVector
-} from "./natives";
-import {
-	ATYPE_BOOL, ATYPE_CLASSPTR, ATYPE_EDICT, ATYPE_FLOAT, ATYPE_INTEGER, ATYPE_STRING, ATYPE_VECTOR, HC_BREAK, HAM_OVERRIDE, HAM_SUPERCEDE, HookName,
+	HookName,
 	${HAM_FUNCTIONS.map(f => f.ham).join(', ')}
 } from "./constants";
 import { DAMAGE, Damage, FlagFamily } from "./flags";
@@ -1249,19 +1236,21 @@ function useTypeName(cell: i32): UseType {
 	return cell >= 0 && cell < USE_TYPES.length ? USE_TYPES[cell] : "toggle";
 }
 
-// Ham Sandwich's by-address answers, read into one cell.
-const hamOut = new StaticArray<i32>(1);
+// What a listener's outcome stops: the event, the game's function with it.
+const OUTCOME_BREAK: i32 = 2;
 
-/** What every game event can do. */
+/**
+ * What every game event can do. Its fields are the module's hook's call of
+ * the game's function (arg, argText): a field written is what the function
+ * goes on with, and -1 is its answer.
+ */
 export class HookEvent {
-	/** @hidden Ham Sandwich delivered the event rather than reapi: the arguments and the answer go back its way. */
-	__ham: bool = false;
-
 	/**
-	 * @hidden A stock hook's backend made the event, on a server without reapi
-	 * (as/hlds.ts): a field is what the backend gave, 0 or empty where it gave
-	 * nothing, and what a listener asks of the game - blocking it, answering,
-	 * a field written - waits for the backend, which gives the game what it can.
+	 * @hidden A stock hook's backend made the event, on a server without
+	 * ReGameDLL (as/hlds.ts): a field is what the backend gave, 0 or empty
+	 * where it gave nothing, and what a listener asks of the game - blocking
+	 * it, answering, a field written - waits for the backend, which gives the
+	 * game what it can.
 	 */
 	__hlds: bool = false;
 	/** @hidden What the listeners asked of the game, on a stock hook's event. */
@@ -1270,29 +1259,29 @@ export class HookEvent {
 	__answerCell: i32 = 0;
 	__changed: bool = false;
 
-	// What the handler wrote, by argument: reapi hands a hook the arguments
-	// it was called with, and SetHookChainArg changes what the chain goes on
-	// with but not what arg() reads. Without these, \`event.damage = 1.0\`
-	// did its job and \`event.damage\` still said 65 - measured on the server.
-	// Made on the first write: most events are only read.
+	// A stock hook's event: what the backend gave and the listeners wrote, by
+	// argument. Made on the first: most events are only read.
 	private written: Map<i32, i32> | null = null;
 	private writtenText: Map<i32, string> | null = null;
 	private writtenVector: Map<i32, Vector> | null = null;
 
-	/** An argument as the handler sees it now: its own write, or what came in. */
+	/** An argument as the handler sees it now. */
 	protected __cell(index: i32): i32 {
+		if (!this.__hlds) return arg(index);
 		const written = this.written;
-		return written != null && written.has(index) ? written.get(index) : this.__hlds ? 0 : arg(index);
+		return written != null && written.has(index) ? written.get(index) : 0;
 	}
 
 	protected __text(index: i32): string {
+		if (!this.__hlds) return argText(index);
 		const written = this.writtenText;
-		return written != null && written.has(index) ? written.get(index) : this.__hlds ? "" : argText(index);
+		return written != null && written.has(index) ? written.get(index) : "";
 	}
 
 	protected __vector(index: i32): Vector {
+		if (!this.__hlds) return __nativeVector(index);
 		const written = this.writtenVector;
-		return written != null && written.has(index) ? written.get(index) : this.__hlds ? new Vector() : __nativeVector(index);
+		return written != null && written.has(index) ? written.get(index) : new Vector();
 	}
 
 	private __write(index: i32, cell: i32): void {
@@ -1328,98 +1317,80 @@ export class HookEvent {
 		this.__writeVector(index, value);
 	}
 
-	/** Writes a number argument back: \`atype\` says how it is read, a float as its bits. */
-	protected __set(index: i32, atype: i32, cell: i32): void {
-		if (this.__hlds) this.__changed = true;
-		else if (!this.__ham) SetHookChainArg(index + 1, atype, cell);
-		else if (atype == ATYPE_FLOAT) SetHamParamFloat(index + 1, cellFloat(cell));
-		else SetHamParamInteger(index + 1, cell);
+	/** Writes an argument back, a float as its bits, an entity as its index. */
+	protected __set(index: i32, cell: i32): void {
+		if (!this.__hlds) {
+			__chainSet(index, cell);
+			return;
+		}
+		this.__changed = true;
 		this.__write(index, cell);
 	}
 
 	protected __setText(index: i32, value: string): void {
-		if (this.__hlds) this.__changed = true;
-		else if (this.__ham) SetHamParamString(index + 1, value);
-		else new Call(NATIVE_SetHookChainArg).num(index + 1).num(ATYPE_STRING).str(value).run();
+		if (!this.__hlds) {
+			__chainSetText(index, value);
+			return;
+		}
+		this.__changed = true;
 		this.__writeText(index, value);
 	}
 
-	// Only Ham Sandwich takes an entity back; reapi's events have no setter for one.
 	protected __setEntity(index: i32, id: number): void {
-		SetHamParamEntity(index + 1, id);
-		this.__write(index, <i32>id);
+		this.__set(index, <i32>id);
 	}
 
-	// SetHookChainArg takes no vector: reapi hands one over as an array it
-	// copies back into the game's once the listener returns, so it is
-	// written where it lies.
+	// A vector is written where the game keeps it.
 	protected __setVector(index: i32, value: Vector): void {
-		if (this.__hlds) this.__changed = true;
-		else if (this.__ham) SetHamParamVector(index + 1, value);
-		else __setNativeVector(index, value);
+		if (!this.__hlds) {
+			__setNativeVector(index, value);
+			return;
+		}
+		this.__changed = true;
 		this.__writeVector(index, value);
 	}
 
-	/** The game's answer as a cell - ATYPE_EDICT is an entity. */
-	protected __resultCell(atype: i32): i32 {
-		if (this.__hlds) return this.__cell(-1);
-		if (!this.__ham) return GetHookChainReturn(atype);
-		if (atype == ATYPE_FLOAT) GetHamReturnFloat(changetype<i32>(hamOut));
-		else if (atype == ATYPE_EDICT) GetHamReturnEntity(changetype<i32>(hamOut));
-		else GetHamReturnInteger(changetype<i32>(hamOut));
-		return hamOut[0];
+	/** The game's answer as a cell: a float's bits, an entity's index. */
+	protected __resultCell(): i32 {
+		return this.__cell(-1);
 	}
 
 	protected __resultText(): string {
-		return GetHamReturnString();
+		return argText(-1);
 	}
 
 	protected __resultVector(): Vector {
-		const value = new Vector();
-		GetHamReturnVector(value);
-		return value;
+		return __nativeVector(-1);
 	}
 
 	/** @hidden A listener's answer: the game's function's result, and in a pre listener the function blocked. */
-	__answer(atype: i32, cell: i32, post: bool): void {
+	__answer(cell: i32, post: bool): void {
 		if (this.__hlds) {
 			this.__answered = true;
 			this.__answerCell = cell;
 			return;
 		}
-		if (!this.__ham) {
-			SetHookChainReturn(atype, cell);
-			if (!post) handled();
-			return;
-		}
-		if (atype == ATYPE_FLOAT) SetHamReturnFloat(cellFloat(cell));
-		else if (atype == ATYPE_EDICT) SetHamReturnEntity(cell);
-		else SetHamReturnInteger(cell);
-		__outcome(post ? HAM_OVERRIDE : HAM_SUPERCEDE);
+		__chainSet(-1, cell);
+		if (!post) handled();
 	}
 
 	/** @hidden */
 	__answerText(value: string, post: bool): void {
-		SetHamReturnString(value);
-		__outcome(post ? HAM_OVERRIDE : HAM_SUPERCEDE);
+		__chainSetText(-1, value);
+		if (!post) handled();
 	}
 
 	/** @hidden */
 	__answerVector(value: Vector, post: bool): void {
-		SetHamReturnVector(value);
-		__outcome(post ? HAM_OVERRIDE : HAM_SUPERCEDE);
+		__setNativeVector(-1, value);
+		if (!post) handled();
 	}
 
-	/**
-	 * Blocks a function that answers: reapi wants the answer set first -
-	 * "Can't suppress original function call without new return value set" -
-	 * so it is the neutral one.
-	 */
-	protected __block(atype: i32): void {
+	/** Blocks a function that answers: it answers the neutral value, 0 or false. */
+	protected __block(): void {
 		if (this.__hlds) this.__prevented = true;
-		else if (this.__ham) __outcome(HAM_SUPERCEDE);
 		else {
-			SetHookChainReturn(atype, atype == ATYPE_FLOAT ? floatCell(0.0) : 0);
+			__chainSet(-1, 0);
 			handled();
 		}
 	}
@@ -1430,18 +1401,16 @@ export class HookEvent {
 	), '\t')}
 	preventDefault() {
 		if (this.__hlds) this.__prevented = true;
-		else if (this.__ham) __outcome(HAM_SUPERCEDE);
 		else handled();
 	}
 
 	${renderDoc(say(
-		'Stops the event: the game\'s function does not run, and neither do other plugins\' listeners where the game can stop them. Rarely what is wanted; preventDefault() usually is.\n\nPawn: `HC_BREAK`',
-		'Останавливает событие: функция игры не выполняется, и обработчики других плагинов тоже, где игра умеет их остановить. Нужно редко — обычно подходит preventDefault().\n\nPawn: `HC_BREAK`',
+		'Stops the event: the game\'s function does not run, and neither do the listeners after this one. Rarely what is wanted; preventDefault() usually is.\n\nPawn: `HC_BREAK`',
+		'Останавливает событие: функция игры не выполняется, и обработчики после этого тоже. Нужно редко — обычно подходит preventDefault().\n\nPawn: `HC_BREAK`',
 	), '\t')}
 	stopImmediatePropagation() {
-		// Ham Sandwich calls every plugin's hook whatever one answers.
 		if (this.__hlds) this.__prevented = true;
-		else __outcome(this.__ham ? HAM_SUPERCEDE : HC_BREAK);
+		else __outcome(OUTCOME_BREAK);
 	}
 }
 
@@ -1477,10 +1446,10 @@ function unlisten<E, T>(list: HookEntries<E, T>, fn: usize): void {
 const EVERY_WEAPON = "weapon_*";
 
 /**
- * One phase of a reapi hookchain, before the game or after it: its listeners,
- * and the hook registered on the first of them and switched off while none is
- * left - DisableHookChain, so the game's function does not call the plugin for
- * nothing. On a server without reapi the listeners alone: a backend hears the
+ * One phase of a hookchain, before the game or after it: its listeners, and
+ * the hook registered on the first of them and switched off while none is
+ * left, so the game's function does not call the plugin for nothing. On a
+ * server without the chain's API the listeners alone: a backend hears the
  * event (as/hlds.ts).
  */
 class ChainPhase<E, T> {
@@ -1493,10 +1462,7 @@ class ChainPhase<E, T> {
 		if (!this.hooked) {
 			this.hooked = true;
 			const handle = <i32>hook(name, fire, post);
-			if (handle != 0) this.chain.add((on: bool): void => {
-				if (on) EnableHookChain(handle);
-				else DisableHookChain(handle);
-			});
+			if (handle != 0) this.chain.add((on: bool): void => __hookOn(handle, on));
 		}
 		this.entries.push(entry);
 		this.chain.set(true);
@@ -1529,7 +1495,7 @@ class HamHooks<E, T> {
 	constructor(private fn: i32) {}
 
 	/** Adds a listener for this class, the hook registered when it is the class's first. */
-	add(classname: string, post: bool, fire: (entries: HookEntries<E, T>, post: bool, ham: bool) => void, entry: HookEntry<E, T>): void {
+	add(classname: string, post: bool, fire: (entries: HookEntries<E, T>, post: bool) => void, entry: HookEntry<E, T>): void {
 		const list = this.find(classname, post) ?? this.hookClass(classname, post, fire);
 		list.entries.push(entry);
 		list.hook.set(true);
@@ -1542,10 +1508,10 @@ class HamHooks<E, T> {
 		list.hook.set(list.entries.count > 0);
 	}
 
-	private hookClass(classname: string, post: bool, fire: (entries: HookEntries<E, T>, post: bool, ham: bool) => void): HamList<E, T> {
+	private hookClass(classname: string, post: bool, fire: (entries: HookEntries<E, T>, post: bool) => void): HamList<E, T> {
 		const list = new HamList<E, T>(classname, post);
 		this.lists.push(list);
-		const fired = (a: number, b: number, c: number, d: number): void => fire(list.entries, post, true);
+		const fired = (a: number, b: number, c: number, d: number): void => fire(list.entries, post);
 		const classes = classname == EVERY_WEAPON ? __weaponClassnames() : [classname];
 		for (let i = 0; i < classes.length; i++) __ham(this.fn, classes[i], fired, post, list.hook);
 		return list;
@@ -1572,11 +1538,11 @@ class HamHooks<E, T> {
  * A plugin without async listeners compiles none of this.
  */
 class AsyncListener {
-	constructor(public listener: usize, public kind: i32, public atype: i32, public post: bool) {}
+	constructor(public listener: usize, public kind: i32, public post: bool) {}
 }
 
-function asyncListener(listener: usize, kind: i32, atype: i32, post: bool): usize {
-	return __co_bindEnv(changetype<usize>(asyncAnswer), new AsyncListener(listener, kind, atype, post));
+function asyncListener(listener: usize, kind: i32, post: bool): usize {
+	return __co_bindEnv(changetype<usize>(asyncAnswer), new AsyncListener(listener, kind, post));
 }
 
 function asyncAnswer(event: usize): void {
@@ -1588,7 +1554,7 @@ function asyncAnswer(event: usize): void {
 		: self.kind == 2 ? (settled.__bits != 0 ? 1 : 0)
 		: self.kind == 3 ? <i32>reinterpret<f64>(settled.__bits)
 		: <i32>changetype<Entity>(settled.__ref).id;
-	changetype<HookEvent>(event).__answer(self.atype, cell, self.post);
+	changetype<HookEvent>(event).__answer(cell, self.post);
 }
 
 ${[...namedUsed.values()].map(namedBlock).join('\n\n')}

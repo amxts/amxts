@@ -344,24 +344,15 @@ struct Slot : Handler {
 	 * What the caller gets when the handler says nothing.
 	 *
 	 * It is not one value for everyone: a command wants PLUGIN_HANDLED, a
-	 * reapi hookchain wants HC_CONTINUE - and HC_SUPERCEDE is 1, so answering
-	 * PLUGIN_HANDLED to a hookchain blocks the function it hooks. Ham's
-	 * HAM_IGNORED is 1 again. So whoever takes the slot says what silence means.
+	 * fakemeta forward FMRES_IGNORED - and FMRES_IGNORED is 1, so answering
+	 * PLUGIN_CONTINUE there would be read as something else. So whoever takes
+	 * the slot says what silence means.
 	 */
 	cell     fallback;
-	// What this slot was registered for: "clcmd:say /hp", "hook:3072". AMX Mod
+	// What this slot was registered for: "clcmd:say /hp", "hlds:fm:sound". AMX Mod
 	// X cannot unregister any of them, so on a reload the plugin takes its own
 	// slots back by this key rather than registering a second time.
 	std::string key;
-	// What the registration returned, for a hookchain handle that has to
-	// survive the reload that reuses it.
-	cell     handle;
-	// The natives that switch the registration off and on by its handle -
-	// DisableHookChain and EnableHookChain, DisableHamForward and
-	// EnableHamForward - or NULL for one that cannot be. A reload switches it
-	// off; the plugin registering it again switches it back on (TakeSlot).
-	const char *disable;
-	const char *enable;
 	/**
 	 * Switched off by its plugin while what it delivers has no listener
 	 * (w_slotOn): a call answers the fallback without entering the plugin.
@@ -763,17 +754,6 @@ static cell CallCached(Cached &cached, const char *name, cell *params)
 	return Invoke(cached.native, params);
 }
 
-/**
- * A native of the host's table by a name known only as the module runs - the
- * switch a slot keeps (Slot.disable), a field's native: looked up each call.
- */
-static cell CallByName(const char *name, cell *params)
-{
-	Resolved native = FindNative(name);
-	if (!native.fn)
-		return 0;
-	return Invoke(native, params);
-}
 
 /**
  * A native of the host's table by its name, a literal: each call site keeps
@@ -783,13 +763,6 @@ static cell CallByName(const char *name, cell *params)
 #define CallNative(name, params) \
 	([](cell *p) { static Cached cached = { { NULL, 0 }, 0 }; return CallCached(cached, "" name, p); }(params))
 
-/** A native that takes one handle: DisableHookChain(handle) and its like. */
-static cell CallWithHandle(const char *name, cell handle)
-{
-	Args params(1);
-	params[1] = handle;
-	return CallByName(name, params);
-}
 
 /**
  * The arguments of the callback that is running, for arg() and argText().
@@ -811,19 +784,32 @@ static int   g_caller = -1;
 // How many cells each array argument has, -1 where nobody said: a forward's,
 // for arg_length(). NULL for a call that carries no sizes.
 static const int32_t *g_callLengths = NULL;
+// A hooked game function's call (gamehooks.h), when that is the context:
+// its cells are g_callArgs, and its texts, vectors and answer are its own.
+struct ChainCall;
+static ChainCall *g_chain = NULL;
+static cell ChainResult();
+static const char *ChainText(int32_t index);
+static float *ChainVector(int32_t index);
+static void ChainAnswered();
+// An entity's function run with { hooks: false } (ExecuteHam, ham_bypass):
+// the module's hook of it on that entity passes the call straight on, once,
+// before the native returns. -1 for none.
+static int g_hamQuiet = -1;
+static int g_hamQuietId = 0;
 
 struct CallArgs {
-	cell *args; int argc; AMX *amx; int caller; const int32_t *lengths;
+	cell *args; int argc; AMX *amx; int caller; const int32_t *lengths; ChainCall *chain;
 
 	CallArgs(cell *a, int n, AMX *x, int from = -1, const int32_t *sizes = NULL)
-		: args(g_callArgs), argc(g_callArgc), amx(g_callAmx), caller(g_caller), lengths(g_callLengths)
+		: args(g_callArgs), argc(g_callArgc), amx(g_callAmx), caller(g_caller), lengths(g_callLengths), chain(g_chain)
 	{
-		g_callArgs = a; g_callArgc = n; g_callAmx = x; g_caller = from; g_callLengths = sizes;
+		g_callArgs = a; g_callArgc = n; g_callAmx = x; g_caller = from; g_callLengths = sizes; g_chain = NULL;
 	}
 
 	~CallArgs()
 	{
-		g_callArgs = args; g_callArgc = argc; g_callAmx = amx; g_caller = caller; g_callLengths = lengths;
+		g_callArgs = args; g_callArgc = argc; g_callAmx = amx; g_caller = caller; g_callLengths = lengths; g_chain = chain;
 	}
 };
 
@@ -1782,8 +1768,6 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 				g_slots[i].fallback = fallback;
 				g_slots[i].off = false;
 				Bind(g_slots[i]);
-				if (g_slots[i].enable && g_slots[i].handle)
-					CallWithHandle(g_slots[i].enable, g_slots[i].handle);
 				if (reused)
 					*reused = true;
 				return i;
@@ -1808,9 +1792,6 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 	g_slots[slot].shape = shape;
 	g_slots[slot].fallback = fallback;
 	g_slots[slot].key = key ? key : "";
-	g_slots[slot].handle = 0;
-	g_slots[slot].disable = NULL;
-	g_slots[slot].enable = NULL;
 	g_slots[slot].off = false;
 	Bind(g_slots[slot]);
 	if (slot >= g_slotCount)
@@ -1936,13 +1917,15 @@ static void w_srvcmd(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t shap
  * handed.
  *
  * A handler's shape is fixed at four arguments because call_indirect needs one
- * type, and a reapi hookchain or a message handler sometimes carries more.
+ * type, and a hooked game function or a message handler sometimes carries more.
  * Those arguments were never lost, only not pushed; this reads them where they
  * are. Index 0 is the first argument, the same one the handler got as `a`.
  */
 static int32_t w_arg(wasm_exec_env_t env, int32_t index)
 {
 	(void)env;
+	if (index == -1 && g_chain)
+		return (int32_t)ChainResult();
 	if (!g_callArgs || index < 0 || index >= g_callArgc)
 		return 0;
 
@@ -1959,6 +1942,10 @@ static int32_t w_arg(wasm_exec_env_t env, int32_t index)
  */
 static int32_t w_argText(wasm_exec_env_t env, int32_t index, int32_t out, int32_t max)
 {
+	if (g_chain) {
+		const char *text = ChainText(index);
+		return WriteBytes(Inst(env), out, max, text ? text : "");
+	}
 	if (!g_callArgs || !g_callAmx || index < 0 || index >= g_callArgc)
 		return WriteBytes(Inst(env), out, max, "");
 
@@ -2062,6 +2049,12 @@ static int32_t w_setArgText(wasm_exec_env_t env, int32_t index, int32_t text, in
 static cell *CallerCells(int32_t index, int32_t *room)
 {
 	*room = 0;
+	if (g_chain) {
+		// A hooked call's vector, where the game keeps it: three floats, as cells.
+		cell *vector = (cell *)ChainVector(index);
+		*room = vector ? 3 : 0;
+		return vector;
+	}
 	if (!g_callArgs || !g_callAmx || index < 0 || index >= g_callArgc)
 		return NULL;
 
@@ -2110,8 +2103,8 @@ static int32_t w_argString(wasm_exec_env_t env, int32_t index, int32_t out, int3
 
 /**
  * argArray(index, out, count) - `count` cells of an array argument, into the
- * plugin's `out`. Also what a hookchain's vector argument is read with: the
- * cell is an address in the host plugin, where reapi pushed the vector.
+ * plugin's `out`. Also what a hooked call's vector argument is read with,
+ * where the game keeps it (ChainCall), and its answer's at -1.
  */
 static int32_t w_argArray(wasm_exec_env_t env, int32_t index, int32_t out, int32_t count)
 {
@@ -2168,6 +2161,8 @@ static int32_t w_setArgArray(wasm_exec_env_t env, int32_t index, int32_t src, in
 	int32_t *from = (int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)src);
 	for (int32_t i = 0; i < count; i++)
 		cells[i] = (cell)from[i];
+	if (g_chain && index == -1)
+		ChainAnswered();
 	return count;
 }
 
@@ -2558,93 +2553,12 @@ static int32_t w_call(wasm_exec_env_t env, int32_t id, int32_t argsPtr, int32_t 
 
 	static Cached natives[sizeof(g_dispatchedNatives) / sizeof(g_dispatchedNatives[0])];
 	cell r = CallCached(natives[id], g_dispatchedNatives[id], p);
+	g_hamQuiet = -1;
 
 	for (int i = 0; i < backCount; i++)
 		f.out(back[i].ptr, back[i].cells, back[i].addr);
 
 	return (int32_t)r;
-}
-
-/**
- * hook(hookchainId, handler, post) - reapi's RegisterHookChain.
- *
- * Same shape as a command: the AMXX side takes the name of a public, so the
- * wasm function goes into a slot and the slot's public is what gets
- * registered. The handler is always wide, because a hookchain hands over the
- * entity and its arguments and expects HC_CONTINUE or HC_SUPERCEDE back.
- *
- * The id comes from as/constants.ts - RG_CBasePlayer_Spawn and the rest are
- * numbers the generator computed out of reapi's own includes, so an include
- * from a different reapi release renumbers them and this registers something
- * else. Take the includes from the release the server runs.
- */
-static int32_t w_hook(wasm_exec_env_t env, int32_t id, int32_t fn, int32_t post)
-{
-	char key[64];
-	snprintf(key, sizeof(key), "hook:%d:%d", id, post);
-
-	bool reused = false;
-	int slot = TakeSlot(fn, SHAPE_WIDE, key, &reused, 0);      // HC_CONTINUE
-	if (slot < 0)
-		return 0;
-
-	// Registering the same chain twice would call the plugin twice.
-	if (reused)
-		return (int32_t)g_slots[slot].handle;
-
-	char pub[32];
-	snprintf(pub, sizeof(pub), "__amxts_cb%d", slot);
-
-	cell mark = g_host->hea;
-	Args params(3);
-	params[1] = id;
-	params[2] = PushString(pub);
-	params[3] = post;
-
-	cell handle = CallNative("RegisterHookChain", params);
-	g_host->hea = mark;
-
-	g_slots[slot].handle = handle;
-	g_slots[slot].disable = "DisableHookChain";
-	g_slots[slot].enable = "EnableHookChain";
-	return (int32_t)handle;
-}
-
-// ham(hamId, entityClass, handler, post) - Ham Sandwich's RegisterHam.
-static int32_t w_ham(wasm_exec_env_t env, int32_t id, int32_t entityClass, int32_t fn, int32_t post)
-{
-	std::string key = "ham:" + AsString(Inst(env), entityClass) + ":";
-	char suffix[32];
-	snprintf(suffix, sizeof(suffix), "%d:%d", id, post);
-	key += suffix;
-
-	bool reused = false;
-	int slot = TakeSlot(fn, SHAPE_WIDE, key.c_str(), &reused, 1);  // HAM_IGNORED
-	if (slot < 0)
-		return 0;
-
-	if (reused)
-		return (int32_t)g_slots[slot].handle;
-
-	char pub[32];
-	snprintf(pub, sizeof(pub), "__amxts_cb%d", slot);
-
-	cell mark = g_host->hea;
-	// RegisterHam(Ham:function, EntityClass[], Callback[], Post, bool:specialbot)
-	Args params(5);
-	params[1] = id;
-	params[2] = PushString(AsString(Inst(env), entityClass).c_str());
-	params[3] = PushString(pub);
-	params[4] = post;
-	params[5] = 0;
-
-	cell handle = CallNative("RegisterHam", params);
-	g_host->hea = mark;
-
-	g_slots[slot].handle = handle;
-	g_slots[slot].disable = "DisableHamForward";
-	g_slots[slot].enable = "EnableHamForward";
-	return (int32_t)handle;
 }
 
 // plugin(name, version, author, description) - what the listing shows.
@@ -3313,6 +3227,14 @@ static void w_rpcResult(wasm_exec_env_t env, int32_t to)
 // Entity fields and the game's members, read in memory: ent_get and the rest.
 #include "fields.h"
 
+// ---------------------------------------------------------------- the game's functions
+
+// The engine's ReHLDS API (FindRehlds), once a process; NULL on plain HLDS.
+static IRehldsApi *g_rehlds = NULL;
+
+// Hookchains and Ham Sandwich's functions, hooked by the module: hook, ham and the rest.
+#include "gamehooks.h"
+
 static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line);
 
 static NativeSymbol g_wasmNatives[] = {
@@ -3368,6 +3290,12 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "call",         (void *)w_call,         "(iiii)i", NULL },
 	{ "hook",         (void *)w_hook,         "(iii)i", NULL },
 	{ "ham",          (void *)w_ham,          "(iiii)i", NULL },
+	{ "hook_on",      (void *)w_hook_on,      "(ii)",   NULL },
+	{ "chain_set",    (void *)w_chain_set,    "(ii)",   NULL },
+	{ "chain_set_text", (void *)w_chain_set_text, "(ii)", NULL },
+	{ "game_api",     (void *)w_game_api,     "()i",    NULL },
+	{ "ham_bypass",   (void *)w_ham_bypass,   "(ii)",   NULL },
+	{ "chain_dispatch", (void *)w_chain_dispatch, "(iiiii)i", NULL },
 	{ "plugin",       (void *)w_meta,         "(iiii)", NULL },
 	{ "co_entered",   (void *)w_co_entered,   "()i",    NULL },
 	{ "co_spawn",     (void *)w_co_spawn,     "(iiiii)i", NULL },
@@ -3758,11 +3686,8 @@ static void RemoveHost()
  * Stops one plugin and takes back what it registered with AMX Mod X; its
  * entry stays at its index, for the caller to say what it is now.
  *
- * A task is removed and its slot given back. A hookchain or a Ham hook is
- * switched off, and its slot kept under its key for the plugin to take back
- * and switch on when it registers it again (TakeSlot); one it does not take
- * back is given back once the load is done (FreeSwitchedOff). The rest -
- * register_message, register_menucmd, a raw register_clcmd - have no undo,
+ * Its hooks of the game's functions go (DropGameHooks). What it registered
+ * by a slot - register_message, register_menucmd, a raw register_clcmd - has no undo,
  * so their publics stay bound to their slots: those become orphans, which
  * answer PLUGIN_CONTINUE and call nothing, until the same registration comes
  * back and reuses its slot. An orphan whose registration never comes back
@@ -3819,15 +3744,11 @@ static void ReleasePlugin(int index)
 	for (size_t i = 0; i < g_services.size(); i++)
 		if (g_services[i].plugin == index)
 			g_services[i].plugin = -1;
+	DropGameHooks(index);
 
-	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++) {
-		Slot &slot = g_slots[i];
-		if (!slot.used || slot.plugin != index)
-			continue;
-		if (slot.disable && slot.handle)
-			CallWithHandle(slot.disable, slot.handle);
-		slot.plugin = SLOT_ORPHANED;
-	}
+	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++)
+		if (g_slots[i].used && g_slots[i].plugin == index)
+			g_slots[i].plugin = SLOT_ORPHANED;
 
 	// The names stay in the list (Exported): w_export gives each one to
 	// whichever plugin claims it again, and until then a call answers 0.
@@ -3887,6 +3808,7 @@ static void Teardown()
 	g_subscriptionNames++;
 	g_services.clear();
 	g_fieldListeners.clear();
+	TeardownGameHooks();
 
 	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++)
 		g_slots[i].used = false;
@@ -4650,13 +4572,6 @@ static void FireInit(int only = -1)
 }
 
 
-/** The hooks a reload switched off and the reloaded plugins did not take back: they stay off. */
-static void FreeSwitchedOff()
-{
-	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++)
-		if (g_slots[i].used && g_slots[i].plugin == SLOT_ORPHANED && g_slots[i].disable)
-			g_slots[i].used = false;
-}
 
 /** Whether `p` calls a module the plugin at `owner` serves. */
 static bool UsesModuleOf(const Plugin &p, int owner)
@@ -4727,7 +4642,6 @@ static void ReloadPlugins()
 	MF_PrintSrvConsole("[amxts] reloading\n");
 	LoadScripts(UnloadPlugins());
 	FireInit();
-	FreeSwitchedOff();
 }
 
 /** The entry a command names, or -1 with a line in the console. */
@@ -4752,7 +4666,6 @@ static void StartPlugins(const std::vector<int> &plugins)
 	for (size_t i = 0; i < plugins.size(); i++)
 		if (g_plugins[plugins[i]].state == PLUGIN_RUNNING)
 			FireInit(plugins[i]);
-	FreeSwitchedOff();
 }
 
 /**
@@ -5448,7 +5361,6 @@ static void Dropped(Drop &d)
 }
 
 // ReHLDS: SV_DropClient's hookchain, ahead of AMX Mod X's hook in it.
-static IRehldsApi *g_rehlds = NULL;
 
 static void DropClient_RH(IRehldsHook_SV_DropClient *chain, IGameClient *client, bool crash, const char *reason)
 {
@@ -6061,8 +5973,7 @@ static cell AMX_NATIVE_CALL n_callback(AMX *amx, cell *params)
 		argv[i] = (uint32_t)(int32_t)params[i + 3];
 
 	// What silence means was decided when the slot was taken: PLUGIN_HANDLED
-	// for a command, HC_CONTINUE for a hookchain. One value for both would
-	// have a hook handler that says nothing block the function it hooks.
+	// for a command, FMRES_IGNORED for a fakemeta forward.
 	return Fire(g_slots[slot], argv, n, g_slots[slot].fallback);
 }
 
@@ -6182,6 +6093,7 @@ void OnAmxxAttach()
 	MF_RegAuthFunc(OnAuthorized);
 	FieldsAttach();
 	HookDrops();
+	FindChains();
 	FindClientCommandPath();
 	ReadListFile();
 	InstallHost();

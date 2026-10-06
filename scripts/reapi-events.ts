@@ -1,13 +1,13 @@
-// The game events reapi alone delivers - ReGameDLL's and ReHLDS's own
-// functions - and the build's refusal of a listener for one nothing else
+// The game events only ReGameDLL's and ReHLDS's hookchains deliver - their
+// own functions - and the build's refusal of a listener for one nothing else
 // hears, in a project for plain HLDS.
 //
-// A server without reapi hears every other game event through Ham Sandwich
-// (as/hooks.ts picks it once, by hasModule), and many of these through
-// another stock hook (scripts/hlds-events.ts); a listener for one of the rest
-// is only a line in its console. A project whose amxts.config.ts says
-// `target: "hlds"` has said there is no reapi, so the build stops at such a
-// listener instead, with the file and the line.
+// A server without them hears every other game event through the entity's
+// function in its class (as/hooks.ts picks it once), and many of these
+// through another stock hook (scripts/hlds-events.ts); a listener for one of
+// the rest is only a line in its console. A project whose amxts.config.ts
+// says `target: "hlds"` has said there is neither, so the build stops at
+// such a listener instead, with the file and the line.
 import { join } from 'node:path';
 // @ts-ignore - shipped as JavaScript, with types beside it we do not need here
 import * as asc from '../runtime/deps/assemblyscript/dist/assemblyscript.js';
@@ -76,7 +76,7 @@ export function reapiListeners(sources: any[], events = unheardEvents()): string
 			const event = gameEventOf(node);
 			if (event === undefined || !events.has(event)) return;
 			const line = source.text.slice(0, node.range.start).split('\n').length;
-			found.push(`${source.normalizedPath}:${line}: "${event}" needs ReAPI, and amxts.config.ts's target is "hlds" - nothing on plain HLDS hears it. Listen for another event, or set target: "rehlds"`);
+			found.push(`${source.normalizedPath}:${line}: "${event}" is ReGameDLL's or ReHLDS's own, and amxts.config.ts's target is "hlds" - nothing on plain HLDS hears it. Listen for another event, or set target: "rehlds"`);
 		});
 	}
 	return found;

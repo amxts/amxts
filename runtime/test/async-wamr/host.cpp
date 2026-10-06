@@ -180,7 +180,7 @@ static void w_on(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t shape)
 }
 
 // A hookchain handler, and what it tells the game: handled() is outcome(1),
-// SetHookChainReturn goes through the dispatcher, `call`.
+// the answer chain_set(-1, cell).
 static int32_t w_hook(wasm_exec_env_t env, int32_t id, int32_t fn, int32_t post)
 {
 	if (!post)
@@ -194,6 +194,18 @@ static void w_outcome(wasm_exec_env_t env, int32_t value)
 	fflush(stdout);
 }
 
+static void w_chainSet(wasm_exec_env_t env, int32_t index, int32_t value)
+{
+	printf("log: chain_set %d %d\n", index, value);
+	fflush(stdout);
+}
+
+// A server with ReGameDLL's and ReHLDS's hookchains: the chains are hooked.
+static int32_t w_gameApi(wasm_exec_env_t env)
+{
+	return 3;
+}
+
 static int32_t w_call(wasm_exec_env_t env, int32_t native, int32_t args, int32_t mask, int32_t count)
 {
 	printf("log: native with %d argument(s)\n", count);
@@ -201,7 +213,7 @@ static int32_t w_call(wasm_exec_env_t env, int32_t native, int32_t args, int32_t
 	return 0;
 }
 
-// A server with every library, reapi among them: the hookchains are hooked.
+// A server with every library.
 static int32_t w_libraryExists(wasm_exec_env_t env, int32_t name, int32_t type)
 {
 	return 1;
@@ -218,6 +230,8 @@ static NativeSymbol g_natives[] = {
 	{ "on",            (void *)w_on,         "(iii)",    NULL },
 	{ "hook",          (void *)w_hook,       "(iii)i",   NULL },
 	{ "outcome",       (void *)w_outcome,    "(i)",      NULL },
+	{ "chain_set",     (void *)w_chainSet,   "(ii)",     NULL },
+	{ "game_api",      (void *)w_gameApi,    "()i",      NULL },
 	{ "call",          (void *)w_call,       "(iiii)i",  NULL },
 	{ "LibraryExists", (void *)w_libraryExists, "(ii)i", NULL },
 	{ "co_entered",    (void *)w_co_entered, "()i",      NULL },

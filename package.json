@@ -96,7 +96,7 @@
 	"scripts": {
 		"prepare": "bun scripts/patch-typings.ts",
 		"setup": "bun scripts/setup-includes.ts",
-		"generate": "bun scripts/setup-includes.ts && bun scripts/patch-typings.ts && bun scripts/generate-host.ts && bun scripts/generate-wasm-api.ts && bun scripts/generate-flags.ts && bun scripts/generate-entities.ts && bun scripts/generate-hooks.ts && bun scripts/apply-docs.ts && bun scripts/generate-embedded.ts",
+		"generate": "bun scripts/setup-includes.ts && bun scripts/patch-typings.ts && bun scripts/generate-host.ts && bun scripts/generate-wasm-api.ts && bun scripts/generate-flags.ts && bun scripts/generate-entities.ts && bun scripts/generate-hooks.ts && bun scripts/generate-chains.ts && bun scripts/apply-docs.ts && bun scripts/generate-embedded.ts",
 		"setup:amxmodx": "bun scripts/setup-amxmodx.ts",
 		"host": "bun scripts/generate-host.ts && bun scripts/compile-host.ts",
 		"build:linux": "bun scripts/build-linux.ts",

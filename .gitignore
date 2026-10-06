@@ -16,6 +16,8 @@ as/flags.ts
 as/hooks.ts
 runtime/src/natives.h
 runtime/src/forwards.h
+runtime/src/hookchains.h
+runtime/src/hookchains-api.h
 runtime/src/embedded.h
 runtime/src/host.h
 runtime/natives.txt

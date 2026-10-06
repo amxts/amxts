@@ -24,6 +24,12 @@ export type HamAnswer = 'none' | 'int' | 'bool' | 'float' | 'entity' | 'string' 
 export interface HamParam {
 	name: string;
 	kind: HamKind;
+	/**
+	 * How the game's function takes it, where the kind does not say: an
+	 * entity as its `entvars_t *` rather than its `CBaseEntity *`, a vector
+	 * or a trace by its address. The module's hook is declared with it.
+	 */
+	native?: 'entvars' | 'pointer';
 }
 
 export interface HamFunction {
@@ -42,7 +48,7 @@ export interface HamFunction {
 	method?: boolean;
 }
 
-const p = (name: string, kind: HamKind): HamParam => ({ name, kind });
+const p = (name: string, kind: HamKind, native?: HamParam['native']): HamParam => ({ name, kind, ...(native ? { native } : {}) });
 const row = (ham: string, event: string, target: HamFunction['target'], params: HamParam[], answer: HamAnswer, extra: Partial<HamFunction> = {}): HamFunction => ({ ham, event, target, params, answer, ...extra });
 
 export const HAM_FUNCTIONS: HamFunction[] = [
@@ -53,13 +59,13 @@ export const HAM_FUNCTIONS: HamFunction[] = [
 	row('Ham_Activate', 'activate', 'entity', [], 'none', { method: true }),
 	row('Ham_SetObjectCollisionBox', 'setObjectCollisionBox', 'entity', [], 'none'),
 	row('Ham_Classify', 'classify', 'entity', [], 'int', { reapi: 'classify' }),
-	row('Ham_DeathNotice', 'childDeathNotice', 'entity', [p('child', 'entity')], 'none'),
-	row('Ham_TraceAttack', 'traceAttack', 'entity', [p('attacker', 'entity'), p('damage', 'float'), p('direction', 'vector'), p('trace', 'int'), p('damageType', 'damage')], 'none', { reapi: 'traceAttack' }),
-	row('Ham_TakeDamage', 'takeDamage', 'entity', [p('inflictor', 'entity'), p('attacker', 'entity'), p('damage', 'float'), p('damageType', 'damage')], 'int', { reapi: 'takeDamage' }),
+	row('Ham_DeathNotice', 'childDeathNotice', 'entity', [p('child', 'entity', 'entvars')], 'none'),
+	row('Ham_TraceAttack', 'traceAttack', 'entity', [p('attacker', 'entity', 'entvars'), p('damage', 'float'), p('direction', 'vector'), p('trace', 'int', 'pointer'), p('damageType', 'damage')], 'none', { reapi: 'traceAttack' }),
+	row('Ham_TakeDamage', 'takeDamage', 'entity', [p('inflictor', 'entity', 'entvars'), p('attacker', 'entity', 'entvars'), p('damage', 'float'), p('damageType', 'damage')], 'int', { reapi: 'takeDamage' }),
 	row('Ham_TakeHealth', 'heal', 'entity', [p('health', 'float'), p('damageType', 'damage')], 'bool', { reapi: 'heal', method: true }),
-	row('Ham_Killed', 'killed', 'entity', [p('attacker', 'entity'), p('gib', 'int')], 'none', { reapi: 'killed', method: true }),
+	row('Ham_Killed', 'killed', 'entity', [p('attacker', 'entity', 'entvars'), p('gib', 'int')], 'none', { reapi: 'killed', method: true }),
 	row('Ham_BloodColor', 'bloodColor', 'entity', [], 'int'),
-	row('Ham_TraceBleed', 'traceBleed', 'entity', [p('damage', 'float'), p('direction', 'vector'), p('trace', 'int'), p('damageType', 'damage')], 'none'),
+	row('Ham_TraceBleed', 'traceBleed', 'entity', [p('damage', 'float'), p('direction', 'vector'), p('trace', 'int', 'pointer'), p('damageType', 'damage')], 'none'),
 	row('Ham_IsTriggered', 'isTriggered', 'entity', [p('activator', 'entity')], 'bool'),
 	row('Ham_GetToggleState', 'toggleState', 'entity', [], 'int'),
 	row('Ham_GetDelay', 'delay', 'entity', [], 'float'),
@@ -69,7 +75,7 @@ export const HAM_FUNCTIONS: HamFunction[] = [
 	row('Ham_SetToggleState', 'setToggleState', 'entity', [p('state', 'int')], 'none'),
 	row('Ham_StartSneaking', 'startSneaking', 'entity', [], 'none'),
 	row('Ham_StopSneaking', 'stopSneaking', 'entity', [], 'none'),
-	row('Ham_OnControls', 'onControls', 'entity', [p('on', 'entity')], 'bool'),
+	row('Ham_OnControls', 'onControls', 'entity', [p('on', 'entity', 'entvars')], 'bool'),
 	row('Ham_IsSneaking', 'isSneaking', 'entity', [], 'bool'),
 	row('Ham_IsAlive', 'isAlive', 'entity', [], 'bool'),
 	row('Ham_IsBSPModel', 'isBspModel', 'entity', [], 'bool'),
@@ -89,14 +95,14 @@ export const HAM_FUNCTIONS: HamFunction[] = [
 	row('Ham_Center', 'center', 'entity', [], 'vector'),
 	row('Ham_EyePosition', 'eyePosition', 'entity', [], 'vector'),
 	row('Ham_EarPosition', 'earPosition', 'entity', [], 'vector'),
-	row('Ham_BodyTarget', 'bodyTarget', 'entity', [p('from', 'vector')], 'vector'),
+	row('Ham_BodyTarget', 'bodyTarget', 'entity', [p('from', 'vector', 'pointer')], 'vector'),
 	row('Ham_Illumination', 'illumination', 'entity', [], 'int'),
 	row('Ham_FVisible', 'visible', 'entity', [p('other', 'entity')], 'bool'),
-	row('Ham_FVecVisible', 'pointVisible', 'entity', [p('point', 'vector')], 'bool'),
+	row('Ham_FVecVisible', 'pointVisible', 'entity', [p('point', 'vector', 'pointer')], 'bool'),
 	row('Ham_CS_Restart', 'restart', 'entity', [], 'none', { method: true }),
 
 	// A monster's - in Counter-Strike, a hostage's.
-	row('Ham_ChangeYaw', 'changeYaw', 'entity', [p('speed', 'int')], 'int'),
+	row('Ham_ChangeYaw', 'changeYaw', 'entity', [p('speed', 'int')], 'float'),
 	row('Ham_HasHumanGibs', 'hasHumanGibs', 'entity', [], 'bool'),
 	row('Ham_HasAlienGibs', 'hasAlienGibs', 'entity', [], 'bool'),
 	row('Ham_FadeMonster', 'fadeMonster', 'entity', [], 'none'),
@@ -110,7 +116,7 @@ export const HAM_FUNCTIONS: HamFunction[] = [
 	row('Ham_Look', 'look', 'entity', [p('distance', 'int')], 'none'),
 	row('Ham_BestVisibleEnemy', 'bestVisibleEnemy', 'entity', [], 'entity'),
 	row('Ham_FInViewCone', 'inViewCone', 'entity', [p('other', 'entity')], 'bool'),
-	row('Ham_FVecInViewCone', 'pointInViewCone', 'entity', [p('point', 'vector')], 'bool'),
+	row('Ham_FVecInViewCone', 'pointInViewCone', 'entity', [p('point', 'vector', 'pointer')], 'bool'),
 
 	// A player's.
 	row('Ham_AddPoints', 'addFrags', 'player', [p('points', 'int'), p('allowNegative', 'bool')], 'none', { reapi: 'addFrags', method: true }),

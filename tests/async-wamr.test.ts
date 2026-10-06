@@ -127,7 +127,7 @@ test.skipIf(!existsSync(host) || !existsSync(wamrc))('async/await under WAMR AOT
 		'log: sync end',
 		'log: b after 100',
 		'log: a after 200',
-		'log: native with 2 argument(s)',
+		'log: chain_set -1 0',
 		'log: outcome 1',
 		'log: late answer given',
 		'log: n start',
