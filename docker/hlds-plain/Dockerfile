@@ -36,6 +36,12 @@ RUN mkdir -p /opt/steamcmd && curl -fsSL https://steamcdn-a.akamaihd.net/client/
 	&& mkdir -p /root/.steam/sdk32 && cp /opt/steamcmd/linux32/steamclient.so /root/.steam/sdk32/ \
 	&& rm -rf /opt/steamcmd /root/Steam /root/.steam/steamcmd /tmp/steamcmd.log
 
+# gdb, for the backtrace of a core dump the server leaves when it crashes
+# (scripts/core-dumps.ts). After SteamCMD, so that its layer stays cached.
+RUN apt-get update \
+	&& DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gdb \
+	&& rm -rf /var/lib/apt/lists/*
+
 WORKDIR /tmp/get
 
 # metamod-p rather than Metamod-R: the Metamod an HLDS of Valve's alone has

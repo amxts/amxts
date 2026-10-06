@@ -87,7 +87,9 @@ jobs:
   # The server suites run on three AMX Mod X builds, one job each: the test
   # server image's own, and with --amxx the last of 1.9 - the oldest the docs
   # promise - and the newest of 1.10. A mistake one build lives through can
-  # crash another. The Linux files come from the image's own job.
+  # crash another. The Linux files come from the image's own job. A server
+  # that crashes leaves a core dump, and the runner prints its backtrace: the
+  # console, the dump and the backtrace are the job's artifact when it fails.
   linux:
     name: ${{ matrix.amxx && format('linux (AMX Mod X {0})', matrix.amxx) || 'linux' }}
     runs-on: ubuntu-24.04
@@ -149,10 +151,15 @@ jobs:
           AMXTS_BUILD_VOLUME: ${{ github.workspace }}/linux-work
         run: bun run build:linux
 
+      # The kernel writes a core dump where its core_pattern says, in the
+      # crashing process's own file system: the folder the runner mounts at
+      # /cores (scripts/core-dumps.ts).
+      - name: Core dumps into /cores
+        run: sudo sysctl -w kernel.core_pattern=/cores/core.%e.%p
       - name: The server suites on Linux
         working-directory: amxts
         run: bun run test:server --linux ${AMXX:+--amxx "$AMXX"}
-      - name: The test server's console
+      - name: The test server's console, core dump and backtrace
         if: failure()
         uses: actions/upload-artifact@v7
         with:
@@ -274,9 +281,18 @@ jobs:
           build-contexts: kit=${{ runner.temp }}/kit
           tags: amxts-release-test
           load: true
+      - name: Core dumps into /cores
+        run: sudo sysctl -w kernel.core_pattern=/cores/core.%e.%p
       - name: The packages, end to end
         working-directory: amxts
         run: bun run test:release --image amxts-release-test
+      - name: The server's console, core dump and backtrace
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-release-server
+          path: amxts/dist-release/last-run
+          if-no-files-found: ignore
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

@@ -135,6 +135,14 @@ bun run test:release          # пакеты npm от начала до конц
 серверные наборы на трёх: своей сборке образа (1.10.0-git5474),
 1.9.0-git5303 и 1.10.0-git5486.
 
+Сервер под Linux стартует с включёнными core dump. Когда он завершается
+сам, прогон говорит как (код выхода, сигнал) и печатает backtrace его core
+dump, который остаётся вместе с консолью в `last-run`; `test:release`
+делает так же. Чтобы дамп появился, `core_pattern` хоста Docker должен быть
+`/cores/core.%e.%p`: CI его ставит, а на Docker Desktop это делает `docker
+run --rm --privileged debian:bookworm-slim sh -c 'echo /cores/core.%e.%p >
+/proc/sys/kernel/core_pattern'` — до перезапуска Docker.
+
 `bun run test:release` публикует девять пакетов в свой локальный реестр,
 создаёт проект через `npx create-amxts`, собирает и тестирует его и
 запускает на образе сервера в Docker; ему нужны файлы выпуска обеих систем
