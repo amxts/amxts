@@ -14,7 +14,7 @@ A fix for a project that began on an amxts whose API lived in the plugins folder
 
 ### 🩹 Fixes
 
-- **build:** Old copies of amxts's API are not plugins - the build leaves them out of `plugins/` and says to delete them ([22303d7](https://github.com/amxts/amxts/commit/22303d7))
+- **build:** Old copies of amxts's API are not plugins - the build leaves them out of `plugins/` and says to delete them, and the modules stay prebuilt ([22303d7](https://github.com/amxts/amxts/commit/22303d7), [7ec565c](https://github.com/amxts/amxts/commit/7ec565c))
 - **upgrade:** `npx amxts upgrade` removes the old copies of amxts's API from `plugins/`, after rewriting the imports of them ([634912c](https://github.com/amxts/amxts/commit/634912c))
 
 ### ❤️ Contributors
