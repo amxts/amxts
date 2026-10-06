@@ -42,7 +42,7 @@ const LIMITS: Record<string, number> = {
 	"string out": 26,
 	"player.name": 4,
 	"raw hook": 3,
-	"event": 14,
+	"event": 7,
 	"forward to a listener": 12,
 	"relay with no listener": 1.5,
 	"Pawn calls a plugin": 2,

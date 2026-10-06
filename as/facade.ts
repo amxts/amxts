@@ -275,6 +275,9 @@ export class __Switch {
  *
  * A listener that traps ends the call without `end`: the list then keeps its
  * holes - still skipped, a few bytes each - until the plugin stops.
+ *
+ * `begin`, `at` and `end` are inlined into each dispatch: a call of the
+ * plugin's own costs a frame of its shadow stack, more than their work.
  */
 export class __Listeners<T> {
 	private items: (T | null)[] = [];
@@ -309,7 +312,7 @@ export class __Listeners<T> {
 	}
 
 	/** The listener at `at`, null where one was removed; `at` below `slots`. */
-	at(at: i32): T | null {
+	@inline at(at: i32): T | null {
 		return unchecked(this.items[at]);
 	}
 
@@ -319,14 +322,17 @@ export class __Listeners<T> {
 	}
 
 	/** A dispatch begins: how many places it walks. */
-	begin(): i32 {
+	@inline begin(): i32 {
 		this.depth++;
 		return this.items.length;
 	}
 
 	/** A dispatch ends; the outermost one closes the holes. */
-	end(): void {
-		if (--this.depth > 0 || !this.holes) return;
+	@inline end(): void {
+		if (--this.depth == 0 && this.holes) this.close();
+	}
+
+	private close(): void {
 		this.holes = false;
 		const items = this.items;
 		let kept = 0;

@@ -188,3 +188,17 @@ function keep(event: ClientImpulseEvent) {
 server.addServerCommand("players_on", () => {
 	server.addEventListener("impulse", keep);
 });
+
+// A game event a listener keeps: the next dispatch hands out the same object,
+// which reads the call that runs then.
+let keptReset: ResetMaxSpeedEvent | null = null;
+
+function keepReset(event: ResetMaxSpeedEvent) {
+	const before = keptReset;
+	if (before != null) console.log(`kept event: same: ${before == event}, player ${before.player.id}`);
+	keptReset = event;
+}
+
+server.addServerCommand("keep_on", () => {
+	game.addEventListener("resetMaxSpeed", keepReset);
+});

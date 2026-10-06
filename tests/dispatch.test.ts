@@ -92,3 +92,10 @@ test('an event hands out one Player a player, and a new one to the next in his s
 	expect(carol.id).toBe(bob.id);
 	expect(heard('same', () => server.fire('client_impulse', carol.id, 100))).toEqual(['same player: false, same id: true']);
 });
+
+test('a game event a listener keeps is the next one too, and reads the call that runs', () => {
+	const bob = server.join('Bob');
+	server.serverCommand('keep_on');
+	server.fireHook('resetMaxSpeed', [1]);
+	expect(heard('kept', () => server.fireHook('resetMaxSpeed', [bob.id]))).toEqual([`kept event: same: true, player ${bob.id}`]);
+});

@@ -1068,13 +1068,27 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 	eventKeys.push(`\t${renderDoc(`${spec.summary ? `${docText(spec.summary)}\n\n` : ''}Pawn: ${pawnNames}`, '\t')}`, `\t${camel}: ${Name};`);
 	answerKeys.push(`\t${camel}: ${result ? T : 'void'};`);
 
-	// The event a hook delivers is made here; the one a stock hook's backend
-	// made goes through the same loop, Run, for each phase.
+	// The event a hook delivers is a view of the hook's call: its fields are
+	// read from the call that runs and it keeps nothing of its own, so one
+	// object, made on the first call, serves every dispatch, nested ones too.
+	// The one a stock hook's backend made holds what the backend gave and goes
+	// through the same loop, Run, for each phase. Fire and Run are inlined into
+	// the phase's handler: a call of the plugin's own costs a shadow-stack frame.
+	const view = [
+		`let ${camel}View: ${Name} | null = null;`,
+		`// @ts-ignore: decorator`,
+		`@inline function ${camel}Event(): ${Name} {`,
+		`\tlet event = ${camel}View;`,
+		`\tif (event == null) ${camel}View = event = new ${Name}();`,
+		`\treturn event;`,
+		`}`,
+	];
 	const open = heard
 		? [
-				`function ${camel}Fire(entries: HookEntries<${Name}, ${T}>, post: bool): void {`,
-				`\tconst event = new ${Name}();`,
-				`\t${camel}Run(event, entries, post);`,
+				...view,
+				`// @ts-ignore: decorator`,
+				`@inline function ${camel}Fire(entries: HookEntries<${Name}, ${T}>, post: bool): void {`,
+				`\t${camel}Run(${camel}Event(), entries, post);`,
 				`}`,
 				`function ${camel}FireHlds(event: ${Name}, post: bool): void {`,
 				`\tevent.__hlds = true;`,
@@ -1083,11 +1097,14 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 				`let ${camel}HldsHooked = false;`,
 				`const ${camel}Backend = new __Switch();`,
 				...(heard.post ? [`let ${camel}PostHldsHooked = false;`, `const ${camel}PostBackend = new __Switch();`] : []),
-				`function ${camel}Run(event: ${Name}, entries: HookEntries<${Name}, ${T}>, post: bool): void {`,
+				`// @ts-ignore: decorator`,
+				`@inline function ${camel}Run(event: ${Name}, entries: HookEntries<${Name}, ${T}>, post: bool): void {`,
 			]
 		: [
-				`function ${camel}Fire(entries: HookEntries<${Name}, ${T}>, post: bool): void {`,
-				`\tconst event = new ${Name}();`,
+				...view,
+				`// @ts-ignore: decorator`,
+				`@inline function ${camel}Fire(entries: HookEntries<${Name}, ${T}>, post: bool): void {`,
+				`\tconst event = ${camel}Event();`,
 			];
 	const fire = result
 		? [
