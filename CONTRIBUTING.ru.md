@@ -98,10 +98,10 @@ bun run generate
 Сначала он запускает `bun run setup`, потом пишет API из include.
 `bun run clean` удаляет то, что сделала сборка.
 
-**6. Хост-плагин и модуль, который его несёт:**
+**6. Образ нативов и модуль, который его несёт:**
 
 ```sh
-bun run host                              # runtime/host/amxts_host.amxx и runtime/src/host.h
+bun run image                             # runtime/host/amxts_natives.amxx и runtime/src/image.h
 cd runtime
 cmake -A Win32 -B build -S .
 cmake --build build --config Release      # runtime/build/Release/amxts_amxx.dll
@@ -110,13 +110,14 @@ bun run build:linux                       # runtime/build/linux: amxts_amxx_i386
 bun run build:linux --sanitize            # runtime/build/linux-sanitize: the same under ASan and UBSan
 ```
 
-Модуль несёт скомпилированный хост-плагин в себе и сам даёт AMX Mod X его
-загрузить, поэтому на сервер ставится один модуль. Сетевой клиент тоже
+Модуль несёт скомпилированный образ нативов — таблицу, через которую он
+вызывает каждый натив, — в себе и загружает его сам, поэтому на сервер
+ставится один модуль. Сетевой клиент тоже
 влинкован в него — curl, mbedTLS и libssh2, которые первая сборка скачивает
 (они закреплены в `runtime/network.cmake`) и собирает статически.
 
 Модуль несёт часть API в себе, поэтому после правки `as/` или include
-пересобирайте по порядку: generate, хост, модуль.
+пересобирайте по порядку: generate, образ, модуль.
 
 ## Проверки
 

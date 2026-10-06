@@ -99,10 +99,10 @@ bun run generate
 It runs `bun run setup` first, then writes the API from the includes.
 `bun run clean` removes what the build made.
 
-**6. The host plugin and the module that carries it:**
+**6. The natives' image and the module that carries it:**
 
 ```sh
-bun run host                              # runtime/host/amxts_host.amxx, and runtime/src/host.h
+bun run image                             # runtime/host/amxts_natives.amxx, and runtime/src/image.h
 cd runtime
 cmake -A Win32 -B build -S .
 cmake --build build --config Release      # runtime/build/Release/amxts_amxx.dll
@@ -111,13 +111,14 @@ bun run build:linux                       # runtime/build/linux: amxts_amxx_i386
 bun run build:linux --sanitize            # runtime/build/linux-sanitize: the same under ASan and UBSan
 ```
 
-The module carries the compiled host plugin and has AMX Mod X load it, so a
-server gets the module alone. It links its network client in too - curl,
+The module carries the compiled natives' image - the native table it calls
+every native through - and loads it itself, so a server gets the module
+alone. It links its network client in too - curl,
 mbedTLS and libssh2, which its first build downloads (pinned in
 `runtime/network.cmake`) and builds static.
 
 The module carries part of the API, so after a change to `as/` or the
-includes rebuild in this order: generate, the host, the module.
+includes rebuild in this order: generate, the image, the module.
 
 ## Checks
 
