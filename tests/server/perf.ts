@@ -38,7 +38,7 @@ const LIMITS: Record<string, number> = {
 	"string in": 6,
 	"string out": 26,
 	"player.name": 4,
-	"raw hook": 4,
+	"raw hook": 3,
 	"event": 14,
 	"forward to a listener": 12,
 	"relay with no listener": 1.5,

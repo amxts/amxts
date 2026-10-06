@@ -163,7 +163,7 @@ index 771ef87..7bdb74d 100644
                  }
              }
 diff --git a/core/iwasm/aot/aot_runtime.c b/core/iwasm/aot/aot_runtime.c
-index d2621fb..47178c4 100644
+index d2621fb..5d1f9a9 100644
 --- a/core/iwasm/aot/aot_runtime.c
 +++ b/core/iwasm/aot/aot_runtime.c
 @@ -2682,9 +2682,9 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
@@ -192,7 +192,62 @@ index d2621fb..47178c4 100644
  #endif
          }
  
-@@ -3414,6 +3414,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
+@@ -2773,6 +2773,54 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
+     }
+ }
+ 
++/* amxts: a direct call, see wasm_runtime_direct_entry in wasm_export.h */
++void *
++wasm_runtime_direct_entry(WASMFunctionInstanceCommon *function)
++{
++    AOTFunctionInstance *func = (AOTFunctionInstance *)function;
++
++    return func->is_import_func ? NULL : func->u.func.func_ptr;
++}
++
++bool
++wasm_runtime_direct_begin(WASMExecEnv *exec_env,
++                          WASMFunctionInstanceCommon *function, void **mark)
++{
++    AOTModuleInstance *module_inst = (AOTModuleInstance *)exec_env->module_inst;
++
++    *mark = NULL;
++    /* the thread is the one the exec env first ran on, its stack the same */
++    if (!exec_env->native_stack_boundary)
++        wasm_exec_env_set_thread_info(exec_env);
++#if WASM_ENABLE_AOT_STACK_FRAME != 0
++    *mark = get_top_frame(exec_env);
++    if (!is_frame_per_function(exec_env)
++        && !aot_alloc_frame(exec_env,
++                            ((AOTFunctionInstance *)function)->func_index))
++        return false;
++#endif
++    module_inst->cur_exec_env = exec_env;
++    return true;
++}
++
++bool
++wasm_runtime_direct_end(WASMExecEnv *exec_env, void *mark)
++{
++    AOTModuleInstance *module_inst = (AOTModuleInstance *)exec_env->module_inst;
++    bool ret = module_inst->cur_exception[0] == '\0';
++
++#if WASM_ENABLE_DUMP_CALL_STACK != 0
++    if (!ret)
++        aot_create_call_stack(exec_env);
++#endif
++#if WASM_ENABLE_AOT_STACK_FRAME != 0
++    while (get_top_frame(exec_env) != mark)
++        aot_free_frame(exec_env);
++#endif
++    (void)mark;
++    return ret;
++}
++
+ void
+ aot_set_exception(AOTModuleInstance *module_inst, const char *exception)
+ {
+@@ -3414,6 +3462,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
  #endif
          ret = invoke_native_internal(exec_env, func_ptr, func_type, signature,
                                       attachment, argv1, argc, argv);
@@ -204,7 +259,7 @@ index d2621fb..47178c4 100644
  #if WASM_ENABLE_AOT_STACK_FRAME != 0
          /* Free all frames allocated, note that some frames
             may be allocated in AOT code and haven't been
-@@ -3474,6 +3479,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
+@@ -3474,6 +3527,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
  #endif
          ret = invoke_native_internal(exec_env, func_ptr, func_type, signature,
                                       attachment, argv, argc, argv);
@@ -421,10 +476,10 @@ index fa5c2ab..a70adde 100644
              if (sign) {
                  res = LLVMBuildFPToSI(comp_ctx->builder, operand, dest_type,
 diff --git a/core/iwasm/include/wasm_export.h b/core/iwasm/include/wasm_export.h
-index 81efb8f..2d80cf2 100644
+index 81efb8f..8f20f1a 100644
 --- a/core/iwasm/include/wasm_export.h
 +++ b/core/iwasm/include/wasm_export.h
-@@ -2075,6 +2075,20 @@ WASM_RUNTIME_API_EXTERN uint32_t
+@@ -2075,6 +2075,63 @@ WASM_RUNTIME_API_EXTERN uint32_t
  wasm_runtime_dump_call_stack_to_buf(wasm_exec_env_t exec_env, char *buf,
                                      uint32_t len);
  
@@ -441,6 +496,49 @@ index 81efb8f..2d80cf2 100644
 +WASM_RUNTIME_API_EXTERN uint32_t
 +wasm_runtime_take_trap_frames(wasm_module_inst_t module_inst,
 +                              WASMCApiFrame *buffer, uint32_t length);
++
++/**
++ * amxts: the machine code of an AOT function, for a host that calls it
++ * itself, many times, rather than through wasm_runtime_call_wasm: called as
++ * `result fn(wasm_exec_env_t, params...)` with the C types of its wasm ones
++ * (i32 int32_t, i64 int64_t, f32 float, f64 double), between
++ * wasm_runtime_direct_begin and wasm_runtime_direct_end, always on the
++ * thread the exec env first ran on: its native stack's boundary, which the
++ * code checks, is set once.
++ *
++ * @param function the function, of an AOT module
++ *
++ * @return its machine code, or NULL for an imported function
++ */
++WASM_RUNTIME_API_EXTERN void *
++wasm_runtime_direct_entry(wasm_function_inst_t function);
++
++/**
++ * amxts: before a direct call (wasm_runtime_direct_entry): the frame the
++ * call's stack starts with, and the instance's exec env.
++ *
++ * @param exec_env the exec env the call runs in
++ * @param function the function called
++ * @param mark where the frames stand, for wasm_runtime_direct_end
++ *
++ * @return false, with an exception set, when the call has no room
++ */
++WASM_RUNTIME_API_EXTERN bool
++wasm_runtime_direct_begin(wasm_exec_env_t exec_env,
++                          wasm_function_inst_t function, void **mark);
++
++/**
++ * amxts: after a direct call: whether it ended without an exception - a
++ * failed one keeps its frames for wasm_runtime_take_trap_frames - and the
++ * frames it left taken off.
++ *
++ * @param exec_env the exec env the call ran in
++ * @param mark what wasm_runtime_direct_begin gave
++ *
++ * @return true when the call succeeded
++ */
++WASM_RUNTIME_API_EXTERN bool
++wasm_runtime_direct_end(wasm_exec_env_t exec_env, void *mark);
 +
  /**
   * Get the size required to store the LLVM PGO profile data

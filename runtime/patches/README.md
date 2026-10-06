@@ -56,6 +56,13 @@ version`.
 - the i386 symbols the loader did not resolve, which LLVM spells with one
   underscore: the float and vector constant pools (`_real@...`, `_xmm@...`)
   and, on Windows, the 64-bit division helpers (`_alldiv`, `_aullrem`, ...);
+- `wasm_runtime_take_trap_frames`: the frames a trap left, for the module to
+  print its own way rather than WAMR printing them to stdout;
+- a direct call (`wasm_runtime_direct_entry`, `_begin`, `_end`): the machine
+  code of an AOT function, which the module calls itself with the C types of
+  its parameters - what `wasm_runtime_call_wasm` does on every call, less
+  what it asks of a function it has not seen; the frame and the trap are
+  handled as that call handles them;
 - two build fixes for building `wamrc` against a prebuilt LLVM: a stub
   `LibXml2::LibXml2` target, and repointing `LLVMDebugInfoPDB`, whose
   exported target carries the DIA SDK path of the machine that built the

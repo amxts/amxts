@@ -248,20 +248,27 @@ struct Handler {
 	int      access = 0;
 	/**
 	 * What Fire calls, looked up once, when the handler is registered (Bind):
-	 * the function, the kinds of its parameters, and whether every one is an
-	 * i32 and takes its cell as it is. NULL when the plugin exports no table;
-	 * Fire then calls it by its index.
+	 * the function and the kinds of its parameters. NULL when the plugin
+	 * exports no table; Fire then calls it by its index.
 	 */
 	wasm_function_inst_t func = NULL;
 	uint32_t       count = 0;
-	bool           cells = false;
 	wasm_valkind_t kinds[MAX_EVENT_ARGS + 1];
+	/**
+	 * The function's machine code, when Fire calls it itself (CallDirect):
+	 * every parameter an i32, or every one an f64 - a plugin's `number` -
+	 * and no fraction answered, which the x87 would keep. NULL for any other
+	 * shape, which goes through WAMR's call.
+	 */
+	void          *entry = NULL;
+	bool           doubles = false;
 };
 
 /** Looks up what Fire calls for `h` (Handler.func): once, as its plugin registers it. */
 static void Bind(Handler &h)
 {
 	h.func = NULL;
+	h.entry = NULL;
 	if (h.plugin < 0 || (size_t)h.plugin >= g_plugins.size())
 		return;
 	Plugin &p = g_plugins[h.plugin];
@@ -275,10 +282,56 @@ static void Bind(Handler &h)
 
 	h.count = wasm_func_get_param_count(func, p.inst);
 	wasm_func_get_param_types(func, p.inst, h.kinds);
-	h.cells = true;
-	for (uint32_t i = 0; i < h.count; i++)
-		h.cells = h.cells && h.kinds[i] == WASM_I32;
 	h.func = func;
+
+	uint32_t ints = 0, doubles = 0;
+	for (uint32_t i = 0; i < h.count; i++) {
+		ints += h.kinds[i] == WASM_I32;
+		doubles += h.kinds[i] == WASM_F64;
+	}
+	uint32_t results = wasm_func_get_result_count(func, p.inst);
+	wasm_valkind_t result = WASM_I32;
+	if (results == 1)
+		wasm_func_get_result_types(func, p.inst, &result);
+	bool shape = ints == h.count || (doubles == h.count && h.count <= MAX_EVENT_ARGS);
+	if (shape && results <= 1 && (result == WASM_I32 || result == WASM_I64))
+		h.entry = wasm_runtime_direct_entry(func);
+	h.doubles = doubles > 0;
+}
+
+/**
+ * Calls `h`'s machine code itself (Handler.entry), its cells given as its
+ * parameters take them: the call WAMR's wasm_runtime_call_wasm makes, less
+ * what it asks of a function it has not seen. Whether it ended without a trap.
+ */
+static bool CallDirect(const Handler &h, wasm_exec_env_t env, const uint32_t *call)
+{
+	void *mark;
+	if (!wasm_runtime_direct_begin(env, h.func, &mark))
+		return wasm_runtime_direct_end(env, mark);
+
+	typedef wasm_exec_env_t E;
+	const int32_t *c = (const int32_t *)call;
+	void *fn = h.entry;
+	if (h.doubles) {
+		switch (h.count) {
+			case 1: ((void (*)(E, double))fn)(env, c[0]); break;
+			case 2: ((void (*)(E, double, double))fn)(env, c[0], c[1]); break;
+			case 3: ((void (*)(E, double, double, double))fn)(env, c[0], c[1], c[2]); break;
+			default: ((void (*)(E, double, double, double, double))fn)(env, c[0], c[1], c[2], c[3]); break;
+		}
+	}
+	else {
+		switch (h.count) {
+			case 0: ((void (*)(E))fn)(env); break;
+			case 1: ((void (*)(E, int32_t))fn)(env, c[0]); break;
+			case 2: ((void (*)(E, int32_t, int32_t))fn)(env, c[0], c[1]); break;
+			case 3: ((void (*)(E, int32_t, int32_t, int32_t))fn)(env, c[0], c[1], c[2]); break;
+			case 4: ((void (*)(E, int32_t, int32_t, int32_t, int32_t))fn)(env, c[0], c[1], c[2], c[3]); break;
+			default: ((void (*)(E, int32_t, int32_t, int32_t, int32_t, int32_t))fn)(env, c[0], c[1], c[2], c[3], c[4]); break;
+		}
+	}
+	return wasm_runtime_direct_end(env, mark);
 }
 
 /**
@@ -3770,20 +3823,18 @@ static cell Fire(Handler h, uint32_t *argv, int argc, cell fallback)
 	// native stack returns, and never inside one of them - see DrainJobs.
 	p.depth++;
 
-	if (h.func && h.cells) {
-		// Every parameter an i32: the cells go in as they are, and `call` has
-		// room for the result.
-		called = wasm_runtime_call_wasm(p.env, h.func, h.count, call);
+	// A plugin's `number` is JavaScript's - an f64 - and every argument here
+	// is a cell, an i32. Passed as raw cells, a handler declared
+	// `tick(handle: number)` read the i32 1000 as the bits of a double: a
+	// denormal next to zero, so clearTimeout(handle) stopped nothing and a
+	// countdown ran on into the negatives. So the handler's own parameter
+	// types decide how each cell goes in: as it is to an i32, converted by
+	// value to an f64 (or f32, i64) where that is what the function takes.
+	if (h.entry) {
+		called = CallDirect(h, p.env, call);
 	}
 	else if (h.func) {
-		// A plugin's `number` is JavaScript's - an f64 - and every argument
-		// here is a cell, an i32. Passed as raw cells, a handler declared
-		// `tick(handle: number)` read the i32 1000 as the bits of a double: a
-		// denormal next to zero, so clearTimeout(handle) stopped nothing and
-		// a countdown ran on into the negatives. So the handler's own
-		// parameter types decide how each cell goes in: converted by value to
-		// f64 (or f32, i64) where that is what the function takes, laid out
-		// in cells as WAMR reads them.
+		// Laid out in cells as WAMR reads them.
 		uint32_t cells[2 * (MAX_EVENT_ARGS + 1)];
 		uint32_t used = 0;
 		for (uint32_t i = 0; i < h.count; i++) {
