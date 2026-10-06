@@ -815,6 +815,22 @@ static void DropGameHooks(int plugin)
 			reg.plugin = SLOT_ORPHANED;
 }
 
+/** A plugin's handlers it added before it had its instance - at its top level - bound (BindAll). */
+static void BindGameHooks(int plugin)
+{
+	auto bind = [plugin](HookPoint &point) {
+		for (HookList &list : point.phase)
+			for (GameHandler &h : list.handlers)
+				if (h.plugin == plugin) Bind(h);
+	};
+	for (HookPoint &point : g_chainPoints)
+		bind(point);
+	for (HookPoint &point : g_hamPoints)
+		bind(point);
+	for (HookPoint *point : g_otherPoints)
+		bind(*point);
+}
+
 /** A map's end: every handler goes with the plugins, and the module is out of the game's way. */
 static void TeardownGameHooks()
 {

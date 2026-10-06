@@ -5,7 +5,7 @@
 // plugin's handler of the same chain (chains-pawn.sma) comes first before
 // the game and last after it. The damage is the game's own TakeDamage, run
 // on a bot.
-import { Call, floatCell } from "@amxts/core";
+import { Call, floatCell, hook } from "@amxts/core";
 import { DMG_GENERIC, Ham_TakeDamage } from "@amxts/core/constants";
 import { NATIVE_ExecuteHamB } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
@@ -13,6 +13,7 @@ import { Checks } from "@amxts/core/check";
 let running = false;
 let written = 0.0;
 let result = -1;
+let hooked = -1;
 const order: string[] = [];
 
 /** chains-pawn.sma's handlers of the same chain, before the game (0) and after it (1). */
@@ -31,6 +32,13 @@ game.addEventListener("takeDamage", (event) => {
 	order.push("ts post");
 	result = event.result;
 }, true);
+
+// A raw hook made at the top level, before the plugin has its instance: its
+// `number` parameters still get the cells as numbers.
+function onTakeDamage(self: number) {
+	if (running) hooked = self;
+}
+hook("take_damage", onTakeDamage);
 
 function block(): number {
 	return 0;
@@ -64,6 +72,7 @@ server.addServerCommand("amxts_test_chains", () => {
 	check.expect(`${took} ${result}`, "the game's answer reaches the caller and the post listener").toBe("1 1");
 	const pawnFirst = hasModule("reapi") ? "pawn pre,ts pre,ts post,pawn post" : "ts pre,ts post";
 	check.expect(order.join(","), "Pawn's handler comes first before the game and last after it").toBe(pawnFirst);
+	check.expect(hooked, "a raw hook made at the top level reads its arguments as numbers").toBe(bot.id);
 
 	game.addEventListener("takeDamage", block);
 	result = -1;

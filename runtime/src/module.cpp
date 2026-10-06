@@ -4703,6 +4703,7 @@ static void BindAll(int index)
 		for (std::map<std::string, Forward>::iterator it = commands->begin(); it != commands->end(); ++it)
 			for (Handler &h : it->second.handlers)
 				if (h.plugin == index) Bind(h);
+	BindGameHooks(index);
 }
 
 /**
