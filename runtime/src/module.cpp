@@ -5620,11 +5620,25 @@ static void InterposeNatives()
 }
 
 /**
+ * How deep the module is in a command's dispatch, a player's (ClientCommand)
+ * or the server's (ServerCommand): while it is, the line the engine split
+ * is that command's, and a bot's command sent from a handler puts it back
+ * after its own (w_botCmd).
+ */
+static int g_commandDepth = 0;
+
+struct InCommand {
+	InCommand() { g_commandDepth++; }
+	~InCommand() { g_commandDepth--; }
+};
+
+/**
  * Every server command the module gave the engine: its own amxts_*, then a
  * plugin's (g_serverCommands). The engine calls it with the line split.
  */
 static void ServerCommand()
 {
+	InCommand dispatch;
 	// No map is running: no plugin to answer or to act on.
 	if (!g_image)
 		return;
@@ -6484,6 +6498,7 @@ static int MenuKey(int id, ShownMenu &menu)
  */
 void ClientCommand(edict_t *e)
 {
+	InCommand dispatch;
 	int id = ClientId(e);
 	if (!id)
 		RETURN_META(MRES_IGNORED);
@@ -6596,10 +6611,13 @@ static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line)
 	// on: one a depth, for a bot's command sent while another is handled
 	// (a deque, whose strings stay where they are as it grows).
 	// The engine's Cmd_Args is NULL for a command with no argument.
+	// Outside a command's dispatch the engine's line is whatever was split
+	// last, by anyone - a bot's own code among them - and Cmd_Args may point
+	// into a stack that is gone: it is not read, and an empty line goes back.
 	static std::deque<std::string> restored;
 	static size_t depth = 0;
-	const char *args = CMD_ARGS();
-	std::string outer = CMD_ARGC() > 0 ? std::string(CMD_ARGV(0)) + " " + (args ? args : "") : "";
+	const char *args = g_commandDepth > 0 && CMD_ARGC() > 0 ? CMD_ARGS() : NULL;
+	std::string outer = g_commandDepth > 0 && CMD_ARGC() > 0 ? std::string(CMD_ARGV(0)) + " " + (args ? args : "") : "";
 	std::string text = AsString(Inst(env), line);
 	g_tokenize(&text[0]);
 	depth++;
