@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.2.4
+
+[compare changes](https://github.com/amxts/amxts/compare/v0.2.3...v0.2.4)
+
+### Summary
+
+A fix for a project that began on an amxts whose API lived in the plugins folder: its `plugins/` still held that API's files (`constants.ts`, `facade.ts` and the rest), and the build took each for a plugin, so `npx amxts upgrade` ended with `constants does not compile`. The upgrade removes those copies and names them; the build leaves them out with a warning. An author's own file of such a name is kept.
+
+### ⬆️ Upgrade guide
+
+`npx amxts upgrade` in the project, with the server stopped: it moves `@amxts/core` to 0.2.4, removes the old API copies from `plugins/`, builds the plugins again and puts the 0.2.4 module on the server named in `.env`. A server installed by hand takes the module (and `amxts-compile`, where it has one) from this release, and its plugins are built again.
+
+### 🩹 Fixes
+
+- **build:** Old copies of amxts's API are not plugins - the build leaves them out of `plugins/` and says to delete them ([22303d7](https://github.com/amxts/amxts/commit/22303d7))
+- **upgrade:** `npx amxts upgrade` removes the old copies of amxts's API from `plugins/`, after rewriting the imports of them ([634912c](https://github.com/amxts/amxts/commit/634912c))
+
+### ❤️ Contributors
+
+- Ernest Manukyan ([@kukson777](https://github.com/kukson777))
+
 ## v0.2.3
 
 [compare changes](https://github.com/amxts/amxts/compare/v0.2.2...v0.2.3)
