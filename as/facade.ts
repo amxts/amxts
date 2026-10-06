@@ -1515,10 +1515,14 @@ export function __playerOf(id: number): Player {
  * lists everyone on the server.
  */
 export class Player extends PlayerFields implements Client {
-	/** @hidden The name as last read, and the slot's count of name changes then (nameChanges). */
+	/**
+	 * @hidden The name as last read, and the slot's count of name changes then
+	 * (nameChanges); -1 when it was odd - a change under way - so it is not kept.
+	 * Only a player in a slot keeps one.
+	 */
 	__name: string | null = null;
 	/** @hidden */
-	__nameAt: i32 = 0;
+	__nameAt: i32 = -1;
 
 	constructor(id: number) {
 		super(id);
@@ -1530,17 +1534,22 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `get_user_name`
 	 */
 	get name(): string {
+		// A kept name is a load and a compare: `kept != null` on a string is a call.
+		const kept = this.__name;
+		if (changetype<usize>(kept) != 0 && unchecked(nameChanges[<i32>this.id]) == this.__nameAt) return changetype<string>(kept);
+		return this.__readName();
+	}
+
+	/** @hidden The name read from the game, kept while the slot's count stays. */
+	__readName(): string {
 		const slot = <i32>this.id;
 		if (<u32>(slot - 1) >= <u32>MAX_PLAYERS) return readName(slot);
 
 		if (!playersTold) tellPlayers();
 		const at = unchecked(nameChanges[slot]);
-		const kept = this.__name;
-		if (kept != null && this.__nameAt == at && (at & 1) == 0) return kept;
-
 		const name = readName(slot);
 		this.__name = name;
-		this.__nameAt = at;
+		this.__nameAt = (at & 1) == 0 ? at : -1;
 		return name;
 	}
 
