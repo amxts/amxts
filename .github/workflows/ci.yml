@@ -55,6 +55,10 @@ jobs:
       - name: Lint
         working-directory: amxts
         run: bun run lint
+      # A plugin's tests run on any runner: the fake server under Node, with Vitest.
+      - name: A plugin's tests under Node
+        working-directory: amxts
+        run: npm run test:node
 
   tests:
     runs-on: ubuntu-24.04
