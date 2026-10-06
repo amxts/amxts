@@ -1539,11 +1539,17 @@ ${Array.from(hooks.entries()).sort().map(([short, constant]) => `\t\tcase "${sho
 const bridge = (() => {
 	const source = readFileSync('./runtime/src/module.cpp', 'utf-8');
 	const table = source.slice(source.indexOf('static NativeSymbol g_wasmNatives[]'));
-	// The table takes the entity fields' natives from fields.h, by its macro:
-	// left out, every field read went through WAMR's generic call.
-	const fields = readFileSync('./runtime/src/fields.h', 'utf-8');
-	const fieldNatives = fields.slice(fields.indexOf('#define FIELD_NATIVES'));
-	const entries = table.slice(0, table.indexOf('};')).replace('FIELD_NATIVES', fieldNatives.slice(0, fieldNatives.search(/\n\s*\n/)));
+	// The table takes the entity fields' natives from fields.h and the engine
+	// hooks' from enginehooks.h, by their macros: one left out, every call of
+	// its natives went through WAMR's generic call.
+	const macro = (file: string, name: string) => {
+		const text = readFileSync(`./runtime/src/${file}`, 'utf-8');
+		const at = text.slice(text.indexOf(`#define ${name}`));
+		return at.slice(0, at.search(/\n\s*\n/));
+	};
+	const entries = table.slice(0, table.indexOf('};'))
+		.replace('FIELD_NATIVES', macro('fields.h', 'FIELD_NATIVES'))
+		.replace('ENGINE_HOOK_NATIVES', macro('enginehooks.h', 'ENGINE_HOOK_NATIVES'));
 
 	return Array.from(
 		entries.matchAll(/\{\s*"([^"]+)",\s*\(void \*\)\w+,\s*"(\([^)]*\)\w?)"/g),
