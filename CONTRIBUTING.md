@@ -136,6 +136,14 @@ whose packages' sha256 are in `docker/hlds/amxmodx.sha256`. CI runs the
 server suites on three: the image's own (1.10.0-git5474), 1.9.0-git5303 and
 1.10.0-git5486.
 
+The Linux server starts with core dumps on. When it exits on its own, the
+run says how (the exit code, the signal) and prints the backtrace of its
+core dump, kept with the console in `last-run`; `test:release` does the
+same. The Docker host's `core_pattern` has to be `/cores/core.%e.%p` for
+the dump to come: CI sets it, and on Docker Desktop `docker run --rm
+--privileged debian:bookworm-slim sh -c 'echo /cores/core.%e.%p >
+/proc/sys/kernel/core_pattern'` does, until Docker restarts.
+
 `bun run test:release` publishes the nine packages to a local registry of
 its own, makes a project with `npx create-amxts`, builds and tests it and
 runs it on the server image in Docker; it needs both systems' release files

@@ -1042,10 +1042,22 @@ function refusal(spec: EventSpec) {
 	return `\t\tif (classname.length == 0) { console.error("${camel} is about one class of entity, e.g. { classname: \\"${example}\\" }"); return; }`;
 }
 
+/**
+ * The events a listener is not handed in some case, as a condition on `event`.
+ * playerSpawn: a player who takes the slot of one who left this map is
+ * spawned by the game's ClientPutInServer before it clears has_disconnected,
+ * which the last one left set - the game counts him out, and ReAPI's natives
+ * refuse him. He is heard from his next spawn on.
+ */
+const UNHEARD: Record<string, string> = {
+	playerSpawn: 'event.player.hasDisconnected',
+};
+
 for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 	const { camel, Name, hook, ham, params, result } = spec;
 	const ours = GAME[camel];
 	const fields = params.map(p => fieldOf(p, ours?.fields?.[p.name]));
+	const unheard = UNHEARD[camel] ? [`\tif (${UNHEARD[camel]}) return;`] : [];
 
 	classes.push([
 		`/**`,
@@ -1098,6 +1110,7 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 	const fire = result
 		? [
 				...open,
+				...unheard,
 				`\t// A copy: a listener that removes itself must not make the next one skip.`,
 				`\tconst list = entries.slice(0);`,
 				`\tfor (let i = 0; i < list.length; i++) {`,
@@ -1112,6 +1125,7 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 			]
 		: [
 				...open,
+				...unheard,
 				`\tconst list = entries.slice(0);`,
 				`\tfor (let i = 0; i < list.length; i++) list[i].silent!(event);`,
 				`}`,

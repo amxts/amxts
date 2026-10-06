@@ -18,14 +18,17 @@
 // with a cache).
 //
 // Whatever happens, the registry, the container and the folder are removed at
-// the end; --keep leaves the folder.
+// the end; --keep leaves the folder. When the server fails a check, its
+// console, any core dump and, if it exited, how it stopped are kept in
+// dist-release/last-run (scripts/core-dumps.ts).
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { coreDumpArgs, crashReport } from './core-dumps';
 import { HOST_SYSTEM } from './system';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -87,6 +90,9 @@ const root = realpathSync(mkdtempSync(join(tmpdir(), 'amxts-release-test-')));
 const work = join(root, 'work');
 const project = join(work, 'my-server');
 const container = basename(root).toLowerCase();
+// Where the server's core dump goes, and what a failed server check leaves.
+const cores = join(root, 'cores');
+const LAST_RUN = join(CORE, 'dist-release', 'last-run');
 const timings: [string, number][] = [];
 
 function freePort(): Promise<string> {
@@ -146,11 +152,11 @@ function docker(argv: string[]) {
 	return spawnSync('docker', argv, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 }
 
-/** Every file under node_modules but the build's cache, by its size, time and link. */
+/** Every file under node_modules but the caches - the build's, and Vitest's in .vite - by its size, time and link. */
 function snapshot(dir: string): Map<string, string> {
 	const files = new Map<string, string>();
 	for (const path of readdirSync(dir, { recursive: true }) as string[]) {
-		if (/^\.cache(?:[\\/]|$)/.test(path)) continue;
+		if (/^\.(?:cache|vite)(?:[\\/]|$)/.test(path)) continue;
 		const full = join(dir, path);
 		const link = lstatSync(full);
 		if (link.isDirectory()) continue;
@@ -219,7 +225,7 @@ const meaningful = (text: string | null) => (text ?? '').split(/\r?\n/).map(line
 async function runServer(image: string) {
 	console.log(`\n== the server: ${image}, container ${container}`);
 	const started = performance.now();
-	const run = docker(['run', '-d', '--name', container, '-v', `${project}:/project`, image, '+mp_timelimit', '0']);
+	const run = docker(['run', '-d', '--name', container, '-v', `${project}:/project`, ...coreDumpArgs(cores), image, '+mp_timelimit', '0']);
 	if (run.status !== 0) throw new CheckError(`docker run failed: ${run.stderr.trim()}`);
 	const loaded = (lines: string[]) => PLUGINS.every(name => lines.some(line => line.includes(`[amxts] loaded ${name}.aot`)));
 	const running = () => docker(['container', 'inspect', '-f', '{{.State.Running}}', container]).stdout.trim() === 'true';
@@ -237,8 +243,9 @@ async function runServer(image: string) {
 	const hostList = meaningful(serverFile('addons/amxmodx/configs/plugins-amxts.ini'));
 	const hosts = lines.filter(line => line.includes('[amxts] host native table')).length;
 	const errors = lines.filter(line => ERROR_LINE.test(line));
-	fail([
-		!running() && 'the server exited',
+	const exited = !running();
+	const problems = [
+		exited && 'the server exited',
 		modules.filter(line => line === 'amxts_amxx').length !== 1 && `modules.ini should name amxts_amxx once: ${modules.join(', ')}`,
 		amxxPlugins.some(line => line.includes('amxts_host')) && 'AMX Mod X\'s plugins.ini names the host plugin: the module loads it itself',
 		!hostList.some(line => line.startsWith('amxts_host.amxx')) && 'the module did not write plugins-amxts.ini with its host plugin',
@@ -248,7 +255,21 @@ async function runServer(image: string) {
 		...PLUGINS.map(name => !lines.some(line => line.includes(`[amxts] loaded ${name}.aot`)) && `${name}.aot did not load`),
 		!lines.some(line => line.includes('[amxts] ftp: ')) && 'hello.aot did not run the ftp library compiled into it',
 		errors.length > 0 && `errors in the console:\n    ${errors.join('\n    ')}`,
-	]);
+	];
+	if (problems.some(Boolean)) {
+		rmSync(LAST_RUN, { recursive: true, force: true });
+		mkdirSync(LAST_RUN, { recursive: true });
+		writeFileSync(join(LAST_RUN, 'console.log'), lines.join('\n'));
+		if (exited) {
+			console.log('\n   the last lines of the console:');
+			for (const line of lines.filter(Boolean).slice(-30)) console.log(`   | ${line}`);
+			console.log('\n   how it stopped:');
+			for (const line of crashReport(container, cores)) console.log(`   | ${line}`);
+		}
+		cpSync(cores, join(LAST_RUN, 'cores'), { recursive: true });
+		console.log(`\n   the console and any core dump: ${LAST_RUN}`);
+	}
+	fail(problems);
 }
 
 let cleaned = false;

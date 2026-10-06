@@ -1,7 +1,7 @@
 {
 	"name": "@amxts/core",
 	"type": "module",
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"description": "Counter-Strike 1.6 plugins in TypeScript: compiled ahead of time and run inside AMX Mod X, next to Pawn plugins.",
 	"author": {
 		"name": "kukson777",
@@ -116,6 +116,7 @@
 		"test:part": "bun scripts/test-part.ts",
 		"test:fast": "bun test tests/code-style tests/entities tests/flags tests/generated-table tests/hooks tests/include-parser tests/includes",
 		"test:server": "bun --smol scripts/test-server.ts",
+		"test:node": "vitest run --config tests/node/vitest.config.ts",
 		"check": "tsc",
 		"clean": "rm -rf dist-wasm runtime/host/amxts_host.sma runtime/host/amxts_host.amxx runtime/src/host.h runtime/natives.txt runtime/src/natives.h as/natives.ts as/constants.ts",
 		"types:site": "bun scripts/types-site.ts",
@@ -154,6 +155,7 @@
 		"oxfmt": "^0.70.0",
 		"oxlint": "^1.85.0",
 		"ssh2": "^1.17.0",
-		"ssh2-sftp-client": "^12.1.1"
+		"ssh2-sftp-client": "^12.1.1",
+		"vitest": "^5.0.3"
 	}
 }
