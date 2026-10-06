@@ -473,6 +473,10 @@ export const NATIVES: Record<string, Native> = {
 		if (!target) throw new Error(`menu_display: player ${id} is not in game`);
 		c.server.displayMenu(target, c.server.menu(menu), page);
 	},
+	show_menu: (c, [id, keys, text]) => {
+		c.server.showMenu(id, keys, c.memory.text(text));
+		return 1;
+	},
 	menu_destroy: (c, [menu]) => {
 		c.server.destroyMenu(menu);
 		return 1;

@@ -3561,36 +3561,36 @@ export default {
 	},
 	'MenuOptions.backText': {
 		en: `
-			The Back item's text; AMX Mod X's \`"Back"\`, in the player's language, by default.
+			The Back item's text; \`"Back"\` by default.
 
 			Pawn: \`MPROP_BACKNAME\`
 		`,
 		ru: `
-			Текст пункта «Назад»; по умолчанию \`"Back"\` AMX Mod X на языке игрока.
+			Текст пункта «Назад»; по умолчанию \`"Back"\`.
 
 			Pawn: \`MPROP_BACKNAME\`
 		`,
 	},
 	'MenuOptions.nextText': {
 		en: `
-			The More item's text; AMX Mod X's \`"More"\` by default.
+			The More item's text; \`"More"\` by default.
 
 			Pawn: \`MPROP_NEXTNAME\`
 		`,
 		ru: `
-			Текст пункта «Дальше»; по умолчанию \`"More"\` AMX Mod X.
+			Текст пункта «Дальше»; по умолчанию \`"More"\`.
 
 			Pawn: \`MPROP_NEXTNAME\`
 		`,
 	},
 	'MenuOptions.exitText': {
 		en: `
-			The Exit item's text; AMX Mod X's \`"Exit"\` by default.
+			The Exit item's text; \`"Exit"\` by default.
 
 			Pawn: \`MPROP_EXITNAME\`
 		`,
 		ru: `
-			Текст пункта «Выход»; по умолчанию \`"Exit"\` AMX Mod X.
+			Текст пункта «Выход»; по умолчанию \`"Exit"\`.
 
 			Pawn: \`MPROP_EXITNAME\`
 		`,
@@ -3645,9 +3645,9 @@ export default {
 	},
 	'Menu': {
 		en: `
-			A menu of AMX Mod X's own: items a player picks with the number keys, on
-			pages with Back and More, and Exit. \`Data\` is what it is shown with, which
-			its functions get beside the player.
+			A menu: items a player picks with the number keys, on pages with Back and
+			More, and Exit, drawn as AMX Mod X draws its own. \`Data\` is what it
+			is shown with, which its functions get beside the player.
 
 			\`\`\`ts
 			interface ShopData {
@@ -3672,9 +3672,10 @@ export default {
 			Pawn: \`menu_create\`, \`menu_setprop\`
 		`,
 		ru: `
-			Меню самого AMX Mod X: пункты, которые игрок выбирает цифровыми клавишами,
-			на страницах с «Назад» и «Дальше», и «Выход». \`Data\` — то, с чем его
-			показывают; это получают его функции рядом с игроком.
+			Меню: пункты, которые игрок выбирает цифровыми клавишами, на страницах с
+			«Назад» и «Дальше», и «Выход», нарисованное так, как AMX Mod X рисует свои.
+			\`Data\` — то, с чем его показывают; это получают его функции рядом с
+			игроком.
 
 			\`\`\`ts
 			interface ShopData {

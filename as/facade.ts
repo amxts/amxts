@@ -2021,16 +2021,6 @@ function cvarAnswered(player: number, request: number, c: number, d: number): vo
 	}
 }
 
-/**
- * The public name that calls `handler`, whether the slot is new or taken back
- * after a reload: for a native handed a callback on every call
- * (menu_makecallback), not a registration made once (see publicFor).
- */
-function callbackName(handler: WideHandler, key: string): string {
-	const slot = _slot(hostIndex(handler, true), SHAPE_WIDE, key, 0);
-	return slot < 0 ? "" : `__amxts_cb${slot & 0xffff}`;
-}
-
 // A Pawn string is one character per cell, so calling such a native directly
 // means a StaticArray<i32>, its address, and decoding it afterwards.
 /**
@@ -5681,30 +5671,26 @@ export function colorTags(text: string): string {
  */
 export function showMenu(id: number, keys: number, text: string, title: string): void {
 	// show_menu takes the text whole and sends it in ShowMenu messages of the
-	// game's 175 bytes itself.
+	// game's 175 bytes itself. Its keys are AMX Mod X's: a Menu the player
+	// had is closed.
 	show_menu(id, keys, menuColors(text), -1, title);
+	_menuOpen(<i32>id, 0, 0);
 }
 
 // ---------------------------------------------------------------- menus
 
-// AMX Mod X's own menus (newmenus) as an object: `new Menu(title)`, items
-// with a title, a test for when each is shown and when it can be chosen, and
-// what choosing it does; `show(player, data)`. AMX Mod X draws the pages,
-// Back, More and Exit.
-//
-// What a menu shows depends on the player and the data it is shown with, so
-// each show() builds AMX Mod X's menu afresh - the title and every item's
-// title, `visible` and `enabled` asked then, for that player - and the menu
-// is destroyed when the player chooses or leaves it: the handler AMX Mod X
-// calls once per display destroys it before it runs the item. Every menu of
-// a plugin answers through one public, which finds the item by the menu's id;
-// a grey item is one an item callback that always says ITEM_DISABLED draws.
-// A menu left open by a plugin a reload took away answers the new one's
-// public, which knows nothing of it and destroys it.
-import { menu_additem, menu_create, menu_destroy, menu_display, menu_makecallback, NATIVE_menu_setprop } from "./natives";
-import {
-	ITEM_DISABLED, MEXIT_NEVER, MPROP_BACKNAME, MPROP_EXIT, MPROP_EXITNAME, MPROP_NEXTNAME, MPROP_NUMBER_COLOR, MPROP_PERPAGE
-} from "./constants";
+// A menu as an object: `new Menu(title)`, items with a title, a test for when
+// each is shown and when it can be chosen, and what choosing it does;
+// `show(player, data)`. It is drawn here, as AMX Mod X draws its own menus -
+// pages, Back, More and Exit: each show() builds the page afresh, the title
+// and every item's title, `visible` and `enabled` asked then, for that player.
+// AMX Mod X's show_menu sends it, and the module hears its keys (menu_open)
+// and calls menuKey with the one pressed. A menu shown over it - this
+// plugin's, another plugin's, a Pawn plugin's, the game's - takes the keys,
+// and a reload of the plugin or the player leaving closes it.
+// @ts-ignore: decorator
+@external("env", "menu_open") declare function _menuOpen(id: i32, keys: i32, fn: i32): void;
+import { MENU_BACK, MENU_EXIT, MENU_MORE } from "./constants";
 
 /** A colour of a menu's item numbers: a menu's colour tag, `"!y"`, `"!r"`, `"!d"` or `"!w"`. */
 export type MenuColor = "!y" | "!r" | "!d" | "!w";
@@ -5725,19 +5711,19 @@ export interface MenuOptions {
 	 */
 	exit?: boolean;
 	/**
-	 * The Back item's text; AMX Mod X's `"Back"`, in the player's language, by default.
+	 * The Back item's text; `"Back"` by default.
 	 *
 	 * Pawn: `MPROP_BACKNAME`
 	 */
 	backText?: string;
 	/**
-	 * The More item's text; AMX Mod X's `"More"` by default.
+	 * The More item's text; `"More"` by default.
 	 *
 	 * Pawn: `MPROP_NEXTNAME`
 	 */
 	nextText?: string;
 	/**
-	 * The Exit item's text; AMX Mod X's `"Exit"` by default.
+	 * The Exit item's text; `"Exit"` by default.
 	 *
 	 * Pawn: `MPROP_EXITNAME`
 	 */
@@ -5772,36 +5758,37 @@ export interface MenuItemOptions<Data extends object = object> {
 	onSelect: (context: MenuContext<Data>) => void;
 }
 
-// The menus on players' screens, by AMX Mod X's id: what choosing item N of
-// each runs.
-const shownMenus = new Map<i32, (item: i32) => void>();
-let menuHandler = "";
-let greyItem: i32 = -1;
+// show_menu's title for a Menu: one no Pawn menu is registered by
+// (register_menuid), so AMX Mod X gives none of its keys to a Pawn plugin.
+const MENU_TITLE = "#amxts";
 
-/** A player chose an item of a menu this plugin showed - or left it, an item below `0`. */
-function menuChosen(player: number, menu: number, item: number, unused: number): void {
-	const id = <i32>menu;
-	const choose = shownMenus.has(id) ? shownMenus.get(id) : null;
-	shownMenus.delete(id);
-	menu_destroy(id);
+// What a key of the page each player sees from this plugin does, by his id:
+// set when the page is shown, taken when he presses a key of it.
+const shownPages = new Map<i32, (key: i32) => void>();
 
-	if (choose != null && item >= 0) {
-		const ambient = __co_ambient_player;
-		__co_ambient_player = <i32>player;
-		choose(<i32>item);
-		__co_ambient_player = ambient;
-	}
-	handled();
+/** A player pressed a key of the page this plugin shows him: `key` is 0 for 1 and 9 for 0. */
+function menuKey(player: number, key: number, unused: number, unused2: number): void {
+	const id = <i32>player;
+	if (!shownPages.has(id)) return;
+	const press = shownPages.get(id);
+	shownPages.delete(id);
+
+	const ambient = __co_ambient_player;
+	__co_ambient_player = id;
+	press(<i32>key);
+	__co_ambient_player = ambient;
 }
 
-/** An item AMX Mod X draws grey: the item callback of the items that cannot be chosen. */
-function itemDisabled(player: number, menu: number, item: number, unused: number): void {
-	ret(ITEM_DISABLED);
+/** A text option, or what it is when it is not given. */
+function menuOption(text: string | undefined, fallback: string): string {
+	if (text !== undefined) return menuColors(text);
+	return fallback;
 }
 
-/** Sets a menu property that is text, when it is given, its colour tags made the game's codes. */
-function setMenuText(menu: i32, prop: i32, text: string | undefined): void {
-	if (text !== undefined) new Call(NATIVE_menu_setprop).num(menu).num(prop).str(menuColors(text)).run();
+/** One of a page's own items, Back, More or Exit: `option` its place, 0 for key 1; grey when it cannot be chosen. */
+function pageItem(color: string, option: i32, text: string, enabled: bool): string {
+	const number = (option + 1) % 10;
+	return enabled ? `${color}${number}. \\w${text}\n` : `\\d${number}. ${text}\n\\w`;
 }
 
 /** A text given as `string | ((context) => string)`: the compiler holds it as the function, a string as one that returns it. */
@@ -5817,9 +5804,9 @@ function menuTest<C>(test: boolean | ((context: C) => boolean) | undefined, cont
 }
 
 /**
- * A menu of AMX Mod X's own: items a player picks with the number keys, on
- * pages with Back and More, and Exit. `Data` is what it is shown with, which
- * its functions get beside the player.
+ * A menu: items a player picks with the number keys, on pages with Back and
+ * More, and Exit, drawn as AMX Mod X draws its own. `Data` is what it
+ * is shown with, which its functions get beside the player.
  *
  * ```ts
  * interface ShopData {
@@ -5849,11 +5836,7 @@ export class Menu<Data extends object = object> {
 	constructor(
 		private readonly title: string | ((context: MenuContext<Data>) => string),
 		private readonly options: MenuOptions = {}
-	) {
-		// Asked for now, not at the first show: after a reload, a menu the last
-		// start left open answers here, and is destroyed.
-		if (menuHandler.length == 0) menuHandler = callbackName(menuChosen, "menu");
-	}
+	) {}
 
 	/**
 	 * Adds an item: its title, when it is shown and can be chosen, and what
@@ -5884,26 +5867,73 @@ export class Menu<Data extends object = object> {
 	 */
 	show(player: Player, data: Data | null = null): void {
 		const context: MenuContext<Data> = { player, menu: this, data: changetype<Data>(data) };
-		const id = menu_create(menuText(this.title, context), menuHandler);
+		const shown = this.items.filter((item: MenuItemOptions<Data>) => menuTest(item.visible, context));
+		this.showPage(context, shown, 0);
+	}
+
+	/** Shows page `page` of the items `shown`, and keeps what each of its keys does. */
+	private showPage(context: MenuContext<Data>, shown: MenuItemOptions<Data>[], page: i32): void {
+		const count = shown.length;
+		if (count == 0) return;
 
 		const options = this.options;
-		const perPage = options.perPage;
-		if (perPage !== undefined) new Call(NATIVE_menu_setprop).num(id).num(MPROP_PERPAGE).ref(perPage).run();
-		if (options.exit == false) new Call(NATIVE_menu_setprop).num(id).num(MPROP_EXIT).ref(MEXIT_NEVER).run();
-		setMenuText(id, MPROP_BACKNAME, options.backText);
-		setMenuText(id, MPROP_NEXTNAME, options.nextText);
-		setMenuText(id, MPROP_EXITNAME, options.exitText);
-		setMenuText(id, MPROP_NUMBER_COLOR, options.numberColor);
+		const given = options.perPage;
+		const perPage: i32 = given !== undefined ? <i32>Math.min(Math.max(given, 0), 7) : 7;
+		const pages = perPage == 0 ? 1 : (count + perPage - 1) / perPage;
+		const color = menuOption(options.numberColor, "\\r");
+		const title = menuText(this.title, context);
+		let text = perPage > 0 && pages > 1 ? `\\y${title} ${page + 1}/${pages}\n\\w\n` : `\\y${title}\n\\w\n`;
 
-		const shown = this.items.filter((item: MenuItemOptions<Data>) => menuTest(item.visible, context));
-		for (let i = 0; i < shown.length; i++) {
+		// What each key does: an item's index, MENU_BACK, MENU_MORE or
+		// MENU_EXIT; a key `keys` leaves out does not come.
+		const actions = new Array<i32>(10).fill(MENU_EXIT);
+		let keys = 0;
+		let option = 0;
+		const first = page * perPage;
+		const last = perPage > 0 ? min(first + perPage, count) : min(count, 10);
+		for (let i = first; i < last; i++, option++) {
 			const item = shown[i];
-			const enabled = menuTest(item.enabled, context);
-			if (!enabled && greyItem < 0) greyItem = menu_makecallback(callbackName(itemDisabled, "menu-grey"));
-			menu_additem(id, menuText(item.title, context), "", 0, enabled ? -1 : greyItem);
+			const name = menuText(item.title, context);
+			const number = (option + 1) % 10;
+			if (menuTest(item.enabled, context)) {
+				keys |= 1 << option;
+				actions[option] = i;
+				text += `${color}${number}.\\w ${name}\n`;
+			} else {
+				text += `\\d${number}. ${name}\n\\w`;
+			}
 		}
 
-		shownMenus.set(id, (item: i32) => shown[item].onSelect(context));
-		menu_display(player.id, id);
+		if (perPage > 0) {
+			for (; option < perPage; option++) text += "\n";
+			text += "\n";
+			if (pages > 1) {
+				const back = page > 0;
+				text += pageItem(color, option, menuOption(options.backText, "Back"), back);
+				if (back) keys |= 1 << option;
+				actions[option++] = MENU_BACK;
+				const more = last < count;
+				text += pageItem(color, option, menuOption(options.nextText, "More"), more);
+				if (more) keys |= 1 << option;
+				actions[option++] = MENU_MORE;
+			} else {
+				option += 2;
+			}
+			if (options.exit != false) {
+				text += pageItem(color, option, menuOption(options.exitText, "Exit"), true);
+				keys |= 1 << option;
+			}
+		}
+
+		const id = <i32>context.player.id;
+		show_menu(id, keys, text, -1, MENU_TITLE);
+		const menu = this;
+		shownPages.set(id, (key: i32) => {
+			const action = actions[key];
+			if (action >= 0) shown[action].onSelect(context);
+			else if (action == MENU_BACK) menu.showPage(context, shown, page - 1);
+			else if (action == MENU_MORE) menu.showPage(context, shown, page + 1);
+		});
+		_menuOpen(id, keys, hostIndex(menuKey, true));
 	}
 }

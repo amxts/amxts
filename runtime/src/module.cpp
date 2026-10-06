@@ -415,7 +415,7 @@ static const AMX_NATIVE *const g_exportedEntries = ExportedEntries(std::make_ind
  * A forward a Pawn plugin made with CreateMultiForward, which a TypeScript
  * Forward hears by its name. AMX Mod X calls a forward's publics in plugins
  * only, so the module stands in for the natives that make and execute one in
- * every Pawn plugin's native table (InterposeForwards): CreateMultiForward
+ * every Pawn plugin's native table (InterposeNatives): CreateMultiForward
  * notes the forward by its id, PrepareArray where an array lies, and
  * ExecuteForward, once AMX Mod X has run the Pawn plugins' publics, hands the
  * call to the TypeScript subscribers. A forward lives one map, as AMX Mod X's.
@@ -3258,6 +3258,92 @@ static void HookOff(EntryHook &h)
 	h.on = false;
 }
 
+/** Every slot a client can take, 0 unused. */
+#define CLIENT_SLOTS 33
+
+static int ClientId(const edict_t *e);
+static void MessagesAttach(bool on);
+
+// ---------------------------------------------------------------- menus
+
+/**
+ * The menu a plugin's Menu shows each player (menu_open): the plugin's
+ * handler of its keys and the keys it takes, none while it shows nothing.
+ * AMX Mod X's show_menu draws it, under a title no Pawn menu is registered
+ * by, so AMX Mod X closes the player's Pawn menu - its close callback fires
+ * - and passes the key on: the module hears `menuselect` in ClientCommand,
+ * after AMX Mod X. A menu shown over it closes it: a Pawn plugin's
+ * show_menu or menu_display (InterposeNatives), the game's ShowMenu or
+ * VGUIMenu (MenuMessage, heard while a menu is open), the kit's showMenu.
+ */
+struct ShownMenu : Handler {
+	int keys = 0;
+};
+
+static ShownMenu g_menus[CLIENT_SLOTS];
+static int       g_menusShown = 0;
+static int       g_msgShowMenu = 0;
+static int       g_msgVGUIMenu = 0;
+
+static void CloseMenu(int id)
+{
+	if (!g_menus[id].keys)
+		return;
+	g_menus[id].keys = 0;
+	if (--g_menusShown == 0)
+		MessagesAttach(false);
+}
+
+/** Closes player `id`'s menu, or every player's for 0. */
+static void CloseMenus(int id)
+{
+	if (id > 0 && id < CLIENT_SLOTS) {
+		CloseMenu(id);
+		return;
+	}
+	for (int i = 1; id == 0 && i < CLIENT_SLOTS; i++)
+		CloseMenu(i);
+}
+
+/**
+ * menu_open(id, keys, handler) - player `id` sees a menu of the calling
+ * plugin that takes `keys` (show_menu's bits), and a key of it goes to
+ * `handler(id, key)`, the key 0 for 1 and 9 for 0; no keys for no menu, an id
+ * of 0 for every player. Said right after show_menu has drawn it.
+ */
+static void w_menu_open(wasm_exec_env_t env, int32_t id, int32_t keys, int32_t fn)
+{
+	(void)env;
+	if (id < 0 || id >= CLIENT_SLOTS) {
+		TakeTag();
+		return;
+	}
+	CloseMenus(id);
+	if (!id || !(keys & 0x3ff)) {
+		TakeTag();
+		return;
+	}
+
+	ShownMenu &menu = g_menus[id];
+	menu.plugin = g_currentPlugin;
+	menu.fn = (uint32_t)fn;
+	menu.shape = SHAPE_WIDE;
+	menu.tag = TakeTag();
+	Bind(menu);
+	menu.keys = keys & 0x3ff;
+	if (!g_msgShowMenu) g_msgShowMenu = GET_USER_MSG_ID(PLID, "ShowMenu", NULL);
+	if (!g_msgVGUIMenu) g_msgVGUIMenu = GET_USER_MSG_ID(PLID, "VGUIMenu", NULL);
+	if (g_menusShown++ == 0)
+		MessagesAttach(true);
+}
+
+/** A message the game begins: its own menu, ShowMenu or VGUIMenu, takes the player's keys, as AMX Mod X takes them from a Pawn menu. */
+static void MenuMessage(int type, edict_t *ed)
+{
+	if (g_menusShown && ed && type > 0 && (type == g_msgShowMenu || type == g_msgVGUIMenu))
+		CloseMenu(ClientId(ed));
+}
+
 // Hookchains and Ham Sandwich's functions, hooked by the module: hook, ham and the rest.
 #include "gamehooks.h"
 
@@ -3278,6 +3364,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "outcome",         (void *)w_outcome,         "(i)",  NULL },
 	{ "export",          (void *)w_export,          "(ii)i", NULL },
 	{ "slot",            (void *)w_slot,            "(iiii)i", NULL },
+	{ "menu_open",       (void *)w_menu_open,       "(iii)", NULL },
 	{ "arg",             (void *)w_arg,             "(i)i", NULL },
 	{ "arg_text",        (void *)w_argText,         "(iii)i", NULL },
 	{ "set_arg_text",    (void *)w_setArgText,      "(iii)i", NULL },
@@ -3721,7 +3808,7 @@ static void RemoveHost()
  * answer PLUGIN_CONTINUE and call nothing, until the same registration comes
  * back and reuses its slot. An orphan whose registration never comes back
  * stays spent, one of the MAX_CALLBACK_SLOTS, until the map changes. Its
- * commands, its listeners, its subscriptions and its requests go; its
+ * commands, its menus, its listeners, its subscriptions and its requests go; its
  * natives and the modules it serves stay registered, answering nothing
  * until a plugin claims them again. The owners of the modules it called
  * hear that its run ended (TellOwners), once it is gone.
@@ -3774,6 +3861,9 @@ static void ReleasePlugin(int index)
 		if (g_services[i].plugin == index)
 			g_services[i].plugin = -1;
 	DropGameHooks(index);
+	for (int id = 1; id < CLIENT_SLOTS; id++)
+		if (g_menus[id].plugin == index)
+			CloseMenu(id);
 
 	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++)
 		if (g_slots[i].used && g_slots[i].plugin == index)
@@ -3837,6 +3927,7 @@ static void Teardown()
 	g_subscriptionNames++;
 	g_services.clear();
 	g_fieldListeners.clear();
+	CloseMenus(0);
 	TeardownGameHooks();
 	ForgetOtherPoints();
 
@@ -5036,21 +5127,46 @@ static cell AMX_NATIVE_CALL n_executeForward(AMX *amx, cell *params)
 	return sent;
 }
 
+// AMX Mod X's own show_menu and menu_display.
+static AMX_NATIVE g_showMenu = NULL;
+static AMX_NATIVE g_menuDisplay = NULL;
+
+// show_menu(index, keys, const menu[], time = -1, const title[] = "") - a
+// Pawn menu over the player's Menu, or every player's for 0: it takes the keys.
+static cell AMX_NATIVE_CALL n_showMenu(AMX *amx, cell *params)
+{
+	cell shown = g_showMenu(amx, params);
+	CloseMenus((int)params[1]);
+	return shown;
+}
+
+// menu_display(id, menu, page = 0, time = -1)
+static cell AMX_NATIVE_CALL n_menuDisplay(AMX *amx, cell *params)
+{
+	cell shown = g_menuDisplay(amx, params);
+	if (params[1] > 0)
+		CloseMenus((int)params[1]);
+	return shown;
+}
+
 /**
- * Stands in for CreateMultiForward, PrepareArray and ExecuteForward in the
- * native table of every script but the host's, whose natives the module
- * calls itself (Forward.emit reaches its TypeScript subscribers through
- * emit_local). Every map, in AMXX_PluginsLoaded: AMX Mod X loads the plugins
+ * Stands in for CreateMultiForward, PrepareArray and ExecuteForward, and for
+ * show_menu and menu_display, in the native table of every script but the
+ * host's, whose natives the module calls itself (Forward.emit reaches its
+ * TypeScript subscribers through emit_local; a Menu says what it shows with
+ * menu_open). Every map, in AMXX_PluginsLoaded: AMX Mod X loads the plugins
  * anew and has bound their natives, and they make their forwards from
  * plugin_precache on. A call instruction reads the entry on every call, with
  * the JIT too.
  */
-static void InterposeForwards()
+static void InterposeNatives()
 {
 	const struct { const char *name; AMX_NATIVE *original; AMX_NATIVE own; } natives[] = {
 		{ "CreateMultiForward", &g_createMultiForward, n_createMultiForward },
 		{ "PrepareArray",       &g_prepareArray,       n_prepareArray       },
 		{ "ExecuteForward",     &g_executeForward,     n_executeForward     },
+		{ "show_menu",          &g_showMenu,           n_showMenu           },
+		{ "menu_display",       &g_menuDisplay,        n_menuDisplay        },
 	};
 
 	for (int i = 0; AMX *amx = MF_GetScriptAmx(i); i++) {
@@ -5133,9 +5249,6 @@ static void StartServer()
 // (client_kill, client_impulse, client_cmdStart) are heard in the post,
 // after every pre hook: that module is loaded when a plugin needs it, after
 // the module in the list, and a pre would come before it.
-
-/** Every slot a client can take, 0 unused. */
-#define CLIENT_SLOTS 33
 
 /** Whether anything listens to forward `index`: when nothing does, an event costs this check. */
 static bool Heard(int index)
@@ -5290,6 +5403,7 @@ static void Removed(int id, bool dropped, const char *reason)
 {
 	bool had = g_connected[id] || g_inGame[id];
 	g_connected[id] = g_inGame[id] = false;
+	CloseMenu(id);
 	if (had && Heard(FORWARD_CLIENT_REMOVE)) {
 		HostHeap heap;
 		cell args[3] = { id, dropped, PushString(reason) };
@@ -5870,27 +5984,51 @@ static void PollSpeaking()
 }
 
 /**
- * A player's command, after AMX Mod X's: the `command` event, then the
- * plugins' commands of its name - unless a Pawn plugin took it, in
- * client_command or a register_clcmd handler of its own. `say` and
- * `say_team` are commands like any other; the facade reads the chat line.
+ * A key of player `id`'s menu (g_menus) that `menuselect` presses, 0 for 1
+ * and 9 for 0; -1 for none. A key the menu takes closes it, as the client
+ * hides it, whoever takes the key; another leaves it open, as AMX Mod X does.
+ */
+static int MenuKey(int id, ShownMenu &menu)
+{
+	if (!g_menus[id].keys || strcmp(CMD_ARGV(0), "menuselect"))
+		return -1;
+	int key = atoi(CMD_ARGV(1)) - 1;
+	if (key < 0 || key > 9 || !(g_menus[id].keys & (1 << key)))
+		return -1;
+	menu = g_menus[id];
+	CloseMenu(id);
+	return key;
+}
+
+/**
+ * A player's command, after AMX Mod X's: the `command` event, the plugins'
+ * commands of its name, then a key of the menu a plugin shows him - unless a
+ * Pawn plugin took it, in client_command, a register_clcmd handler or a menu
+ * of its own. `say` and `say_team` are commands like any other; the facade
+ * reads the chat line.
  */
 void ClientCommand(edict_t *e)
 {
-	if (META_RESULT_STATUS >= MRES_SUPERCEDE)
-		RETURN_META(MRES_IGNORED);
 	int id = ClientId(e);
 	if (!id)
 		RETURN_META(MRES_IGNORED);
+	ShownMenu menu;
+	int key = MenuKey(id, menu);
+	if (META_RESULT_STATUS >= MRES_SUPERCEDE)
+		RETURN_META(MRES_IGNORED);
 	if (RaiseFor(FORWARD_CLIENT_COMMAND, id) > 0)
 		RETURN_META(MRES_SUPERCEDE);
-	if (g_clientCommands.empty())
-		RETURN_META(MRES_IGNORED);
 
-	std::map<std::string, Forward>::iterator it = g_clientCommands.find(Lower(CMD_ARGV(0)));
-	if (it != g_clientCommands.end() && RunCommand(it->second, id))
-		RETURN_META(MRES_SUPERCEDE);
-	RETURN_META(MRES_IGNORED);
+	if (!g_clientCommands.empty()) {
+		std::map<std::string, Forward>::iterator it = g_clientCommands.find(Lower(CMD_ARGV(0)));
+		if (it != g_clientCommands.end() && RunCommand(it->second, id))
+			RETURN_META(MRES_SUPERCEDE);
+	}
+	if (key < 0)
+		RETURN_META(MRES_IGNORED);
+	uint32_t argv[MAX_EVENT_ARGS] = { (uint32_t)id, (uint32_t)key, 0, 0 };
+	Fire(menu, argv, MAX_EVENT_ARGS, 0);
+	RETURN_META(MRES_SUPERCEDE);
 }
 
 /**
@@ -6199,7 +6337,7 @@ void OnAmxxAttach()
  */
 void OnPluginsLoaded()
 {
-	InterposeForwards();
+	InterposeNatives();
 	if (!g_host)
 		MF_PrintSrvConsole("[amxts] AMX Mod X did not load the host plugin (%s, named in %s), and no amxts plugin runs without it - AMX Mod X's log says why\n",
 		                   g_hostFile.c_str(), g_hostList.c_str());

@@ -2,7 +2,8 @@
 // plugins write them, each the best of three runs, timed with perf.ts's
 // clock and handed back to it. Run by amxts_perf_pawn <player id>, which
 // perf.ts sends, amxts_perf_pawn_timers, once a round of timers, and
-// amxts_perf_pawn_commands, for how many commands its handler got. What
+// amxts_perf_pawn_commands, for how many commands its handler got, and
+// amxts_perf_pawn_menu <player id>, which opens its menu on the bot. What
 // only Pawn can time on perf.ts's side - a forward reaching it, a call of its
 // native - is timed here too and handed back with perf_ours.
 #include <amxmodx>
@@ -47,6 +48,10 @@ new g_sink;
 new Float:g_fsink;
 new g_writes;
 new g_commands;
+new g_choices;
+
+// The menu perf.ts's bot chooses from: its handler shows it again.
+new g_menu;
 
 // Three forwards: client_impulse, which no plugin has a public for - the
 // module hears a player's impulse in the game's CmdStart itself, so a
@@ -70,6 +75,9 @@ public plugin_init()
 	register_srvcmd("amxts_perf_pawn_timers", "arm_timers");
 	register_srvcmd("amxts_perf_pawn_commands", "report_commands");
 	register_clcmd("amxts_perf_pawn_command", "on_command");
+	register_srvcmd("amxts_perf_pawn_menu", "show_menu_to");
+	g_menu = menu_create("Perf", "on_menu");
+	menu_additem(g_menu, "choose");
 	g_impulse = CreateMultiForward("client_impulse", ET_IGNORE, FP_CELL, FP_CELL);
 	g_heard = CreateMultiForward("perf_heard", ET_IGNORE, FP_CELL, FP_CELL);
 	g_nobody = CreateMultiForward("perf_nobody", ET_IGNORE, FP_CELL, FP_CELL);
@@ -114,10 +122,25 @@ public on_command(id)
 	return PLUGIN_HANDLED;
 }
 
+public show_menu_to()
+{
+	menu_display(read_argv_int(1), g_menu);
+	return PLUGIN_HANDLED;
+}
+
+public on_menu(id, menu, item)
+{
+	if (item < 0) return PLUGIN_HANDLED;
+	g_choices++;
+	menu_display(id, g_menu);
+	return PLUGIN_HANDLED;
+}
+
 // perf.ts sends the bot's commands, to this plugin's handler and its own, last.
 public report_commands()
 {
 	perf_report("commands", float(g_commands));
+	perf_report("choices", float(g_choices));
 }
 
 // A task that is removed before it runs.

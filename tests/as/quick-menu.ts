@@ -1,8 +1,12 @@
-// Menus of AMX Mod X's own as objects: an item is its title, when it is shown
-// and can be chosen, and what choosing it does; each gets the player, the
-// menu and the data the menu was shown with. Pages, Back, More and Exit are
-// AMX Mod X's. The test shows them through the natives below and presses the
-// keys (tests/menu.test.ts).
+// Menus as objects: an item is its title, when it is shown and can be chosen,
+// and what choosing it does; each gets the player, the menu and the data the
+// menu was shown with. Pages, Back, More and Exit are drawn as AMX Mod X
+// draws its own. The test shows them through the natives below and presses
+// the keys (tests/menu.test.ts); a menu of AMX Mod X's own beside them is
+// made with the raw natives.
+import { publicFor } from "@amxts/core";
+import { menu_additem, menu_create, menu_display } from "@amxts/core/natives";
+
 interface ShopData {
 	category: string;
 }
@@ -81,4 +85,15 @@ export function quick_show(id: number, name: string) {
 
 export function quick_chosen() {
 	return chosen;
+}
+
+/** The raw menu's handler: what AMX Mod X answers, an item or MENU_EXIT. */
+function rawChosen(player: number, menu: number, item: number, _unused: number) {
+	chosen = `${new Player(player).name}: raw ${item}`;
+}
+
+export function quick_raw(id: number) {
+	const raw = menu_create("Raw", publicFor(rawChosen, "quick:raw"));
+	menu_additem(raw, "one");
+	menu_display(id, raw);
 }

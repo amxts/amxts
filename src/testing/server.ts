@@ -513,12 +513,17 @@ export class FakePlayer extends FakeEntity {
 
 	/**
 	 * A console command, split the way the engine splits it: `amx_slap "Some One" 5`.
-	 * `menuselect <key>` goes to his menu first, as AMX Mod X takes it. True if handled.
+	 * `menuselect <key>` goes to his menu of AMX Mod X's own first, as AMX Mod
+	 * X takes it, and last to the menu a plugin's Menu shows him, as the
+	 * module takes it; the key `0` or `10`. True if handled.
 	 */
 	command(line: string): boolean {
 		const argv = splitCommand(line);
-		if (argv[0] === 'menuselect' && this.menu && this.server.selectMenu(this, Number(argv[1]))) return true;
-		return this.server.clientCommand(this, argv);
+		const select = argv[0] === 'menuselect';
+		const key = Number(argv[1]) % 10;
+		const pressed = select ? this.server.takeMenuKey(this, key) : null;
+		if (select && this.menu && this.server.selectMenu(this, key)) return true;
+		return this.server.clientCommand(this, argv) || (pressed !== null && this.server.pressMenu(this, pressed));
 	}
 
 	/** Leaves the server: the disconnect events, then the slot is free. */
@@ -527,6 +532,7 @@ export class FakePlayer extends FakeEntity {
 		const reason = options.reason ?? 'Client sent \'drop\'';
 		this.server.fire('client_disconnected', this.id, dropped, reason, 192);
 		this.server.clearPlayerData(this.id);
+		this.server.shownMenus.delete(this.id);
 		this.server.fire('client_disconnect', this.id);
 		this.connected = false;
 		this.alive = false;
@@ -783,6 +789,8 @@ export class FakeServer {
 	readonly menus = new Map<number, FakeMenu>();
 	/** menu_makecallback's publics, by the number it gave. @internal */
 	readonly menuCallbacks: Slot[] = [];
+	/** The menu a plugin's Menu shows each player (menu_open), by his id: its handler of the keys, and the keys it takes as show_menu's bits. @internal */
+	readonly shownMenus = new Map<number, Handler & { keys: number }>();
 	private menuIds = 0;
 	private userids = 1;
 
@@ -1779,11 +1787,52 @@ export class FakeServer {
 		player.menu = { menu: menu.id, page: at, text: lines.join('\n'), keys, disabled };
 	}
 
+	/**
+	 * show_menu: the text on the player's screen, or every player's for 0,
+	 * with the keys it takes; a menu of AMX Mod X's own he had open is closed
+	 * first, its handler hearing MENU_EXIT. @internal
+	 */
+	showMenu(id: number, keys: number, text: string): void {
+		for (const player of this.players.filter(one => one.connected && (id === 0 || one.id === id))) {
+			const before = player.menu;
+			player.menu = null;
+			const replaced = before ? this.menus.get(before.menu) : undefined;
+			if (replaced) this.menuAnswer(replaced, player, constant('MENU_EXIT'));
+			const pressable = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0].filter(key => keys & (1 << (key === 0 ? 9 : key - 1)));
+			player.menu = { menu: -1, page: 0, text, keys: pressable, disabled: [] };
+		}
+	}
+
+	/**
+	 * A key of the menu a plugin's Menu shows the player, taken off as the
+	 * module takes it: its handler and the key, 0 for 1 and 9 for 0 - or null
+	 * when he has none from a running plugin, or it does not take the key. @internal
+	 */
+	takeMenuKey(player: FakePlayer, key: number): { handler: Handler; index: number } | null {
+		const shown = this.shownMenus.get(player.id);
+		const index = key === 0 ? 9 : key - 1;
+		if (!shown || shown.plugin.unloaded || index < 0 || index > 9 || !(shown.keys & (1 << index))) return null;
+		this.shownMenus.delete(player.id);
+		return { handler: shown, index };
+	}
+
+	/** A key of a Menu's page to its plugin, as the module hands it on. @internal */
+	pressMenu(player: FakePlayer, pressed: { handler: Handler; index: number }): boolean {
+		const args = [player.id, pressed.index, 0, 0];
+		this.withCallArgs(args, () => this.call(pressed.handler, args, 0));
+		return true;
+	}
+
 	/** A key on a menu of AMX Mod X's own: an item to the handler, Back and More a page, Exit MENU_EXIT. Whether the menu took it. @internal */
 	selectMenu(player: FakePlayer, key: number): boolean {
 		const screen = player.menu;
-		const menu = screen ? this.menus.get(screen.menu) : undefined;
-		if (!screen || !menu || !screen.keys.includes(key)) return false;
+		if (!screen || !screen.keys.includes(key)) return false;
+		const menu = this.menus.get(screen.menu);
+		// show_menu's: the screen goes, and the key passes on.
+		if (!menu) {
+			player.menu = null;
+			return false;
+		}
 
 		const paged = menu.perPage > 0;
 		const turn = paged && key === 8 ? -1 : paged && key === 9 ? 1 : 0;
@@ -2245,6 +2294,14 @@ export class FakeServer {
 
 		srvcmd(this: FakeServer, plugin: PluginInstance, name: number, fn: number, shape: number) {
 			addTo(this.serverCommands, plugin.memory.string(name).toLowerCase(), this.takeSlot(plugin, fn, shape, '', PLUGIN_HANDLED));
+		},
+
+		// The menu a plugin's Menu shows a player, said after show_menu; no keys for none, 0 for every player.
+		menu_open(this: FakeServer, plugin: PluginInstance, id: number, keys: number, fn: number) {
+			const tag = this.takeTag();
+			if (id === 0) this.shownMenus.clear();
+			else this.shownMenus.delete(id);
+			if (id > 0 && keys & 0x3FF) this.shownMenus.set(id, { plugin, fn, shape: SHAPE_WIDE, tag, keys: keys & 0x3FF });
 		},
 
 		// A bot's command, as one it sent.

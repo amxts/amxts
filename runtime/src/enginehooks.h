@@ -216,6 +216,7 @@ void MessageBegin(int dest, int type, const float *origin, edict_t *ed)
 {
 	if (g_sending || !g_messagesHooked)
 		RETURN_META(MRES_IGNORED);
+	MenuMessage(type, ed);
 	if (g_holding) {
 		g_passing++;
 		RETURN_META(MRES_IGNORED);

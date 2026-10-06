@@ -3,7 +3,9 @@
 // once - and the menu's functions are the new load's. A bot looking at the
 // menu keeps it open through the reload, drawn again from the new load on the
 // next frame. After amxts_unload the menu is gone, closed for the bot on the
-// next frame, and nothing calls the plugin; amxts_load brings it back.
+// next frame, and nothing calls the plugin; amxts_load brings it back. A Menu
+// of the core's the plugin shows goes with its load: its key, pressed after
+// amxts_reload, calls nothing.
 // @log [amxts] reloading menu-reload-target.aot
 // @log [amxts] unloaded menu-reload-target.aot
 import { server_exec } from "@amxts/core/natives";
@@ -64,5 +66,16 @@ function unloaded(check: Checks, bot: Player) {
 	run("amxts_load menu-reload-target");
 	check.expect(menus.find("TEST_RELOAD_HELLO") != null, "amxts_load makes the menu again").toBe(true);
 	bot.health = 100;
+
+	// A Menu of the core's that the plugin left open closes with its load:
+	// its key reaches neither load, and the new load's own menu answers.
+	run(`amxts_menu_reload_quick ${bot.id}`);
+	run("amxts_reload menu-reload-target");
+	const before = calls.number;
+	bot.command("menuselect 1");
+	check.expect(calls.number, "a Menu the last load left open answers nothing").toBe(before);
+	run(`amxts_menu_reload_quick ${bot.id}`);
+	bot.command("menuselect 1");
+	check.expect(calls.number, "the new load's Menu answers").toBe(before + 1);
 	check.done();
 }

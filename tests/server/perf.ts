@@ -1,13 +1,13 @@
 // The speed check: what a native, a field, a vector, the HUD's money, text,
-// an event, a forward, a timer, a command, Pawn calling this plugin, whole
-// and fractional arithmetic and a real plugin's hot path cost here, against
+// an event, a forward, a timer, a command, a menu's choice, Pawn calling this
+// plugin, whole and fractional arithmetic and a real plugin's hot path cost here, against
 // the same in Pawn (perf-pawn.sma), measured in one run on one machine. It
 // checks ratios, not times, so it holds on any machine; each figure is the
 // best of three runs. A limit is changed on purpose, with the measurement
 // that moves it.
 import { hook, unhook } from "@amxts/core";
 import { EngFunc_RunPlayerMove, LibType_Library } from "@amxts/core/constants";
-import { engfunc, get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, strlen } from "@amxts/core/natives";
+import { engfunc, get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, server_exec, strlen } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
 const TRIES = 3;
@@ -46,6 +46,7 @@ const LIMITS: Record<string, number> = {
 	"timer armed": 7,
 	"timer firing": 7,
 	"command": 2,
+	"menu choice": 3,
 	"remainder": 2.5,
 	"fractions": 0.5,
 	"hot path": 5,
@@ -56,6 +57,7 @@ let resets = 0;
 let rawResets = 0;
 let impulses = 0;
 let commands = 0;
+let choices = 0;
 
 // The timers armed at once: how many have fired this round, when the first
 // did, and the best round's nanoseconds from one to the next.
@@ -199,6 +201,16 @@ function onTimer() {
 
 server.addCommand("amxts_perf_command", onCommand);
 
+/** The menu the bot chooses from: an item that shows it again, as Pawn's handler does. */
+const menu = new Menu("Perf");
+menu.addItem({
+	title: "choose",
+	onSelect: ({ player }) => {
+		choices++;
+		menu.show(player);
+	},
+});
+
 /**
  * Nanoseconds a move of the bot with an impulse takes: the game's CmdStart,
  * which the module hears the impulse in. The impulse is one the game ignores.
@@ -313,6 +325,8 @@ function compare(check: Checks, writes: number) {
 	check.expect(impulses, "the listener heard every impulse").toBe(heard);
 	check.expect(commands, "the handler got every command").toBe(heard);
 	check.expect(pawn.get("commands") ?? -1, "Pawn's handler got every command").toBe(heard);
+	check.expect(choices, "the menu got every choice").toBe(heard);
+	check.expect(pawn.get("choices") ?? -1, "Pawn's menu got every choice").toBe(heard);
 	check.expect(writes, "the hot path wrote as often as Pawn's").toBe(pawn.get("hot path writes") ?? -1);
 	for (const [what, limit] of Object.entries(LIMITS)) {
 		// A measure one side did not make fails, not passes as nothing.
@@ -360,6 +374,12 @@ server.addServerCommand("amxts_test_perf", async () => {
 	// way. Last: the commands leave garbage that a measure after them would pay for.
 	pawn.set("command", commandNs(player, "amxts_perf_pawn_command"));
 	ours.set("command", commandNs(player, "amxts_perf_command"));
+	// A menu's item chosen, the menu shown again: Pawn's, then this plugin's over it.
+	server.command(`amxts_perf_pawn_menu ${player.id}`);
+	server_exec();
+	pawn.set("menu choice", commandNs(player, "menuselect 1"));
+	menu.show(player);
+	ours.set("menu choice", commandNs(player, "menuselect 1"));
 	server.command("amxts_perf_pawn_commands");
 	await sleep(100);
 	compare(check, writes);
