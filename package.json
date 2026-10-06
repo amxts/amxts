@@ -1,7 +1,7 @@
 {
 	"name": "@amxts/core",
 	"type": "module",
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"description": "Counter-Strike 1.6 plugins in TypeScript: compiled ahead of time and run inside AMX Mod X, next to Pawn plugins.",
 	"author": {
 		"name": "kukson777",
