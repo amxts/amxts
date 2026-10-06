@@ -1297,7 +1297,16 @@ const thunks = chosen.map((n) => {
 	// after the call; a native of plain cells has nothing to copy. The AMX is
 	// the one the native is called with (Resolve).
 	const framed = n.params.some(isBuffer);
-	if (framed) body.push(`\tFrame f(env, Resolve(cached, "${lookupName(n.name)}"));`);
+
+	// A native of plain cells is handed them as they came: every parameter it
+	// declares is one of them, so nothing is left for Args to clear.
+	if (!framed) {
+		const cells = [`${n.params.length} * sizeof(cell)`, ...n.params.map((_, i) => `a${i}`)];
+		body.push(`\tcell p[] = { ${cells.join(', ')} };`, `\treturn (int32_t)CallCached(cached, "${lookupName(n.name)}", p);`);
+		return `static int32_t w_${n.name}(${sig})\n{\n${body.join('\n')}\n}`;
+	}
+
+	body.push(`\tFrame f(env, Resolve(cached, "${lookupName(n.name)}"));`);
 	body.push(`\tArgs p(${n.params.length});`);
 
 	n.params.forEach((p, i) => {
@@ -1318,7 +1327,7 @@ const thunks = chosen.map((n) => {
 		}
 	});
 
-	body.push(framed ? `\tcell r = CallResolved(cached, p);` : `\tcell r = CallCached(cached, "${lookupName(n.name)}", p);`);
+	body.push(`\tcell r = CallResolved(cached, p);`);
 
 	n.params.forEach((p, i) => {
 		// Nothing comes back out of a const parameter, whatever its shape.

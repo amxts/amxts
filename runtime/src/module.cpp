@@ -671,6 +671,14 @@ static Resolved FindNative(const char *name)
 	return none;
 }
 
+// What every thunk does on its way to a native, written into each thunk:
+// left to the compiler, which sees a thousand callers, it stays a call.
+#ifdef _MSC_VER
+#define ALWAYS_INLINE __forceinline
+#else
+#define ALWAYS_INLINE inline __attribute__((always_inline))
+#endif
+
 // amxmodx/amx.h: the usertags slot that holds the native being run.
 #define UT_NATIVE 3
 
@@ -685,7 +693,7 @@ static Resolved FindNative(const char *name)
  * guess. The slot is the image's: a Pawn plugin's native, called with
  * another AMX (Carrier), has no entry of its own to name there.
  */
-static cell Invoke(const Resolved &native, cell *params)
+static ALWAYS_INLINE cell Invoke(const Resolved &native, cell *params)
 {
 	long running = g_image->usertags[UT_NATIVE];
 	g_image->usertags[UT_NATIVE] = native.index;
@@ -903,7 +911,7 @@ struct Cached {
  * which is what keeps a native call at the couple of nanoseconds the direct
  * call was worth having.
  */
-static cell CallCached(Cached &cached, const char *name, cell *params)
+static ALWAYS_INLINE cell CallCached(Cached &cached, const char *name, cell *params)
 {
 	if (cached.generation != g_nativeGeneration) {
 		cached.native = FindNative(name);
@@ -921,7 +929,7 @@ static cell CallCached(Cached &cached, const char *name, cell *params)
  * resolved: the image's, or a Pawn plugin's for a native a Pawn plugin
  * registers (Carrier). The thunk then calls it with CallResolved.
  */
-static AMX *Resolve(Cached &cached, const char *name)
+static ALWAYS_INLINE AMX *Resolve(Cached &cached, const char *name)
 {
 	if (cached.generation != g_nativeGeneration) {
 		cached.native = FindNative(name);
@@ -930,7 +938,7 @@ static AMX *Resolve(Cached &cached, const char *name)
 	return cached.native.amx ? cached.native.amx : g_image;
 }
 
-static cell CallResolved(const Cached &cached, cell *params)
+static ALWAYS_INLINE cell CallResolved(const Cached &cached, cell *params)
 {
 	return cached.native.fn ? Invoke(cached.native, params) : 0;
 }
@@ -1076,11 +1084,12 @@ struct Frame {
 		uint64_t start = 0, end = 0;
 		if (ptr <= 4 || !wasm_runtime_get_app_addr_range(inst, (uint64_t)(ptr - 4), &start, &end))
 			return 0;
-		uint32_t bytes = *(uint32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)(ptr - 4));
+		const uint8_t *at = (const uint8_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)(ptr - 4));
+		uint32_t bytes = *(const uint32_t *)at;
 		if (bytes > end - (uint64_t)ptr)
 			return 0;
 
-		const uint16_t *chars = (const uint16_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ptr);
+		const uint16_t *chars = (const uint16_t *)(at + 4);
 		uint32_t n = bytes / 2;
 
 		// Three bytes at most for each unit (a pair's four are two units'),
@@ -1091,8 +1100,13 @@ struct Frame {
 		if (!phys)
 			return 0;
 
+		// ASCII first, most text: a unit a cell, and the room holds them all.
 		cell *dst = phys, *stop = phys + room;
-		for (uint32_t i = 0; i < n; i++) {
+		uint32_t i = 0;
+		for (uint32_t ascii = n < room ? n : room; i < ascii && chars[i] < 0x80; i++)
+			*dst++ = (cell)chars[i];
+
+		for (; i < n; i++) {
 			uint32_t c = chars[i];
 			if (c < 0x80) {
 				if (dst == stop)
