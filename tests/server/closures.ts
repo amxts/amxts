@@ -1,7 +1,7 @@
 // Closures on the server: timers, the frame event and an async arrow that
 // use the variables around them.
 import { publicFor } from "@amxts/core";
-import { register_srvcmd } from "@amxts/core/natives";
+import { PawnFunction } from "@amxts/core/kit";
 import { Checks } from "@amxts/core/check";
 
 server.addServerCommand("amxts_test_closures", () => {
@@ -79,11 +79,10 @@ async function run() {
 	let raw = "";
 	const pub = publicFor(() => {
 		raw = `${label} through publicFor`;
-	}, "srvcmd:amxts_closure_raw", 1);
-	if (pub.length > 0) register_srvcmd("amxts_closure_raw", pub);
-	server.command("amxts_closure_raw");
-	await sleep(300);
-	check.expect(raw, "a closure handed to the host by a public's name").toBe("timer through publicFor");
+	}, "call:amxts_closure_raw");
+	const fn = PawnFunction.find(-1, pub);
+	if (fn != null) fn.call().run();
+	check.expect(raw, "a closure called by its publicFor name").toBe("timer through publicFor");
 
 	check.expect(evenOrOdd(7), "a block's functions call each other before their declaration").toBe("odd");
 

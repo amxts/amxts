@@ -19,9 +19,9 @@ runtime/src/forwards.h
 runtime/src/hookchains.h
 runtime/src/hookchains-api.h
 runtime/src/embedded.h
-runtime/src/host.h
+runtime/src/image.h
 runtime/natives.txt
-runtime/host/amxts_host.sma
+runtime/host/amxts_natives.sma
 
 # the third-party includes, fetched by `bun run setup` (includes/sources.json)
 includes/vendor/

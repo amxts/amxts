@@ -821,8 +821,7 @@ function stage(built: string[], refused: Refused[], unlisted: string[], pawn: st
 	writeFileSync(join(testDir, 'plugins.ini'), `${listed.join('\n')}\n`);
 
 	// AMX Mod X: the Pawn suites, the modules with the amxts module under
-	// test, and the configs a suite reads. The host plugin is the module's: it
-	// writes it into this plugins folder and names it in this configs folder.
+	// test, and the configs a suite reads.
 	const amxx = join(testDir, 'amxx');
 	const serverAmxx = join(gameDir, 'addons/amxmodx');
 	for (const dir of ['plugins', 'modules', 'configs', 'logs']) mkdirSync(join(amxx, dir), { recursive: true });
@@ -1087,20 +1086,20 @@ async function main(): Promise<number> {
 		}
 
 		// The first thing to know: whether it is loading the test's plugins
-		// and nothing else. If not, it stops here before anything runs. The
-		// host plugin has no line in plugins.ini: the module loads it, once -
-		// the console says so when the host attaches (`amxx plugins` of AMX
+		// and nothing else. If not, it stops here before anything runs. AMX
+		// Mod X runs the Pawn suites alone; the module loads its natives'
+		// image, not a plugin, and says so once a map (`amxx plugins` of AMX
 		// Mod X 1.10 cuts a file name to 11 characters; 1.9 lists it whole).
 		const listed = await rcon(password, 'amxx plugins') ?? '';
 		const running = [...listed.matchAll(/(\S+\.amxx)\s+running/g)].map(m => m[1]);
-		const expected = new Set(['amxts_host.amxx', ...pawn.map(f => basename(f).replace(/\.sma$/, '.amxx'))]);
+		const expected = new Set(pawn.map(f => basename(f).replace(/\.sma$/, '.amxx')));
 		const strangers = running.filter(file => !expected.has(file));
 		const lines = consoleLines();
-		const hosts = lines.filter(line => line.includes('[amxts] host native table')).length;
+		const images = lines.filter(line => line.includes('[amxts] natives\' image:')).length;
 		const ownList = lines.some(line => line.includes('[amxts] plugin list') && line.replace(/\\/g, '/').includes(`${TEST}/plugins.ini`));
 		const isolation = ([
 			[strangers.length > 0, `AMX Mod X runs ${strangers.join(', ')}`],
-			[hosts !== 1, hosts ? `the host plugin attached ${hosts} times` : 'the amxts module did not load its host plugin'],
+			[images !== 1, images ? `the natives' image loaded ${images} times on the first map` : 'the amxts module did not load its natives\' image'],
 			[!ownList, 'the amxts module did not take the test\'s plugin list (is runtime/build the new module?)'],
 		] as const).find(([failed]) => failed);
 		if (isolation) {

@@ -58,7 +58,7 @@ test('the module passes every parameter of a native it calls', () => {
 
 	// The patterns find the calls: message_begin's takes defaults it must pass.
 	expect(all.some(call => call.native === 'message_begin')).toBe(true);
-	expect(all.length).toBeGreaterThan(15);
+	expect(all.length).toBeGreaterThan(10);
 
 	const short = all
 		.filter(call => !VARIADIC.has(call.native))

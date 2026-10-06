@@ -1,4 +1,4 @@
-# Which includes the host plugin pulls in, and in what order.
+# Which includes the natives' image pulls in, and in what order.
 # This cannot be derived from the .inc files: an include may use reapi's
 # constants without including reapi itself. Files missing from this list are still
 # parsed for their natives — reapi.inc, for instance, already pulls in
@@ -20,28 +20,26 @@ universal_config
 menu_core
 
 # engine, fakemeta, nvault and geoip are stock AMX Mod X modules shipped with
-# the server (addons/amxmodx/modules/); geoip is listed in modules.ini and the
-# others are auto-detected from the `#pragma reqlib` amxxpc writes into the
-# .amxx. The module itself calls engine's get_global_int and fakemeta's
-# pev_valid and get_pdata_int to find the engine's edicts (runtime/src/fields.h).
-# resemiclip is a third-party module, present as a DLL and enabled explicitly
-# in modules.ini.
+# the server (addons/amxmodx/modules/); the image names each module its
+# includes ask for, and AMX Mod X loads it as it loads the image, as it does
+# for a plugin's includes. resemiclip is a third-party module, present as a
+# DLL and enabled explicitly in modules.ini.
 #
 # universal_config and menu_core are not modules: their natives come from
-# universal_config.amxx and menu_core.amxx, which plugins.ini loads ahead of
-# amxts_host.amxx. AMX Mod X resolves plugin-registered natives after every
-# plugin has run plugin_natives(), so the host links against them fine, and a
-# server without those two plugins loads it too (below).
+# plugins - a Pawn plugin's register_native, or an amxts module's exported
+# natives. AMX Mod X binds the natives plugins register in the image once
+# every plugin has loaded, and a server without those plugins loads it too
+# (below).
 
 # A line starting with `-` is a deny marker: the include is still resolved and
 # parsed (amxxpc needs the file on disk to compile an include that #includes
-# it), but its natives are never pulled into the host's native table. None is
+# it), but its natives are never pulled into the image's native table. None is
 # needed today.
 #
-# A native the server does not have does not keep the host from loading: the
-# host's native filter lets it load without the native, and a call to it
-# answers 0 and says so once. So the includes whose natives a server may lack
-# are pulled like any other: reapi's add-ons - Reunion's natives exist only
-# when reapi finds Reunion, VTC's and ReChecker's only with those plugins - and
-# geoip, whose module turns its natives off when the GeoIP2 databases are not
-# there. The facade asks before it calls one (has_reunion).
+# A native the server does not have does not keep the image from loading: its
+# entry stays unbound, and a call to it answers 0 and says so once. So the
+# includes whose natives a server may lack are pulled like any other: reapi's
+# add-ons - Reunion's natives exist only when reapi finds Reunion, VTC's and
+# ReChecker's only with those plugins - and geoip, whose module turns its
+# natives off when the GeoIP2 databases are not there. The facade asks before
+# it calls one (has_reunion).

@@ -82,7 +82,7 @@ async function tryFtp() {
 /** How long the server may take to load the plugins. */
 const START_TIMEOUT = 180_000;
 /** Console lines that mean a plugin did not load or something crashed. */
-const ERROR_LINE = /failed to load|resolve symbol|exception|\[amxts\] [^:\s]+: \w*Error:|run time error|plugin file open error|bad load|did not compile|cannot create exec env|init failed|did not load the host plugin/i;
+const ERROR_LINE = /failed to load|resolve symbol|exception|\[amxts\] [^:\s]+: \w*Error:|run time error|plugin file open error|bad load|did not compile|cannot create exec env|init failed|natives' image did not load/i;
 
 class CheckError extends Error {}
 
@@ -219,8 +219,8 @@ const meaningful = (text: string | null) => (text ?? '').split(/\r?\n/).map(line
 
 /**
  * The build on the server image, the project mounted at /project as `amxts
- * dev --docker` has it: the module loads, writes its host plugin out itself,
- * and loads the project's plugins and the modules' owners.
+ * dev --docker` has it: the module loads its natives' image itself, and the
+ * project's plugins and the modules' owners.
  */
 async function runServer(image: string) {
 	console.log(`\n== the server: ${image}, container ${container}`);
@@ -240,17 +240,16 @@ async function runServer(image: string) {
 
 	const modules = meaningful(serverFile('addons/amxmodx/configs/modules.ini'));
 	const amxxPlugins = meaningful(serverFile('addons/amxmodx/configs/plugins.ini'));
-	const hostList = meaningful(serverFile('addons/amxmodx/configs/plugins-amxts.ini'));
-	const hosts = lines.filter(line => line.includes('[amxts] host native table')).length;
+	const images = lines.filter(line => line.includes('[amxts] natives\' image:')).length;
 	const errors = lines.filter(line => ERROR_LINE.test(line));
 	const exited = !running();
 	const problems = [
 		exited && 'the server exited',
 		modules.filter(line => line === 'amxts_amxx').length !== 1 && `modules.ini should name amxts_amxx once: ${modules.join(', ')}`,
-		amxxPlugins.some(line => line.includes('amxts_host')) && 'AMX Mod X\'s plugins.ini names the host plugin: the module loads it itself',
-		!hostList.some(line => line.startsWith('amxts_host.amxx')) && 'the module did not write plugins-amxts.ini with its host plugin',
-		serverFile('addons/amxmodx/plugins/amxts_host.amxx') === null && 'the module did not write amxts_host.amxx',
-		hosts !== 1 && (hosts ? `the host plugin attached ${hosts} times` : 'the host plugin did not attach'),
+		amxxPlugins.some(line => line.includes('amxts')) && 'AMX Mod X\'s plugins.ini names an amxts plugin: the module needs none',
+		serverFile('addons/amxmodx/configs/plugins-amxts.ini') !== null && 'there is a plugins-amxts.ini: the module needs no plugin list',
+		serverFile('addons/amxmodx/plugins/amxts_host.amxx') !== null && 'there is an amxts_host.amxx: the module needs no plugin',
+		images !== 1 && (images ? `the natives' image loaded ${images} times on the first map` : 'the natives\' image did not load'),
 		!lines.some(line => line.includes('[amxts] plugin list') && line.includes('addons/amxts/project/plugins.ini')) && 'the module did not take the project\'s plugin list',
 		...PLUGINS.map(name => !lines.some(line => line.includes(`[amxts] loaded ${name}.aot`)) && `${name}.aot did not load`),
 		!lines.some(line => line.includes('[amxts] ftp: ')) && 'hello.aot did not run the ftp library compiled into it',

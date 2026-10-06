@@ -1,15 +1,18 @@
 import type { ForwardDeclaration, NativeFunction, Parameter } from '../src/types';
 import type { MessageField } from './client-messages';
-// Generates runtime/host/amxts_host.sma from includes/*.inc
+// Generates runtime/host/amxts_natives.sma from includes/*.inc
 //
-// The host plugin holds no logic. It exists for exactly two reasons:
-//   1. pull natives into its table so the module can resolve them by name;
-//   2. keep a pool of publics for the natives that take a callback by name.
+// The natives' image holds no logic. The module loads it with AMX Mod X's
+// LoadAmxScript - a script, not a plugin - every map, and its native table
+// is where the module resolves every native by name: AMX Mod X binds there
+// what every module and every Pawn plugin gives. Its old-style library
+// entries make AMX Mod X load the modules the includes name, as a plugin's
+// includes do; its module filter lets it load without one.
 // AMX Mod X's forwards and its modules' the module raises itself, from its
 // own hooks of the functions they are raised from; this writes their table
 // (runtime/src/forwards.h) and their events (as/events.ts).
-// scripts/compile-host.ts compiles it into runtime/src/host.h: the module
-// carries it and has AMX Mod X load it, so a server installs the module alone.
+// scripts/compile-image.ts compiles it into runtime/src/image.h, which the
+// module carries.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IncludeParser } from '../src/parser/include-parser';
@@ -21,19 +24,16 @@ import { GAME_ENUMS, memberName } from './include-enums';
 import { includePath, listIncludes, parseOrder, readInclude, resolveTransitive } from './includes';
 
 const includesDir = './includes';
-const outPath = './runtime/host/amxts_host.sma';
+const outPath = './runtime/host/amxts_natives.sma';
 
-const CALLBACK_SLOTS = 512; // must match MAX_CALLBACK_SLOTS in runtime/src/module.cpp
+// The image's stack and heap, in cells (`#pragma dynamic`). The module copies
+// a native's strings and arrays into this heap for the length of the call,
+// each up to MAX_CROSSING_CELLS (16384) in runtime/src/module.cpp, so AMX Mod
+// X's default of 4096 cells for both would not hold one long text. 512 KB.
+const IMAGE_CELLS = 131072;
 
-// The host's stack and heap, in cells (`#pragma dynamic`). The module copies a
-// native's strings and arrays into this heap for the length of the call, each
-// up to MAX_CROSSING_CELLS (16384) in runtime/src/module.cpp, so AMX Mod X's
-// default of 4096 cells for both would not hold one long text. 512 KB.
-const HOST_CELLS = 131072;
-
-// Both are written by hand below: plugin_init names the host, and
-// plugin_natives loads the plugins before AMX Mod X asks anyone for natives.
-// The module raises plugin_init itself, from ServerActivate.
+// The module raises plugin_init itself, from ServerActivate, and the image
+// has a plugin_natives of its own.
 const SKIP_FORWARDS = new Set(['plugin_init', 'plugin_natives']);
 
 function isFloat(p: Parameter): boolean {
@@ -85,46 +85,6 @@ function sizeOf(p: Parameter): string | null {
 	return /^\d+$/.test(p.arraySize ?? '') ? p.arraySize! : null;
 }
 
-// must match MAX_CALLBACK_ARGS and n_callback's arity in runtime/src/module.cpp
-const CALLBACK_ARGS = 8;
-
-const CALLBACK_PARAMS = Array.from({ length: CALLBACK_ARGS }, (_, i) => String.fromCharCode(97 + i));
-
-/**
- * The arguments arrive as declared parameters, not through getarg().
- *
- * getarg() dereferences: Pawn passes variadic arguments by reference, so
- * getarg(arg, index) reads the cell AT the argument's value. AMX Mod X and
- * reapi push a callback's arguments by value, so getarg(0) on a task id of
- * 4096 returned the cell at DAT+4096 (114, measured) and on a string returned
- * its first character instead of its address. A declared parameter is the
- * pushed cell itself: a number as a number, a string or vector as the address
- * the module needs to read it.
- *
- * Reading a declared parameter the caller never pushed is stack garbage, which
- * is why the numargs() switch stays: each branch names only the arguments that
- * actually arrived.
- */
-function callbackSlot(i: number): string {
-	const call = (n: number) =>
-		[`${i}`, `${n}`, ...CALLBACK_PARAMS.map((p, k) => (k < n ? p : '0'))].join(', ');
-
-	const cases = Array.from(
-		{ length: CALLBACK_ARGS },
-		(_, n) => `\t\tcase ${n}: return amxts_callback(${call(n)});`,
-	);
-
-	return [
-		`public __amxts_cb${i}(${CALLBACK_PARAMS.join(', ')})`,
-		`{`,
-		`\tswitch (numargs()) {`,
-		...cases,
-		`\t}`,
-		`\treturn amxts_callback(${call(CALLBACK_ARGS)});`,
-		`}`,
-	].join('\n');
-}
-
 /**
  * What to write as `#include` and in what order comes from includes/order.txt.
  *
@@ -136,9 +96,9 @@ function callbackSlot(i: number): string {
  * A line starting with `-` is a deny marker, not an include: the file is
  * still parsed - an include that #includes it needs it on disk, and its
  * constants and forwards resolve normally - but its natives are kept out of
- * `__pull_natives()`. A native the server lacks does not stop the host
- * loading (the native filter below), so no include needs one today; the
- * marker stays for one whose natives the host must not name at all. See
+ * `__pull_natives()`. A native the server lacks does not stop the image
+ * loading (its entry stays unbound), so no include needs one today; the
+ * marker stays for one whose natives the image must not name at all. See
  * scripts/includes.ts's parseOrder for the parsing itself.
  */
 function readOrderFile(): { includes: string[]; denied: Set<string> } {
@@ -152,7 +112,7 @@ function readOrderFile(): { includes: string[]; denied: Set<string> } {
 }
 
 const { includes, denied } = readOrderFile(); // from order.txt, unchanged
-// Denied too: a deny marker keeps a file's natives out of the host's table, it
+// Denied too: a deny marker keeps a file's natives out of the image's table, it
 // does not make the file uninteresting - its forwards are still raised, and
 // nothing links against a forward.
 const parseNames = resolveTransitive(includes.concat(Array.from(denied)));
@@ -168,6 +128,8 @@ for (const name of parseNames) {
 // Parse every transitively-reachable include: we need natives from included
 // ones too — except a denied one's natives, which never enter the pull table.
 const includeTexts: string[] = [];
+// The modules the includes ask AMX Mod X for (`#pragma reqlib`, `loadlib`).
+const libraries = new Set<string>();
 // Forwards of the AMX Mod X distribution itself. Only these are server events:
 // a forward some plugin declares (menu_core's, a project's own) is heard
 // through Forward.subscribe, one way for one thing. The module raises the
@@ -177,6 +139,7 @@ const stockForwards = new Set<string>();
 for (const name of parseNames) {
 	const text = readInclude(name);
 	includeTexts.push(text);
+	for (const m of text.matchAll(/^\s*#pragma\s+(?:reqlib|loadlib)\s+(\w+)/gm)) libraries.add(m[1].toLowerCase());
 	const parsed = new IncludeParser(text, macros).parse();
 	if (!denied.has(name)) natives.push(...parsed.natives);
 	forwards.push(...parsed.forwards);
@@ -654,7 +617,7 @@ const messageNames = [...MESSAGE_GROUPS].map(messageName);
 const wordless = messageNames.map(m => m.messages[0]).filter(message => !MESSAGES[message]);
 if (wordless.length > 0) throw new Error(`messages without words in scripts/docs/messages.ts: ${wordless.join(', ')}`);
 
-writeFileSync('./as/events.ts', `// GENERATED by scripts/generate-host.ts — do not edit
+writeFileSync('./as/events.ts', `// GENERATED by scripts/generate-image.ts — do not edit
 // Source: includes/*.inc, the forwards the module raises
 //
 // The events a server raises, one per forward the module raises:
@@ -750,7 +713,9 @@ ${serverEvents.map(removeBranch).join('\n')}
 }
 `);
 
-const sma = `// GENERATED by scripts/generate-host.ts — do not edit
+const libraryNames = [...libraries].sort();
+
+const sma = `// GENERATED by scripts/generate-image.ts — do not edit
 // Source: includes/*.inc
 
 // Pawn passes the address of "" for an omitted \`const str[] = ""\` parameter,
@@ -765,40 +730,26 @@ const sma = `// GENERATED by scripts/generate-host.ts — do not edit
 // compiler from dropping an otherwise unreferenced global.
 new __amxts_null = 0;
 
-// The stack and the heap together, in cells: see HOST_CELLS in the generator.
-#pragma dynamic ${HOST_CELLS}
+// The stack and the heap together, in cells: see IMAGE_CELLS in the generator.
+#pragma dynamic ${IMAGE_CELLS}
 
 ${includes.map(i => `#include <${i}>`).join('\n')}
 
-// Eight arguments: the arity must match n_callback in runtime/src/module.cpp,
-// which reads exactly this many cells. They are in different files, so changing
-// one means changing the other.
-native amxts_callback(slot, argc, ${CALLBACK_PARAMS.join(', ')});
-// Loads the plugins. Called from plugin_natives rather than plugin_init,
-// because AMX Mod X binds a plugin's natives before it finalizes the plugins
-// - and a plugin here exports its own by running.
-native amxts_natives();
+// One old-style library entry a module the includes name: AMX Mod X loads a
+// module such an entry names as it loads the image, as it loads one a
+// plugin's include names. The natives are never bound or called.
+${libraryNames.map(name => `#pragma library ${name}\nnative __amxts_library_${name}();`).join('\n')}
 
-public plugin_init()
-{
-	register_plugin("amxts Runtime Host", "0.1", "amxts");
-}
-
-// AMX Mod X asks for natives before it asks anything else, and a plugin here
-// exports one by running - so this is where they are loaded. plugin_init then
-// only starts them.
+// AMX Mod X runs it as it loads the image, before it checks the modules.
 public plugin_natives()
 {
-	// Every module is optional. The host names the natives of reapi, cstrike,
-	// fun and the rest, and without these two a server lacking one of them -
-	// no ReHLDS, so no reapi - would refuse to load the host at all, and with
-	// it every TypeScript plugin. The facade asks which modules are there
+	// Every module is optional. The image names the natives of reapi, cstrike,
+	// fun and the rest, and without this a server lacking one of them - no
+	// ReHLDS, so no reapi - would refuse to load it at all, and with it every
+	// TypeScript plugin's native. The facade asks which modules are there
 	// (module_exists) and goes around a missing one; a native from a missing
 	// module that something calls anyway answers 0, said once.
 	set_module_filter("amxts_module_filter");
-	set_native_filter("amxts_native_filter");
-
-	amxts_natives();
 	return PLUGIN_CONTINUE;
 }
 
@@ -807,32 +758,9 @@ public amxts_module_filter(const library[], LibType:type)
 	return PLUGIN_HANDLED;
 }
 
-// trap 0: the native is missing as the host loads - let it load. trap 1: it
-// was called. It answers 0, and the console says so once per native rather
-// than with AMX Mod X's run time error on every call - three lines a frame
-// for a plugin that reads a field in its frame listener.
-public amxts_native_filter(const name[], index, trap)
-{
-	if (!trap)
-		return PLUGIN_HANDLED;
-
-	static Trie:said;
-	if (!said)
-		said = TrieCreate();
-	if (TrieKeyExists(said, name))
-		return PLUGIN_HANDLED;
-
-	TrieSetCell(said, name, 1);
-	log_amx("[amxts] %s is not on this server: the module or plugin that provides it is not loaded. Its calls do nothing and answer 0", name);
-	return PLUGIN_HANDLED;
-}
-
-// ---------------------------------------------------------------- callback slots
-${Array.from({ length: CALLBACK_SLOTS }, (_, i) => callbackSlot(i)).join('\n\n')}
-
 // ---------------------------------------------------------------- native table
 // Never executed. Its only job is to make the compiler put every native into
-// the plugin's table, where the module looks them up by name. The guard reads
+// the image's table, where the module looks them up by name. The guard reads
 // __amxts_null, which is always 0, so the body never runs — and the read is
 // what keeps that variable in the data segment.
 public __pull_natives()
@@ -847,12 +775,13 @@ public __pull_natives()
 ${arrayDecls}
 
 ${pulls}
+${libraryNames.map(name => `\t__amxts_library_${name}();`).join('\n')}
 }
 `;
 
 writeFileSync(outPath, sma);
 
-writeFileSync('./runtime/src/forwards.h', `// GENERATED by scripts/generate-host.ts - do not edit
+writeFileSync('./runtime/src/forwards.h', `// GENERATED by scripts/generate-image.ts - do not edit
 // Source: includes/*.inc
 //
 // The forwards of AMX Mod X and its modules the module raises itself, from
@@ -871,4 +800,4 @@ console.log(`✅ ${outPath}, runtime/src/forwards.h`);
 console.log(`   - ${includes.length} includes: ${includes.join(', ')}`);
 console.log(`   - ${natives.length} natives pulled`);
 console.log(`   - ${forwardNames.length} forwards the module raises`);
-console.log(`   - ${CALLBACK_SLOTS} callback slots of ${CALLBACK_ARGS} arguments`);
+console.log(`   - ${libraryNames.length} modules asked for: ${libraryNames.join(', ')}`);

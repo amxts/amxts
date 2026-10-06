@@ -132,8 +132,8 @@ function buildWindows(): string[] {
 	step('the generated API');
 	run('bun', ['run', 'generate']);
 	// Before the module, which carries it.
-	step('the host plugin');
-	run('bun', ['run', 'host']);
+	step('the natives\' image');
+	run('bun', ['run', 'image']);
 
 	step('amxts_amxx.dll');
 	ensureSdks();
@@ -161,8 +161,8 @@ function buildWindows(): string[] {
 function buildLinux(): string[] {
 	step('the generated API');
 	run('bun', ['run', 'generate']);
-	step('the host plugin');
-	run('bun', ['run', 'host']);
+	step('the natives\' image');
+	run('bun', ['run', 'image']);
 	step('amxts_amxx_i386.so and wamrc (Docker)');
 	run('bun', ['scripts/build-linux.ts']);
 	step('the server kit');

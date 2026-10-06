@@ -2,12 +2,12 @@
 // AMX Mod X module.
 //
 // The idea is unchanged from the QuickJS runtime this replaces: instead of a
-// binding per native, resolve natives by name in the host plugin's native
-// table. The host plugin is generated and holds no logic — it only pulls
-// natives into its table and keeps a pool of publics for the callbacks of
-// the natives that take one; AMX Mod X's forwards the module raises itself.
-// The module carries it and has AMX Mod X load it (InstallHost), so a server
-// installs the module alone.
+// binding per native, resolve natives by name in one native table. The table
+// is the natives' image's: a generated script that holds no logic, which the
+// module carries and loads with AMX Mod X's LoadAmxScript every map
+// (LoadImage). AMX Mod X binds there what every module and every Pawn plugin
+// gives; everything else - the forwards, the commands, the hooks - the module
+// does itself, so a server installs the module alone.
 //
 // What changed is the engine. A plugin is now a .aot file produced by
 // `asc` and `wamrc`, so its code is machine code by the time the server loads
@@ -78,14 +78,12 @@ struct FuncStubNT { ucell address; ucell nameofs; };
 
 // ---------------------------------------------------------------- state
 
-// Must match CALLBACK_SLOTS in scripts/generate-host.ts, which writes one
-// public per slot. 128 was enough until a plugin registered a menu piece per
-// section, a command per cvar and a task per player: the port ran out during
-// plugin_init and the menus it had not reached simply were not there.
-#define MAX_CALLBACK_SLOTS 512
-#define MAX_CALLBACK_ARGS  8    // must match amxts_callback's arity in scripts/generate-host.ts
+// The natives' image's AMX while a map runs, NULL between maps (LoadImage).
+static AMX *g_image = NULL;
 
-static AMX *g_host = NULL;      // host plugin's AMX: natives are resolved from it
+// Whether the image has every native the map will have: loaded once the
+// plugins are, not the one the first map's plugins load with (OnAmxxAttach).
+static bool g_imageComplete = false;
 
 #include "coroutine.h"
 
@@ -124,9 +122,8 @@ struct Plugin {
 	// a handler's parameter types before calling it. See Fire.
 	wasm_table_inst_t    table;
 	bool                 hasTable = false;
-	// What plugin() declared, for the listing. AMX Mod X has one entry per
-	// .amxx file and every plugin here shares the host's, so this is the only
-	// place their names exist.
+	// What plugin() declared, for the listing. AMX Mod X has no entry for an
+	// amxts plugin, so this is the only place their names exist.
 	std::string          title;
 	std::string          version;
 	std::string          author;
@@ -210,15 +207,16 @@ static bool g_outcomeSaid = false;
 
 #define MAX_EVENT_ARGS 4
 
-// Set on what w_slot returns when the slot is one the plugin already had
-// before a reload, and the AMXX-side registration with it. A slot number is
-// 0..MAX_CALLBACK_SLOTS-1, so this bit is free. The facade declares the same
+// Set on what w_slot returns when the name is one the plugin already had
+// before a reload, and the registration with it. The facade declares the same
 // value; it is the difference between "here is your public" and "your public
-// is already registered, do not register it twice".
-// A bit above every slot number, so it cannot be mistaken for one. It used to
-// be 0x100, which put a ceiling of 256 slots on the whole thing and would
-// have been a quiet collision rather than a loud one.
-#define SLOT_REUSED 0x10000
+// is already registered, do not register it twice". A bit above every index
+// the table reaches, so it cannot be mistaken for one.
+#define SLOT_REUSED 0x40000000
+
+// Set on a public's index (PawnFunction) when the name is a publicFor name:
+// the module calls its handler itself.
+#define PUBLIC_FOR 0x20000000
 
 // The most arguments an AMX Mod X forward carries (FORWARD_MAX_PARAMS in
 // amxmodx/CForward.h).
@@ -335,35 +333,49 @@ static std::map<std::string, std::vector<Subscription> > g_subscriptions;
 // what a Pawn forward found there (PawnForward) is looked up again.
 static unsigned g_subscriptionNames = 1;
 
-// A callback slot is one public in the host plugin (__amxts_cb0 .. __amxts_cb511).
-// AMXX natives take a callback as the name of a public, so registering one
-// means parking the wasm function here and passing the public's name along.
-// The handler's fields are the slot's: its plugin, or one of the SLOT_*
-// owners below for the module's own.
+/**
+ * A handler a plugin hands on by a public's name (publicFor): "__amxts_cb<n>",
+ * n its index here. No script has such a public: the natives that take one
+ * from a TypeScript plugin are the module's own (register_menucmd, a
+ * PawnFunction's call), and find the handler by the name. Each map starts the
+ * table empty.
+ */
 struct Slot : Handler {
-	bool     used;
 	/**
 	 * What the caller gets when the handler says nothing.
 	 *
 	 * It is not one value for everyone: a command wants PLUGIN_HANDLED, a
 	 * fakemeta forward FMRES_IGNORED - and FMRES_IGNORED is 1, so answering
 	 * PLUGIN_CONTINUE there would be read as something else. So whoever takes
-	 * the slot says what silence means.
+	 * the name says what silence means.
 	 */
 	cell     fallback;
-	// What this slot was registered for: "think:myplugin_box", a menu's. AMX Mod
-	// X cannot unregister any of them, so on a reload the plugin takes its own
-	// slots back by this key rather than registering a second time.
+	// What this name was registered for: "think:myplugin_box", a menu's. A
+	// registration is not undone, so on a reload the plugin takes its own
+	// names back by this key rather than registering a second time.
 	std::string key;
 };
 
-// What a slot becomes when the plugin holding it is reloaded away - an AMX
-// Mod X registration cannot be undone, so it outlives the handler and has to
-// land somewhere harmless.
+// What a name or an exported native becomes when the plugin holding it is
+// reloaded away: a registration outlives the handler and has to land
+// somewhere harmless.
 #define SLOT_ORPHANED (-6)
 
-static Slot g_slots[MAX_CALLBACK_SLOTS];
-static int  g_slotCount = 0;
+static std::vector<Slot> g_slots;
+
+// The prefix of a publicFor name; the index follows.
+#define PUBLIC_PREFIX "__amxts_cb"
+
+/** The index of a publicFor name in g_slots; -1 when `name` is not one. */
+static int SlotOf(const char *name)
+{
+	size_t prefix = sizeof(PUBLIC_PREFIX) - 1;
+	if (!name || strncmp(name, PUBLIC_PREFIX, prefix) || !isdigit((unsigned char)name[prefix]))
+		return -1;
+	char *end = NULL;
+	long index = strtol(name + prefix, &end, 10);
+	return *end || index < 0 || (size_t)index >= g_slots.size() ? -1 : (int)index;
+}
 
 // The most arguments an exported native reads, as the author's docs say:
 // AMX Mod X's limit for a native a plugin registers (CALLFUNC_MAXPARAMS).
@@ -433,23 +445,28 @@ struct PawnForward {
 // By id >> 1: the ids of AMX Mod X's forwards for every plugin are even.
 static std::vector<PawnForward> g_pawnForwards;
 
-/** A native of the host's table: its function, and its index there. */
+/**
+ * A native of the image's table: its function, its index there, and the AMX
+ * it is called with - the image's, or for a native a Pawn plugin registers a
+ * loaded Pawn plugin's (Carrier).
+ */
 struct Resolved {
 	AMX_NATIVE fn;
 	int        index;
+	AMX       *amx;
 };
 
 static std::map<std::string, Resolved> g_nativeCache;
 
 /**
- * Which AMX image the resolved natives belong to.
+ * Which image the resolved natives belong to.
  *
- * AMX Mod X rebuilds the host plugin on every map change, so a pointer
- * harvested from the old image is a call into freed memory. Each thunk keeps
- * its own resolved pointer and compares this number rather than asking again,
- * which is the difference between a call and a std::map lookup keyed by a
- * string: measured on the live server, a thousand calls took 57 microseconds
- * with the lookup.
+ * The module loads the image anew every map, so a pointer harvested from the
+ * old one is a call into freed memory. Each thunk keeps its own resolved
+ * pointer and compares this number rather than asking again, which is the
+ * difference between a call and a std::map lookup keyed by a string:
+ * measured on the live server, a thousand calls took 57 microseconds with the
+ * lookup.
  */
 static int g_nativeGeneration = 0;
 
@@ -484,11 +501,12 @@ static void SetNativeEntry(AMX *amx, int index, AMX_NATIVE fn)
 
 /**
  * Binds `native` in every loaded script whose entry of its name is unbound,
- * as AMX Mod X binds a module's list when a plugin loads. The host's
- * plugin_natives loads the TypeScript plugins after the Pawn plugins before
- * it have loaded; they are finalized after it, and find the name bound. Once
- * they are, an unbound entry is a plugin's that failed to load, and one a
- * native filter took points elsewhere: a name added then reaches the next map.
+ * as AMX Mod X binds a module's list when a plugin loads. On the first map
+ * the TypeScript plugins load before any Pawn plugin (OnAmxxAttach), and AMX
+ * Mod X finds the name in the list as each Pawn plugin loads; on a later map
+ * they load after the Pawn plugins are finalized, where an unbound entry is a
+ * plugin's that failed to load, and one a native filter took points
+ * elsewhere: a name added then reaches the next map. The image is bound here.
  */
 static void BindLoaded(const AMX_NATIVE_INFO &native)
 {
@@ -501,30 +519,86 @@ static void BindLoaded(const AMX_NATIVE_INFO &native)
 	}
 }
 
-// A native the module does itself in place of the one in the host's table (g_ownNatives).
+// A native the module does itself in place of the one in the image's table (g_ownNatives).
 static AMX_NATIVE OwnNative(const char *name, AMX_NATIVE fn);
+
+// A native that needs the Pawn plugin calling it: NULL, or for some of its calls a guard (g_needsPlugin).
+static AMX_NATIVE NeedsPlugin(const char *name, AMX_NATIVE fn);
+
+/**
+ * Each loaded Pawn plugin's AMX, by its AMX Mod X id; NULL for an id that is
+ * not a plugin's. Read every map once the plugins have loaded (FindPlugins),
+ * as get_plugin(-1) answers in each script - AMX Mod X loads plugins only as
+ * a map starts.
+ */
+static std::vector<AMX *> g_pluginAmx;
+
+/** Whether `fn` is code of a loaded module (a DLL or a shared object), not code AMX Mod X made at run time. */
+static bool InLoadedLibrary(AMX_NATIVE fn)
+{
+#ifdef _WIN32
+	HMODULE module = NULL;
+	return GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+	                          (LPCSTR)(void *)fn, &module) != 0;
+#else
+	Dl_info info;
+	return dladdr((void *)fn, &info) != 0 && info.dli_fname;
+#endif
+}
+
+/**
+ * The AMX a native a Pawn plugin registers is called with: a loaded Pawn
+ * plugin's, the one with the most room on its heap, where the call's strings
+ * and arrays cross. AMX Mod X hands such a native's handler the calling
+ * plugin's id without asking whether there is one, so the image, which is
+ * not a plugin, cannot call it. NULL when no Pawn plugin is loaded.
+ */
+static AMX *Carrier()
+{
+	AMX *best = NULL;
+	for (AMX *amx : g_pluginAmx)
+		if (amx && (!best || amx->stk - amx->hea > best->stk - best->hea))
+			best = amx;
+	return best;
+}
 
 static Resolved FindNative(const char *name)
 {
-	Resolved none = { NULL, 0 };
-	if (!g_host)
+	Resolved none = { NULL, 0, NULL };
+	if (!g_image)
 		return none;
 
 	std::map<std::string, Resolved>::iterator c = g_nativeCache.find(name);
 	if (c != g_nativeCache.end())
 		return c->second;
 
-	int count = NativeCount(g_host);
+	int count = NativeCount(g_image);
 	for (int i = 0; i < count; i++) {
 		AMX_NATIVE fn = NULL;
-		if (!strcmp(NativeEntry(g_host, i, &fn), name)) {
-			Resolved found = { OwnNative(name, fn), i };
-			g_nativeCache[name] = found;
-			return found;
+		if (strcmp(NativeEntry(g_image, i, &fn), name))
+			continue;
+
+		// A native no module or plugin gives - a module the server does not
+		// load - stays unbound: its calls answer 0, said once. Not on the first
+		// map's first image, which has the modules loaded so far alone.
+		static std::set<std::string> missing;
+		if (!fn && g_imageComplete && missing.insert(name).second)
+			MF_PrintSrvConsole("[amxts] %s is not on this server: the module or plugin that provides it is not loaded. Its calls do nothing and answer 0\n", name);
+
+		Resolved found = { NeedsPlugin(name, OwnNative(name, fn)), i, g_image };
+		// Made at run time: a native a Pawn plugin registered (register_native).
+		if (found.fn && !InLoadedLibrary(found.fn)) {
+			found.amx = Carrier();
+			if (!found.amx) {
+				MF_PrintSrvConsole("[amxts] %s is a Pawn plugin's native, called with a loaded Pawn plugin, and none is loaded: its calls answer 0\n", name);
+				found.fn = NULL;
+			}
 		}
+		g_nativeCache[name] = found;
+		return found;
 	}
 
-	MF_PrintSrvConsole("[amxts] native %s is not in the host plugin table - regenerate amxts_host.sma\n", name);
+	MF_PrintSrvConsole("[amxts] native %s is not in the natives' image - regenerate amxts_natives.sma\n", name);
 	g_nativeCache[name] = none;
 	return none;
 }
@@ -533,22 +607,22 @@ static Resolved FindNative(const char *name)
 #define UT_NATIVE 3
 
 /**
- * Calls a native of the host's table the way the AMX's own call instruction
+ * Calls a native of the image's table the way the AMX's own call instruction
  * does.
  *
- * AMX Mod X names the native in a run time error - and hands a native filter
- * the name of a native that is not there - by usertags[UT_NATIVE], which its
- * call instruction sets before every native. A call from here goes around
- * that instruction, so the slot is set here: without it the error names
- * whichever of the host's own natives was running, amxts_natives or
- * amxts_callback, and which module is missing is anyone's guess.
+ * AMX Mod X names the native in a run time error by usertags[UT_NATIVE],
+ * which its call instruction sets before every native. A call from here goes
+ * around that instruction, so the slot is set here: without it the error
+ * names whichever native ran last, and which module is missing is anyone's
+ * guess. The slot is the image's: a Pawn plugin's native, called with
+ * another AMX (Carrier), has no entry of its own to name there.
  */
 static cell Invoke(const Resolved &native, cell *params)
 {
-	long running = g_host->usertags[UT_NATIVE];
-	g_host->usertags[UT_NATIVE] = native.index;
-	cell result = native.fn(g_host, params);
-	g_host->usertags[UT_NATIVE] = running;
+	long running = g_image->usertags[UT_NATIVE];
+	g_image->usertags[UT_NATIVE] = native.index;
+	cell result = native.fn(native.amx, params);
+	g_image->usertags[UT_NATIVE] = running;
 	return result;
 }
 
@@ -565,22 +639,28 @@ static cell Invoke(const Resolved &native, cell *params)
 #define HEAP_MARGIN (16 * (long)sizeof(cell))
 
 /**
- * Takes `cells` cells of the host's heap; NULL when the heap would run into
- * the stack. amx_Allot checks that too, but in unsigned arithmetic: a request
+ * Takes `cells` cells of `amx`'s heap; NULL when the heap would run into the
+ * stack. amx_Allot checks that too, but in unsigned arithmetic: a request
  * larger than what is left wraps around, passes, and the heap grows over the
  * stack of the call that is running.
  */
-static cell *HeapCells(int cells, cell *addr)
+static cell *HeapCells(AMX *amx, int cells, cell *addr)
 {
 	cell *phys = NULL;
-	if (!g_host || cells < 0
-	    || (long)g_host->stk - (long)g_host->hea - (long)cells * (long)sizeof(cell) < HEAP_MARGIN
-	    || MF_AmxAllot(g_host, cells, addr, &phys) != AMX_ERR_NONE) {
-		MF_PrintSrvConsole("[amxts] %d cells do not fit in the host plugin's heap\n", cells);
+	if (!amx || cells < 0
+	    || (long)amx->stk - (long)amx->hea - (long)cells * (long)sizeof(cell) < HEAP_MARGIN
+	    || MF_AmxAllot(amx, cells, addr, &phys) != AMX_ERR_NONE) {
+		MF_PrintSrvConsole("[amxts] %d cells do not fit in the %s heap\n", cells, amx == g_image ? "natives' image's" : "Pawn plugin's");
 		*addr = 0;
 		return NULL;
 	}
 	return phys;
+}
+
+/** `cells` cells of the image's heap, for a native the module calls itself. */
+static cell *HeapCells(int cells, cell *addr)
+{
+	return HeapCells(g_image, cells, addr);
 }
 
 static cell PushString(const char *s)
@@ -589,11 +669,11 @@ static cell PushString(const char *s)
 	int len = (int)strlen(s);
 	if (!HeapCells(len + 1, &addr))
 		return 0;
-	MF_SetAmxString(g_host, addr, s, len);
+	MF_SetAmxString(g_image, addr, s, len);
 	return addr;
 }
 
-/** Text into the host's heap as a Pawn string, a UTF-8 byte a cell; 0 when it does not fit. */
+/** Text into the image's heap as a Pawn string, a UTF-8 byte a cell; 0 when it does not fit. */
 static cell PushText(const std::string &text)
 {
 	int n = (int)text.size();
@@ -702,8 +782,8 @@ static wasm_module_inst_t Inst(wasm_exec_env_t env)
  * is on the stack behind the arguments it was given. set_task's fourth to
  * seventh parameters are exactly that, and the server died on the first call
  * before this existed. Zero doubles as the empty string such a parameter
- * expects, which is why the generated host plugin reserves DAT+0 — see
- * __amxts_null in scripts/generate-host.ts.
+ * expects, which is why the generated natives' image reserves DAT+0 — see
+ * __amxts_null in scripts/generate-image.ts.
  */
 struct Args {
 	cell p[32];
@@ -749,14 +829,33 @@ static cell CallCached(Cached &cached, const char *name, cell *params)
 	return Invoke(cached.native, params);
 }
 
+/**
+ * The AMX a thunk's strings and arrays cross into, for the native it has
+ * resolved: the image's, or a Pawn plugin's for a native a Pawn plugin
+ * registers (Carrier). The thunk then calls it with CallResolved.
+ */
+static AMX *Resolve(Cached &cached, const char *name)
+{
+	if (cached.generation != g_nativeGeneration) {
+		cached.native = FindNative(name);
+		cached.generation = g_nativeGeneration;
+	}
+	return cached.native.amx ? cached.native.amx : g_image;
+}
+
+static cell CallResolved(const Cached &cached, cell *params)
+{
+	return cached.native.fn ? Invoke(cached.native, params) : 0;
+}
+
 
 /**
- * A native of the host's table by its name, a literal: each call site keeps
+ * A native of the image's table by its name, a literal: each call site keeps
  * it resolved (Cached), as a thunk does, so the name is looked up once a map
  * rather than in a std::map on every call.
  */
 #define CallNative(name, params) \
-	([](cell *p) { static Cached cached = { { NULL, 0 }, 0 }; return CallCached(cached, "" name, p); }(params))
+	([](cell *p) { static Cached cached = { { NULL, 0, NULL }, 0 }; return CallCached(cached, "" name, p); }(params))
 
 
 /**
@@ -765,8 +864,8 @@ static cell CallCached(Cached &cached, const char *name, cell *params)
  * A handler is handed four cells, because call_indirect needs one fixed type
  * and four covers nearly everything. The rest are not lost, only not pushed:
  * they are still here, and so is the AMX whose memory a string among them
- * lives in - the host plugin for a command, a hook or a forward, the calling
- * plugin for an exported native. Whoever fires a handler sets these and puts
+ * lives in - the natives' image for a forward or a publicFor name, the
+ * calling plugin for an exported native. Whoever fires a handler sets these and puts
  * back what was there, because one handler can start another.
  */
 static cell *g_callArgs = NULL;
@@ -810,7 +909,8 @@ struct CallArgs {
 
 /**
  * A native's call frame on the AMX side: what a buffer parameter is copied
- * into, and the heap mark that releases all of it when the call returns.
+ * into, the AMX whose heap that is (Resolve), and the heap mark that releases
+ * all of it when the call returns.
  *
  * A buffer is copied in both directions regardless of what the native does
  * with it. Whether a given array is read or filled is not written down
@@ -821,25 +921,27 @@ struct CallArgs {
  * from the plugin's own string, and the text a typed wrapper asks for comes
  * back only up to its end.
  *
- * The AMX the native gets is the host's, and the buffers are in its heap,
+ * The AMX the native gets is the image's, and the buffers are in its heap,
  * not in the plugin's memory: the memory moves when it grows, which it can
  * while a native runs code of the same plugin, and a native keeps the AMX it
  * was called with for its callbacks.
  */
 struct Frame {
 	wasm_module_inst_t inst;
+	AMX *amx;
 	cell mark;
 
-	Frame(wasm_exec_env_t env)
+	Frame(wasm_exec_env_t env, AMX *to)
 	{
 		inst = wasm_runtime_get_module_inst(env);
-		mark = g_host ? g_host->hea : 0;
+		amx = to;
+		mark = amx ? amx->hea : 0;
 	}
 
 	~Frame()
 	{
-		if (g_host)
-			g_host->hea = mark;
+		if (amx)
+			amx->hea = mark;
 	}
 
 	// A buffer's length arrives from the plugin, so it is input at a trust
@@ -898,7 +1000,7 @@ struct Frame {
 		// then given back down to what the text took.
 		uint32_t room = (uint64_t)n * 3 < MAX_CROSSING_CELLS - 1 ? n * 3 : MAX_CROSSING_CELLS - 1;
 		cell addr;
-		cell *phys = HeapCells((int)room + 1, &addr);
+		cell *phys = HeapCells(amx, (int)room + 1, &addr);
 		if (!phys)
 			return 0;
 
@@ -936,7 +1038,7 @@ struct Frame {
 		*dst = 0;
 
 		// Nothing was taken after it, so the heap's top comes back to its end.
-		g_host->hea = addr + (cell)((dst - phys + 1) * sizeof(cell));
+		amx->hea = addr + (cell)((dst - phys + 1) * sizeof(cell));
 		return addr;
 	}
 
@@ -955,7 +1057,7 @@ struct Frame {
 			return 0;
 
 		cell addr;
-		cell *phys = HeapCells(cells + 1, &addr);
+		cell *phys = HeapCells(amx, cells + 1, &addr);
 		if (!phys)
 			return 0;
 		phys[0] = 0;
@@ -968,7 +1070,7 @@ struct Frame {
 	{
 		if (cells > MAX_CROSSING_CELLS)
 			cells = MAX_CROSSING_CELLS;
-		const cell *phys = MF_GetAmxAddr(g_host, addr);
+		const cell *phys = MF_GetAmxAddr(amx, addr);
 		// Asked again: the plugin's memory can move while the native runs.
 		unsigned char *dst = (unsigned char *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ptr);
 		int i = 0;
@@ -991,7 +1093,7 @@ struct Frame {
 	/**
 	 * Copies cells out of the plugin and returns the amx address holding
 	 * them; 0 when they cannot cross, and then the native is not called:
-	 * handed address 0, it would write into the host plugin's own data.
+	 * handed address 0, it would write into the AMX's own data.
 	 *
 	 * A length of 0 crosses as the terminator cell alone - a Pawn native
 	 * given 0 does nothing with its buffer, or writes an empty string into
@@ -1011,7 +1113,7 @@ struct Frame {
 		// buffer of exactly len cells lost its last cell to whatever the AMX
 		// heap held next. Only the n cells are copied back.
 		cell addr;
-		cell *phys = HeapCells(n + 1, &addr);
+		cell *phys = HeapCells(amx, n + 1, &addr);
 		if (!phys)
 			return 0;
 
@@ -1030,7 +1132,7 @@ struct Frame {
 		if (!n || !addr)
 			return;
 
-		cell *phys = MF_GetAmxAddr(g_host, addr);
+		cell *phys = MF_GetAmxAddr(amx, addr);
 		if (!phys)
 			return;
 
@@ -1047,9 +1149,57 @@ struct Frame {
 // different generation from the thunks above.
 #include "embedded.h"
 
-// The host plugin, compiled (`bun run host`): written out for AMX Mod X on
-// every start (InstallHost).
-#include "host.h"
+// The natives' image, compiled (`bun run image`): loaded every map (LoadImage).
+#include "image.h"
+
+/** Says once a process that a native needs the Pawn plugin calling it, and what to write instead. */
+static void TellNeedsPlugin(const NeedsPluginInfo &info)
+{
+	static std::set<std::string> told;
+	if (told.insert(info.name).second)
+		MF_PrintSrvConsole("[amxts] %s%s looks for the Pawn plugin calling it, and a TypeScript plugin's call has none: it answers 0 - use %s\n",
+		                   info.name, info.arg ? " with this argument" : "", info.instead);
+}
+
+#define NEEDS_PLUGIN_COUNT (sizeof(g_needsPlugin) / sizeof(g_needsPlugin[0]))
+
+// What each guarded native stands in for (NeedsPluginGuard).
+static AMX_NATIVE g_guarded[NEEDS_PLUGIN_COUNT];
+
+/** A native that needs the calling plugin for some of its calls: those answer 0, the rest go on to it. */
+template <size_t K>
+static cell AMX_NATIVE_CALL NeedsPluginGuard(AMX *amx, cell *params)
+{
+	const NeedsPluginInfo &info = g_needsPlugin[K];
+	if (params[0] >= (cell)(info.arg * sizeof(cell)) && (info.value < 0 ? params[info.arg] != 0 : params[info.arg] == info.value)) {
+		TellNeedsPlugin(info);
+		return 0;
+	}
+	return g_guarded[K](amx, params);
+}
+
+template <size_t... K>
+static const AMX_NATIVE *NeedsPluginGuards(std::index_sequence<K...>)
+{
+	static const AMX_NATIVE guards[] = { NeedsPluginGuard<K>... };
+	return guards;
+}
+
+static AMX_NATIVE NeedsPlugin(const char *name, AMX_NATIVE fn)
+{
+	for (size_t k = 0; fn && k < NEEDS_PLUGIN_COUNT; k++) {
+		const NeedsPluginInfo &info = g_needsPlugin[k];
+		if (strcmp(info.name, name))
+			continue;
+		if (!info.arg) {
+			TellNeedsPlugin(info);
+			return NULL;
+		}
+		g_guarded[k] = fn;
+		return NeedsPluginGuards(std::make_index_sequence<NEEDS_PLUGIN_COUNT>())[k];
+	}
+	return fn;
+}
 
 /**
  * Set by amxts_trace in the server console.
@@ -1063,7 +1213,7 @@ static bool g_trace = false;
 /** The team name a player is on, as TeamInfo spells it. */
 static std::string TeamOf(int id)
 {
-	cell mark = g_host->hea;
+	cell mark = g_image->hea;
 	cell addr;
 	cell *phys = HeapCells(16, &addr);
 	if (!phys)
@@ -1077,17 +1227,17 @@ static std::string TeamOf(int id)
 	CallNative("get_user_team", params);
 
 	int len = 0;
-	const char *name = MF_GetAmxString(g_host, addr, 0, &len);
+	const char *name = MF_GetAmxString(g_image, addr, 0, &len);
 	std::string out = name ? name : "";
 
-	g_host->hea = mark;
+	g_image->hea = mark;
 	return out;
 }
 
 /** One message of one byte and one string, to one player. */
 static bool WriteTo(int id, int message, int sender, const char *text)
 {
-	cell mark = g_host->hea;
+	cell mark = g_image->hea;
 
 	Args begin(4);
 	begin[1] = 1;                     // MSG_ONE
@@ -1102,7 +1252,7 @@ static bool WriteTo(int id, int message, int sender, const char *text)
 
 	if (!CallNative("message_begin", begin)) {
 		if (g_trace) MF_PrintSrvConsole("[amxts] TRACE begin refused\n");
-		g_host->hea = mark;
+		g_image->hea = mark;
 		return false;
 	}
 
@@ -1120,7 +1270,7 @@ static bool WriteTo(int id, int message, int sender, const char *text)
 	CallNative("message_end", end);
 	if (g_trace) MF_PrintSrvConsole("[amxts] TRACE message ended\n");
 
-	g_host->hea = mark;
+	g_image->hea = mark;
 	return true;
 }
 
@@ -1129,11 +1279,11 @@ static int g_msgTeamInfo = 0;
 
 static int MessageId(const char *name)
 {
-	cell mark = g_host->hea;
+	cell mark = g_image->hea;
 	Args params(1);
 	params[1] = PushString(name);
 	int id = (int)CallNative("get_user_msgid", params);
-	g_host->hea = mark;
+	g_image->hea = mark;
 	return id;
 }
 
@@ -1205,7 +1355,7 @@ static void w_say_text(wasm_exec_env_t env, int32_t id, int32_t text, int32_t sw
 
 static void w_print_client(wasm_exec_env_t env, int32_t id, int32_t channel, int32_t msg)
 {
-	cell mark = g_host->hea;
+	cell mark = g_image->hea;
 	std::string s = AsString(Inst(env), msg);
 
 	Args params(4);
@@ -1215,12 +1365,12 @@ static void w_print_client(wasm_exec_env_t env, int32_t id, int32_t channel, int
 	params[4] = PushString(s.c_str());
 
 	CallNative("client_print", params);
-	g_host->hea = mark;
+	g_image->hea = mark;
 }
 
 static int32_t w_get_name(wasm_exec_env_t env, int32_t id, int32_t out, int32_t max)
 {
-	cell mark = g_host->hea;
+	cell mark = g_image->hea;
 	cell addr;
 	cell *phys = HeapCells(64, &addr);
 	if (!phys)
@@ -1235,10 +1385,10 @@ static int32_t w_get_name(wasm_exec_env_t env, int32_t id, int32_t out, int32_t 
 	CallNative("get_user_name", params);
 
 	int len = 0;
-	const char *name = MF_GetAmxString(g_host, addr, 0, &len);
+	const char *name = MF_GetAmxString(g_image, addr, 0, &len);
 	int32_t written = WriteBytes(Inst(env), out, max, name ? name : "");
 
-	g_host->hea = mark;
+	g_image->hea = mark;
 	return written;
 }
 
@@ -1655,14 +1805,14 @@ static int32_t *ForwardArray(wasm_module_inst_t inst, int32_t ptr, int32_t *coun
  *
  * `mask` has a letter per argument: `n` and `f` a cell, `s` a string in the
  * emitting plugin's memory, `a` an array laid out as ForwardArray reads it.
- * Strings and arrays are copied into the host's heap for as long as the
+ * Strings and arrays are copied into the image's heap for as long as the
  * subscribers run, so they read them as they read a forward from Pawn.
  */
 static void w_emit_local(wasm_exec_env_t env, int32_t name, int32_t mask, int32_t cellsPtr, int32_t argc)
 {
 	wasm_module_inst_t inst = Inst(env);
 	std::string forward = AsString(inst, name);
-	if (!g_host || g_subscriptions.find(forward) == g_subscriptions.end())
+	if (!g_image || g_subscriptions.find(forward) == g_subscriptions.end())
 		return;
 
 	std::string types = AsString(inst, mask);
@@ -1673,7 +1823,7 @@ static void w_emit_local(wasm_exec_env_t env, int32_t name, int32_t mask, int32_
 	int32_t *cells = (int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)cellsPtr);
 	cell args[MAX_FORWARD_ARGS] = { 0 };
 	int32_t lengths[MAX_FORWARD_ARGS];
-	cell mark = g_host->hea;
+	cell mark = g_image->hea;
 
 	for (int i = 0; i < argc; i++) {
 		lengths[i] = -1;
@@ -1698,19 +1848,12 @@ static void w_emit_local(wasm_exec_env_t env, int32_t name, int32_t mask, int32_
 	}
 
 	{
-		CallArgs context(args, argc, g_host, -1, lengths);
+		CallArgs context(args, argc, g_image, -1, lengths);
 		DeliverToSubscribers(forward);
 	}
-	g_host->hea = mark;
+	g_image->hea = mark;
 }
 
-/**
- * Parks a wasm function in a callback slot and returns the slot number, whose
- * public in the host plugin is what the AMXX native is actually given.
- *
- * A free slot, not the next one: a plugin that arms one per round would
- * otherwise run out after 32 and stop responding for the rest of the map.
- */
 /**
  * tag(n) - the closure number the next registration is for (Handler.tag).
  * The plugin says it right before the call that takes the function; that
@@ -1732,6 +1875,7 @@ static int32_t TakeTag()
 	return tag;
 }
 
+/** Gives a wasm function a publicFor name (g_slots) and returns its index; -1 outside a plugin's call. */
 static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, cell fallback)
 {
 	int32_t tag = TakeTag();
@@ -1741,49 +1885,29 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 	if (g_currentPlugin < 0)
 		return -1;
 
-	// A reload leaves the AMX Mod X side registered and the slot orphaned. If
-	// this is the same registration coming back, take it over: registering
-	// again would leave the orphan in front of it, answering PLUGIN_HANDLED and
-	// swallowing the command before the live handler ever saw it.
-	if (key && *key) {
-		for (int i = 0; i < MAX_CALLBACK_SLOTS; i++) {
-			if (g_slots[i].used && g_slots[i].plugin == SLOT_ORPHANED
-			    && g_slots[i].key == key) {
-				g_slots[i].plugin = g_currentPlugin;
-				g_slots[i].fn = (uint32_t)fn;
-				g_slots[i].tag = tag;
-				g_slots[i].shape = shape;
-				g_slots[i].fallback = fallback;
-				Bind(g_slots[i]);
-				if (reused)
-					*reused = true;
-				return i;
-			}
-		}
+	// A reload leaves the registration made and the name orphaned. If this is
+	// the same registration coming back, take it over: registering again would
+	// leave the orphan in front of it, swallowing the call before the live
+	// handler ever saw it.
+	size_t index = g_slots.size();
+	for (size_t i = 0; key && *key && i < g_slots.size(); i++)
+		if (g_slots[i].plugin == SLOT_ORPHANED && g_slots[i].key == key)
+			index = i;
+	if (index == g_slots.size()) {
+		g_slots.push_back(Slot());
+		g_slots[index].key = key ? key : "";
+	} else if (reused) {
+		*reused = true;
 	}
 
-	int slot = -1;
-	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++) {
-		if (!g_slots[i].used) { slot = i; break; }
-	}
-
-	if (slot < 0) {
-		MF_PrintSrvConsole("[amxts] out of callback slots (%d)\n", MAX_CALLBACK_SLOTS);
-		return -1;
-	}
-
-	g_slots[slot].used = true;
-	g_slots[slot].plugin = g_currentPlugin;
-	g_slots[slot].fn = (uint32_t)fn;
-	g_slots[slot].tag = tag;
-	g_slots[slot].shape = shape;
-	g_slots[slot].fallback = fallback;
-	g_slots[slot].key = key ? key : "";
-	Bind(g_slots[slot]);
-	if (slot >= g_slotCount)
-		g_slotCount = slot + 1;
-
-	return slot;
+	Slot &slot = g_slots[index];
+	slot.plugin = g_currentPlugin;
+	slot.fn = (uint32_t)fn;
+	slot.tag = tag;
+	slot.shape = shape;
+	slot.fallback = fallback;
+	Bind(slot);
+	return (int)index;
 }
 
 // Whether plugin_init has come this map: the watcher looks at the plugins'
@@ -1882,22 +2006,6 @@ static void w_srvcmd(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t shap
 	AddCommand(g_serverCommands, lower, fn, shape, 0);
 }
 
-/**
- * slot(handler, shape, key, fallback) - a host public standing in for a wasm
- * function, with the registering left to the plugin.
- *
- * w_clcmd, w_hook and w_ham each park a function in a slot and then
- * call the one AMXX native they were built for. Every other AMXX facility that
- * takes a callback by name - register_message, register_touch, query_client_cvar,
- * set_native_filter, menu_core's registrars - would need another
- * wrapper each. This is the same first half with no second half: the plugin
- * gets the slot and passes "__amxts_cb<n>" to whatever native it likes.
- *
- * Returns the slot, or -1 for no slot left. A slot taken back on a reload
- * returns it with SLOT_REUSED set, because none of those registrations can be
- * undone either: the plugin must not register the name a second time, or the
- * handler fires twice.
- */
 /**
  * arg(index) - a cell of the callback that is running, beyond the four it was
  * handed.
@@ -2152,125 +2260,242 @@ static int32_t w_setArgArray(wasm_exec_env_t env, int32_t index, int32_t src, in
 	return count;
 }
 
-// ---------------------------------------------------------------- callfunc with arguments that stay
+// ---------------------------------------------------------------- calling a Pawn plugin's public
 
 /**
- * callfunc_text / callfunc_buffer / callfunc_finish - calling another
- * plugin's public with a string or an array it fills (menu_core's
- * placeholders: `public callback(id, targetId, value[], len)`).
+ * A PawnFunction's call: get_func_id, callfunc_begin_i, callfunc_push_*,
+ * callfunc_end - the module's own natives in the image's table - and
+ * callfunc_text, callfunc_buffer and callfunc_finish, which the facade calls
+ * for a string and an array.
  *
- * The generated callfunc_push_str / callfunc_push_array thunks cannot do it.
- * A thunk's Frame puts the argument on the host heap for the length of that
- * one native and releases it, so every push lands at the same address; AMX
- * Mod X knows a by-reference argument by that address, takes the second one
- * for the first (CALLFUNC_FLAG_BYREF_REUSED), and callfunc_end copies an
- * array back to memory that is no longer the plugin's. These keep each
- * argument on the host heap until callfunc_finish: callfunc_end runs, the
- * arrays are copied back into the plugin, and the heap goes back to where the
- * first push found it.
- *
- * A callfunc started inside the called function (the callee calls a native
- * that runs wasm that calls again) keeps its own list: callfunc_finish takes
- * this one's before callfunc_end runs.
+ * AMX Mod X's callfunc natives look up the calling plugin, and the image is
+ * not one. So the module keeps the call and runs it in callfunc_end, with
+ * AMX Mod X's callfunc natives called with the target plugin's own AMX: a
+ * string and an array lie on that plugin's heap until the call returns, and
+ * an array comes back into the TypeScript plugin's memory in callfunc_finish.
+ * A publicFor name's handler (get_func_id answers its index with PUBLIC_FOR)
+ * is called here instead, its arguments on the image's heap. A call started
+ * inside the called function keeps its own: the calls nest.
  */
-struct CallfuncBuffer {
+struct PawnCallArg {
+	cell value;
+	// For an array: the TypeScript plugin's cells, and how many; 0 for a number or a string.
 	int32_t ptr;
 	int32_t cells;
-	cell addr;
+	bool text;
 };
 
-static std::vector<CallfuncBuffer> g_callfuncBuffers;
-static cell g_callfuncMark = -1;
+struct PawnCall {
+	AMX *amx;
+	int plugin;
+	int index;
+	cell mark;
+	std::vector<PawnCallArg> args;
+};
 
-static cell *CallfuncAllot(int cells, cell *addr)
+static std::vector<PawnCall> g_pawnCalls;
+
+// AMX Mod X's own callfunc natives, which the module's stand in for (g_ownNatives).
+static AMX_NATIVE g_callfuncBeginI = NULL;
+static AMX_NATIVE g_callfuncPushInt = NULL;
+static AMX_NATIVE g_callfuncPushStr = NULL;
+static AMX_NATIVE g_callfuncPushArray = NULL;
+static AMX_NATIVE g_callfuncEnd = NULL;
+
+/** The Pawn plugin with AMX Mod X id `plugin`'s AMX; NULL for none. */
+static AMX *PluginAmx(cell plugin)
 {
-	if (g_callfuncMark < 0)
-		g_callfuncMark = g_host->hea;
+	return plugin >= 0 && (size_t)plugin < g_pluginAmx.size() ? g_pluginAmx[plugin] : NULL;
+}
 
-	return HeapCells(cells, addr);
+// get_func_id(const funcName[], pluginId = -1)
+static cell AMX_NATIVE_CALL n_getFuncId(AMX *amx, cell *params)
+{
+	int len = 0;
+	const char *name = MF_GetAmxString(amx, params[1], 0, &len);
+	int slot = SlotOf(name);
+	if (slot >= 0)
+		return PUBLIC_FOR | slot;
+
+	int index = -1;
+	AMX *target = PluginAmx(params[2]);
+	if (!target || MF_AmxFindPublic(target, name, &index) != AMX_ERR_NONE)
+		return -1;
+	return index;
+}
+
+// callfunc_begin_i(func, plugin = -1)
+static cell AMX_NATIVE_CALL n_callfuncBeginI(AMX *amx, cell *params)
+{
+	(void)amx;
+	int index = (int)params[1];
+	AMX *target = (index & PUBLIC_FOR) ? g_image : PluginAmx(params[2]);
+	if (!target || index < 0)
+		return -1;
+	PawnCall call = { target, (int)params[2], index, target->hea, {} };
+	g_pawnCalls.push_back(call);
+	return 1;
+}
+
+// callfunc_push_int(value), callfunc_push_float(Float:value)
+static cell AMX_NATIVE_CALL n_callfuncPushInt(AMX *amx, cell *params)
+{
+	(void)amx;
+	if (g_pawnCalls.empty())
+		return 0;
+	g_pawnCalls.back().args.push_back({ params[1], 0, 0, false });
+	return 1;
+}
+
+/** `cells` cells onto the heap of the call being made, from `from`; their address, 0 when they do not fit. */
+static cell PawnCallCells(const cell *from, int cells)
+{
+	PawnCall &call = g_pawnCalls.back();
+	cell addr = 0;
+	cell *phys = HeapCells(call.amx, cells, &addr);
+	if (phys)
+		memcpy(phys, from, (size_t)cells * sizeof(cell));
+	return addr;
+}
+
+// callfunc_push_str(const value[], bool:copyback = false): a string going in.
+static cell AMX_NATIVE_CALL n_callfuncPushStr(AMX *amx, cell *params)
+{
+	if (g_pawnCalls.empty())
+		return 0;
+	int len = 0;
+	const char *text = MF_GetAmxString(amx, params[1], 0, &len);
+	std::vector<cell> cells(len + 1, 0);
+	for (int i = 0; i < len; i++)
+		cells[i] = (cell)(unsigned char)text[i];
+	g_pawnCalls.back().args.push_back({ PawnCallCells(cells.data(), (int)cells.size()), 0, 0, true });
+	return 1;
+}
+
+// callfunc_push_array(const value[], array_size, bool:copyback = true): an array that does not come back.
+static cell AMX_NATIVE_CALL n_callfuncPushArray(AMX *amx, cell *params)
+{
+	const cell *from = MF_GetAmxAddr(amx, params[1]);
+	int cells = (int)params[2];
+	if (g_pawnCalls.empty() || !from || cells <= 0 || cells > MAX_CROSSING_CELLS)
+		return 0;
+	g_pawnCalls.back().args.push_back({ PawnCallCells(from, cells), 0, 0, false });
+	return 1;
 }
 
 /** callfunc_text(text) - the text, whole and as UTF-8, as the next argument. */
 static int32_t w_callfuncText(wasm_exec_env_t env, int32_t text)
 {
-	if (!g_host)
+	if (g_pawnCalls.empty())
 		return 0;
-
 	std::string s = AsString(Inst(env), text);
-	int n = (int)s.size();
-
-	cell addr;
-	cell *phys = CallfuncAllot(n + 1, &addr);
-	if (!phys)
-		return 0;
-
+	int n = (int)s.size() < MAX_CROSSING_CELLS - 1 ? (int)s.size() : MAX_CROSSING_CELLS - 1;
+	std::vector<cell> cells(n + 1, 0);
 	for (int i = 0; i < n; i++)
-		phys[i] = (cell)(unsigned char)s[i];
-	phys[n] = 0;
-
-	Args p(2);
-	p[1] = addr;
-	p[2] = 0;                           // no copy back: a string going in
-	return (int32_t)CallNative("callfunc_push_str", p);
+		cells[i] = (cell)(unsigned char)s[i];
+	g_pawnCalls.back().args.push_back({ PawnCallCells(cells.data(), n + 1), 0, 0, true });
+	return 1;
 }
 
 /** callfunc_buffer(cells, count) - `count` cells the function may fill, copied back by callfunc_finish. */
 static int32_t w_callfuncBuffer(wasm_exec_env_t env, int32_t ptr, int32_t count)
 {
 	wasm_module_inst_t inst = Inst(env);
-	if (!g_host || count <= 0 || count > 4096 || !wasm_runtime_validate_app_addr(inst, (uint64_t)ptr, (uint64_t)count * 4))
+	if (g_pawnCalls.empty() || count <= 0 || count > MAX_CROSSING_CELLS
+	    || !wasm_runtime_validate_app_addr(inst, (uint64_t)ptr, (uint64_t)count * 4))
 		return 0;
-
-	cell addr;
-	cell *phys = CallfuncAllot(count, &addr);
-	if (!phys)
-		return 0;
-
-	int32_t *src = (int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ptr);
-	for (int32_t i = 0; i < count; i++)
-		phys[i] = (cell)src[i];
-
-	CallfuncBuffer buffer = { ptr, count, addr };
-	g_callfuncBuffers.push_back(buffer);
-
-	Args p(3);
-	p[1] = addr;
-	p[2] = count;
-	p[3] = 1;                           // copy back into addr, which stays ours
-	return (int32_t)CallNative("callfunc_push_array", p);
+	const int32_t *src = (const int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ptr);
+	std::vector<cell> cells(src, src + count);
+	cell addr = PawnCallCells(cells.data(), count);
+	g_pawnCalls.back().args.push_back({ addr, addr ? ptr : 0, addr ? count : 0, false });
+	return 1;
 }
 
-/** callfunc_finish() - callfunc_end, the buffers copied back, the heap released. What the function returned. */
-static int32_t w_callfuncFinish(wasm_exec_env_t env)
+/** Runs the call on top: a publicFor name's handler, or the plugin's public through AMX Mod X's callfunc. */
+static cell RunPawnCall(PawnCall &call)
 {
-	if (!g_host)
-		return 0;
+	std::vector<cell> cells;
+	for (const PawnCallArg &arg : call.args)
+		cells.push_back(arg.value);
 
-	std::vector<CallfuncBuffer> buffers;
-	buffers.swap(g_callfuncBuffers);
-	cell mark = g_callfuncMark;
-	g_callfuncMark = -1;
-
-	Args none(0);
-	cell result = CallNative("callfunc_end", none);
-
-	wasm_module_inst_t inst = Inst(env);
-	for (size_t i = 0; i < buffers.size(); i++) {
-		const CallfuncBuffer &b = buffers[i];
-		cell *phys = MF_GetAmxAddr(g_host, b.addr);
-		if (!phys || !wasm_runtime_validate_app_addr(inst, (uint64_t)b.ptr, (uint64_t)b.cells * 4))
-			continue;
-		int32_t *dst = (int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)b.ptr);
-		for (int32_t k = 0; k < b.cells; k++)
-			dst[k] = (int32_t)phys[k];
+	size_t slot = (size_t)(call.index & ~PUBLIC_FOR);
+	if (call.index & PUBLIC_FOR) {
+		if (slot >= g_slots.size() || g_slots[slot].plugin == SLOT_ORPHANED)
+			return 0;
+		int argc = (int)cells.size();
+		int n = argc > MAX_EVENT_ARGS ? MAX_EVENT_ARGS : argc;
+		uint32_t argv[MAX_EVENT_ARGS] = { 0, 0, 0, 0 };
+		for (int i = 0; i < n; i++)
+			argv[i] = (uint32_t)cells[i];
+		CallArgs context(cells.data(), argc, call.amx);
+		return Fire(g_slots[slot], argv, n, g_slots[slot].fallback);
 	}
 
-	if (mark >= 0)
-		g_host->hea = mark;
+	// Resolving them gives AMX Mod X's own (OwnNative).
+	for (const char *name : { "callfunc_begin_i", "callfunc_push_int", "callfunc_push_str", "callfunc_push_array", "callfunc_end" })
+		FindNative(name);
+	cell begin[3] = { 2 * sizeof(cell), call.index, call.plugin };
+	if (!g_callfuncBeginI || !g_callfuncPushInt || !g_callfuncPushStr || !g_callfuncPushArray || !g_callfuncEnd
+	    || g_callfuncBeginI(call.amx, begin) != 1)
+		return 0;
+	for (const PawnCallArg &arg : call.args) {
+		// A string goes in; an array of the TypeScript plugin's comes back (copyback 1).
+		cell text[3] = { 2 * sizeof(cell), arg.value, 0 };
+		cell array[4] = { 3 * sizeof(cell), arg.value, arg.cells, 1 };
+		cell number[2] = { sizeof(cell), arg.value };
+		if (arg.text) g_callfuncPushStr(call.amx, text);
+		else if (arg.ptr) g_callfuncPushArray(call.amx, array);
+		else g_callfuncPushInt(call.amx, number);
+	}
+	cell none[1] = { 0 };
+	return g_callfuncEnd(call.amx, none);
+}
 
+// callfunc_end(): the call, its heap let go. What callfunc_finish does, for a raw call.
+static cell AMX_NATIVE_CALL n_callfuncEnd(AMX *amx, cell *params)
+{
+	(void)amx; (void)params;
+	if (g_pawnCalls.empty())
+		return 0;
+	PawnCall call = g_pawnCalls.back();
+	g_pawnCalls.pop_back();
+	cell result = RunPawnCall(call);
+	call.amx->hea = call.mark;
+	return result;
+}
+
+/** callfunc_finish() - callfunc_end, the arrays copied back, the heap released. What the function returned. */
+static int32_t w_callfuncFinish(wasm_exec_env_t env)
+{
+	if (g_pawnCalls.empty())
+		return 0;
+	PawnCall call = g_pawnCalls.back();
+	g_pawnCalls.pop_back();
+	cell result = RunPawnCall(call);
+
+	wasm_module_inst_t inst = Inst(env);
+	for (const PawnCallArg &arg : call.args) {
+		cell *phys = arg.ptr ? MF_GetAmxAddr(call.amx, arg.value) : NULL;
+		if (!phys || !wasm_runtime_validate_app_addr(inst, (uint64_t)arg.ptr, (uint64_t)arg.cells * 4))
+			continue;
+		int32_t *dst = (int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)arg.ptr);
+		for (int32_t k = 0; k < arg.cells; k++)
+			dst[k] = (int32_t)phys[k];
+	}
+	call.amx->hea = call.mark;
 	return (int32_t)result;
 }
 
+/**
+ * slot(handler, shape, key, fallback) - a publicFor name for a wasm function,
+ * "__amxts_cb<n>", for the natives that take a public's name from a
+ * TypeScript plugin: register_menucmd, a PawnFunction of a module's native
+ * (menu-core's registrars).
+ *
+ * Returns n. A name taken back on a reload returns it with SLOT_REUSED set,
+ * because the registration made with it stays: the plugin must not register
+ * the name a second time, or the handler fires twice.
+ */
 static int32_t w_slot(wasm_exec_env_t env, int32_t fn, int32_t shape, int32_t key, int32_t fallback)
 {
 	std::string name = AsString(Inst(env), key);
@@ -2328,7 +2553,7 @@ static void QueueTimer(double due, int32_t id)
  *
  * The delay arrives as the bit pattern of a 32-bit float rather than as an f32
  * parameter: keeping every signature to `i` means the table wamrc reads
- * cannot disagree with the host about anything but arity.
+ * cannot disagree with the module about anything but arity.
  */
 static int32_t w_task(wasm_exec_env_t env, int32_t secondsBits, int32_t fn, int32_t id, int32_t repeat)
 {
@@ -2432,13 +2657,14 @@ static void DropTimers(int plugin)
  */
 static int32_t w_call(wasm_exec_env_t env, int32_t id, int32_t argsPtr, int32_t maskPtr, int32_t argc)
 {
-	Frame f(env);
-
 	int count = (int)(sizeof(g_dispatchedNatives) / sizeof(g_dispatchedNatives[0]));
 	if (id < 0 || id >= count) {
 		MF_PrintSrvConsole("[amxts] amxts_call: no native with id %d\n", id);
 		return 0;
 	}
+
+	static Cached natives[sizeof(g_dispatchedNatives) / sizeof(g_dispatchedNatives[0])];
+	Frame f(env, Resolve(natives[id], g_dispatchedNatives[id]));
 
 	if (argc < 0 || argc > MAX_CALL_ARGS)
 		return 0;
@@ -2498,11 +2724,11 @@ static int32_t w_call(wasm_exec_env_t env, int32_t id, int32_t argsPtr, int32_t 
 				int32_t n = 0;
 				int32_t *values = ForwardArray(f.inst, args[i], &n);
 				Args prepare(3);
-				cell *phys = values ? HeapCells(n + 1, &prepare[1]) : NULL;
+				cell *phys = values ? HeapCells(f.amx, n + 1, &prepare[1]) : NULL;
 				if (phys)
 					memcpy(phys, values, (size_t)n * sizeof(cell));
 				prepare[2] = phys ? n : 0;
-				cell *handle = HeapCells(1, &p[i + 1]);
+				cell *handle = HeapCells(f.amx, 1, &p[i + 1]);
 				if (handle)
 					*handle = CallNative("PrepareArray", prepare);
 				continue;
@@ -2517,15 +2743,14 @@ static int32_t w_call(wasm_exec_env_t env, int32_t id, int32_t argsPtr, int32_t 
 		if (!p[i + 1])
 			return 0;
 		if (length >= 0)
-			*MF_GetAmxAddr(g_host, p[i + 1]) = length;
+			*MF_GetAmxAddr(f.amx, p[i + 1]) = length;
 		back[backCount].ptr = args[i];
 		back[backCount].cells = cells;
 		back[backCount].addr = p[i + 1];
 		backCount++;
 	}
 
-	static Cached natives[sizeof(g_dispatchedNatives) / sizeof(g_dispatchedNatives[0])];
-	cell r = CallCached(natives[id], g_dispatchedNatives[id], p);
+	cell r = CallResolved(natives[id], p);
 	g_hamQuiet = -1;
 
 	for (int i = 0; i < backCount; i++)
@@ -3305,6 +3530,21 @@ static void CloseMenus(int id)
 		CloseMenu(i);
 }
 
+/** Player `id` sees a menu whose `keys` go to `h`. */
+static void OpenMenu(int id, const Handler &h, int keys)
+{
+	CloseMenus(id);
+	if (!(keys & 0x3ff))
+		return;
+	ShownMenu &menu = g_menus[id];
+	(Handler &)menu = h;
+	menu.keys = keys & 0x3ff;
+	if (!g_msgShowMenu) g_msgShowMenu = GET_USER_MSG_ID(PLID, "ShowMenu", NULL);
+	if (!g_msgVGUIMenu) g_msgVGUIMenu = GET_USER_MSG_ID(PLID, "VGUIMenu", NULL);
+	if (g_menusShown++ == 0)
+		MessagesAttach(true);
+}
+
 /**
  * menu_open(id, keys, handler) - player `id` sees a menu of the calling
  * plugin that takes `keys` (show_menu's bits), and a key of it goes to
@@ -3314,27 +3554,61 @@ static void CloseMenus(int id)
 static void w_menu_open(wasm_exec_env_t env, int32_t id, int32_t keys, int32_t fn)
 {
 	(void)env;
-	if (id < 0 || id >= CLIENT_SLOTS) {
-		TakeTag();
+	Handler h;
+	h.plugin = g_currentPlugin;
+	h.fn = (uint32_t)fn;
+	h.shape = SHAPE_WIDE;
+	h.tag = TakeTag();
+	if (id < 0 || id >= CLIENT_SLOTS)
+		return;
+	if (!id) {
+		CloseMenus(0);
 		return;
 	}
-	CloseMenus(id);
-	if (!id || !(keys & 0x3ff)) {
-		TakeTag();
-		return;
-	}
+	Bind(h);
+	OpenMenu(id, h, keys);
+}
 
-	ShownMenu &menu = g_menus[id];
-	menu.plugin = g_currentPlugin;
-	menu.fn = (uint32_t)fn;
-	menu.shape = SHAPE_WIDE;
-	menu.tag = TakeTag();
-	Bind(menu);
-	menu.keys = keys & 0x3ff;
-	if (!g_msgShowMenu) g_msgShowMenu = GET_USER_MSG_ID(PLID, "ShowMenu", NULL);
-	if (!g_msgVGUIMenu) g_msgVGUIMenu = GET_USER_MSG_ID(PLID, "VGUIMenu", NULL);
-	if (g_menusShown++ == 0)
-		MessagesAttach(true);
+/**
+ * A register_menucmd a TypeScript plugin made, with a publicFor name: the
+ * module's own (n_registerMenucmd), as AMX Mod X's looks for the calling
+ * plugin, and dispatched as a Menu's keys - once show_menu shows a menu of
+ * that id (n_showMenu), its keys go to the name's handler. One map long.
+ */
+struct MenuCommand {
+	int    menu;
+	int    keys;
+	size_t slot;
+};
+
+static std::vector<MenuCommand> g_menuCommands;
+
+// register_menucmd(menuid, keys, const function[])
+static cell AMX_NATIVE_CALL n_registerMenucmd(AMX *amx, cell *params)
+{
+	int len = 0;
+	const char *name = MF_GetAmxString(amx, params[3], 0, &len);
+	int slot = SlotOf(name);
+	if (slot < 0) {
+		MF_PrintSrvConsole("[amxts] register_menucmd from a TypeScript plugin takes a publicFor name, not \"%s\"\n", name ? name : "");
+		return 0;
+	}
+	MenuCommand command = { (int)params[1], (int)params[2], (size_t)slot };
+	g_menuCommands.push_back(command);
+	return 1;
+}
+
+/** After show_menu: player `id`'s menu is a register_menucmd's of a TypeScript plugin, which then takes its keys. */
+static void OpenMenuCommand(int id)
+{
+	int menu = MF_GetPlayerMenu(id);
+	for (const MenuCommand &command : g_menuCommands) {
+		const Slot &slot = g_slots[command.slot];
+		if (command.menu == menu && menu > 0 && slot.plugin != SLOT_ORPHANED) {
+			OpenMenu(id, slot, MF_GetPlayerKeys(id) & command.keys);
+			return;
+		}
+	}
 }
 
 /** A message the game begins: its own menu, ShowMenu or VGUIMenu, takes the player's keys, as AMX Mod X takes them from a Pawn menu. */
@@ -3575,9 +3849,9 @@ static time_t FileStamp(const char *path)
  * Read once, when the module attaches (ReadListFile), and kept. The engine
  * answers a localinfo lookup from four buffers it takes in turn, and AMX Mod
  * X holds a pointer into one - its plugins folder - while it loads the
- * plugins in plugins.ini. The host's plugin_natives, and with it LoadScripts,
- * runs in the middle of that loop; a lookup there moved the buffers on, and
- * every Pawn plugin after amxts_host.amxx failed with "Plugin file open error".
+ * plugins in plugins.ini; a lookup in the middle of that loop would move
+ * the buffers on, and every Pawn plugin after it would fail with "Plugin file
+ * open error".
  */
 static std::string g_listFile;
 
@@ -3622,8 +3896,7 @@ static void EnsureDirectory(const char *relative)
  * A server owner installs one file - the module - and the rest appears: the
  * folders, the API a plugin imports, the editor's files, the signature table
  * the compiler reads, and an example to edit - the list
- * scripts/server-files.ts makes (embedded.h). The host plugin is written
- * apart from these (InstallHost), on a test server too.
+ * scripts/server-files.ts makes (embedded.h).
  *
  * The API is rewritten every time rather than only when missing. It is not
  * the author's: it is this module's own, and a copy left over from an older
@@ -3690,124 +3963,105 @@ static void InstallFiles()
 	}
 }
 
-// ---------------------------------------------------------------- the host plugin
+// ---------------------------------------------------------------- the natives' image
 
-#define HOST_FILE "amxts_host.amxx"
+static AMX   g_imageAmx;
+static void *g_imageCode = NULL;
+
+/** Lets the image go, and with it every native resolved from it. */
+static void UnloadImage()
+{
+	if (g_image)
+		MF_UnloadAmxScript(&g_imageAmx, &g_imageCode);
+	g_image = NULL;
+	g_imageCode = NULL;
+	g_imageComplete = false;
+	g_nativeCache.clear();
+	g_nativeGeneration++;
+}
 
 /**
- * The host plugin as AMX Mod X loads it, and the list that names it, both
- * under AMX Mod X's own folders (InstallHost).
+ * Loads the natives' image (image.h) with AMX Mod X's LoadAmxScript: a
+ * script, not a plugin, whose native table is where every native is resolved
+ * (FindNative). AMX Mod X binds there the natives of every module loaded and
+ * the core's; once the plugins are finalized, the natives Pawn plugins
+ * registered too, and it loads the modules the image's library entries name
+ * as a plugin's includes have it load them - the image's module filter lets
+ * one be missing. Those it loads then are bound in the next image only, so
+ * that moment loads it twice. A native no list has stays unbound, and AMX Mod
+ * X answers the load with an error for it; the image is loaded all the same.
  *
- * The host has to be a plugin in AMX Mod X's list. The module API loads a
- * script (LoadAmxScript) and even binds the natives plugins registered, but
- * the script is not a plugin: AMX Mod X finds the plugin behind an AMX by
- * userdata only a plugin sets, so set_task, register_srvcmd, register_event,
- * RegisterHookChain and their like find none, and a forward - plugin_init,
- * client_putinserver, one a Pawn plugin creates - reaches the publics of the
- * plugins in the list only. The module API has no way to add one.
- *
- * So the module writes the plugin into the plugins folder and names it in
- * configs/plugins-amxts.ini. AMX Mod X reads every configs/plugins-*.ini
- * after plugins.ini, before the map's own lists, so the host loads after the
- * plugins of plugins.ini; natives are bound once every plugin has loaded,
- * whichever list named it. Windows' AMX Mod X passes over the first *.ini its
- * search of the folder finds, which is modules.ini or another before
- * "plugins-" on a server. Both files are written when the module attaches,
- * once a process - before AMX Mod X first reads its lists; they stay for every
- * map after - and removed when it detaches, so a server whose module is taken
- * out does not load a host nobody serves.
+ * LoadAmxScript reads a file: the image is written into AMX Mod X's data
+ * folder for the length of the load.
  */
-static std::string g_hostFile;
-static std::string g_hostList;
-
-static bool WriteWhole(const std::string &path, const void *data, size_t size)
+static void LoadImage()
 {
+	UnloadImage();
+
+	std::string data = MF_GetLocalInfo("amxx_datadir", "addons/amxmodx/data");
+	std::string path = MF_BuildPathname("%s/amxts_natives.amxx", data.c_str());
 	FILE *f = fopen(path.c_str(), "wb");
-	if (!f)
-		return false;
-	bool written = fwrite(data, 1, size, f) == size;
-	return fclose(f) == 0 && written;
+	bool written = f && fwrite(g_nativesImage, 1, sizeof(g_nativesImage), f) == sizeof(g_nativesImage);
+	if (f)
+		written = fclose(f) == 0 && written;
+	if (!written) {
+		MF_PrintSrvConsole("[amxts] cannot write %s - without it no native can be called\n", path.c_str());
+		return;
+	}
+
+	char error[128] = "";
+	int status = MF_LoadAmxScriptEx(&g_imageAmx, &g_imageCode, path.c_str(), error, sizeof(error), 0);
+	remove(path.c_str());
+	if (status != AMX_ERR_NONE && status != AMX_ERR_NOTFOUND) {
+		MF_PrintSrvConsole("[amxts] the natives' image did not load (%s) - no native can be called\n", error);
+		return;
+	}
+	g_image = &g_imageAmx;
 }
 
 /**
- * Says that plugins.ini can lose its line for the host - an install from
- * before the module carried it - once a server's run.
- *
- * The line does no harm: AMX Mod X loads a plugin of one name once, so the
- * host loads at that line, from the file InstallHost has just written, and
- * plugins-amxts.ini's line is passed over.
+ * Each loaded Pawn plugin's AMX by its id (g_pluginAmx), as get_plugin(-1)
+ * answers in each script: what a Pawn plugin's native is called with
+ * (Carrier) and what a PawnFunction runs in.
  */
-static void NoteHostLine(const std::string &pluginsIni)
+static void FindPlugins()
 {
-	FILE *f = fopen(pluginsIni.c_str(), "r");
-	if (!f)
+	g_pluginAmx.clear();
+	Resolved getPlugin = FindNative("get_plugin");
+	if (!getPlugin.fn)
 		return;
 
-	// Read as AMX Mod X reads it: a ';' ends a line, and `disabled` after the
-	// name keeps the plugin out (the host too, which OnPluginsLoaded says).
-	bool named = false;
-	char line[512];
-	while (!named && fgets(line, sizeof(line), f)) {
-		char *comment = strchr(line, ';');
-		if (comment)
-			*comment = 0;
-		char name[256] = "", flag[256] = "";
-		sscanf(line, "%255s %255s", name, flag);
-		named = !strcmp(name, HOST_FILE) && strcmp(flag, "disabled") != 0;
+	for (int i = 0; AMX *amx = MF_GetScriptAmx(i); i++) {
+		cell mark = amx->hea, addr = 0, *phys = NULL;
+		if (amx == g_image || MF_AmxAllot(amx, 1, &addr, &phys) != AMX_ERR_NONE)
+			continue;
+		// get_plugin(-1, name, 0, title, 0, version, 0, author, 0, status, 0)
+		cell params[12] = { 11 * sizeof(cell), -1 };
+		for (int k = 2; k < 12; k += 2)
+			params[k] = addr;
+		cell id = getPlugin.fn(amx, params);
+		amx->hea = mark;
+		if (id < 0 || id > 4096)
+			continue;
+		if ((size_t)id >= g_pluginAmx.size())
+			g_pluginAmx.resize(id + 1, NULL);
+		g_pluginAmx[id] = amx;
 	}
-	fclose(f);
-
-	if (!named)
-		return;
-
-	MF_PrintSrvConsole("[amxts] %s names " HOST_FILE ": the amxts_amxx module loads the host plugin itself, so that line can go\n",
-	                   pluginsIni.c_str());
-}
-
-static void InstallHost()
-{
-	// Copied at once: the engine answers a localinfo lookup from four buffers
-	// it takes in turn.
-	std::string plugins = MF_GetLocalInfo("amxx_pluginsdir", "addons/amxmodx/plugins");
-	std::string configs = MF_GetLocalInfo("amxx_configsdir", "addons/amxmodx/configs");
-	std::string pluginsIni = MF_GetLocalInfo("amxx_plugins", "addons/amxmodx/configs/plugins.ini");
-
-	g_hostFile = MF_BuildPathname("%s/" HOST_FILE, plugins.c_str());
-	g_hostList = MF_BuildPathname("%s/plugins-amxts.ini", configs.c_str());
-
-	static const char list[] =
-		"; Written by the amxts_amxx module when it starts, and removed when it stops:\n"
-		"; the host plugin the module carries. Nothing here is to be edited.\n"
-		HOST_FILE "\n";
-
-	if (!WriteWhole(g_hostFile, g_hostPlugin, sizeof(g_hostPlugin)))
-		MF_PrintSrvConsole("[amxts] cannot write %s - without it no amxts plugin runs\n", g_hostFile.c_str());
-	if (!WriteWhole(g_hostList, list, sizeof(list) - 1))
-		MF_PrintSrvConsole("[amxts] cannot write %s - without it no amxts plugin runs\n", g_hostList.c_str());
-
-	NoteHostLine(MF_BuildPathname("%s", pluginsIni.c_str()));
-}
-
-static void RemoveHost()
-{
-	if (!g_hostList.empty())
-		remove(g_hostList.c_str());
-	if (!g_hostFile.empty())
-		remove(g_hostFile.c_str());
+	// A Pawn plugin's native resolved before is resolved again with them.
+	g_nativeCache.clear();
+	g_nativeGeneration++;
 }
 
 // ---------------------------------------------------------------- boot
 
 /**
- * Stops one plugin and takes back what it registered with AMX Mod X; its
- * entry stays at its index, for the caller to say what it is now.
+ * Stops one plugin and takes back what it registered; its entry stays at its
+ * index, for the caller to say what it is now.
  *
  * Its hooks of the game's functions go (DropGameHooks). What it registered
- * by a slot - register_message, register_menucmd, a raw register_clcmd - has no undo,
- * so their publics stay bound to their slots: those become orphans, which
- * answer PLUGIN_CONTINUE and call nothing, until the same registration comes
- * back and reuses its slot. An orphan whose registration never comes back
- * stays spent, one of the MAX_CALLBACK_SLOTS, until the map changes. Its
+ * by a publicFor name - register_menucmd - has no undo, so the name stays:
+ * it becomes an orphan, which answers PLUGIN_CONTINUE and calls nothing,
+ * until the same registration comes back and takes its name again. Its
  * commands, its menus, its listeners, its subscriptions and its requests go; its
  * natives and the modules it serves stay registered, answering nothing
  * until a plugin claims them again. The owners of the modules it called
@@ -3865,9 +4119,9 @@ static void ReleasePlugin(int index)
 		if (g_menus[id].plugin == index)
 			CloseMenu(id);
 
-	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++)
-		if (g_slots[i].used && g_slots[i].plugin == index)
-			g_slots[i].plugin = SLOT_ORPHANED;
+	for (Slot &slot : g_slots)
+		if (slot.plugin == index)
+			slot.plugin = SLOT_ORPHANED;
 
 	// The names stay in the list (Exported): w_export gives each one to
 	// whichever plugin claims it again, and until then a call answers 0.
@@ -3903,10 +4157,9 @@ static std::deque<Plugin> UnloadPlugins()
 /**
  * Ends a map: every plugin and what lives with them goes, for the next map to
  * start over - AMX Mod X keeps the module loaded across maps
- * (OnPluginsUnloaded), and its host plugin, with every native and public the
- * module took from it, is gone. What lives as long as the process stays:
- * WAMR, the network thread, the gamedata and its members, the plugin list's
- * file and the host's.
+ * (OnPluginsUnloaded) - and the natives' image with every native resolved
+ * from it. What lives as long as the process stays: WAMR, the network
+ * thread, the gamedata and its members, the plugin list's file.
  */
 static void Teardown()
 {
@@ -3931,9 +4184,8 @@ static void Teardown()
 	TeardownGameHooks();
 	ForgetOtherPoints();
 
-	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++)
-		g_slots[i].used = false;
-	g_slotCount = 0;
+	g_slots.clear();
+	g_menuCommands.clear();
 
 	// The exported natives' names stay in the list for the next map's plugins;
 	// a call answers 0 until a plugin exports the name again.
@@ -3942,13 +4194,11 @@ static void Teardown()
 	g_pawnForwards.clear();
 
 	// Raw AMX_NATIVE pointers harvested from an AMX image that is about to be
-	// replaced. Keeping them across a map change is a call into freed memory.
-	g_nativeCache.clear();
-	g_nativeGeneration++;
-	g_host = NULL;
+	// let go. Keeping them across a map change is a call into freed memory.
+	UnloadImage();
+	g_pluginAmx.clear();
 	g_currentPlugin = -1;
-	g_callfuncBuffers.clear();
-	g_callfuncMark = -1;
+	g_pawnCalls.clear();
 	g_msgSayText = g_msgTeamInfo = 0;
 
 	g_amxxReady = false;
@@ -4375,8 +4625,8 @@ static void BindAll(int index)
 	for (std::map<std::string, std::vector<Subscription> >::iterator it = g_subscriptions.begin(); it != g_subscriptions.end(); ++it)
 		for (Subscription &s : it->second)
 			if (s.handler.plugin == index) Bind(s.handler);
-	for (int i = 0; i < g_slotCount; i++)
-		if (g_slots[i].used && g_slots[i].plugin == index) Bind(g_slots[i]);
+	for (Slot &slot : g_slots)
+		if (slot.plugin == index) Bind(slot);
 	for (Exported &e : g_exported)
 		if (e.plugin == index) Bind(e);
 	for (FieldListener &l : g_fieldListeners)
@@ -4942,11 +5192,6 @@ static void ListPlugins()
 {
 	static const char *const STATES[] = { "running", "unloaded", "refused", "waiting", "loading" };
 
-	int used = 0;
-	for (int i = 0; i < g_slotCount; i++)
-		if (g_slots[i].used)
-			used++;
-
 	int counts[5] = { 0, 0, 0, 0, 0 };
 	int width = 0;
 	for (size_t i = 0; i < g_plugins.size(); i++) {
@@ -4955,8 +5200,8 @@ static void ListPlugins()
 			width = (int)g_plugins[i].name.size();
 	}
 
-	MF_PrintSrvConsole("[amxts] %d plugin(s): %d running, %d unloaded, %d refused; %d of %d callback slots in use\n",
-	                   (int)g_plugins.size(), counts[PLUGIN_RUNNING], counts[PLUGIN_UNLOADED], counts[PLUGIN_REFUSED], used, MAX_CALLBACK_SLOTS);
+	MF_PrintSrvConsole("[amxts] %d plugin(s): %d running, %d unloaded, %d refused\n",
+	                   (int)g_plugins.size(), counts[PLUGIN_RUNNING], counts[PLUGIN_UNLOADED], counts[PLUGIN_REFUSED]);
 
 	for (size_t i = 0; i < g_plugins.size(); i++) {
 		const Plugin &p = g_plugins[i];
@@ -4971,34 +5216,32 @@ static void ListPlugins()
 	}
 }
 
-// ---------------------------------------------------------------- amxx natives
+// ---------------------------------------------------------------- a map's start
 
 /**
- * amxts_natives() - called from the host plugin's plugin_natives.
- *
- * This is where plugins are loaded, which is earlier than it looks: AMX Mod X
- * asks every plugin for its natives before it initialises any of them, and a
- * plugin here exports one by running. Loading in plugin_init instead would put
- * every export after the first plugin that wanted to call it.
+ * Lays out addons/amxts and loads the plugins, which is earlier than it
+ * looks: a plugin exports its natives by running, and AMX Mod X binds a Pawn
+ * plugin's natives from the module's list as it loads the plugin. On the
+ * first map this runs as the module attaches, before AMX Mod X loads any Pawn
+ * plugin, with an image that has the natives of the modules loaded so far;
+ * on a later map the module stays attached, and it runs in
+ * AMXX_PluginsLoaded, where a name a plugin exports for the first time
+ * reaches the next map's Pawn plugins.
  */
-static cell AMX_NATIVE_CALL n_natives(AMX *amx, cell *params)
+// Whether this map's plugins loaded as the module attached: the first map's.
+static bool g_mapStarted = false;
+
+static void StartMap()
 {
-	Teardown();
-	g_host = amx;
-	g_nativeGeneration++;
-
-	AmxHeader *hdr = (AmxHeader *)amx->base;
-	MF_PrintSrvConsole("[amxts] host native table: %d entries\n",
-		(hdr->libraries - hdr->natives) / hdr->defsize);
-
+	if (g_image)
+		MF_PrintSrvConsole("[amxts] natives' image: %d entries\n", NativeCount(g_image));
 	InstallFiles();
 	LoadScripts();
-	return 1;
 }
 
 /**
  * A call of the exported native at `slot` (ExportedEntry): from a Pawn
- * plugin's call instruction, or from the host's table for a TypeScript plugin
+ * plugin's call instruction, or from the image's table for a TypeScript plugin
  * calling another's native (Invoke).
  *
  * The arguments are the call's own cells, read in place: a string or an
@@ -5132,11 +5375,16 @@ static AMX_NATIVE g_showMenu = NULL;
 static AMX_NATIVE g_menuDisplay = NULL;
 
 // show_menu(index, keys, const menu[], time = -1, const title[] = "") - a
-// Pawn menu over the player's Menu, or every player's for 0: it takes the keys.
+// menu over the player's Menu, or every player's for 0: it takes the keys,
+// and a menu a TypeScript plugin's register_menucmd hears gets them
+// (OpenMenuCommand). A Pawn plugin's, and the image's for a TypeScript one.
 static cell AMX_NATIVE_CALL n_showMenu(AMX *amx, cell *params)
 {
 	cell shown = g_showMenu(amx, params);
-	CloseMenus((int)params[1]);
+	int id = (int)params[1];
+	CloseMenus(id);
+	for (int i = id ? id : 1; !g_menuCommands.empty() && i < CLIENT_SLOTS && (i == id || !id); i++)
+		OpenMenuCommand(i);
 	return shown;
 }
 
@@ -5152,9 +5400,9 @@ static cell AMX_NATIVE_CALL n_menuDisplay(AMX *amx, cell *params)
 /**
  * Stands in for CreateMultiForward, PrepareArray and ExecuteForward, and for
  * show_menu and menu_display, in the native table of every script but the
- * host's, whose natives the module calls itself (Forward.emit reaches its
- * TypeScript subscribers through emit_local; a Menu says what it shows with
- * menu_open). Every map, in AMXX_PluginsLoaded: AMX Mod X loads the plugins
+ * image's, whose natives the module calls itself (Forward.emit reaches its
+ * TypeScript subscribers through emit_local; the image's show_menu is the
+ * module's own, g_ownNatives). Every map, in AMXX_PluginsLoaded: AMX Mod X loads the plugins
  * anew and has bound their natives, and they make their forwards from
  * plugin_precache on. A call instruction reads the entry on every call, with
  * the JIT too.
@@ -5170,7 +5418,7 @@ static void InterposeNatives()
 	};
 
 	for (int i = 0; AMX *amx = MF_GetScriptAmx(i); i++) {
-		if (amx == g_host)
+		if (amx == g_image)
 			continue;
 		for (int k = 0, count = NativeCount(amx); k < count; k++) {
 			AMX_NATIVE fn = NULL;
@@ -5192,7 +5440,7 @@ static void InterposeNatives()
 static void ServerCommand()
 {
 	// No map is running: no plugin to answer or to act on.
-	if (!g_host)
+	if (!g_image)
 		return;
 
 	std::string name = Lower(CMD_ARGV(0));
@@ -5254,17 +5502,17 @@ static void StartServer()
 static bool Heard(int index)
 {
 	const Forward &f = g_forwards[index];
-	return g_host && (!f.handlers.empty() || !f.subscribers.empty());
+	return g_image && (!f.handlers.empty() || !f.subscribers.empty());
 }
 
 /**
  * Forward `index` to its listeners, with `args` as the call's context
- * (CallArgs). A string argument is pushed onto the host's heap by the
- * caller, which a HostHeap takes back.
+ * (CallArgs). A string argument is pushed onto the image's heap by the
+ * caller, which an ImageHeap takes back.
  */
 static cell Raise(int index, cell *args, int argc)
 {
-	CallArgs context(args, argc, g_host);
+	CallArgs context(args, argc, g_image);
 	return Dispatch(g_forwards[index], args, argc);
 }
 
@@ -5281,11 +5529,11 @@ static cell RaiseFor(int index, int id)
 	return Heard(index) ? Raise(index, args, 1) : 0;
 }
 
-/** What is pushed onto the host's heap while it lives goes when it does. */
-struct HostHeap {
+/** What is pushed onto the image's heap while it lives goes when it does. */
+struct ImageHeap {
 	cell mark;
-	HostHeap() : mark(g_host->hea) {}
-	~HostHeap() { g_host->hea = mark; }
+	ImageHeap() : mark(g_image->hea) {}
+	~ImageHeap() { g_image->hea = mark; }
 };
 
 /** Whether the map has started (ServerActivate) and not ended (ServerDeactivate). */
@@ -5353,7 +5601,7 @@ static void RaiseAuthorized()
 	std::vector<std::pair<int, std::string> > now;
 	now.swap(g_authorized);
 	for (size_t i = 0; i < now.size() && Heard(FORWARD_CLIENT_AUTHORIZED); i++) {
-		HostHeap heap;
+		ImageHeap heap;
 		cell args[2] = { now[i].first, PushString(now[i].second.c_str()) };
 		Raise(FORWARD_CLIENT_AUTHORIZED, args, 2);
 	}
@@ -5390,7 +5638,7 @@ static int ClientId(const edict_t *e)
 static void Disconnected(int id, bool dropped, const char *reason)
 {
 	if (Heard(FORWARD_CLIENT_DISCONNECTED)) {
-		HostHeap heap;
+		ImageHeap heap;
 		cell args[4] = { id, dropped, PushString(reason), (cell)strlen(reason) };
 		Raise(FORWARD_CLIENT_DISCONNECTED, args, 4);
 	}
@@ -5405,7 +5653,7 @@ static void Removed(int id, bool dropped, const char *reason)
 	g_connected[id] = g_inGame[id] = false;
 	CloseMenu(id);
 	if (had && Heard(FORWARD_CLIENT_REMOVE)) {
-		HostHeap heap;
+		ImageHeap heap;
 		cell args[3] = { id, dropped, PushString(reason) };
 		Raise(FORWARD_CLIENT_REMOVE, args, 3);
 	}
@@ -5636,27 +5884,75 @@ static cell AMX_NATIVE_CALL n_copyKeyvalue(AMX *amx, cell *params)
 }
 
 /**
- * Natives of the host's table the module does itself, in place of the
- * module that registers them: what they work on is the module's event now
- * (FindNative).
+ * create_cvar(name, string, flags, ...) and register_cvar(name, string,
+ * flags, ...) for a TypeScript plugin: the engine's cvar, made as AMX Mod X
+ * makes one, whose natives look for the calling plugin to own it. The cvar
+ * lives as long as the process, as the engine keeps it; a name it has
+ * already is answered with that cvar. The description and the bounds are
+ * AMX Mod X's own and not kept.
  */
-static const AMX_NATIVE_INFO g_ownNatives[] = {
-	{ "precache_model",   n_precacheModel   },
-	{ "precache_sound",   n_precacheSound   },
-	{ "precache_generic", n_precacheGeneric },
-	{ "get_usercmd",      n_getUsercmd      },
-	{ "set_usercmd",      n_setUsercmd      },
-	{ "copy_keyvalue",    n_copyKeyvalue    },
-	{ "read_logdata",     n_readLogdata     },
-	{ "read_logargc",     n_readLogargc     },
-	{ "read_logargv",     n_readLogargv     },
+static cell AMX_NATIVE_CALL n_createCvar(AMX *amx, cell *params)
+{
+	int len = 0;
+	const char *name = MF_GetAmxString(amx, params[1], 0, &len);
+	cvar_t *cvar = name && *name ? CVAR_GET_POINTER(name) : NULL;
+	if (!cvar && name && *name) {
+		const char *value = MF_GetAmxString(amx, params[2], 1, &len);
+		cvar_t *made = new cvar_t();
+		made->name = strdup(name);
+		made->string = strdup(value ? value : "");
+		made->flags = params[0] >= (cell)(3 * sizeof(cell)) ? (int)params[3] : 0;
+		made->value = (float)atof(made->string);
+		CVAR_REGISTER(made);
+		cvar = CVAR_GET_POINTER(name);
+	}
+	return (cell)(size_t)cvar;
+}
+
+/**
+ * Natives of the image's table the module does itself, in place of the
+ * module that registers them: what they work on is the module's event now,
+ * or AMX Mod X's own looks for the calling plugin (FindNative). `original`,
+ * when there is one, gets the native it stands in for.
+ */
+struct OwnNativeInfo {
+	const char *name;
+	AMX_NATIVE  own;
+	AMX_NATIVE *original;
+};
+
+static const OwnNativeInfo g_ownNatives[] = {
+	{ "precache_model",   n_precacheModel,   NULL },
+	{ "precache_sound",   n_precacheSound,   NULL },
+	{ "precache_generic", n_precacheGeneric, NULL },
+	{ "get_usercmd",      n_getUsercmd,      NULL },
+	{ "set_usercmd",      n_setUsercmd,      NULL },
+	{ "copy_keyvalue",    n_copyKeyvalue,    NULL },
+	{ "read_logdata",     n_readLogdata,     NULL },
+	{ "read_logargc",     n_readLogargc,     NULL },
+	{ "read_logargv",     n_readLogargv,     NULL },
+	{ "create_cvar",      n_createCvar,      NULL },
+	{ "register_cvar",    n_createCvar,      NULL },
+	{ "register_menucmd", n_registerMenucmd, NULL },
+	{ "show_menu",        n_showMenu,        &g_showMenu },
+	{ "get_func_id",         n_getFuncId,         NULL },
+	{ "callfunc_begin_i",    n_callfuncBeginI,    &g_callfuncBeginI },
+	{ "callfunc_push_int",   n_callfuncPushInt,   &g_callfuncPushInt },
+	{ "callfunc_push_float", n_callfuncPushInt,   NULL },
+	{ "callfunc_push_str",   n_callfuncPushStr,   &g_callfuncPushStr },
+	{ "callfunc_push_array", n_callfuncPushArray, &g_callfuncPushArray },
+	{ "callfunc_end",        n_callfuncEnd,       &g_callfuncEnd },
 };
 
 static AMX_NATIVE OwnNative(const char *name, AMX_NATIVE fn)
 {
-	for (const AMX_NATIVE_INFO &own : g_ownNatives)
-		if (!strcmp(own.name, name))
-			return own.func;
+	for (const OwnNativeInfo &own : g_ownNatives) {
+		if (strcmp(own.name, name))
+			continue;
+		if (own.original)
+			*own.original = fn;
+		return own.original && !fn ? NULL : own.own;
+	}
 	return fn;
 }
 
@@ -5714,7 +6010,7 @@ void ServerActivate_Post(edict_t *edicts, int count, int clients)
 	g_configsDue = gpGlobals->time + 6.1f;
 	g_configTicks = 0;
 
-	if (g_host)
+	if (g_image)
 		StartServer();
 	Raise(FORWARD_PLUGIN_CFG);
 	Raise(FORWARD_ONAUTOCONFIGSBUFFERED);
@@ -5752,7 +6048,7 @@ BOOL ClientConnect(edict_t *e, const char *name, const char *address, char reaso
 	if (!id || META_RESULT_STATUS >= MRES_SUPERCEDE || !Heard(FORWARD_CLIENT_CONNECTEX))
 		RETURN_META_VALUE(MRES_IGNORED, TRUE);
 
-	HostHeap heap;
+	ImageHeap heap;
 	cell args[4] = { id, PushString(name), PushString(address), PushString(reason) };
 	if (Raise(FORWARD_CLIENT_CONNECTEX, args, 4) > 0)
 		RETURN_META_VALUE(MRES_SUPERCEDE, FALSE);
@@ -5859,7 +6155,7 @@ void ChangeLevel(const char *map, const char *landmark)
 	if (META_RESULT_STATUS >= MRES_SUPERCEDE || !Heard(FORWARD_SERVER_CHANGELEVEL))
 		RETURN_META(MRES_IGNORED);
 
-	HostHeap heap;
+	ImageHeap heap;
 	cell args[1] = { PushString(map) };
 	if (Raise(FORWARD_SERVER_CHANGELEVEL, args, 1) > 0)
 		RETURN_META(MRES_SUPERCEDE);
@@ -5917,7 +6213,7 @@ void DispatchKeyValue(edict_t *e, KeyValueData *kvd)
 	RETURN_META(blocked > 0 ? MRES_SUPERCEDE : MRES_IGNORED);
 }
 
-/** A vector onto the host's heap, three cells and a zero after them; 0 for none. */
+/** A vector onto the image's heap, three cells and a zero after them; 0 for none. */
 static cell PushVector(const float *v)
 {
 	cell addr = 0;
@@ -5936,7 +6232,7 @@ void PlaybackEvent(int flags, const edict_t *invoker, unsigned short index, floa
 {
 	if (!Heard(FORWARD_PFN_PLAYBACKEVENT))
 		RETURN_META(MRES_IGNORED);
-	HostHeap heap;
+	ImageHeap heap;
 	cell args[12] = { flags, invoker ? (cell)ENTINDEX(invoker) : 0, index, 0, PushVector(origin), PushVector(angles), 0, 0, i1, i2, b1, b2 };
 	memcpy(&args[3], &delay, sizeof(cell));
 	memcpy(&args[6], &f1, sizeof(cell));
@@ -5956,7 +6252,7 @@ int InconsistentFile(const edict_t *player, const char *file, char *reason)
 	int id = ClientId(player);
 	if (!id || !Heard(FORWARD_INCONSISTENT_FILE) || META_RESULT_STATUS < MRES_SUPERCEDE || !META_RESULT_OVERRIDE_RET(int))
 		RETURN_META_VALUE(MRES_IGNORED, 0);
-	HostHeap heap;
+	ImageHeap heap;
 	cell args[3] = { id, PushString(file ? file : ""), PushString(reason ? reason : "") };
 	if (Raise(FORWARD_INCONSISTENT_FILE, args, 3) > 0)
 		RETURN_META_VALUE(MRES_SUPERCEDE, FALSE);
@@ -6173,46 +6469,6 @@ void StartFrame_Post()
 	RETURN_META(MRES_IGNORED);
 }
 
-// amxts_callback(slot, numargs, a .. h) - the host plugin's pool of publics.
-static cell AMX_NATIVE_CALL n_callback(AMX *amx, cell *params)
-{
-	int slot = (int)params[1];
-	if (slot < 0 || slot >= g_slotCount || !g_slots[slot].used)
-		return 1;
-
-	// An orphan is a registration whose plugin is gone. PLUGIN_CONTINUE, so
-	// that AMX Mod X passes the command to whoever is alive - answering
-	// PLUGIN_HANDLED here is what made `say /hp` go quiet after a reload.
-	if (g_slots[slot].plugin == SLOT_ORPHANED)
-		return 0;
-
-	// The host plugin says how many arguments it pushed; never read past what
-	// actually arrived.
-	// The host public says how many arguments it was actually given; the cells
-	// after that are the padding it pushed to keep one call shape.
-	int given = (int)params[2];
-	int argc = (int)(params[0] / sizeof(cell)) - 2;
-	if (given > argc) given = argc;
-	if (given < 0) given = 0;
-
-	int n = given > MAX_EVENT_ARGS ? MAX_EVENT_ARGS : given;
-
-	// The arguments of this call, for arg() and argText() - all of them, not
-	// only the four about to be pushed. They live in the host plugin, which is
-	// where a string among them lives too.
-	CallArgs context(&params[3], given, g_host);
-
-	// A callback's arguments arrive by value: the public was declared with
-	// parameters, so params[3] is the first one itself.
-	uint32_t argv[MAX_EVENT_ARGS];
-	for (int i = 0; i < n; i++)
-		argv[i] = (uint32_t)(int32_t)params[i + 3];
-
-	// What silence means was decided when the slot was taken: PLUGIN_HANDLED
-	// for a command, FMRES_IGNORED for a fakemeta forward.
-	return Fire(g_slots[slot], argv, n, g_slots[slot].fallback);
-}
-
 // ---------------------------------------------------------------- player fields for Pawn
 //
 // The fields plugins add to Player, by name (docs/api/players.md). A number field is
@@ -6291,8 +6547,6 @@ static cell AMX_NATIVE_CALL n_setPlayerDataString(AMX *amx, cell *params)
 }
 
 AMX_NATIVE_INFO g_natives[] = {
-	{ "amxts_natives",  n_natives  },
-	{ "amxts_callback", n_callback },
 	{ "amxts_get_player_data",        n_getPlayerData       },
 	{ "amxts_set_player_data",        n_setPlayerData       },
 	{ "amxts_get_player_data_float",  n_getPlayerDataFloat  },
@@ -6336,24 +6590,35 @@ void OnAmxxAttach()
 	FindCstrike();
 	FindClientCommandPath();
 	ReadListFile();
-	InstallHost();
+
+	// The first map: the plugins load now, before AMX Mod X loads the Pawn
+	// plugins (StartMap).
+	LoadImage();
+	StartMap();
+	g_mapStarted = true;
 }
 
 /**
- * Every plugin has loaded, the host among them - unless AMX Mod X did not
- * load it: a `disabled` line for it in plugins.ini, a plugins folder it could
- * not write, a configs folder whose plugins-amxts.ini AMX Mod X did not read.
- * Its log names the reason; this says what it costs.
+ * Every Pawn plugin has loaded and its natives are bound. The image is
+ * loaded again - twice, for the modules its first load had AMX Mod X load -
+ * and has every native now: the modules', the core's, the Pawn plugins'. On
+ * a map after the first the plugins load here, before precache.
  */
 void OnPluginsLoaded()
 {
+	if (!g_mapStarted)
+		Teardown();
+	LoadImage();
+	LoadImage();
+	g_imageComplete = g_image != NULL;
+	FindPlugins();
 	InterposeNatives();
-	if (!g_host)
-		MF_PrintSrvConsole("[amxts] AMX Mod X did not load the host plugin (%s, named in %s), and no amxts plugin runs without it - AMX Mod X's log says why\n",
-		                   g_hostFile.c_str(), g_hostList.c_str());
+	if (!g_mapStarted)
+		StartMap();
+	g_mapStarted = false;
 }
 
-/** The map is over: AMX Mod X has let its plugins go, the host among them. */
+/** The map is over: AMX Mod X has let its plugins go. */
 void OnPluginsUnloaded()
 {
 	Teardown();
@@ -6369,6 +6634,5 @@ void OnAmxxDetach()
 	Teardown();
 	// The worker stops before WAMR goes; its requests are deleted with it.
 	NetShutdown();
-	RemoveHost();
 	wasm_runtime_destroy();
 }

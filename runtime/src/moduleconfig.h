@@ -12,7 +12,8 @@
 
 // A Metamod plugin too: AMX Mod X loads it into Metamod, keeps it loaded
 // across map changes, and the engine's functions and gpGlobals are its. What
-// lives one map starts as the host plugin loads the plugins and ends in
+// lives one map starts as the plugins load - as the module attaches on the
+// first map, in AMXX_PluginsLoaded on the rest - and ends in
 // AMXX_PluginsUnloaded (Teardown).
 #define USE_METAMOD
 

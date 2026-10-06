@@ -1,0 +1,24 @@
+// A native a Pawn plugin registers, for call.ts to call: geoip's, which its
+// module leaves unregistered on a server without the GeoIP2 databases, as a
+// test server is. The module calls such a native with a loaded Pawn plugin,
+// not with its natives' image.
+#include <amxmodx>
+
+public plugin_init()
+{
+	register_plugin("amxts test: Pawn natives", "1.0", "amxts");
+}
+
+public plugin_natives()
+{
+	register_native("geoip_timezone", "timezone");
+}
+
+// geoip_timezone(const ip[], result[], len)
+public timezone(plugin, params)
+{
+	new ip[32], text[64];
+	get_string(1, ip, charsmax(ip));
+	formatex(text, charsmax(text), "zone of %s", ip);
+	return set_string(2, text, get_param(3));
+}

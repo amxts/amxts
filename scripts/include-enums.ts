@@ -1,6 +1,6 @@
 // The Pawn enums of the includes and the names amxts gives their members,
 // shared by the generators that turn an enum argument into a union of names:
-// scripts/generate-hooks.ts (game events) and scripts/generate-host.ts (the
+// scripts/generate-hooks.ts (game events) and scripts/generate-image.ts (the
 // messages to clients).
 import { readFileSync } from 'node:fs';
 import { includePath } from './includes';

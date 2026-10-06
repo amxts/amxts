@@ -14,9 +14,8 @@
  * includes/ and AMX Mod X's. The core's includes/vendor/ is the core's own:
  * a project sees what its server has.
  *
- * Everything available is parsed for its natives, but the host plugin pulls only
- * what order.txt lists: referencing a native of a module the server does not
- * load makes AMX Mod X refuse the plugin, and the runtime goes down with it.
+ * Everything available is parsed for its natives, but the natives' image
+ * pulls only what order.txt lists.
  */
 import { realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -91,7 +90,7 @@ export function readInclude(name: string): string {
 }
 
 /**
- * Parses includes/order.txt. A bare name is included and (by the host
+ * Parses includes/order.txt. A bare name is included and (by the image's
  * generator) pulled; a line starting with `-` is a deny marker - the name
  * still has to resolve (an include that #includes it needs it on disk), but
  * it is excluded from whatever build the caller pulls into a native table.

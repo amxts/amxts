@@ -214,7 +214,7 @@ const { includes, denied } = existsSync(orderFile)
 	? parseOrder(readFileSync(orderFile, 'utf-8'))
 	: { includes: listIncludes(), denied: new Set<string>() };
 
-// Denied too: a deny marker says its natives must not reach the host table,
+// Denied too: a deny marker says its natives must not reach the image's table,
 // not that the file is uninteresting. Its constants and its forwards are free
 // - nothing links against a number - and leaving them out means a plugin
 // cannot name a constant the include exists to define.
@@ -228,12 +228,12 @@ for (const name of parseNames) {
  * `#define get_member get_member_s` - a native the include renames itself.
  *
  * reapi does this to both member accessors unless MEMBER_UNSAFE is defined,
- * and the host plugin is compiled by the same amxxpc reading the same header,
+ * and the natives' image is compiled by the same amxxpc reading the same header,
  * so what lands in its table is `get_member_s`. A plugin still writes
  * `get_member`, as Pawn code does, so the declaration keeps that name and only
  * the name the module looks up in the table is the renamed one.
  *
- * Found the hard way: the module said "not in the host plugin table" and the
+ * Found the hard way: the module said "not in the natives' image" and the
  * table looked right, because the rename happens after the table was written.
  */
 const aliases = new Map<string, string>();
@@ -246,7 +246,7 @@ for (const name of parseNames) {
 }
 
 /**
- * The name the module asks the host plugin table for.
+ * The name the module asks the image's table for.
  *
  * Only a rename onto another native counts: `#define MAX_PLAYERS 32` has the
  * same shape and means nothing here.
@@ -317,6 +317,53 @@ for (const native of natives) {
 }
 
 const chosen = Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+
+/**
+ * The natives that look up the Pawn plugin calling them, which a TypeScript
+ * plugin's call - made with the natives' image, a script and not a plugin -
+ * has none of: AMX Mod X would crash the server. The module answers them 0
+ * and says what to write instead. `arg` and `value` narrow one to the calls
+ * whose argument `arg` (from 1) has `value` (-1: any but 0): the file natives
+ * read a Pawn plugin's NULL_STRING only for the game's file system, engfunc
+ * only for ChangeLevel. AMX Mod X's sources, 1.9 and 1.10.
+ */
+const NEEDS_PLUGIN: { name: string; arg?: number; value?: number; instead: string }[] = [
+	{ name: 'set_task', instead: 'setTimeout or setInterval' },
+	{ name: 'log_amx', instead: 'console.log' },
+	{ name: 'set_fail_state', instead: 'console.error' },
+	{ name: 'register_plugin', instead: 'plugin()' },
+	{ name: 'set_pcvar_bounds', instead: 'a Cvar listener' },
+	{ name: 'hook_cvar_change', instead: 'a Cvar listener' },
+	{ name: 'register_event', instead: 'server.addMessageListener' },
+	{ name: 'register_logevent', instead: 'the log event' },
+	{ name: 'register_message', instead: 'server.addMessageListener' },
+	{ name: 'register_clcmd', instead: 'server.addCommand' },
+	{ name: 'register_concmd', instead: 'server.addCommand' },
+	{ name: 'register_srvcmd', instead: 'server.addCommand' },
+	{ name: 'menu_create', instead: 'Menu' },
+	{ name: 'menu_makecallback', instead: 'Menu' },
+	{ name: 'register_forward', instead: 'the game events' },
+	{ name: 'register_touch', instead: 'the touch event' },
+	{ name: 'register_think', instead: 'the game events' },
+	{ name: 'register_impulse', instead: 'the impulse event' },
+	{ name: 'RegisterHam', instead: 'the game events' },
+	{ name: 'RegisterHamFromEntity', instead: 'the game events' },
+	{ name: 'RegisterHookChain', instead: 'the game events' },
+	{ name: 'AutoExecConfig', instead: 'a typed config' },
+	{ name: 'register_native', instead: 'an export function or nativeFn' },
+	{ name: 'register_library', instead: 'an export function or nativeFn' },
+	{ name: 'callfunc_begin', instead: 'PawnFunction' },
+	{ name: 'trace_hull', instead: 'a Pawn plugin' },
+	{ name: 'engfunc', arg: 1, value: 6, instead: 'server.command("changelevel ...")' },
+	{ name: 'fopen', arg: 3, instead: 'fs without the game file system' },
+	{ name: 'delete_file', arg: 2, instead: 'fs without the game file system' },
+	{ name: 'unlink', arg: 2, instead: 'fs without the game file system' },
+	{ name: 'file_size', arg: 3, instead: 'fs without the game file system' },
+	{ name: 'open_dir', arg: 5, instead: 'fs without the game file system' },
+	{ name: 'mkdir', arg: 3, instead: 'fs without the game file system' },
+];
+const unknownNeeds = NEEDS_PLUGIN.filter(n => !declaredNatives.has(n.name)).map(n => n.name);
+if (unknownNeeds.length > 0) throw new Error(`NEEDS_PLUGIN names natives no include declares: ${unknownNeeds.join(', ')}`);
 
 // The id a plugin passes to the dispatcher is this array's index, so the order
 // is part of the interface between as/natives.ts and runtime/src/natives.h.
@@ -1213,13 +1260,15 @@ const thunks = chosen.map((n) => {
 	// Each thunk resolves its own native once per map rather than looking the
 	// name up in a map of strings on every call. Measured: a thousand calls
 	// went from 57 microseconds to what a direct call costs.
-	body.push(`\tstatic Cached cached = { { NULL, 0 }, 0 };`);
+	body.push(`\tstatic Cached cached = { { NULL, 0, NULL }, 0 };`);
 	const counts = bufferCells(n);
 	const texts = outputTexts(n);
 
 	// The frame takes room in the AMX heap for a buffer and gives it back
-	// after the call; a native of plain cells has nothing to copy.
-	if (n.params.some(isBuffer)) body.push(`\tFrame f(env);`);
+	// after the call; a native of plain cells has nothing to copy. The AMX is
+	// the one the native is called with (Resolve).
+	const framed = n.params.some(isBuffer);
+	if (framed) body.push(`\tFrame f(env, Resolve(cached, "${lookupName(n.name)}"));`);
 	body.push(`\tArgs p(${n.params.length});`);
 
 	n.params.forEach((p, i) => {
@@ -1230,7 +1279,7 @@ const thunks = chosen.map((n) => {
 		} else if (counts[i]) {
 			if (counts[i] === `n${i}`) body.push(`\tint32_t n${i} = f.fits(a${i}, ${DEFAULT_CELLS});`);
 			// A buffer that does not cross is never handed to the native as
-			// address 0, the host's data: see Frame::in.
+			// address 0, the AMX's own data: see Frame::in.
 			body.push(`\tp[${i + 1}] = f.in(a${i}, ${counts[i]});`, `\tif (!p[${i + 1}])\n\t\treturn 0;`);
 		} else if (counts[i - 1] === `a${i}`) {
 			// A buffer is copied only as far as crosses, so its native is told that far.
@@ -1240,7 +1289,7 @@ const thunks = chosen.map((n) => {
 		}
 	});
 
-	body.push(`\tcell r = CallCached(cached, "${lookupName(n.name)}", p);`);
+	body.push(framed ? `\tcell r = CallResolved(cached, p);` : `\tcell r = CallCached(cached, "${lookupName(n.name)}", p);`);
 
 	n.params.forEach((p, i) => {
 		// Nothing comes back out of a const parameter, whatever its shape.
@@ -1289,6 +1338,21 @@ ${table.join('\n')}
 // one of these ids, because a \`...\` tail has no wasm signature to import.
 static const char *g_dispatchedNatives[] = {
 ${dispatched.map(n => `\t"${lookupName(n.name)}",`).join('\n')}
+};
+
+// The natives that need the Pawn plugin calling them (NEEDS_PLUGIN in the
+// generator): with an argument (1 and up) and its value, only a call with
+// that value (-1: any but 0); with 0, every call. The image is not a plugin,
+// so the module answers such a call 0 and says what to write instead.
+struct NeedsPluginInfo {
+	const char *name;
+	int arg;
+	cell value;
+	const char *instead;
+};
+
+static const NeedsPluginInfo g_needsPlugin[] = {
+${NEEDS_PLUGIN.map(n => `\t{ "${n.name}", ${n.arg ?? 0}, ${n.value ?? -1}, ${JSON.stringify(n.instead)} },`).join('\n')}
 };
 `,
 );

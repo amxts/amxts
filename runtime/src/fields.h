@@ -5,9 +5,8 @@
 // A property - `entity.origin`, `player.account`, `game.numCtWins` - is a
 // field in memory: an entvar inside the entity's edict, a member inside the
 // C++ object the game made for it, a member of the game rules. reapi's
-// get_entvar and get_member read the same memory, behind a call into the
-// host plugin and through AMX Mod X; on a server without reapi there was
-// nothing at all. Here a plugin's read is one call into the module and a load.
+// get_entvar and get_member read the same memory, behind a call through
+// AMX Mod X; on a server without reapi there was nothing at all. Here a plugin's read is one call into the module and a load.
 //
 // - An entvar is at its place in entvars_t, which the facade passes: the
 //   layout is the engine's, the same on every server and both systems

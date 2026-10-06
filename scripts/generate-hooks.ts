@@ -495,7 +495,7 @@ function paramsOf(hook: string, constant: string, raw: string) {
 		const sized = /\[\d+\]/.test(nameWithArray);
 		const rawName = nameWithArray.replace(/\[.*$/, '');
 
-		// A vector - `Float:vecSrc[3]` - is an address in the host plugin, where
+		// A vector - `Float:vecSrc[3]` - is an address in the image, where
 		// reapi pushed it, and is read there (argArray in the module) and
 		// written there: reapi copies it back into the game's own.
 		const vector = !text.includes('&') && tag === 'Float' && nameWithArray.endsWith('[3]');

@@ -988,7 +988,7 @@ function crossForwards(sources: any[], contract: Contract | null, problems: stri
 					} else if (type === 'Vector' && param.type !== 'Float') {
 						problems.push(`${where} - argument ${i + 1} is ${pawn} in the include: a Vector is three Floats, Float:${param.name}[3]`);
 					} else if (!param.type || param.type === 'any') {
-						// The host's public takes an untagged array as text (generate-host.ts, kindOf).
+						// An untagged array crosses as text (generate-image.ts, kindOf).
 						problems.push(`${where} - argument ${i + 1} is ${pawn} in the include, without a tag: Pawn passes it as text, and a ${type} would arrive empty; tag it, Float:${param.name}[]`);
 					} else {
 						crossing += param.type === 'Float' ? 'F' : '_';

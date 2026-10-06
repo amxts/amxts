@@ -61,7 +61,7 @@ function emit(project: string, outDir: string, rootDir?: string) {
 
 /** The generators whose output carries tooltips, run in `language`. */
 function generate(language: string) {
-	for (const script of ['generate-host.ts', 'generate-entities.ts', 'generate-hooks.ts']) {
+	for (const script of ['generate-image.ts', 'generate-entities.ts', 'generate-hooks.ts']) {
 		const run = spawnSync(process.execPath, [join('scripts', script)], { encoding: 'utf8', env: { ...process.env, AMXTS_DOCS_LANG: language } });
 		if (run.status !== 0) throw new Error(`${script} failed:\n${run.stdout}${run.stderr}`);
 	}

@@ -1,6 +1,6 @@
 // Our own words for the server events, in both languages the project speaks.
 //
-// scripts/generate-host.ts writes these into as/events.ts as the tooltips an
+// scripts/generate-image.ts writes these into as/events.ts as the tooltips an
 // editor shows on `server.addEventListener("...")`, on the event class and on
 // each of its fields. The language is AMXTS_DOCS_LANG in .env ("en" by
 // default, or "ru"). An event missing here, or missing a language, falls back

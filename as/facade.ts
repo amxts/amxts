@@ -209,12 +209,13 @@ export function ret(value: number): void {
 }
 
 /**
- * A public name that calls `handler`, for an AMX Mod X native that takes a
- * callback by name: `register_think`, `set_native_filter`.
+ * A public name that calls `handler`, for what takes a callback by a public's
+ * name: `register_menucmd`, and a plugin's native that calls it back with a
+ * `PawnFunction` (menu-core's `mc_register_placeholder`).
  *
  * ```ts
- * const pub = publicFor(onThink, "think:myplugin_box");
- * if (pub.length > 0) register_think("myplugin_box", pub);
+ * const pub = publicFor(onKey, "menu:myplugin");
+ * if (pub.length > 0) register_menucmd(register_menuid("myplugin"), 1023, pub);
  * ```
  *
  * An empty name means “already registered”: such a registration cannot be
@@ -223,15 +224,15 @@ export function ret(value: number): void {
  * unique within the plugin. `fallback` is the answer when the handler returns
  * nothing: `0` for most natives, `1` where the native expects the event handled.
  *
- * Register from the `"pluginsLoaded"` event, not at the top of the file: a console
- * command registered that early (`register_concmd`, `register_srvcmd`) crashes
- * the server when typed.
+ * A native of AMX Mod X that finds the public in the calling plugin
+ * (`register_think`, `set_task`) cannot take it: a TypeScript plugin's call
+ * has no Pawn plugin behind it.
  */
 export function publicFor(handler: WideHandler, key: string, fallback: number = 0): string {
 	const slot = _slot(hostIndex(handler, true), SHAPE_WIDE, key, fallback);
 
 	if (slot < 0) {
-		console.error(`no callback slot left for "${key}"`);
+		console.error(`publicFor("${key}") outside a plugin's call`);
 		return "";
 	}
 
@@ -239,7 +240,7 @@ export function publicFor(handler: WideHandler, key: string, fallback: number = 
 }
 
 // Must match SLOT_REUSED in runtime/src/module.cpp.
-const SLOT_REUSED: i32 = 0x10000;
+const SLOT_REUSED: i32 = 0x40000000;
 
 /**
  * @hidden A registration with AMX Mod X - a hook, or a public it calls - that
@@ -958,8 +959,8 @@ export function arg(index: number): number {
 }
 
 // A string does not cross as text: what arrives is an address in the memory of
-// whoever made the call - the host plugin for a command or a hook, the calling
-// plugin for a native this one exported. The module reads it there.
+// whoever made the call - the natives' image for a forward or a publicFor
+// name, the calling plugin for a native this one exported. The module reads it there.
 /**
  * Reads an argument of the running callback as a string.
  *
@@ -2735,7 +2736,7 @@ function runWaiting(list: (() => void)[]): void {
 @external("env", "on_cell") declare function _onCell(event: string, fn: i32, shape: i32, arg: i32, value: i32): void;
 
 /**
- * @hidden A forward the host relays, heard by `fn` (a one-cell handler) only
+ * @hidden A forward the module raises, heard by `fn` (a one-cell handler) only
  * when its argument `arg` is `value`: the module compares it, so a forward
  * that comes often crosses into the plugin for that value alone.
  */
@@ -2746,7 +2747,7 @@ export function __onCell(event: string, fn: i32, arg: i32, value: i32): void {
 // @ts-ignore: decorator
 @external("env", "off") declare function _off(event: string, fn: i32): void;
 
-/** @hidden Takes the handler `fn` of a forward the host relays off again: once its event has no listener left. */
+/** @hidden Takes the handler `fn` of a forward the module raises off again: once its event has no listener left. */
 export function __off(event: string, fn: i32): void {
 	_off(event, fn);
 }
@@ -3201,8 +3202,8 @@ function makeWaitingCvars(): void {
 
 /**
  * @hidden The start of every exported native. A Pawn plugin calls one from
- * its plugin_init at the earliest - often before the host's own - and by then
- * plugin_natives is over, so a Cvar the native makes (a register_cvar native
+ * its plugin_init at the earliest - often before this plugin's - and by then
+ * the plugins have loaded, so a Cvar the native makes (a register_cvar native
  * of the plugin's) is made at once rather than when this plugin's init comes.
  */
 export function __nativeCall(): void {
@@ -3868,14 +3869,14 @@ export namespace Variant {
 export type VariantName = "chat" | "center" | "console" | "notify";
 
 // Both come from the generator, so neither can fall behind: Flag is every
-// ADMIN_* the includes declare, and Event is every forward the host plugin
-// relays. They are re-exported here so that a plugin imports one file.
+// ADMIN_* the includes declare, and Event is every forward the module
+// raises. They are re-exported here so that a plugin imports one file.
 export { Flag } from "./constants";
 export * from "./events";
 
 // Re-exporting does not bring a name into this file's own scope, and these
 // are used here: `Flag` for a command's default argument, the other two to
-// turn an event's short name into the forward the host plugin relays.
+// turn an event's short name into the forward the module raises.
 import { Flag, FlagName, flagOf, HookName, hookIdOf } from "./constants";
 import { Entity, GameFields, PlayerFields } from "./entities";
 import {
@@ -4738,8 +4739,8 @@ export function __hasChains(rehlds: bool): bool {
 	return (gameApi & (rehlds ? 2 : 1)) != 0;
 }
 
-// AMX Mod X has one entry per .amxx file and every plugin here shares the
-// host's, so this is the only place their names exist.
+// AMX Mod X has no entry for an amxts plugin, so this is the only place
+// their names exist.
 /** The plugin's name, version, author and description, given to `plugin({ ... })`; `amxts_plugins` in the server console lists them. */
 export interface PluginInfo {
 	/** The plugin's name, e.g. `"My Plugin"`. */
@@ -5674,7 +5675,6 @@ export function showMenu(id: number, keys: number, text: string, title: string):
 	// game's 175 bytes itself. Its keys are AMX Mod X's: a Menu the player
 	// had is closed.
 	show_menu(id, keys, menuColors(text), -1, title);
-	_menuOpen(<i32>id, 0, 0);
 }
 
 // ---------------------------------------------------------------- menus

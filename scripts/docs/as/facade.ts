@@ -88,12 +88,13 @@ export default {
 	},
 	'publicFor': {
 		en: `
-			A public name that calls \`handler\`, for an AMX Mod X native that takes a
-			callback by name: \`register_think\`, \`set_native_filter\`.
+			A public name that calls \`handler\`, for what takes a callback by a public's
+			name: \`register_menucmd\`, and a plugin's native that calls it back with a
+			\`PawnFunction\` (menu-core's \`mc_register_placeholder\`).
 
 			\`\`\`ts
-			const pub = publicFor(onThink, "think:myplugin_box");
-			if (pub.length > 0) register_think("myplugin_box", pub);
+			const pub = publicFor(onKey, "menu:myplugin");
+			if (pub.length > 0) register_menucmd(register_menuid("myplugin"), 1023, pub);
 			\`\`\`
 
 			An empty name means “already registered”: such a registration cannot be
@@ -102,17 +103,18 @@ export default {
 			unique within the plugin. \`fallback\` is the answer when the handler returns
 			nothing: \`0\` for most natives, \`1\` where the native expects the event handled.
 
-			Register from the \`"pluginsLoaded"\` event, not at the top of the file: a console
-			command registered that early (\`register_concmd\`, \`register_srvcmd\`) crashes
-			the server when typed.
+			A native of AMX Mod X that finds the public in the calling plugin
+			(\`register_think\`, \`set_task\`) cannot take it: a TypeScript plugin's call
+			has no Pawn plugin behind it.
 		`,
 		ru: `
-			Имя паблика, который вызывает \`handler\`, — для натива AMX Mod X,
-			принимающего колбэк по имени: \`register_think\`, \`set_native_filter\`.
+			Имя паблика, который вызывает \`handler\`, — для того, что принимает колбэк
+			по имени паблика: \`register_menucmd\` и натив плагина, который вызывает его
+			обратно через \`PawnFunction\` (\`mc_register_placeholder\` модуля menu-core).
 
 			\`\`\`ts
-			const pub = publicFor(onThink, "think:myplugin_box");
-			if (pub.length > 0) register_think("myplugin_box", pub);
+			const pub = publicFor(onKey, "menu:myplugin");
+			if (pub.length > 0) register_menucmd(register_menuid("myplugin"), 1023, pub);
 			\`\`\`
 
 			Пустое имя значит «уже зарегистрировано»: такую регистрацию нельзя
@@ -121,9 +123,8 @@ export default {
 			имя, уникальное в пределах плагина. \`fallback\` — ответ, если обработчик
 			ничего не вернул: \`0\` почти везде, \`1\` там, где натив ждёт обработанное событие.
 
-			Регистрируйте из события \`"pluginsLoaded"\`, а не с верхнего уровня файла: консольная
-			команда, зарегистрированная так рано (\`register_concmd\`, \`register_srvcmd\`),
-			роняет сервер, когда её вводят.
+			Натив AMX Mod X, который ищет паблик в вызвавшем плагине (\`register_think\`,
+			\`set_task\`), его не примет: за вызовом TypeScript-плагина нет Pawn-плагина.
 		`,
 	},
 	'nativeFn': {

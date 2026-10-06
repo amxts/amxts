@@ -1,6 +1,6 @@
 // Our own words for the messages the server sends its clients, as
 // server.addMessageListener(name, ...) hears them - in both languages.
-// scripts/generate-host.ts writes them into as/events.ts as the tooltips an
+// scripts/generate-image.ts writes them into as/events.ts as the tooltips an
 // editor shows on the name, the event and its fields: the summary, then the
 // game's name of the message, so a Pawn author who searches for `DeathMsg`
 // finds `death`. A name that hears a few of the game's messages has its words

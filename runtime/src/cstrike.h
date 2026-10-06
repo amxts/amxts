@@ -27,7 +27,7 @@ static void InternalCommand_RG(InternalCommandChain *chain, edict_t *e, const ch
 {
 	int id = ClientId(e);
 	if (id && command && Heard(FORWARD_CS_INTERNALCOMMAND) && MF_IsPlayerAlive(id)) {
-		HostHeap heap;
+		ImageHeap heap;
 		cell args[2] = { id, PushString(command) };
 		if (Raise(FORWARD_CS_INTERNALCOMMAND, args, 2) > 0)
 			return;
@@ -194,7 +194,7 @@ static void ClientCommand_Hooked(edict_t *e)
 
 	if (player && command && MF_IsPlayerAlive(id)) {
 		if (internal && Heard(FORWARD_CS_INTERNALCOMMAND)) {
-			HostHeap heap;
+			ImageHeap heap;
 			cell args[2] = { id, PushString(command) };
 			if (Raise(FORWARD_CS_INTERNALCOMMAND, args, 2) > 0)
 				return;

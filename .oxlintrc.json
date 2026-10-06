@@ -48,7 +48,7 @@
 		"runtime/src/natives.h",
 		"runtime/src/embedded.h",
 		"runtime/natives.txt",
-		"runtime/host/amxts_host.sma",
+		"runtime/host/amxts_natives.sma",
 		"**/amxmodx/",
 		"**/.env",
 		"**/dist-sdk/",

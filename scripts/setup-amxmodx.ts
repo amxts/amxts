@@ -1,7 +1,7 @@
 // The AMX Mod X distribution the core builds with, into amxmodx/base: the
 // scripting/ folder of its base and cstrike packages - the includes the API
-// is generated from and amxxpc, which compiles the host plugin and the Pawn
-// suites.
+// is generated from and amxxpc, which compiles the natives' image and the
+// Pawn suites.
 //
 //   bun run setup:amxmodx
 //

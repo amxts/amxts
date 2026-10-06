@@ -122,10 +122,10 @@ jobs:
           path: amxts/node_modules/.cache/amxts/build
           key: linux-suites-${{ hashFiles('amxts/runtime/patches/**', 'amxts/runtime/natives.txt', 'amxts/as/**', 'amxts/scripts/**', 'amxts/src/**', 'amxts/tests/server/**') }}
           restore-keys: linux-suites-
-      # The host plugin first: the module carries it.
-      - name: The host plugin
+      # The natives' image first: the module carries it.
+      - name: The natives' image
         working-directory: amxts
-        run: bun run host
+        run: bun run image
       - name: The Linux module and wamrc
         working-directory: amxts
         env:

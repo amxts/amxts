@@ -1,6 +1,6 @@
 // The messages Counter-Strike's server sends its clients, as
 // server.addMessageListener(name, ...) hears them - read by
-// scripts/generate-host.ts, which writes their events into as/events.ts.
+// scripts/generate-image.ts, which writes their events into as/events.ts.
 //
 // Every name the game registers is a message a plugin can listen to, by the
 // name MESSAGE_NAMES gives it in the player's words: `death`, not `DeathMsg`.

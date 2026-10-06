@@ -96,9 +96,9 @@
 	"scripts": {
 		"prepare": "bun scripts/patch-typings.ts",
 		"setup": "bun scripts/setup-includes.ts",
-		"generate": "bun scripts/setup-includes.ts && bun scripts/patch-typings.ts && bun scripts/generate-host.ts && bun scripts/generate-wasm-api.ts && bun scripts/generate-flags.ts && bun scripts/generate-entities.ts && bun scripts/generate-hooks.ts && bun scripts/generate-chains.ts && bun scripts/apply-docs.ts && bun scripts/generate-embedded.ts",
+		"generate": "bun scripts/setup-includes.ts && bun scripts/patch-typings.ts && bun scripts/generate-image.ts && bun scripts/generate-wasm-api.ts && bun scripts/generate-flags.ts && bun scripts/generate-entities.ts && bun scripts/generate-hooks.ts && bun scripts/generate-chains.ts && bun scripts/apply-docs.ts && bun scripts/generate-embedded.ts",
 		"setup:amxmodx": "bun scripts/setup-amxmodx.ts",
-		"host": "bun scripts/generate-host.ts && bun scripts/compile-host.ts",
+		"image": "bun scripts/generate-image.ts && bun scripts/compile-image.ts",
 		"build:linux": "bun scripts/build-linux.ts",
 		"plugins": "bun scripts/build-wasm.ts",
 		"serverkit": "bun scripts/pack-server.ts",
@@ -117,7 +117,7 @@
 		"test:fast": "bun test tests/code-style tests/entities tests/flags tests/generated-table tests/hooks tests/include-parser tests/includes",
 		"test:server": "bun --smol scripts/test-server.ts",
 		"check": "tsc",
-		"clean": "rm -rf dist-wasm runtime/host/amxts_host.sma runtime/host/amxts_host.amxx runtime/src/host.h runtime/natives.txt runtime/src/natives.h as/natives.ts as/constants.ts",
+		"clean": "rm -rf dist-wasm runtime/host/amxts_natives.sma runtime/host/amxts_natives.amxx runtime/src/image.h runtime/natives.txt runtime/src/natives.h as/natives.ts as/constants.ts",
 		"types:site": "bun scripts/types-site.ts",
 		"lint": "oxlint && oxfmt --check",
 		"lint:fix": "oxfmt && oxlint --fix --silent || oxlint --fix --silent || oxlint --fix"

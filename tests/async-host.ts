@@ -164,7 +164,7 @@ export class AsyncHost {
 		return this.enter(() => this.exports[name](...args));
 	}
 
-	/** Fires a forward registered with `on`, as the host plugin relays one. */
+	/** Fires a forward registered with `on`, as the module raises one. */
 	fire(forward: string, ...args: number[]) {
 		for (const fn of this.events.get(forward) ?? []) {
 			this.enter(() => this.callIndirect(fn, [args[0] ?? 0, args[1] ?? 0, args[2] ?? 0, args[3] ?? 0]));

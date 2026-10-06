@@ -233,7 +233,7 @@ export const COMMON = new Set(['menu', 'weapon', 'memory', 'conditions', 'activi
 /**
  * Server events by their old names - the Pawn forward's and the short one
  * before it - each by the name in the author's words
- * (scripts/generate-host.ts's EVENT_NAMES).
+ * (scripts/generate-image.ts's EVENT_NAMES).
  */
 export const SERVER_EVENTS: Record<string, string> = {
 	plugin_init: 'init',

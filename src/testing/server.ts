@@ -8,7 +8,7 @@ import { pawnLayout } from '../../scripts/plugin-natives';
 // A plugin's wasm imports two things from "env": the bridge externals the
 // facade declares (slot, clcmd, task, on, hook, call, arg_text, say_text ...)
 // and the natives as/natives.ts declares, which take Pawn cells. The bridge is
-// implemented here the way module.cpp implements it - callback slots, the
+// implemented here the way module.cpp implements it - publicFor names, the
 // events registry, Fire with its outcome - and the natives in natives.ts,
 // against the players and entities below. An import neither covers throws,
 // naming itself, the first time the plugin calls it.
@@ -240,7 +240,7 @@ export interface JoinOptions {
 const SHAPE_NARROW = 0;
 const SHAPE_WIDE = 1;
 /** A slot taken back after a reload: SLOT_REUSED in module.cpp. */
-const SLOT_REUSED = 0x10000;
+const SLOT_REUSED = 0x40000000;
 /** A request that tells an owner a plugin which called it stopped: RPC_GONE in module.cpp, KIND_GONE in as/remote.ts. */
 const RPC_GONE = 2;
 const PLUGIN_HANDLED = 1;
@@ -1113,7 +1113,7 @@ export class FakeServer {
 	}
 
 	/**
-	 * Raises a forward the host plugin relays - "client_putinserver",
+	 * Raises a forward the module raises - "client_putinserver",
 	 * "plugin_cfg" - or one a Pawn plugin sends: every handler and every
 	 * Forward.subscribe() of that name hears it. Text arrives as text, a
 	 * boolean as 1 or 0, an array as its cells (a Float's as its bits). As in
@@ -1794,6 +1794,8 @@ export class FakeServer {
 	 */
 	showMenu(id: number, keys: number, text: string): void {
 		for (const player of this.players.filter(one => one.connected && (id === 0 || one.id === id))) {
+			// The module's show_menu: a menu over a plugin's Menu takes its keys.
+			this.shownMenus.delete(player.id);
 			const before = player.menu;
 			player.menu = null;
 			const replaced = before ? this.menus.get(before.menu) : undefined;
@@ -2258,8 +2260,7 @@ export class FakeServer {
 			list.push({ handler: { plugin, fn, shape: SHAPE_NARROW }, tag });
 		},
 
-		// No forward is relayed by a host plugin here, so every one a
-		// TypeScript plugin emits reaches its subscribers this way: `s` a
+		// A forward a TypeScript plugin emits reaches its subscribers this way: `s` a
 		// string, `a` an array as its count and then its cells, the rest cells.
 		emit_local(this: FakeServer, plugin: PluginInstance, name: number, mask: number, cells: number, argc: number) {
 			const forward = plugin.memory.string(name);

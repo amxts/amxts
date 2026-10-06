@@ -133,7 +133,7 @@ if (!existsSync(std)) {
 cpSync(join(std, 'assembly'), join(out, 'addons/amxts/plugins/.assemblyscript/assembly'), { recursive: true });
 cpSync(join(std, 'types'), join(out, 'addons/amxts/plugins/.assemblyscript/types'), { recursive: true });
 
-// The module carries the host plugin and writes it out for AMX Mod X itself.
+// The module is all AMX Mod X needs: it carries its natives' image itself.
 if (existsSync(module_)) {
 	copyFileSync(module_, join(out, 'addons/amxmodx/modules', MODULE_FILE[system]));
 } else {
@@ -150,10 +150,8 @@ addons/amxmodx/configs/modules.ini:
 
   amxts_amxx
 
-That is all: plugins.ini needs no line. The module loads its host plugin
-itself - on every start it writes amxts_host.amxx into addons/amxmodx/plugins
-and names it in addons/amxmodx/configs/plugins-amxts.ini, and it removes both
-when the server stops.
+That is all: AMX Mod X's plugins.ini needs no line, and no plugin of amxts
+goes in addons/amxmodx/plugins.
 This kit is for a ${SYSTEM_NAME[system]} server: the module is ${MODULE_FILE[system]}.
 
 Writing a plugin
