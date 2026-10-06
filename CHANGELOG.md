@@ -14,6 +14,8 @@ A plugin's tests on the fake server run under Node with Vitest as well as under 
 
 `npx amxts upgrade` in the project, with the server stopped: it moves `@amxts/core` to 0.2.3, builds the plugins again and puts the 0.2.3 module on the server named in `.env`. A server installed by hand takes the module (and `amxts-compile`, where it has one) from this release, and its plugins are built again.
 
+To run an existing project's tests on Node: `npm i -D vitest`, import `test` and `expect` from `vitest` instead of `bun:test`, and `npx amxts test` (`@amxts/cli` 0.2.1) runs Vitest.
+
 ### 🩹 Fixes
 
 - **hooks:** No `playerSpawn` for a player counted out - a bot that takes the slot of one who left the map no longer reaches the listeners while ReAPI's natives refuse it ([0d7ce9f](https://github.com/amxts/amxts/commit/0d7ce9f))
