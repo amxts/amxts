@@ -4132,18 +4132,17 @@ export type TimerHandler = () => void;
 
 // The timers that are armed, by handle. The module fires a timer by calling one
 // function with its id; that function is timerFired, which calls the handler
-// from here - with its closure, which a bare table index would lose.
-class Timer {
-	constructor(public handler: TimerHandler, public repeat: bool) {}
-}
-
-const timers = new Map<i32, Timer>();
+// from here - with its closure, which a bare table index would lose. A timeout
+// and an interval are kept apart, so a timer is its handler and nothing more.
+const timeouts = new Map<i32, TimerHandler>();
+const intervals = new Map<i32, TimerHandler>();
 
 function timerFired(handle: i32): void {
-	if (!timers.has(handle)) return;
-	const timer = timers.get(handle);
-	if (!timer.repeat) timers.delete(handle);
-	timer.handler();
+	if (timeouts.has(handle)) {
+		const handler = timeouts.get(handle);
+		timeouts.delete(handle);
+		handler();
+	} else if (intervals.has(handle)) intervals.get(handle)();
 }
 
 function armTimer(handler: TimerHandler, ms: number, repeat: bool): i32 {
@@ -4151,7 +4150,7 @@ function armTimer(handler: TimerHandler, ms: number, repeat: bool): i32 {
 	// stopped by its id: the handle comes from the module, so no other plugin
 	// has it and clearTimeout here cannot stop a timer there.
 	const handle = _uniqueId();
-	timers.set(handle, new Timer(handler, repeat));
+	(repeat ? intervals : timeouts).set(handle, handler);
 	// The delay crosses as the bit pattern of a 32-bit float: every signature
 	// in the module's table is all-i on purpose.
 	_task(floatCell(ms / 1000.0), timerFired.index, handle, repeat ? 1 : 0);
@@ -4217,9 +4216,8 @@ export function setInterval(handler: TimerHandler, ms: number): number {
  * Pawn: `remove_task`
  */
 export function clearTimeout(handle: number): void {
-	if (!timers.has(<i32>handle)) return;
-	timers.delete(<i32>handle);
-	_stopTask(<i32>handle);
+	const id = <i32>handle;
+	if (timeouts.delete(id) || intervals.delete(id)) _stopTask(id);
 }
 
 /** Stops the interval with this handle; the same as `clearTimeout`. */
