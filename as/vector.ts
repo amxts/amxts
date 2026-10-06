@@ -11,6 +11,8 @@ export class Vector extends Array<number> {
 	// x, y and z are loads and stores at the array's data: a Vector is made
 	// with room for three, which a shorter length leaves in place. An index,
 	// even unchecked, was a call - and a write a checked one, which may grow.
+	// The getters are inlined; a setter is small enough for a full build to
+	// inline it (an accessor pair takes one decorator in the editor).
 	constructor(x: number = 0.0, y: number = 0.0, z: number = 0.0) {
 		super(3);
 		store<f64>(this.dataStart, x);
@@ -20,15 +22,15 @@ export class Vector extends Array<number> {
 
 	/** The x coordinate, `vector[0]`. */
 	@inline get x(): number { return load<f64>(this.dataStart); }
-	@inline set x(value: number) { store<f64>(this.dataStart, value); }
+	set x(value: number) { store<f64>(this.dataStart, value); }
 
 	/** The y coordinate, `vector[1]`. */
 	@inline get y(): number { return load<f64>(this.dataStart, 8); }
-	@inline set y(value: number) { store<f64>(this.dataStart, value, 8); }
+	set y(value: number) { store<f64>(this.dataStart, value, 8); }
 
 	/** The z coordinate, `vector[2]`. */
 	@inline get z(): number { return load<f64>(this.dataStart, 16); }
-	@inline set z(value: number) { store<f64>(this.dataStart, value, 16); }
+	set z(value: number) { store<f64>(this.dataStart, value, 16); }
 
 	/** A new vector: this one plus `other`, number by number. */
 	add(other: number[]) {

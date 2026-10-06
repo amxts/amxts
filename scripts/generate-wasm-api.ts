@@ -845,6 +845,7 @@ export function __textAt(at: usize, max: i32): string {
 	const slot = hash & (__TEXTS - 1);
 	const kept = unchecked(__texts[slot]);
 	if (changetype<usize>(kept) != 0 && __sameText(changetype<string>(kept), at, length)) return changetype<string>(kept);
+	// @ts-ignore: the runtime's allocator, which the editor's typings leave out
 	const text = changetype<string>(__new(<usize>length << 1, idof<String>()));
 	for (let i = 0; i < length; i++) store<u16>(changetype<usize>(text) + (<usize>i << 1), load<u8>(at + i));
 	unchecked(__texts[slot] = text);
