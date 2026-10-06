@@ -43,7 +43,8 @@ test('a field native reads and writes a field as what it holds', async () => {
 });
 
 test('a server event hands its listener every argument, all twelve of pfn_playbackevent', async () => {
-	expect(host).toMatch(/return amxts_event\(\d+, "nnnfa3a3ffnnnn", flags, entid, eventid, delay, Origin, Angles, fparam1, fparam2, iparam1, iparam2, bparam1, bparam2\);/);
+	// The module raises it from the engine's PlaybackEvent: the host has no public for it.
+	expect(host).not.toContain('pfn_playbackevent(');
 
 	const server = await loadPlugin(FIXTURE);
 	server.fire('pfn_playbackevent', 0, 1, 26, floatBits(0.5), [1, 2, 3].map(floatBits), [0, 90, 0].map(floatBits), 0, 0, 0, 0, 0, 1);

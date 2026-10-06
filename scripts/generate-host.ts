@@ -2,10 +2,12 @@ import type { ForwardDeclaration, NativeFunction, Parameter } from '../src/types
 import type { MessageField } from './client-messages';
 // Generates runtime/host/amxts_host.sma from includes/*.inc
 //
-// The host plugin holds no logic. It exists for exactly three reasons:
+// The host plugin holds no logic. It exists for exactly two reasons:
 //   1. pull natives into its table so the module can resolve them by name;
-//   2. relay the AMXX forwards the module does not raise itself, through amxts_event();
-//   3. keep a pool of publics that the plugins' callbacks attach to.
+//   2. keep a pool of publics for the natives that take a callback by name.
+// AMX Mod X's forwards and its modules' the module raises itself, from its
+// own hooks of the functions they are raised from; this writes their table
+// (runtime/src/forwards.h) and their events (as/events.ts).
 // scripts/compile-host.ts compiles it into runtime/src/host.h: the module
 // carries it and has AMX Mod X load it, so a server installs the module alone.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -33,30 +35,6 @@ const HOST_CELLS = 131072;
 // plugin_natives loads the plugins before AMX Mod X asks anyone for natives.
 // The module raises plugin_init itself, from ServerActivate.
 const SKIP_FORWARDS = new Set(['plugin_init', 'plugin_natives']);
-
-// Forwards the module fires itself, from its own Metamod hooks of the
-// functions AMX Mod X fires them from: the host has no public for them, and
-// they keep their number and their event.
-const MODULE_FORWARDS = new Set([
-	'plugin_precache',
-	'plugin_cfg',
-	'plugin_end',
-	'OnAutoConfigsBuffered',
-	'OnConfigsExecuted',
-	'client_connect',
-	'client_connectex',
-	'client_authorized',
-	'client_putinserver',
-	'client_infochanged',
-	'client_command',
-	'client_disconnected',
-	'client_remove',
-	'client_kill',
-	'client_impulse',
-	'client_cmdStart',
-	'server_frame',
-	'server_changelevel',
-]);
 
 function isFloat(p: Parameter): boolean {
 	return /Float/.test(p.type);
@@ -105,28 +83,6 @@ function kindOf(p: Parameter): 'n' | 'f' | 's' | 'a' {
 /** The size the include writes for an array parameter, or null: `Float:origin[3]` is 3. */
 function sizeOf(p: Parameter): string | null {
 	return /^\d+$/.test(p.arraySize ?? '') ? p.arraySize! : null;
-}
-
-// The module sees every parameter as an identical cell and cannot tell a number
-// from a string address, so it gets a type mask, a letter per parameter
-// (kindOf), an array's size after it where the include writes one - "na3s".
-function typeMask(f: ForwardDeclaration): string {
-	return f.params.map(p => kindOf(p) === 'a' ? `a${sizeOf(p) ?? ''}` : kindOf(p)).join('');
-}
-
-// The public must match the forward prototype down to tags and const,
-// otherwise amxxpc reports "function heading differs from prototype".
-function pawnParam(p: Parameter): string {
-	const konst = p.isConst ? 'const ' : '';
-	const tag = p.type && p.type !== 'any' ? `${p.type}:` : '';
-	const dims = p.isArray ? `[${p.arraySize ?? ''}]` : '';
-	return `${konst}${tag}${p.name}${dims}`;
-}
-
-function forwardStub(f: ForwardDeclaration): string {
-	const sig = f.params.map(pawnParam).join(', ');
-	const args = [forwardNames.indexOf(f.name), `"${typeMask(f)}"`, ...f.params.map(p => p.name)].join(', ');
-	return `public ${f.name}(${sig})\n{\n\treturn amxts_event(${args});\n}`;
 }
 
 // must match MAX_CALLBACK_ARGS and n_callback's arity in runtime/src/module.cpp
@@ -197,7 +153,7 @@ function readOrderFile(): { includes: string[]; denied: Set<string> } {
 
 const { includes, denied } = readOrderFile(); // from order.txt, unchanged
 // Denied too: a deny marker keeps a file's natives out of the host's table, it
-// does not make the file uninteresting - its forwards still want relaying, and
+// does not make the file uninteresting - its forwards are still raised, and
 // nothing links against a forward.
 const parseNames = resolveTransitive(includes.concat(Array.from(denied)));
 const natives: NativeFunction[] = [];
@@ -214,7 +170,7 @@ for (const name of parseNames) {
 const includeTexts: string[] = [];
 // Forwards of the AMX Mod X distribution itself. Only these are server events:
 // a forward some plugin declares (menu_core's, a project's own) is heard
-// through Forward.subscribe, one way for one thing. The host relays the
+// through Forward.subscribe, one way for one thing. The module raises the
 // forwards AMX Mod X and its modules raise; a Pawn plugin's own reaches
 // subscribe through the module, which stands in for ExecuteForward.
 const stockForwards = new Set<string>();
@@ -231,20 +187,13 @@ for (const name of parseNames) {
 
 forwards = forwards.filter(forwardIsSimple);
 
-// The forwards by number: the host's publics pass amxts_event a forward's
-// index here rather than its name, and the module keeps its listeners in a
-// table of the same order (runtime/src/forwards.h). The two the host writes
-// by hand come first.
-const forwardNames = [...SKIP_FORWARDS, ...forwards.map(f => f.name)];
-
 // Order matters: pullCall fills fixedArrays, and declarations precede the calls.
 const pulls = natives.map(pullCall).join('\n');
 const arrayDecls = Array.from(fixedArrays, ([name, size]) => `\tnew ${name}[${size}];`).join('\n');
 
 // The events a plugin can listen to, as/events.ts's ServerEventMap, are
-// written here rather than by generate-wasm-api because the host plugin is
-// what decides which forwards are relayed at all - a name absent from
-// order.txt's includes is absent there too.
+// written here with the forwards' table rather than by generate-wasm-api: a
+// forward of an include absent from order.txt is absent from both.
 
 function camelOf(text: string): string {
 	return text.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
@@ -263,10 +212,7 @@ const EVENT_NAMES: Record<string, string> = {
 	plugin_precache: 'precache',
 	plugin_cfg: 'pluginsLoaded',
 	plugin_end: 'end',
-	plugin_pause: 'pause',
-	plugin_unpause: 'unpause',
 	plugin_log: 'log',
-	plugin_modules: 'modules',
 	server_changelevel: 'changeLevel',
 	server_frame: 'frame',
 	OnConfigsExecuted: 'configsExecuted',
@@ -299,15 +245,23 @@ const EVENT_NAMES: Record<string, string> = {
 const HOOD_ONLY = new Set(['CS_OnBuy', 'CS_OnBuyAttempt', 'client_infochanged']);
 
 /**
- * Forwards no event is made of: the game's events say the same
- * (`preThink`, `postThink`, `touch`), or the forward is an old form of
- * another (`client_disconnect` of `client_disconnected`).
+ * Forwards no event is made of, and the module does not raise: the game's
+ * events say the same (`preThink`, `postThink`, `touch`), the forward is an
+ * old form of another (`client_disconnect` of `client_disconnected`), or AMX
+ * Mod X calls it in one plugin about itself - paused, resumed, asked for the
+ * modules it needs - and an amxts plugin is not one of its plugins.
  */
-const LEFT_OUT = new Set(['client_PreThink', 'client_PostThink', 'pfn_touch', 'client_disconnect']);
+const LEFT_OUT = new Set(['client_PreThink', 'client_PostThink', 'pfn_touch', 'client_disconnect', 'plugin_pause', 'plugin_unpause', 'plugin_modules']);
+
+// The forwards the module raises, by number: it keeps their listeners in a
+// table of this order (runtime/src/forwards.h), and a registration (`on`,
+// `subscribe`) names one and is looked up there once. plugin_init first, as
+// the module raises it from ServerActivate.
+const forwardNames = ['plugin_init', ...forwards.filter(f => !LEFT_OUT.has(f.name)).map(f => f.name)];
 
 /**
- * One event per forward the host relays, and plugin_init, which the module
- * fires itself: `server.addEventListener("putInServer", (event) => ...)`.
+ * One event per forward the module raises, plugin_init among them:
+ * `server.addEventListener("putInServer", (event) => ...)`.
  *
  * What a listener gets is an object with the forward's arguments as typed
  * fields - `event.player` a Player rather than an index, a string read out of
@@ -701,9 +655,9 @@ const wordless = messageNames.map(m => m.messages[0]).filter(message => !MESSAGE
 if (wordless.length > 0) throw new Error(`messages without words in scripts/docs/messages.ts: ${wordless.join(', ')}`);
 
 writeFileSync('./as/events.ts', `// GENERATED by scripts/generate-host.ts — do not edit
-// Source: includes/*.inc, through the forwards the host plugin relays
+// Source: includes/*.inc, the forwards the module raises
 //
-// The events a server raises, one per forward the host plugin relays:
+// The events a server raises, one per forward the module raises:
 //
 //   server.addEventListener("putInServer", (event) => print(event.player, "Welcome!"));
 //
@@ -711,7 +665,7 @@ writeFileSync('./as/events.ts', `// GENERATED by scripts/generate-host.ts — do
 // the DOM's HTMLElementEventMap - and the compiler reads the same map through
 // a patch (runtime/patches: \`K extends keyof M\` and \`M[K]\`), so an untyped
 // \`(event) => ...\` gets the event's type. Underneath, each event keeps its
-// listeners in an array and relays its forward while the array has any.
+// listeners in an array and listens to its forward while the array has any.
 import { Client, ClientMessage, FadeDirection, Player, PlayerChangeEvent, StatusIconState, Team, VariantName, __Listeners, __forwardNumbers, __nativeCell, __nativeString, __nativeVector, __off, __playerOf } from "./facade";
 import { Vector } from "./vector";
 import { WeaponKind, weaponKindOf } from "./entities";
@@ -816,7 +770,6 @@ new __amxts_null = 0;
 
 ${includes.map(i => `#include <${i}>`).join('\n')}
 
-native amxts_event(index, const types[], ...);
 // Eight arguments: the arity must match n_callback in runtime/src/module.cpp,
 // which reads exactly this many cells. They are in different files, so changing
 // one means changing the other.
@@ -846,7 +799,7 @@ public plugin_natives()
 	set_native_filter("amxts_native_filter");
 
 	amxts_natives();
-	return amxts_event(${forwardNames.indexOf('plugin_natives')}, "");
+	return PLUGIN_CONTINUE;
 }
 
 public amxts_module_filter(const library[], LibType:type)
@@ -873,9 +826,6 @@ public amxts_native_filter(const name[], index, trap)
 	log_amx("[amxts] %s is not on this server: the module or plugin that provides it is not loaded. Its calls do nothing and answer 0", name);
 	return PLUGIN_HANDLED;
 }
-
-// ---------------------------------------------------------------- forwards
-${forwards.filter(f => !MODULE_FORWARDS.has(f.name)).map(forwardStub).join('\n\n')}
 
 // ---------------------------------------------------------------- callback slots
 ${Array.from({ length: CALLBACK_SLOTS }, (_, i) => callbackSlot(i)).join('\n\n')}
@@ -905,8 +855,8 @@ writeFileSync(outPath, sma);
 writeFileSync('./runtime/src/forwards.h', `// GENERATED by scripts/generate-host.ts - do not edit
 // Source: includes/*.inc
 //
-// The forwards the host plugin relays, by the number its public passes
-// amxts_event: the module's table of their listeners has this order.
+// The forwards of AMX Mod X and its modules the module raises itself, from
+// its own hooks, by number: its table of their listeners has this order.
 
 #define FORWARD_COUNT ${forwardNames.length}
 
@@ -920,5 +870,5 @@ ${forwardNames.map((name, i) => `#define FORWARD_${name.toUpperCase()} ${i}`).jo
 console.log(`✅ ${outPath}, runtime/src/forwards.h`);
 console.log(`   - ${includes.length} includes: ${includes.join(', ')}`);
 console.log(`   - ${natives.length} natives pulled`);
-console.log(`   - ${forwards.length} forwards bridged`);
+console.log(`   - ${forwardNames.length} forwards the module raises`);
 console.log(`   - ${CALLBACK_SLOTS} callback slots of ${CALLBACK_ARGS} arguments`);

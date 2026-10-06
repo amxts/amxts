@@ -251,8 +251,18 @@ const OUTCOME_BREAK = 2;
 const FMRES_SUPERCEDE = 4;
 // A message argument's types, as get_msg_argtype answers.
 const ARG_BYTE = 1;
+const ARG_ANGLE = 5;
 const ARG_COORD = 6;
 const ARG_STRING = 7;
+
+// A message's destination, as the module hands it to a message's hook.
+const MSG_ONE = 1;
+const MSG_ALL = 2;
+
+// The functions stock_hook takes, by number (STOCK_* in as/facade.ts), and
+// the fakemeta function each is.
+const STOCK_FUNCTIONS = ['FM_SetModel', 'FM_EmitSound', 'FM_Voice_SetClientListening', 'FM_PrecacheModel', 'FM_PrecacheSound', 'FM_PrecacheGeneric', 'FM_GetGameDescription'];
+const STOCK_CVAR_ANSWER = 7;
 
 /**
  * Date#getTimezoneOffset() in a time zone: minutes from its wall clock at
@@ -741,6 +751,8 @@ export class FakeServer {
 	readonly hamCalls: { fn: number; entity: number; args: number[]; hooks: boolean }[] = [];
 	/** register_message's callbacks, by the message's id. */
 	readonly messageHooks = new Map<number, Slot[]>();
+	/** The module's hooks of a message (msg_hook), by its id: they hear it after register_message's. @internal */
+	readonly moduleMessageHooks = new Map<number, Slot[]>();
 	/** The message register_message's callbacks are reading and writing: its arguments and their ARG_* types. @internal */
 	hookedMessage: { args: (number | string)[]; types: number[] } | null = null;
 	/** register_touch's callbacks. */
@@ -755,6 +767,8 @@ export class FakeServer {
 	readonly messageEvents: { name: string; conditions: string[]; slot: Slot }[] = [];
 	/** register_forward's callbacks, by `<FM_* number>:pre|post`. */
 	readonly fakemetaForwards = new Map<string, Slot[]>();
+	/** The module's hooks of the same functions (stock_hook), by `<STOCK_* number>:pre|post`. @internal */
+	readonly stockHooks = new Map<string, Slot[]>();
 	/** What a fakemeta callback answered with forward_return, and what get_orig_retval reads. @internal */
 	forwardAnswer: number | string | null = null;
 	origRetval = 0;
@@ -762,8 +776,9 @@ export class FakeServer {
 	readonly listening: number[][] = [];
 	/** The engine's and the game's functions plugins called through engfunc and dllfunc, each as a line: `TraceLine 1,2,3 4,5,6 1 7 0`. */
 	readonly engineCalls: string[] = [];
-	/** query_client_cvar's questions, waiting for answerCvar(). */
-	readonly cvarQueries: { player: number; cvar: string; slot: Slot }[] = [];
+	/** query_client_cvar's questions, and the module's (query_cvar) by their ids, waiting for answerCvar(). */
+	readonly cvarQueries: { player: number; cvar: string; slot?: Slot; request?: number }[] = [];
+	private cvarRequests = 0;
 	/** The menus menu_create made and menu_destroy has not taken away, by id. */
 	readonly menus = new Map<number, FakeMenu>();
 	/** menu_makecallback's publics, by the number it gave. @internal */
@@ -1261,6 +1276,11 @@ export class FakeServer {
 			for (const slot of [...(id !== undefined ? this.messageHooks.get(id) ?? [] : [])]) {
 				const handed = [id ?? 0, receiver ? 1 : 0, receiver, 0];
 				if (this.withCallArgs(handed, () => this.call(slot, handed, 0)) === PLUGIN_HANDLED) prevented = true;
+			}
+			// The module's hooks: the receiver, the id, the destination; any answer blocks it.
+			for (const slot of [...(id !== undefined ? this.moduleMessageHooks.get(id) ?? [] : [])]) {
+				const handed = [receiver, id ?? 0, receiver ? MSG_ONE : MSG_ALL, 0];
+				if (this.withCallArgs(handed, () => this.call(slot, handed, 0)) !== 0) prevented = true;
 			}
 			// register_event's callbacks hear it once it is sent, when its conditions hold.
 			const holds = (condition: string) => {
@@ -1784,9 +1804,10 @@ export class FakeServer {
 	}
 
 	/**
-	 * A line of the game's log, as the engine hands it to AMX Mod X: split
-	 * into its arguments as AMX Mod X splits it, and every logevent callback
-	 * whose filters it passes is called.
+	 * A line of the game's log, as the engine hands it to the module: split
+	 * into its arguments as AMX Mod X splits them, and every log hook whose
+	 * filters it passes is called. A line logged while one runs is heard by
+	 * its own, and read_logargv reads the outer line again after it.
 	 *
 	 * ```ts
 	 * server.gameLog('World triggered "Round_End"');
@@ -1794,19 +1815,22 @@ export class FakeServer {
 	 * ```
 	 */
 	gameLog(line: string): void {
-		// AMX Mod X keeps one parsed line: one logged while a callback runs
-		// replaces it, and the walk of the outer line's callbacks goes on with it.
-		this.logLine = line;
-		this.logArgs = splitLog(line);
-		const argc = this.logArgs.length;
+		const [outerLine, outerArgs] = [this.logLine, this.logArgs];
+		const args = splitLog(line);
 		const passes = (filter: string) => {
 			const match = filter.match(/^(\d+)([=&!])(.*)$/);
 			if (!match) return true;
-			const value = this.logArgs[Number(match[1])] ?? '';
+			const value = args[Number(match[1])] ?? '';
 			return match[2] === '=' ? value === match[3] : match[2] === '&' ? value.includes(match[3]) : value !== match[3];
 		};
-		for (const event of [...this.logEvents]) {
-			if (event.argc === argc && event.filters.every(passes)) this.withCallArgs([], () => this.call(event.slot, [0, 0, 0, 0], 0));
+		try {
+			for (const event of [...this.logEvents]) {
+				if (event.argc !== args.length || !event.filters.every(passes)) continue;
+				[this.logLine, this.logArgs] = [line, args];
+				this.withCallArgs([], () => this.call(event.slot, [0, 0, 0, 0], 0));
+			}
+		} finally {
+			[this.logLine, this.logArgs] = [outerLine, outerArgs];
 		}
 	}
 
@@ -1829,11 +1853,35 @@ export class FakeServer {
 		for (const slot of [...(this.fakemetaForwards.get(`${fn}:pre`) ?? [])]) {
 			if (this.withCallArgs(cells, () => this.call(slot, handed, slot.fallback)) >= FMRES_SUPERCEDE) superseded = true;
 		}
-		if (!superseded) {
-			this.origRetval = result;
-			for (const slot of [...(this.fakemetaForwards.get(`${fn}:post`) ?? [])]) this.withCallArgs(cells, () => this.call(slot, handed, slot.fallback));
+
+		// The module's own hooks of the function: any answer blocks it, and
+		// chain_set writes an argument or (at -1) its answer.
+		const stock = STOCK_FUNCTIONS.indexOf(name);
+		const chain: Chain = { shape: { kind: name, floats: new Set(), texts: new Set(), answer: typeof result === 'string' ? 'text' : 'int' }, answer: result, args: [...args] as HookArg[], cells };
+		const previous = this.chain;
+		this.chain = chain;
+		try {
+			for (const slot of [...(this.stockHooks.get(`${stock}:pre`) ?? [])]) {
+				if (this.withCallArgs(cells, () => this.call(slot, handed, 0)) !== 0) superseded = true;
+			}
+			if (chain.answered) this.forwardAnswer = chain.answer as number | string;
+			if (!superseded) {
+				this.origRetval = result;
+				for (const slot of [...(this.fakemetaForwards.get(`${fn}:post`) ?? [])]) this.withCallArgs(cells, () => this.call(slot, handed, slot.fallback));
+				for (const slot of [...(this.stockHooks.get(`${stock}:post`) ?? [])]) this.withCallArgs(cells, () => this.call(slot, handed, 0));
+			}
+		} finally {
+			this.chain = previous;
 		}
 		return { superseded, answer: this.forwardAnswer };
+	}
+
+	/** A handler of one of the module's hooks, under `key` in `hooks`; its handle for hook_on. @internal */
+	addModuleHook<K>(plugin: PluginInstance, fn: number, hooks: Map<K, Slot[]>, key: K): number {
+		const slot = this.takeSlot(plugin, fn, SHAPE_WIDE, '', 0);
+		hooks.set(key, [...(hooks.get(key) ?? []), slot]);
+		this.hookSlots.set(this.hookSlots.size + 1, slot);
+		return this.hookSlots.size;
 	}
 
 	/** Switches a hook off or on by its handle: the module's (hook_on), or a raw RegisterHookChain's or RegisterHam's. @internal */
@@ -1885,10 +1933,21 @@ export class FakeServer {
 		return answer;
 	}
 
-	/** A client answering query_client_cvar: every question about that cvar it had. */
+	/**
+	 * A client answering query_client_cvar and the module's questions: every
+	 * question about that cvar it had. The module's go to its hooks of the
+	 * answer, (player, id, cvar, value), once.
+	 */
 	answerCvar(player: FakePlayer, cvar: string, value: string): void {
 		for (const query of this.cvarQueries.filter(q => q.player === player.id && q.cvar === cvar)) {
-			this.withCallArgs([player.id, cvar, value], () => this.call(query.slot, [player.id, 0, 0, 0], 0));
+			if (query.slot) {
+				const slot = query.slot;
+				this.withCallArgs([player.id, cvar, value], () => this.call(slot, [player.id, 0, 0, 0], 0));
+				continue;
+			}
+			this.cvarQueries.splice(this.cvarQueries.indexOf(query), 1);
+			const args = [player.id, query.request ?? 0, cvar, value];
+			for (const slot of [...(this.stockHooks.get(`${STOCK_CVAR_ANSWER}:pre`) ?? [])]) this.withCallArgs(args, () => this.call(slot, [player.id, query.request ?? 0, 0, 0], 0));
 		}
 	}
 
@@ -2177,12 +2236,6 @@ export class FakeServer {
 			return left.index | SLOT_REUSED;
 		},
 
-		// One of the plugin's slots switched off while what it delivers has no listener, or back on.
-		slot_on(this: FakeServer, plugin: PluginInstance, index: number, on: number) {
-			const slot = this.slots[index];
-			if (slot?.plugin === plugin) slot.off = on === 0;
-		},
-
 		// The module's own table of commands, as ClientCommand and the engine's server commands walk it.
 		clcmd(this: FakeServer, plugin: PluginInstance, name: number, fn: number, flags: number, shape: number) {
 			const slot = this.takeSlot(plugin, fn, shape, '', PLUGIN_HANDLED);
@@ -2240,6 +2293,82 @@ export class FakeServer {
 
 		hook_on(this: FakeServer, _plugin: PluginInstance, handle: number, on: number) {
 			this.switchHook(handle, on !== 0);
+		},
+
+		// The module's hooks of the engine's and the game's functions
+		// (runtime/src/enginehooks.h), kept with the natives' callbacks of the
+		// same things: sendMessage, gameLog, changeCvar, touch, fireForward
+		// and answerCvar call both.
+		msg_hook(this: FakeServer, plugin: PluginInstance, id: number, fn: number) {
+			return this.addModuleHook(plugin, fn, this.moduleMessageHooks, id);
+		},
+
+		msg_argc(this: FakeServer, _plugin: PluginInstance) {
+			return this.hookedMessage?.args.length ?? 0;
+		},
+
+		msg_arg_type(this: FakeServer, _plugin: PluginInstance, index: number) {
+			return this.hookedMessage?.types[index] ?? 0;
+		},
+
+		msg_number(this: FakeServer, _plugin: PluginInstance, index: number) {
+			const message = this.hookedMessage;
+			const value = Number(message?.args[index] ?? 0) || 0;
+			const type = message?.types[index];
+			return type === ARG_COORD || type === ARG_ANGLE ? value : Math.trunc(value);
+		},
+
+		msg_text(this: FakeServer, plugin: PluginInstance, index: number, out: number, max: number) {
+			const value = this.hookedMessage?.args[index];
+			return plugin.memory.setBytes(out, max, typeof value === 'string' ? value : '');
+		},
+
+		msg_set_number(this: FakeServer, _plugin: PluginInstance, index: number, value: number) {
+			const message = this.hookedMessage;
+			const type = message?.types[index];
+			if (!message || type === undefined || type === ARG_STRING) return;
+			message.args[index] = type === ARG_COORD || type === ARG_ANGLE ? value : Math.trunc(value);
+		},
+
+		msg_set_text(this: FakeServer, plugin: PluginInstance, index: number, text: number) {
+			const message = this.hookedMessage;
+			if (message?.types[index] === ARG_STRING) message.args[index] = plugin.memory.string(text);
+		},
+
+		log_hook(this: FakeServer, plugin: PluginInstance, argc: number, filter: number, fn: number) {
+			const text = plugin.memory.string(filter);
+			const slot = this.takeSlot(plugin, fn, SHAPE_WIDE, '', 0);
+			this.logEvents.push({ argc, filters: text ? [text] : [], slot });
+			this.hookSlots.set(this.hookSlots.size + 1, slot);
+			return this.hookSlots.size;
+		},
+
+		cvar_hook(this: FakeServer, plugin: PluginInstance, name: number, fn: number) {
+			const cvar = this.cvars.get(plugin.memory.string(name).toLowerCase());
+			if (!cvar) return 0;
+			const slot = this.takeSlot(plugin, fn, SHAPE_WIDE, '', 0);
+			cvar.hooks.push(slot);
+			this.hookSlots.set(this.hookSlots.size + 1, slot);
+			return this.hookSlots.size;
+		},
+
+		touch_hook(this: FakeServer, plugin: PluginInstance, touched: number, toucher: number, fn: number) {
+			const slot = this.takeSlot(plugin, fn, SHAPE_WIDE, '', 0);
+			this.touches.push({ touched: plugin.memory.string(touched), toucher: plugin.memory.string(toucher), slot });
+			this.hookSlots.set(this.hookSlots.size + 1, slot);
+			return this.hookSlots.size;
+		},
+
+		stock_hook(this: FakeServer, plugin: PluginInstance, fn: number, handler: number, post: number) {
+			return this.addModuleHook(plugin, handler, this.stockHooks, `${fn}:${post ? 'post' : 'pre'}`);
+		},
+
+		// A question to the client: answerCvar() answers it by its id.
+		query_cvar(this: FakeServer, plugin: PluginInstance, id: number, name: number) {
+			if (!this.players.some(each => each.id === id)) return 0;
+			const request = ++this.cvarRequests;
+			this.cvarQueries.push({ player: id, cvar: plugin.memory.string(name).toLowerCase(), request });
+			return request;
 		},
 
 		chain_set(this: FakeServer, _plugin: PluginInstance, index: number, value: number) {

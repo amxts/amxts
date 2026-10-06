@@ -22,7 +22,7 @@ test('a message is registered once per name, when the server is up, and only its
 	const server = await loadPlugin(PLUGIN);
 	const ids = LISTENED.map(name => server.messageIds.get(name));
 
-	expect([...server.messageHooks.keys()].sort()).toEqual(ids.map(Number).sort());
+	expect([...server.moduleMessageHooks.keys()].sort()).toEqual(ids.map(Number).sort());
 	expect(server.sendMessage('Money', [800, 1]).prevented).toBe(false);
 });
 

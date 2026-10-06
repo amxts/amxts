@@ -37,5 +37,33 @@
 #define FN_ClientCommand ClientCommand
 #define FN_CmdStart_Post CmdStart_Post
 #define FN_ChangeLevel ChangeLevel
+// The engine module's forwards and a client's file that differs; the log's
+// hook goes into Metamod's table at attach (AlertMessage in module.cpp).
+#define FN_DispatchThink DispatchThink
+#define FN_DispatchKeyValue DispatchKeyValue
+#define FN_PlaybackEvent PlaybackEvent
+#define FN_InconsistentFile InconsistentFile
+// What enginehooks.h hears: messages, touches, and fakemeta's functions.
+#define FN_MessageBegin MessageBegin
+#define FN_MessageEnd MessageEnd
+#define FN_WriteByte WriteByte
+#define FN_WriteChar WriteChar
+#define FN_WriteShort WriteShort
+#define FN_WriteLong WriteLong
+#define FN_WriteAngle WriteAngle
+#define FN_WriteCoord WriteCoord
+#define FN_WriteString WriteString
+#define FN_WriteEntity WriteEntity
+#define FN_DispatchTouch DispatchTouch
+#define FN_SetModel SetModel
+#define FN_EmitSound EmitSound
+#define FN_Voice_SetClientListening Voice_SetClientListening
+#define FN_PrecacheModel PrecacheModel
+#define FN_PrecacheSound PrecacheSound
+#define FN_PrecacheGeneric PrecacheGeneric
+#define FN_PrecacheModel_Post PrecacheModel_Post
+#define FN_PrecacheSound_Post PrecacheSound_Post
+#define FN_PrecacheGeneric_Post PrecacheGeneric_Post
+#define FN_GetGameDescription GetGameDescription
 
 #endif

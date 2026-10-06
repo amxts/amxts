@@ -63,12 +63,6 @@ export const EVENTS: Record<string, EventDoc> = {
 			ru: `Карта заканчивается или сервер выключается: сохраните то, что должно пережить смену карты.`,
 		},
 	},
-	plugin_pause: {
-		summary: { en: `An admin paused this plugin.`, ru: `Админ поставил плагин на паузу.` },
-	},
-	plugin_unpause: {
-		summary: { en: `An admin resumed this plugin.`, ru: `Админ снял плагин с паузы.` },
-	},
 	server_changelevel: {
 		summary: {
 			en: `The server is about to change the map.`,

@@ -43,8 +43,8 @@ function noAnswer(en: string, ru: string): Text {
 
 function buy(en: string, ru: string): Text {
 	return noAnswer(
-		`heard through cstrike's \`CS_OnBuy\`: \`preventDefault()\` stops the purchase; ${en}`,
-		`слышно через \`CS_OnBuy\` модуля cstrike: \`preventDefault()\` отменяет покупку; ${ru}`,
+		`heard as the game checks the purchase, for an item a buy command or a buy menu names: \`preventDefault()\` stops it; ${en}`,
+		`слышно, когда игра проверяет покупку, для предмета, который называет команда покупки или меню покупки: \`preventDefault()\` отменяет её; ${ru}`,
 	);
 }
 
@@ -79,7 +79,7 @@ export const HEARD: Record<string, HeardEvent> = {
 	},
 	gameThink: { class: 'B', backend: 'server_frame', gaps: after },
 	mapReset: { class: 'B', backend: 'the decal_reset.sc playback CleanUpMap ends with', gaps: after },
-	intermission: { class: 'B', backend: 'register_event "30" (SVC_INTERMISSION)', gaps: after },
+	intermission: { class: 'B', backend: 'the engine message 30 (SVC_INTERMISSION)', gaps: after },
 	changeLevel: { class: 'B', backend: 'server_changelevel', gaps: { en: '`preventDefault()` does nothing', ru: '`preventDefault()` ничего не делает' } },
 
 	// Spawning and dying.
@@ -138,15 +138,15 @@ export const HEARD: Record<string, HeardEvent> = {
 			'`amount` — на сколько сдвинулись его деньги с тех пор, как игра в последний раз их ему прислала, а `reason` читается как `"none"`',
 		),
 	},
-	buyWeapon: { class: 'B', backend: 'cstrike CS_OnBuy, a weapon', gaps: buy('`event.result` reads as `null`', '`event.result` читается как `null`') },
-	buyItem: { class: 'B', backend: 'cstrike CS_OnBuy, the equipment', gaps: buy('heard for the equipment menu\'s items', 'слышно для предметов меню снаряжения') },
-	buyAmmo: { class: 'B', backend: 'cstrike CS_OnBuy, ammo', gaps: buy('`weapon` reads as the world, `blinkMoney` as `true`', '`weapon` читается как мир, `blinkMoney` — как `true`') },
+	buyWeapon: { class: 'B', backend: 'the game\'s CanBuyThis, a weapon (CS_OnBuy\'s place)', gaps: buy('`event.result` reads as `null`', '`event.result` читается как `null`') },
+	buyItem: { class: 'B', backend: 'the game\'s CanPlayerBuy and GiveNamedItem, the equipment (CS_OnBuy\'s place)', gaps: buy('heard for the equipment menu\'s items', 'слышно для предметов меню снаряжения') },
+	buyAmmo: { class: 'B', backend: 'the game\'s GiveNamedItem, ammo (CS_OnBuy\'s place)', gaps: buy('`weapon` reads as the world, `blinkMoney` as `true`', '`weapon` читается как мир, `blinkMoney` — как `true`') },
 	itemRestricted: {
 		class: 'B',
-		backend: 'cstrike CS_OnBuyAttempt',
+		backend: 'the game\'s ClientCommand, a buy command or a buy menu\'s number (CS_OnBuyAttempt\'s place)',
 		gaps: {
-			en: 'asked only for `"buying"`, through cstrike\'s `CS_OnBuyAttempt`: answering `true` forbids the purchase, `false` lets the game go on',
-			ru: 'спрашивается только про `"buying"`, через `CS_OnBuyAttempt` модуля cstrike: ответ `true` запрещает покупку, `false` оставляет решение игре',
+			en: 'asked only for `"buying"`, as a player asks to buy: answering `true` forbids the purchase, `false` lets the game go on',
+			ru: 'спрашивается только про `"buying"`, когда игрок просит покупку: ответ `true` запрещает покупку, `false` оставляет решение игре',
 		},
 	},
 
@@ -234,7 +234,7 @@ export const HEARD: Record<string, HeardEvent> = {
 		},
 	},
 
-	// Precaching: fakemeta's forwards, added at plugin_precache, before the game's own.
+	// Precaching: the engine's functions, hooked as the plugin loads, before the game's own precaches.
 	precacheModel: { class: 'B', backend: 'FM_PrecacheModel', gaps: precached },
 	precacheSound: { class: 'B', backend: 'FM_PrecacheSound', gaps: precached },
 	precacheFile: { class: 'B', backend: 'FM_PrecacheGeneric', gaps: precached },
@@ -341,7 +341,7 @@ export interface HeardField {
 }
 
 export const HEARD_FIELDS: Record<string, HeardField> = {
-	gameName: { class: 'A', backend: 'fakemeta: GetGameDescription read, and answered with the text written' },
+	gameName: { class: 'A', backend: 'the game\'s GetGameDescription read, and answered with the text written' },
 	timeLimit: {
 		class: 'B',
 		backend: 'mp_timelimit and AMX Mod X\'s time left',

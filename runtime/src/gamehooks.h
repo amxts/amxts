@@ -51,9 +51,10 @@ struct HookList {
 };
 
 /**
- * One function the module hooks: a hookchain, or a Ham Sandwich function in
- * one class's vtable. It is in the game's way only while a handler of it is
- * switched on; a change while a call of it runs waits for the call's end.
+ * One function the module hooks: a hookchain, a Ham Sandwich function in
+ * one class's vtable, or one of the engine's and the game's that Metamod
+ * gives (enginehooks.h). It is in the game's way only while a handler of it
+ * is switched on; a change while a call of it runs waits for the call's end.
  */
 struct HookPoint {
 	HookList phase[2];
@@ -61,7 +62,10 @@ struct HookPoint {
 	int   calls = 0;
 	bool  dirty = false;
 	bool  attached = false;
-	// A hookchain's registration with the game.
+	// In g_otherPoints, for a plugin's stop and the map's end.
+	bool  listed = false;
+	// A hookchain's registration with the game, or what counts the points
+	// of one Metamod hook in its way; NULL for a Ham Sandwich function.
 	void (*attach)(bool on) = NULL;
 	// A Ham Sandwich function's slot in a vtable, and what was there.
 	int    ham = -1;
@@ -521,6 +525,10 @@ struct HookReg {
 
 static std::vector<HookReg> g_hookRegs;
 
+// The points of the engine's and the game's functions Metamod gives
+// (enginehooks.h) a plugin has added a handler to.
+static std::vector<HookPoint *> g_otherPoints;
+
 /** Puts the point in the game's way, or takes it out, as its handlers say - later, if a call of it runs. */
 static void SettleHook(HookPoint &point)
 {
@@ -537,6 +545,8 @@ static void SettleHook(HookPoint &point)
 		point.attach(want);
 		return;
 	}
+	if (point.ham < 0)
+		return;
 	void **slot = point.vtable + point.slot;
 	if (want) {
 		if (*slot != g_hamInfo[point.ham].hook)
@@ -798,6 +808,8 @@ static void DropGameHooks(int plugin)
 		drop(point);
 	for (HookPoint &point : g_hamPoints)
 		drop(point);
+	for (HookPoint *point : g_otherPoints)
+		drop(*point);
 	for (HookReg &reg : g_hookRegs)
 		if (reg.plugin == plugin)
 			reg.plugin = SLOT_ORPHANED;
@@ -816,5 +828,10 @@ static void TeardownGameHooks()
 		clear(point);
 	for (HookPoint &point : g_hamPoints)
 		clear(point);
+	for (HookPoint *point : g_otherPoints) {
+		clear(*point);
+		point->listed = false;
+	}
+	g_otherPoints.clear();
 	g_hookRegs.clear();
 }

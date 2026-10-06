@@ -1,9 +1,10 @@
 // The game events and game rules fields of ReGameDLL's and ReHLDS's own,
 // which their hookchains alone deliver, on a server without them - plain
-// HLDS - through the stock hooks: AMX Mod X's logevents and messages, Ham
-// Sandwich's functions (the module's own hook in a vtable), fakemeta,
-// cstrike, a client's commands. scripts/hlds-events.ts says, for each, what
-// plain HLDS gives and what it does not.
+// HLDS - through the stock hooks, each the module's own: the game's log and
+// messages, Ham Sandwich's functions (in a vtable), the engine's and the
+// game's functions fakemeta hooks, cstrike's buying, a client's commands.
+// scripts/hlds-events.ts says, for each, what plain HLDS gives and what it
+// does not.
 //
 // `<event>Hlds(fire, hook)` is registered once, on the event's first listener,
 // when the server has not the chain's API (as/hooks.ts), and everything it registers is
@@ -16,8 +17,9 @@
 // answer, a field written - reaches it where the stock hook can take it, and
 // is one line in the console where it cannot (`settle`).
 import {
-	Call, CellBuffer, Player, TouchEvent, game, server, handled, arg, argText, cellFloat, floatCell,
-	__Listeners, __Switch, __ham, __playerOf, __off, __onCell, __outcome, __sayOnce, __switchedPublic, __whenPrecache, __whenUp
+	Call, CellBuffer, MessageArgs, Player, TouchEvent, game, server, handled, arg, argText, cellFloat, floatCell,
+	__Listeners, __Switch, __chainSet, __chainSetText, __ham, __logHook, __messageHook, __playerOf, __off, __onCell, __outcome,
+	__sayOnce, __stockHook, __whenUp
 } from "./facade";
 import { Entity } from "./entities";
 import {
@@ -32,18 +34,15 @@ import {
 	ThrowFlashbangEvent, ThrowGrenadeEvent, ThrowHeGrenadeEvent, ThrowSmokeGrenadeEvent
 } from "./hooks";
 import {
-	NATIVE_dllfunc, NATIVE_engfunc, NATIVE_forward_return, NATIVE_register_event,
-	NATIVE_register_logevent, cs_get_user_money, find_ent_by_model, get_cvar_float, get_ent_data,
-	get_gametime, get_maxplayers, get_orig_retval, get_timeleft, get_user_info, get_user_name,
-	get_user_userid, is_user_alive, is_user_connected, pev_valid, read_argv, read_logargv, read_logdata, register_clcmd, register_forward,
+	NATIVE_dllfunc, NATIVE_engfunc, cs_get_user_money, find_ent_by_model, get_cvar_float, get_ent_data,
+	get_gametime, get_maxplayers, get_timeleft, get_user_info, get_user_msgid, get_user_name,
+	get_user_userid, is_user_alive, is_user_connected, pev_valid, read_argv, read_logargv,
 	set_cvar_float,
 } from "./natives";
 import {
 	CSI_DEFUSER, CSI_FLASHBANG, CSI_HEGRENADE, CSI_LAST_WEAPON, CSI_NVGS, CSI_PRIAMMO, CSI_SECAMMO, CSI_SHIELD,
 	CSI_SHIELDGUN, CSI_SMOKEGRENADE, CSI_VEST, CSI_VESTHELM, DLLFunc_GetGameDescription, EngFunc_PrecacheEvent,
-	EngFunc_SetClientListening, FMRES_IGNORED, FMRES_SUPERCEDE, FMV_CELL, FMV_STRING, FM_EmitSound,
-	FM_GetGameDescription, FM_PrecacheGeneric, FM_PrecacheModel, FM_PrecacheSound, FM_SetModel,
-	FM_Voice_SetClientListening, Ham_AddPlayerItem, Ham_CS_Player_Blind, Ham_Killed, Ham_Spawn,
+	Ham_AddPlayerItem, Ham_CS_Player_Blind, Ham_Killed, Ham_Spawn, MSG_ONE, MSG_ONE_UNRELIABLE, SVC_INTERMISSION,
 	ITEM_ASSAULT, ITEM_DEFUSEKIT, ITEM_KEVLAR, ITEM_NVG, ITEM_SHIELDGUN, ITEM_TYPE_BUYING,
 	ROUND_ALL_HOSTAGES_RESCUED, ROUND_BOMB_DEFUSED, ROUND_CTS_PREVENT_ESCAPE, ROUND_CTS_WIN, ROUND_END_DRAW,
 	ROUND_ESCAPING_TERRORISTS_NEUTRALIZED, ROUND_GAME_COMMENCE, ROUND_HOSTAGE_NOT_RESCUED, ROUND_NONE,
@@ -53,7 +52,7 @@ import {
 } from "./constants";
 import {
 	TextMsgMessage, SendAudioMessage, MoneyMessage, DeathMsgMessage, VGUIMenuMessage, CS_OnBuyEvent, CS_OnBuyAttemptEvent,
-	ClientConnectEvent, ClientDisconnectedEvent, ClientInfochangedEvent, ClientPutinserverEvent, ServerChangelevelEvent,
+	ClientCommandEvent, ClientConnectEvent, ClientDisconnectedEvent, ClientInfochangedEvent, ClientPutinserverEvent, ServerChangelevelEvent,
 	ServerFrameEvent, ServerMessageMap, addServerListener, removeServerListener
 } from "./events";
 
@@ -135,27 +134,8 @@ class Hearers<H> {
  * Calls `handler` on a line of the game's log that AMX Mod X's logevent
  * filter takes: `argc` arguments, `filter` such as "1=Round_End".
  */
-function onLog(key: string, argc: i32, filter: string, handler: () => void, hook: __Switch): void {
-	__whenUp((): void => {
-		const pub = __switchedPublic((a: number, b: number, c: number, d: number): void => {
-			if (heardTwice(key)) return;
-			handler();
-		}, `hlds:log:${key}`, hook);
-		if (pub.length > 0) new Call(NATIVE_register_logevent).str(pub).num(argc).str(filter).run();
-	});
-}
-
-// AMX Mod X walks its logevents with the line it parsed last. A line logged
-// while a logevent runs - the "Round_End" of the kills a listener of
-// "Round_Start" makes - is heard, and then again by every logevent after
-// the outer one as its walk goes on. Each logevent hears a line once a frame.
-const lastLines = new Map<string, string>();
-
-function heardTwice(key: string): bool {
-	const line = `${get_gametime()} ${read_logdata()}`;
-	if (lastLines.has(key) && lastLines.get(key) == line) return true;
-	lastLines.set(key, line);
-	return false;
+function onLog(argc: i32, filter: string, handler: () => void, hook: __Switch): void {
+	__logHook(argc, filter, handler, hook);
 }
 
 /** The player a log line names first - `"Name<userid><authid><team>"` - or 0. */
@@ -175,8 +155,8 @@ function loggedPlayer(): i32 {
 }
 
 /** A player's line of the log - `"..." triggered "<what>"`: the player, 0 when he is gone. */
-function onPlayerLog(event: string, what: string, handler: (id: i32) => void, hook: __Switch): void {
-	onLog(event, 3, `2=${what}`, (): void => handler(loggedPlayer()), hook);
+function onPlayerLog(what: string, handler: (id: i32) => void, hook: __Switch): void {
+	onLog(3, `2=${what}`, (): void => handler(loggedPlayer()), hook);
 }
 
 /** The planted bomb: the grenade with the C4's model, or 0. */
@@ -184,16 +164,20 @@ function plantedBomb(): i32 {
 	return max(<i32>find_ent_by_model(-1, "grenade", "models/w_c4.mdl"), 0);
 }
 
-// ---------------------------------------------------------------- fakemeta
+// ---------------------------------------------------------------- the functions fakemeta hooks
 
-/** Hooks a fakemeta function: `handler` reads its arguments with arg() and argText(). */
-function onFakemeta(fn: i32, post: bool, key: string, handler: () => void, hook: __Switch | null, early: bool = false): void {
-	const register = (): void => {
-		const pub = __switchedPublic((a: number, b: number, c: number, d: number): void => handler(), `hlds:fm:${key}`, hook, FMRES_IGNORED);
-		if (pub.length > 0) register_forward(fn, pub, post ? 1 : 0);
-	};
-	if (early) __whenPrecache(register);
-	else __whenUp(register);
+// The functions by stock_hook's number: must match StockFunction in runtime/src/enginehooks.h.
+const STOCK_SET_MODEL: i32 = 0;
+const STOCK_EMIT_SOUND: i32 = 1;
+const STOCK_CLIENT_LISTENING: i32 = 2;
+const STOCK_PRECACHE_MODEL: i32 = 3;
+const STOCK_PRECACHE_SOUND: i32 = 4;
+const STOCK_PRECACHE_GENERIC: i32 = 5;
+const STOCK_GAME_DESCRIPTION: i32 = 6;
+
+/** Hooks one of the engine's or the game's functions (STOCK_*): `handler` reads its arguments with arg() and argText(). */
+function onStock(fn: i32, post: bool, handler: () => void, hook: __Switch | null): void {
+	__stockHook(fn, (a: number, b: number, c: number, d: number): void => handler(), post, hook);
 }
 
 // One SetModel hook for every event that hears an entity get its model: each
@@ -201,7 +185,7 @@ function onFakemeta(fn: i32, post: bool, key: string, handler: () => void, hook:
 const modelHearers = new Hearers<(entity: i32, model: string) => void>();
 
 function onSetModel(hearer: (entity: i32, model: string) => void, hook: __Switch): void {
-	modelHearers.add(hearer, hook, (shared: __Switch): void => onFakemeta(FM_SetModel, false, "setmodel", heardModel, shared));
+	modelHearers.add(hearer, hook, (shared: __Switch): void => onStock(STOCK_SET_MODEL, false, heardModel, shared));
 }
 
 function heardModel(): void {
@@ -220,7 +204,7 @@ function heardModel(): void {
 const soundHearers = new Hearers<(entity: i32, sample: string) => void>();
 
 function onSound(hearer: (entity: i32, sample: string) => void, hook: __Switch): void {
-	soundHearers.add(hearer, hook, (shared: __Switch): void => onFakemeta(FM_EmitSound, false, "emitsound", heardSound, shared));
+	soundHearers.add(hearer, hook, (shared: __Switch): void => onStock(STOCK_EMIT_SOUND, false, heardSound, shared));
 }
 
 function heardSound(): void {
@@ -238,21 +222,27 @@ function heardSound(): void {
 // ---------------------------------------------------------------- client commands
 
 /** Hears a client command before the game: `handler` may block it with handled(). */
-function onCommand(event: string, command: string, handler: (id: i32) => void, hook: __Switch): void {
-	__whenUp((): void => {
-		const pub = __switchedPublic((a: number, b: number, c: number, d: number): void => handler(<i32>a), `hlds:${event}:${command}`, hook);
-		if (pub.length > 0) register_clcmd(command, pub);
-	});
+function onCommand(command: string, handler: (id: i32) => void, hook: __Switch): void {
+	onServer<ClientCommandEvent>((heard: ClientCommandEvent): void => {
+		if (read_argv(0) == command) handler(<i32>heard.player.id);
+	}, hook);
 }
 
-/** Hears one of the game's messages as AMX Mod X's events do: `flags` and `conditions` as register_event takes them. */
-function onEvent(message: string, handler: () => void, hook: __Switch, flags: string, conditions: string[] = []): void {
+const heardArgs = new MessageArgs();
+
+/**
+ * Hears one of the game's messages to everyone - not to one player - as
+ * AMX Mod X's register_event with "a" does: by its name, or an engine
+ * message by its number (`svc`); `wanted` picks those of the arguments it is
+ * after. The game numbers its messages as the map loads.
+ */
+function onGlobalMessage(name: string, svc: i32, handler: () => void, hook: __Switch, wanted: ((args: MessageArgs) => bool) | null = null): void {
 	__whenUp((): void => {
-		const pub = __switchedPublic((a: number, b: number, c: number, d: number): void => handler(), `hlds:event:${message}`, hook);
-		if (pub.length == 0) return;
-		const call = new Call(NATIVE_register_event).str(message).str(pub).str(flags);
-		for (let i = 0; i < conditions.length; i++) call.str(conditions[i]);
-		call.run();
+		const id = svc > 0 ? svc : <i32>get_user_msgid(name);
+		__messageHook(id, (receiver: number, message: number, dest: number, d: number): void => {
+			if (dest == MSG_ONE || dest == MSG_ONE_UNRELIABLE) return;
+			if (wanted == null || wanted(heardArgs)) handler();
+		}, hook);
 	});
 }
 
@@ -274,7 +264,7 @@ let newRoundAt: f64 = -1;
  * game commences once both sides have players.
  */
 export function newRoundHlds(fire: Fire<NewRoundEvent>, hook: __Switch): void {
-	onEvent("HLTV", (): void => announceRound(fire), hook, "a", ["1=0", "2=0"]);
+	onGlobalMessage("HLTV", 0, (): void => announceRound(fire), hook, (args: MessageArgs): bool => args.number(0) == 0 && args.number(1) == 0);
 }
 
 function announceRound(fire: Fire<NewRoundEvent>): void {
@@ -330,7 +320,7 @@ export function mapResetHlds(fire: Fire<MapResetEvent>, hook: __Switch): void {
 
 /** The freeze time is over: the game logs "Round_Start". */
 export function roundStartHlds(fire: Fire<RoundStartEvent>, hook: __Switch): void {
-	onLog("roundStart", 2, "1=Round_Start", (): void => hear(fire, new RoundStartEvent(), "roundStart"), hook);
+	onLog(2, "1=Round_Start", (): void => hear(fire, new RoundStartEvent(), "roundStart"), hook);
 }
 
 // The round's end, told before its log line, by the time each came: the
@@ -393,15 +383,15 @@ export function roundEndHlds(fire: Fire<RoundEndEvent>, hook: __Switch): void {
 		endSound = message.sound;
 		endSoundAt = get_gametime();
 	}, hook);
-	onLog("roundEnd:team", 6, "0=Team", (): void => {
+	onLog(6, "0=Team", (): void => {
 		endTrigger = `#${read_logargv(3)}`;
 		endTriggerAt = get_gametime();
 	}, hook);
-	onLog("roundEnd:world", 4, "0=World triggered", (): void => {
+	onLog(4, "0=World triggered", (): void => {
 		endTrigger = `#${read_logargv(1)}`;
 		endTriggerAt = get_gametime();
 	}, hook);
-	onLog("roundEnd", 2, "1=Round_End", (): void => {
+	onLog(2, "1=Round_End", (): void => {
 		const now = get_gametime();
 		let ending = endTextAt == now ? endingOf(endText) : null;
 		if (ending == null && endTriggerAt == now) ending = endingOf(endTrigger);
@@ -432,7 +422,7 @@ export function gameThinkHlds(fire: Fire<GameThinkEvent>, hook: __Switch): void 
 
 /** The map is over: the game sends SVC_INTERMISSION, which AMX Mod X's events hear as "30". */
 export function intermissionHlds(fire: Fire<IntermissionEvent>, hook: __Switch): void {
-	onEvent("30", (): void => hear(fire, new IntermissionEvent(), "intermission"), hook, "a");
+	onGlobalMessage("", SVC_INTERMISSION, (): void => hear(fire, new IntermissionEvent(), "intermission"), hook);
 }
 
 /** The game changes the map: AMX Mod X's server_changelevel. */
@@ -510,7 +500,7 @@ export function painHlds(fire: Fire<PainEvent>, hook: __Switch): void {
 		event.__give(0, entity);
 		event.__give(1, hitGroup);
 		event.__give(2, armour ? 1 : 0);
-		hear(fire, event, "pain", FMRES_SUPERCEDE);
+		hear(fire, event, "pain", PLUGIN_HANDLED);
 	}, hook);
 }
 
@@ -520,7 +510,7 @@ export function deathSoundHlds(fire: Fire<DeathSoundEvent>, hook: __Switch): voi
 		if (playerOr0(entity) == 0 || !DEATH_SOUNDS.includes(sample)) return;
 		const event = new DeathSoundEvent();
 		event.__give(0, entity);
-		hear(fire, event, "deathSound", FMRES_SUPERCEDE);
+		hear(fire, event, "deathSound", PLUGIN_HANDLED);
 	}, hook);
 }
 
@@ -535,7 +525,7 @@ export function startSoundHlds(fire: Fire<StartSoundEvent>, hook: __Switch): voi
 		event.__give(5, <i32>arg(4));
 		event.__give(6, <i32>arg(5));
 		event.__give(7, <i32>arg(6));
-		hear(fire, event, "startSound", FMRES_SUPERCEDE);
+		hear(fire, event, "startSound", PLUGIN_HANDLED);
 	}, hook);
 }
 
@@ -543,7 +533,7 @@ export function startSoundHlds(fire: Fire<StartSoundEvent>, hook: __Switch): voi
 
 /** The terrorist who gets the bomb at the round's start: the game logs "Spawned_With_The_Bomb". */
 export function giveBombHlds(fire: Fire<GiveBombEvent>, hook: __Switch): void {
-	onPlayerLog("giveBomb", "Spawned_With_The_Bomb", (id: i32): void => {
+	onPlayerLog("Spawned_With_The_Bomb", (id: i32): void => {
 		const event = new GiveBombEvent();
 		event.__give(-1, id);
 		hear(fire, event, "giveBomb");
@@ -551,7 +541,7 @@ export function giveBombHlds(fire: Fire<GiveBombEvent>, hook: __Switch): void {
 }
 
 export function becomeBomberHlds(fire: Fire<BecomeBomberEvent>, hook: __Switch): void {
-	onPlayerLog("becomeBomber", "Spawned_With_The_Bomb", (id: i32): void => {
+	onPlayerLog("Spawned_With_The_Bomb", (id: i32): void => {
 		const event = new BecomeBomberEvent();
 		event.__give(0, id);
 		event.__give(-1, 1);
@@ -560,7 +550,7 @@ export function becomeBomberHlds(fire: Fire<BecomeBomberEvent>, hook: __Switch):
 }
 
 export function becomeVipHlds(fire: Fire<BecomeVipEvent>, hook: __Switch): void {
-	onPlayerLog("becomeVip", "Became_VIP", (id: i32): void => {
+	onPlayerLog("Became_VIP", (id: i32): void => {
 		const event = new BecomeVipEvent();
 		event.__give(0, id);
 		hear(fire, event, "becomeVip");
@@ -584,7 +574,7 @@ export function plantBombHlds(fire: Fire<PlantBombEvent>, hook: __Switch): void 
 
 /** A defuse begins: the game logs "Begin_Bomb_Defuse_With_Kit", or "_Without_Kit". */
 export function defuseBombStartHlds(fire: Fire<DefuseBombStartEvent>, hook: __Switch): void {
-	onLog("defuseBombStart", 3, "2&Begin_Bomb_Defuse_", (): void => {
+	onLog(3, "2&Begin_Bomb_Defuse_", (): void => {
 		const event = new DefuseBombStartEvent();
 		event.__give(0, plantedBomb());
 		event.__give(1, loggedPlayer());
@@ -594,7 +584,7 @@ export function defuseBombStartHlds(fire: Fire<DefuseBombStartEvent>, hook: __Sw
 
 /** The bomb defused: the game logs "Defused_The_Bomb". */
 export function defuseBombEndHlds(fire: Fire<DefuseBombEndEvent>, hook: __Switch): void {
-	onPlayerLog("defuseBombEnd", "Defused_The_Bomb", (id: i32): void => {
+	onPlayerLog("Defused_The_Bomb", (id: i32): void => {
 		const event = new DefuseBombEndEvent();
 		event.__give(0, plantedBomb());
 		event.__give(1, id);
@@ -605,7 +595,7 @@ export function defuseBombEndHlds(fire: Fire<DefuseBombEndEvent>, hook: __Switch
 
 /** The bomb blew up: the terrorists trigger "Target_Bombed". */
 export function explodeBombHlds(fire: Fire<ExplodeBombEvent>, hook: __Switch): void {
-	onLog("explodeBomb", 6, "3=Target_Bombed", (): void => {
+	onLog(6, "3=Target_Bombed", (): void => {
 		const event = new ExplodeBombEvent();
 		event.__give(0, plantedBomb());
 		hear(fire, event, "explodeBomb");
@@ -734,8 +724,8 @@ export function chooseTeamHlds(fire: Fire<ChooseTeamEvent>, hook: __Switch): voi
 		event.__give(1, commandNumber());
 		hear(fire, event, "chooseTeam", PLUGIN_HANDLED);
 	};
-	onCommand("chooseTeam", "jointeam", chosen, hook);
-	onCommand("chooseTeam", "menuselect", (id: i32): void => {
+	onCommand("jointeam", chosen, hook);
+	onCommand("menuselect", (id: i32): void => {
 		const menu = __playerOf(id).openMenu;
 		if (menu == "team" || menu == "teamInGame") chosen(id);
 	}, hook);
@@ -749,15 +739,15 @@ export function chooseAppearanceHlds(fire: Fire<ChooseAppearanceEvent>, hook: __
 		event.__give(1, commandNumber());
 		hear(fire, event, "chooseAppearance", PLUGIN_HANDLED);
 	};
-	onCommand("chooseAppearance", "joinclass", chosen, hook);
-	onCommand("chooseAppearance", "menuselect", (id: i32): void => {
+	onCommand("joinclass", chosen, hook);
+	onCommand("menuselect", (id: i32): void => {
 		if (__playerOf(id).openMenu == "appearance") chosen(id);
 	}, hook);
 }
 
 /** A weapon dropped: the player's `drop` command, with the weapon he names. */
 export function dropPlayerItemHlds(fire: Fire<DropPlayerItemEvent>, hook: __Switch): void {
-	onCommand("dropPlayerItem", "drop", (id: i32): void => {
+	onCommand("drop", (id: i32): void => {
 		const event = new DropPlayerItemEvent();
 		event.__give(0, id);
 		event.__giveText(1, read_argv(1));
@@ -853,7 +843,7 @@ export function playerGotWeaponHlds(fire: Fire<PlayerGotWeaponEvent>, hook: __Sw
  * answer is told instead - preventDefault() answers `false`.
  */
 export function canPlayerHearPlayerHlds(fire: Fire<CanPlayerHearPlayerEvent>, hook: __Switch): void {
-	onFakemeta(FM_Voice_SetClientListening, false, "voice", (): void => {
+	onStock(STOCK_CLIENT_LISTENING, false, (): void => {
 		const listener = playerOr0(<i32>arg(0));
 		const sender = playerOr0(<i32>arg(1));
 		if (listener == 0 || sender == 0) return;
@@ -865,9 +855,7 @@ export function canPlayerHearPlayerHlds(fire: Fire<CanPlayerHearPlayerEvent>, ho
 		fire(event, true);
 		if (event.__answered || event.__prevented) {
 			const hears = event.__prevented ? 0 : event.__answerCell;
-			new Call(NATIVE_engfunc).num(EngFunc_SetClientListening).ref(listener).ref(sender).ref(hears).run();
-			new Call(NATIVE_forward_return).num(FMV_CELL).ref(hears).run();
-			__outcome(FMRES_SUPERCEDE);
+			__chainSet(2, hears);
 		}
 		event.__prevented = false;
 		settle(event, "canPlayerHearPlayer", -1, true);
@@ -951,7 +939,7 @@ export function setModelHlds(fire: Fire<SetModelEvent>, hook: __Switch): void {
 		const event = new SetModelEvent();
 		event.__give(0, entity);
 		event.__giveText(1, model);
-		hear(fire, event, "setModel", FMRES_SUPERCEDE);
+		hear(fire, event, "setModel", PLUGIN_HANDLED);
 	}, hook);
 }
 
@@ -982,38 +970,39 @@ export function bounceGibTouchHlds(fire: Fire<BounceGibTouchEvent>, hook: __Swit
 }
 
 /**
- * The game precaches a file: fakemeta's forward, added at plugin_precache,
- * before the game's own. The listeners before the game hear it as it is
- * asked, preventDefault() skips it; the ones after hear the engine's answer.
+ * The game precaches a file: the engine's function, hooked as the plugin
+ * loads, before the game's own precaches. The listeners before the game hear
+ * it as it is asked, preventDefault() skips it; the ones after hear the
+ * engine's answer.
  */
-function onPrecache<E>(fn: i32, key: string, make: () => E, fire: Fire<E>, name: string, hook: __Switch): void {
-	onFakemeta(fn, false, `${key}:pre`, (): void => {
+function onPrecache<E>(fn: i32, make: () => E, fire: Fire<E>, name: string, hook: __Switch): void {
+	onStock(fn, false, (): void => {
 		const event = make();
 		const fields = changetype<HookEvent>(event);
 		fields.__giveText(0, argText(0));
 		fire(event, false);
-		settle(changetype<HookEvent>(event), name, FMRES_SUPERCEDE);
-	}, hook, true);
-	onFakemeta(fn, true, `${key}:post`, (): void => {
+		settle(changetype<HookEvent>(event), name, PLUGIN_HANDLED);
+	}, hook);
+	onStock(fn, true, (): void => {
 		const event = make();
 		const fields = changetype<HookEvent>(event);
 		fields.__giveText(0, argText(0));
-		fields.__give(-1, <i32>get_orig_retval());
+		fields.__give(-1, <i32>arg(-1));
 		fire(event, true);
 		settle(changetype<HookEvent>(event), name);
-	}, hook, true);
+	}, hook);
 }
 
 export function precacheModelHlds(fire: Fire<PrecacheModelEvent>, hook: __Switch): void {
-	onPrecache<PrecacheModelEvent>(FM_PrecacheModel, "model", (): PrecacheModelEvent => new PrecacheModelEvent(), fire, "precacheModel", hook);
+	onPrecache<PrecacheModelEvent>(STOCK_PRECACHE_MODEL, (): PrecacheModelEvent => new PrecacheModelEvent(), fire, "precacheModel", hook);
 }
 
 export function precacheSoundHlds(fire: Fire<PrecacheSoundEvent>, hook: __Switch): void {
-	onPrecache<PrecacheSoundEvent>(FM_PrecacheSound, "sound", (): PrecacheSoundEvent => new PrecacheSoundEvent(), fire, "precacheSound", hook);
+	onPrecache<PrecacheSoundEvent>(STOCK_PRECACHE_SOUND, (): PrecacheSoundEvent => new PrecacheSoundEvent(), fire, "precacheSound", hook);
 }
 
 export function precacheFileHlds(fire: Fire<PrecacheFileEvent>, hook: __Switch): void {
-	onPrecache<PrecacheFileEvent>(FM_PrecacheGeneric, "generic", (): PrecacheFileEvent => new PrecacheFileEvent(), fire, "precacheFile", hook);
+	onPrecache<PrecacheFileEvent>(STOCK_PRECACHE_GENERIC, (): PrecacheFileEvent => new PrecacheFileEvent(), fire, "precacheFile", hook);
 }
 
 // ---------------------------------------------------------------- the game rules' fields
@@ -1032,9 +1021,9 @@ export function gameNameHlds(): string {
 /** Writes the game's name: the game's GetGameDescription is answered with it from now on. */
 export function setGameNameHlds(value: string): void {
 	if (gameNameWritten.length == 0) {
-		onFakemeta(FM_GetGameDescription, false, "gamedesc", (): void => {
-			new Call(NATIVE_forward_return).num(FMV_STRING).str(gameNameWritten).run();
-			__outcome(FMRES_SUPERCEDE);
+		onStock(STOCK_GAME_DESCRIPTION, false, (): void => {
+			__chainSetText(-1, gameNameWritten);
+			handled();
 		}, null);
 	}
 	gameNameWritten = value;

@@ -4,9 +4,10 @@
 // The idea is unchanged from the QuickJS runtime this replaces: instead of a
 // binding per native, resolve natives by name in the host plugin's native
 // table. The host plugin is generated and holds no logic — it only pulls
-// natives into its table, relays AMXX forwards, and keeps a pool of publics
-// for plugin callbacks. The module carries it and has AMX Mod X load it
-// (InstallHost), so a server installs the module alone.
+// natives into its table and keeps a pool of publics for the callbacks of
+// the natives that take one; AMX Mod X's forwards the module raises itself.
+// The module carries it and has AMX Mod X load it (InstallHost), so a server
+// installs the module alone.
 //
 // What changed is the engine. A plugin is now a .aot file produced by
 // `asc` and `wamrc`, so its code is machine code by the time the server loads
@@ -289,10 +290,10 @@ static void Bind(Handler &h)
  * which Forward object of that plugin it is for - a trampoline cannot capture
  * its Forward - and the Forward reads the arguments, as many as there are,
  * from the call's context (CallArgs): a number as it is, a string or an array
- * where it lies in the AMX that carries it. Reached two ways: n_event, when
- * the forward is one the host plugin has a public for (a Pawn plugin fired it,
- * or anyone did through AMX Mod X), and emit_local, when a TypeScript plugin
- * fired one it has no public for.
+ * where it lies in the AMX that carries it. Reached three ways: Dispatch,
+ * when the forward is one the module raises itself (g_forwards); a Pawn
+ * plugin's ExecuteForward, which the module stands in for
+ * (DeliverToSubscribers); and emit_local, when a TypeScript plugin fires one.
  */
 struct Subscription {
 	Handler handler;
@@ -300,7 +301,7 @@ struct Subscription {
 };
 
 /**
- * The listeners of one forward the host relays: its handlers (on) and its
+ * The listeners of one forward the module raises: its handlers (on) and its
  * Forward subscribers (subscribe).
  *
  * A dispatch walks the lists in place, by index, up to the length they had
@@ -319,14 +320,15 @@ struct Forward {
 // A handler taken off its forward during a dispatch of it (Forward).
 #define HANDLER_GONE (-1)
 
-// g_forwardNames and FORWARD_*: the forwards the host relays, by the number
-// its publics hand amxts_event.
+// g_forwardNames and FORWARD_*: the forwards of AMX Mod X and its modules
+// the module raises itself, from its own hooks, by number.
 #include "forwards.h"
 
 static Forward g_forwards[FORWARD_COUNT];
 
-// The subscribers of the forwards the host has no public for, which only
-// emit_local delivers.
+// The subscribers of every other forward: a Pawn plugin's, which its
+// ExecuteForward delivers (DeliverToSubscribers), and a TypeScript plugin's
+// (emit_local).
 static std::map<std::string, std::vector<Subscription> > g_subscriptions;
 
 // Moves on whenever g_subscriptions may have a name more or fewer, so that
@@ -349,17 +351,10 @@ struct Slot : Handler {
 	 * the slot says what silence means.
 	 */
 	cell     fallback;
-	// What this slot was registered for: "clcmd:say /hp", "hlds:fm:sound". AMX Mod
+	// What this slot was registered for: "think:myplugin_box", a menu's. AMX Mod
 	// X cannot unregister any of them, so on a reload the plugin takes its own
 	// slots back by this key rather than registering a second time.
 	std::string key;
-	/**
-	 * Switched off by its plugin while what it delivers has no listener
-	 * (w_slotOn): a call answers the fallback without entering the plugin.
-	 * For the registrations AMX Mod X cannot switch off - a message, a touch,
-	 * a log line, a command.
-	 */
-	bool     off;
 };
 
 // What a slot becomes when the plugin holding it is reloaded away - an AMX
@@ -546,7 +541,7 @@ static Resolved FindNative(const char *name)
  * call instruction sets before every native. A call from here goes around
  * that instruction, so the slot is set here: without it the error names
  * whichever of the host's own natives was running, amxts_natives or
- * amxts_event, and which module is missing is anyone's guess.
+ * amxts_callback, and which module is missing is anyone's guess.
  */
 static cell Invoke(const Resolved &native, cell *params)
 {
@@ -1503,7 +1498,7 @@ static void DropFrom(Forward &f, std::vector<T> &list, Belongs belongs)
 	}
 }
 
-/** The number of a forward the host relays (FORWARD_*), or -1 for one it does not. */
+/** The number of a forward the module raises (FORWARD_*), or -1 for any other. */
 static int ForwardIndex(const std::string &name)
 {
 	for (int i = 0; i < FORWARD_COUNT; i++)
@@ -1530,7 +1525,7 @@ static void w_on_cell(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t sha
 	g_forwards[forward].handlers.push_back(h);
 }
 
-// on(event, handler, shape) - a forward the generated host plugin relays.
+// on(event, handler, shape) - a forward the module raises.
 static void w_on(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t shape)
 {
 	w_on_cell(env, name, fn, shape, -1, 0);
@@ -1546,13 +1541,6 @@ static void w_off(wasm_exec_env_t env, int32_t name, int32_t fn)
 	int plugin = g_currentPlugin;
 	Forward &f = g_forwards[forward];
 	DropFrom(f, f.handlers, [plugin, fn](const Handler &h) { return h.plugin == plugin && h.fn == (uint32_t)fn; });
-}
-
-/** Whether the host plugin has a public for this forward, so AMX Mod X delivers it. */
-static bool HostRelays(const char *forward)
-{
-	int index = 0;
-	return g_host && MF_AmxFindPublic(g_host, forward, &index) == AMX_ERR_NONE;
 }
 
 // subscribe(forward, trampoline, tag) - see Subscription.
@@ -1625,7 +1613,7 @@ static cell Dispatch(Forward &f, const cell *args, int argc)
 }
 
 /**
- * Calls every subscriber of a forward the host does not relay. The arguments
+ * Calls every subscriber of a forward the module does not raise. The arguments
  * are the call's context, which whoever delivers has set (CallArgs): a
  * subscriber reads them from there.
  */
@@ -1662,8 +1650,8 @@ static int32_t *ForwardArray(wasm_module_inst_t inst, int32_t ptr, int32_t *coun
 
 /**
  * emit_local(forward, mask, cells, argc) - a TypeScript plugin fired a forward;
- * its TypeScript subscribers hear it here unless AMX Mod X will hand it to the
- * host plugin, which delivers it through n_event instead.
+ * AMX Mod X hands it to the Pawn plugins' publics, and its TypeScript
+ * subscribers hear it here.
  *
  * `mask` has a letter per argument: `n` and `f` a cell, `s` a string in the
  * emitting plugin's memory, `a` an array laid out as ForwardArray reads it.
@@ -1674,7 +1662,7 @@ static void w_emit_local(wasm_exec_env_t env, int32_t name, int32_t mask, int32_
 {
 	wasm_module_inst_t inst = Inst(env);
 	std::string forward = AsString(inst, name);
-	if (!g_host || HostRelays(forward.c_str()) || g_subscriptions.find(forward) == g_subscriptions.end())
+	if (!g_host || g_subscriptions.find(forward) == g_subscriptions.end())
 		return;
 
 	std::string types = AsString(inst, mask);
@@ -1766,7 +1754,6 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 				g_slots[i].tag = tag;
 				g_slots[i].shape = shape;
 				g_slots[i].fallback = fallback;
-				g_slots[i].off = false;
 				Bind(g_slots[i]);
 				if (reused)
 					*reused = true;
@@ -1792,7 +1779,6 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 	g_slots[slot].shape = shape;
 	g_slots[slot].fallback = fallback;
 	g_slots[slot].key = key ? key : "";
-	g_slots[slot].off = false;
 	Bind(g_slots[slot]);
 	if (slot >= g_slotCount)
 		g_slotCount = slot + 1;
@@ -2295,19 +2281,6 @@ static int32_t w_slot(wasm_exec_env_t env, int32_t fn, int32_t shape, int32_t ke
 		return -1;
 
 	return reused ? (slot | SLOT_REUSED) : slot;
-}
-
-/**
- * slot_on(slot, on) - switches one of the plugin's slots off while what it
- * delivers has no listener, and back on: switched off, AMX Mod X still calls
- * the public, and the call answers its fallback here.
- */
-static void w_slotOn(wasm_exec_env_t env, int32_t slot, int32_t on)
-{
-	(void)env;
-	if (slot < 0 || slot >= g_slotCount || !g_slots[slot].used || g_slots[slot].plugin != g_currentPlugin)
-		return;
-	g_slots[slot].off = !on;
 }
 
 // ---------------------------------------------------------------- timers
@@ -3232,8 +3205,64 @@ static void w_rpcResult(wasm_exec_env_t env, int32_t to)
 // The engine's ReHLDS API (FindRehlds), once a process; NULL on plain HLDS.
 static IRehldsApi *g_rehlds = NULL;
 
+/**
+ * Plain HLDS: an engine function taken over at its first five bytes, a jump
+ * to the module's. The module calls the original by putting the bytes back
+ * for the length of the call, so no instruction of it is moved; what goes
+ * back is what was there - the function's own start, or AMX Mod X's jump to
+ * its own detour of it, which is then inside the module's.
+ */
+struct EntryHook {
+	unsigned char *at;
+	void          *to;
+	unsigned char  saved[5];
+	unsigned char  jump[5];
+	bool           on;
+};
+
+static void WriteCode(unsigned char *at, const unsigned char *bytes)
+{
+#ifdef _WIN32
+	DWORD was;
+	VirtualProtect(at, 5, PAGE_EXECUTE_READWRITE, &was);
+	memcpy(at, bytes, 5);
+	VirtualProtect(at, 5, was, &was);
+	FlushInstructionCache(GetCurrentProcess(), at, 5);
+#else
+	uintptr_t page = (uintptr_t)sysconf(_SC_PAGESIZE);
+	unsigned char *start = (unsigned char *)((uintptr_t)at & ~(page - 1));
+	size_t length = (size_t)(at + 5 - start);
+	mprotect(start, length, PROT_READ | PROT_WRITE | PROT_EXEC);
+	memcpy(at, bytes, 5);
+	mprotect(start, length, PROT_READ | PROT_EXEC);
+#endif
+}
+
+static void HookOn(EntryHook &h)
+{
+	if (!h.at || h.on)
+		return;
+	memcpy(h.saved, h.at, 5);
+	int32_t offset = (int32_t)((unsigned char *)h.to - (h.at + 5));
+	h.jump[0] = 0xE9; // jmp rel32
+	memcpy(h.jump + 1, &offset, 4);
+	WriteCode(h.at, h.jump);
+	h.on = true;
+}
+
+/** Puts back what was there, unless something wrote over the jump since: AMX Mod X turning its own detour off at a map's end. */
+static void HookOff(EntryHook &h)
+{
+	if (h.on && !memcmp(h.at, h.jump, 5))
+		WriteCode(h.at, h.saved);
+	h.on = false;
+}
+
 // Hookchains and Ham Sandwich's functions, hooked by the module: hook, ham and the rest.
 #include "gamehooks.h"
+
+// Messages, the log, cvars, touches and fakemeta's functions, through Metamod.
+#include "enginehooks.h"
 
 static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line);
 
@@ -3249,7 +3278,6 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "outcome",         (void *)w_outcome,         "(i)",  NULL },
 	{ "export",          (void *)w_export,          "(ii)i", NULL },
 	{ "slot",            (void *)w_slot,            "(iiii)i", NULL },
-	{ "slot_on",         (void *)w_slotOn,          "(ii)", NULL },
 	{ "arg",             (void *)w_arg,             "(i)i", NULL },
 	{ "arg_text",        (void *)w_argText,         "(iii)i", NULL },
 	{ "set_arg_text",    (void *)w_setArgText,      "(iii)i", NULL },
@@ -3313,6 +3341,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "player_change_get",      (void *)w_playerChangeGet,     "(i)F",    NULL },
 	{ "player_change_get_text", (void *)w_playerChangeGetText, "(iii)i",  NULL },
 	FIELD_NATIVES
+	ENGINE_HOOK_NATIVES
 	{ "amxts_serve",      (void *)w_serve,     "(ii)",    NULL },
 	{ "amxts_owner",      (void *)w_owner,     "(ii)i",   NULL },
 	{ "amxts_rpc",        (void *)w_rpc,       "(iiii)i", NULL },
@@ -3809,6 +3838,7 @@ static void Teardown()
 	g_services.clear();
 	g_fieldListeners.clear();
 	TeardownGameHooks();
+	ForgetOtherPoints();
 
 	for (int i = 0; i < MAX_CALLBACK_SLOTS; i++)
 		g_slots[i].used = false;
@@ -5094,63 +5124,6 @@ static void StartServer()
 	FireInit();
 }
 
-/**
- * amxts_event(index, const types[], ...) - a forward the host plugin
- * relays, to the plugins' listeners and Forward subscribers. `index` is its
- * number in g_forwardNames, which the host's public passes.
- *
- * `types` has a letter per argument - `n` a cell, `f` a float, `s` a string,
- * `a` an array with its size after it when the include gives one: "na3s".
- * A listener reads the arguments from the call's context (CallArgs), all of
- * them, so a forward is not cut at some count of its arguments. amxts_event
- * is variadic, and Pawn pushes the ADDRESS of every argument in a `...` tail,
- * so a number is read back through it here, and a string or an array stays
- * the address it is.
- */
-static cell AMX_NATIVE_CALL n_event(AMX *amx, cell *params)
-{
-	int forward = (int)params[1];
-	if (forward < 0 || forward >= FORWARD_COUNT)
-		return 0;
-
-	// Most forwards the host relays - a player thinking, an entity's think -
-	// nobody listens to: they cost this much and no more. Before plugin_init,
-	// as AMX Mod X dispatches plugin_natives and plugin_modules, nothing
-	// listens yet.
-	Forward &f = g_forwards[forward];
-	if (f.handlers.empty() && f.subscribers.empty())
-		return 0;
-
-	int argc = (int)(params[0] / sizeof(cell)) - 2;
-	if (argc > MAX_FORWARD_ARGS)
-		argc = MAX_FORWARD_ARGS;
-
-	int len = 0;
-	const char *types = MF_GetAmxString(amx, params[2], 1, &len);
-	cell args[MAX_FORWARD_ARGS];
-	int32_t lengths[MAX_FORWARD_ARGS];
-
-	for (int i = 0; i < argc; i++) {
-		char type = (types && *types) ? *types++ : 'n';
-		lengths[i] = -1;
-		if (type == 'a' && types && *types >= '0' && *types <= '9') {
-			char *after = NULL;
-			lengths[i] = (int32_t)strtol(types, &after, 10);
-			types = after;
-		}
-
-		if (type == 's' || type == 'a') {
-			args[i] = params[i + 3];
-			continue;
-		}
-		cell *phys = MF_GetAmxAddr(amx, params[i + 3]);
-		args[i] = phys ? *phys : 0;
-	}
-
-	CallArgs context(args, argc, amx, -1, lengths);
-	return Dispatch(f, args, argc);
-}
-
 // ---------------------------------------------------------------- the clients and the server
 
 // AMX Mod X fires its forwards from its own Metamod hooks, and AMX Mod X is
@@ -5218,6 +5191,8 @@ static bool g_precaching = false;
  */
 static bool g_connected[CLIENT_SLOTS];
 static bool g_inGame[CLIENT_SLOTS];
+// Whether VoiceTranscoder last said the client speaks (PollSpeaking).
+static bool g_speaking[CLIENT_SLOTS];
 
 // ---- the configs
 
@@ -5306,6 +5281,7 @@ static void Disconnected(int id, bool dropped, const char *reason)
 		cell args[4] = { id, dropped, PushString(reason), (cell)strlen(reason) };
 		Raise(FORWARD_CLIENT_DISCONNECTED, args, 4);
 	}
+	g_speaking[id] = false;
 	ClearPlayerData(id);
 }
 
@@ -5388,59 +5364,6 @@ static IRehldsApi *FindRehlds()
 	return api;
 }
 
-/**
- * Plain HLDS: an engine function taken over at its first five bytes, a jump
- * to the module's. The module calls the original by putting the bytes back
- * for the length of the call, so no instruction of it is moved; what goes
- * back is what was there - the function's own start, or AMX Mod X's jump to
- * its own detour of it, which is then inside the module's.
- */
-struct EntryHook {
-	unsigned char *at;
-	void          *to;
-	unsigned char  saved[5];
-	unsigned char  jump[5];
-	bool           on;
-};
-
-static void WriteCode(unsigned char *at, const unsigned char *bytes)
-{
-#ifdef _WIN32
-	DWORD was;
-	VirtualProtect(at, 5, PAGE_EXECUTE_READWRITE, &was);
-	memcpy(at, bytes, 5);
-	VirtualProtect(at, 5, was, &was);
-	FlushInstructionCache(GetCurrentProcess(), at, 5);
-#else
-	uintptr_t page = (uintptr_t)sysconf(_SC_PAGESIZE);
-	unsigned char *start = (unsigned char *)((uintptr_t)at & ~(page - 1));
-	size_t length = (size_t)(at + 5 - start);
-	mprotect(start, length, PROT_READ | PROT_WRITE | PROT_EXEC);
-	memcpy(at, bytes, 5);
-	mprotect(start, length, PROT_READ | PROT_EXEC);
-#endif
-}
-
-static void HookOn(EntryHook &h)
-{
-	if (!h.at || h.on)
-		return;
-	memcpy(h.saved, h.at, 5);
-	int32_t offset = (int32_t)((unsigned char *)h.to - (h.at + 5));
-	h.jump[0] = 0xE9; // jmp rel32
-	memcpy(h.jump + 1, &offset, 4);
-	WriteCode(h.at, h.jump);
-	h.on = true;
-}
-
-/** Puts back what was there, unless something wrote over the jump since: AMX Mod X turning its own detour off at a map's end. */
-static void HookOff(EntryHook &h)
-{
-	if (h.on && !memcmp(h.at, h.jump, 5))
-		WriteCode(h.at, h.saved);
-	h.on = false;
-}
-
 static EntryHook g_dropClient = { NULL, NULL, { 0 }, { 0 }, false };
 
 typedef void (*DropClientFn)(void *client, int crash, const char *format, ...);
@@ -5488,6 +5411,10 @@ static void UnhookDrops()
 	g_rehlds = NULL;
 }
 
+// ---- cstrike's buying and a bot's commands
+
+#include "cstrike.h"
+
 // ---- the natives the module does itself
 
 /**
@@ -5507,13 +5434,13 @@ static cell Precache(AMX *amx, cell *params, int (*precache)(char *))
 	return precache((char *)STRING(ALLOC_STRING(path)));
 }
 
-static int PrecacheModel(char *path) { return PRECACHE_MODEL(path); }
-static int PrecacheSound(char *path) { return PRECACHE_SOUND(path); }
-static int PrecacheGeneric(char *path) { return PRECACHE_GENERIC(path); }
+static int PrecacheModelNow(char *path) { return PRECACHE_MODEL(path); }
+static int PrecacheSoundNow(char *path) { return PRECACHE_SOUND(path); }
+static int PrecacheGenericNow(char *path) { return PRECACHE_GENERIC(path); }
 
-static cell AMX_NATIVE_CALL n_precacheModel(AMX *amx, cell *params) { return Precache(amx, params, PrecacheModel); }
-static cell AMX_NATIVE_CALL n_precacheSound(AMX *amx, cell *params) { return Precache(amx, params, PrecacheSound); }
-static cell AMX_NATIVE_CALL n_precacheGeneric(AMX *amx, cell *params) { return Precache(amx, params, PrecacheGeneric); }
+static cell AMX_NATIVE_CALL n_precacheModel(AMX *amx, cell *params) { return Precache(amx, params, PrecacheModelNow); }
+static cell AMX_NATIVE_CALL n_precacheSound(AMX *amx, cell *params) { return Precache(amx, params, PrecacheSoundNow); }
+static cell AMX_NATIVE_CALL n_precacheGeneric(AMX *amx, cell *params) { return Precache(amx, params, PrecacheGenericNow); }
 
 /** The command a cmdStart event is about, while its listeners run. */
 static usercmd_t *g_cmd = NULL;
@@ -5580,6 +5507,20 @@ static cell Usercmd(AMX *amx, cell *params, bool set)
 static cell AMX_NATIVE_CALL n_getUsercmd(AMX *amx, cell *params) { return Usercmd(amx, params, false); }
 static cell AMX_NATIVE_CALL n_setUsercmd(AMX *amx, cell *params) { return Usercmd(amx, params, true); }
 
+/** The key and value the game gives an entity of the map, while the `keyValue` event runs (DispatchKeyValue). */
+static KeyValueData *g_keyValue = NULL;
+
+// copy_keyvalue(szClassName[], sizea, szKeyName[], sizeb, szValue[], sizec)
+static cell AMX_NATIVE_CALL n_copyKeyvalue(AMX *amx, cell *params)
+{
+	if (!g_keyValue)
+		return 0;
+	MF_SetAmxString(amx, params[1], g_keyValue->szClassName ? g_keyValue->szClassName : "", (int)params[2]);
+	MF_SetAmxString(amx, params[3], g_keyValue->szKeyName ? g_keyValue->szKeyName : "", (int)params[4]);
+	MF_SetAmxString(amx, params[5], g_keyValue->szValue ? g_keyValue->szValue : "", (int)params[6]);
+	return 1;
+}
+
 /**
  * Natives of the host's table the module does itself, in place of the
  * module that registers them: what they work on is the module's event now
@@ -5591,6 +5532,10 @@ static const AMX_NATIVE_INFO g_ownNatives[] = {
 	{ "precache_generic", n_precacheGeneric },
 	{ "get_usercmd",      n_getUsercmd      },
 	{ "set_usercmd",      n_setUsercmd      },
+	{ "copy_keyvalue",    n_copyKeyvalue    },
+	{ "read_logdata",     n_readLogdata     },
+	{ "read_logargc",     n_readLogargc     },
+	{ "read_logargv",     n_readLogargv     },
 };
 
 static AMX_NATIVE OwnNative(const char *name, AMX_NATIVE fn)
@@ -5603,7 +5548,14 @@ static AMX_NATIVE OwnNative(const char *name, AMX_NATIVE fn)
 
 // ---- Metamod's hooks
 
-/** The world's spawn, the first of a map's: the plugins have loaded (amxts_natives), and they precache. */
+static void AlertMessage(ALERT_TYPE type, const char *format, ...);
+
+/**
+ * An entity's spawn: the world's, the first of a map's, after the plugins
+ * have loaded (amxts_natives), is when they precache; then `entitySpawn`.
+ * The engine module, after the module in Metamod's list, hears it after it,
+ * as it hears an entity's think, key and played event.
+ */
 int DispatchSpawn(edict_t *e)
 {
 	if (!g_precached) {
@@ -5612,6 +5564,9 @@ int DispatchSpawn(edict_t *e)
 		Raise(FORWARD_PLUGIN_PRECACHE);
 		g_precaching = false;
 	}
+	// Blocked, the entity is not spawned, and the engine frees it.
+	if (RaiseFor(FORWARD_PFN_SPAWN, ENTINDEX(e)) > 0)
+		RETURN_META_VALUE(MRES_SUPERCEDE, -1);
 	RETURN_META_VALUE(MRES_IGNORED, 0);
 }
 
@@ -5626,6 +5581,11 @@ void ServerActivate_Post(edict_t *edicts, int count, int clients)
 		RETURN_META(MRES_IGNORED);
 	g_activated = true;
 	HookOn(g_dropClient);
+	HookOn(g_cvarSet);
+	// Metamod gives the module its tables after AMX Mod X attached it, on some builds.
+	if (g_pengfuncsTable)
+		g_pengfuncsTable->pfnAlertMessage = AlertMessage;
+	MessageHooks(g_messagesHooked > 0);
 
 	g_configTick = gpGlobals->time;
 	g_configsDue = gpGlobals->time + 6.1f;
@@ -5656,6 +5616,8 @@ void ServerDeactivate()
 	g_activated = false;
 	g_precached = false;
 	HookOff(g_dropClient);
+	HookOff(g_cvarSet);
+	SettleCstrike(false);
 	Raise(FORWARD_PLUGIN_END);
 	RETURN_META(MRES_IGNORED);
 }
@@ -5779,6 +5741,123 @@ void ChangeLevel(const char *map, const char *landmark)
 	if (Raise(FORWARD_SERVER_CHANGELEVEL, args, 1) > 0)
 		RETURN_META(MRES_SUPERCEDE);
 	RETURN_META(MRES_IGNORED);
+}
+
+/**
+ * A line of the game's log: the log events that take it, as AMX Mod X walks
+ * its own before its plugin_log, then the `log` event, unless a Pawn
+ * plugin's plugin_log blocked the line; handled() there keeps it out of the
+ * log. read_logdata, read_logargc and read_logargv read it while they run.
+ */
+static void AlertMessage(ALERT_TYPE type, const char *format, ...)
+{
+	if (type != at_logged || (!g_logHooked && !Heard(FORWARD_PLUGIN_LOG)))
+		RETURN_META(MRES_IGNORED);
+
+	char text[1024];
+	va_list ap;
+	va_start(ap, format);
+	vsnprintf(text, sizeof(text), format, ap);
+	va_end(ap);
+
+	LogLine line;
+	line.text = text;
+	if (!line.text.empty() && line.text[line.text.size() - 1] == '\n')
+		line.text.erase(line.text.size() - 1);
+	SplitLog(line);
+
+	LogLine *outer = g_log;
+	g_log = &line;
+	HearLog(line);
+	cell blocked = META_RESULT_STATUS < MRES_SUPERCEDE && Heard(FORWARD_PLUGIN_LOG) ? Raise(FORWARD_PLUGIN_LOG, NULL, 0) : 0;
+	g_log = outer;
+	RETURN_META(blocked > 0 ? MRES_SUPERCEDE : MRES_IGNORED);
+}
+
+/** entityThink: blocked, the entity does not think this time. */
+void DispatchThink(edict_t *e)
+{
+	if (RaiseFor(FORWARD_PFN_THINK, ENTINDEX(e)) > 0)
+		RETURN_META(MRES_SUPERCEDE);
+	RETURN_META(MRES_IGNORED);
+}
+
+/** keyValue: a key of an entity of the map, which copy_keyvalue reads; blocked, the entity does not get it. */
+void DispatchKeyValue(edict_t *e, KeyValueData *kvd)
+{
+	if (!Heard(FORWARD_PFN_KEYVALUE) || !kvd)
+		RETURN_META(MRES_IGNORED);
+	KeyValueData *outer = g_keyValue;
+	g_keyValue = kvd;
+	cell blocked = RaiseFor(FORWARD_PFN_KEYVALUE, ENTINDEX(e));
+	g_keyValue = outer;
+	RETURN_META(blocked > 0 ? MRES_SUPERCEDE : MRES_IGNORED);
+}
+
+/** A vector onto the host's heap, three cells and a zero after them; 0 for none. */
+static cell PushVector(const float *v)
+{
+	cell addr = 0;
+	cell *cells = HeapCells(4, &addr);
+	if (!cells)
+		return 0;
+	static const float zero[3] = { 0, 0, 0 };
+	memcpy(cells, v ? v : zero, 3 * sizeof(cell));
+	cells[3] = 0;
+	return addr;
+}
+
+/** playbackEvent: an event the engine plays to the clients - every shot - so what nobody hears costs a check. */
+void PlaybackEvent(int flags, const edict_t *invoker, unsigned short index, float delay, float *origin, float *angles,
+                   float f1, float f2, int i1, int i2, int b1, int b2)
+{
+	if (!Heard(FORWARD_PFN_PLAYBACKEVENT))
+		RETURN_META(MRES_IGNORED);
+	HostHeap heap;
+	cell args[12] = { flags, invoker ? (cell)ENTINDEX(invoker) : 0, index, 0, PushVector(origin), PushVector(angles), 0, 0, i1, i2, b1, b2 };
+	memcpy(&args[3], &delay, sizeof(cell));
+	memcpy(&args[6], &f1, sizeof(cell));
+	memcpy(&args[7], &f2, sizeof(cell));
+	if (Raise(FORWARD_PFN_PLAYBACKEVENT, args, 12) > 0)
+		RETURN_META(MRES_SUPERCEDE);
+	RETURN_META(MRES_IGNORED);
+}
+
+/**
+ * inconsistentFile: a client's file differs from the server's, and the game
+ * would kick him - AMX Mod X, ahead in Metamod's list, has asked the game and
+ * its own plugins already, and answers for them. Blocked, he stays.
+ */
+int InconsistentFile(const edict_t *player, const char *file, char *reason)
+{
+	int id = ClientId(player);
+	if (!id || !Heard(FORWARD_INCONSISTENT_FILE) || META_RESULT_STATUS < MRES_SUPERCEDE || !META_RESULT_OVERRIDE_RET(int))
+		RETURN_META_VALUE(MRES_IGNORED, 0);
+	HostHeap heap;
+	cell args[3] = { id, PushString(file ? file : ""), PushString(reason ? reason : "") };
+	if (Raise(FORWARD_INCONSISTENT_FILE, args, 3) > 0)
+		RETURN_META_VALUE(MRES_SUPERCEDE, FALSE);
+	RETURN_META_VALUE(MRES_IGNORED, 0);
+}
+
+/**
+ * VTC_OnClientStartSpeak and VTC_OnClientStopSpeak: VoiceTranscoder tells
+ * ReAPI alone, so while a plugin subscribes the module asks its
+ * VTC_IsClientSpeaking about each player once a frame - a start or a stop is
+ * heard on the frame it is seen (g_speaking).
+ */
+static void PollSpeaking()
+{
+	if (!Heard(FORWARD_VTC_ONCLIENTSTARTSPEAK) && !Heard(FORWARD_VTC_ONCLIENTSTOPSPEAK))
+		return;
+	for (int id = 1; id < CLIENT_SLOTS && id <= gpGlobals->maxClients; id++) {
+		cell params[2] = { sizeof(cell), id };
+		bool speaking = g_inGame[id] && CallNative("VTC_IsClientSpeaking", params) != 0;
+		if (speaking == g_speaking[id])
+			continue;
+		g_speaking[id] = speaking;
+		RaiseFor(speaking ? FORWARD_VTC_ONCLIENTSTARTSPEAK : FORWARD_VTC_ONCLIENTSTOPSPEAK, id);
+	}
 }
 
 /**
@@ -5918,6 +5997,9 @@ void StartFrame_Post()
 	NetFrame();
 	RunTimers();
 	ConfigTick();
+	CompareCvars();
+	PollSpeaking();
+	SettleCstrike(g_activated);
 
 	Forward &f = g_forwards[FORWARD_SERVER_FRAME];
 	if (!f.handlers.empty() || !f.subscribers.empty()) {
@@ -5946,9 +6028,6 @@ static cell AMX_NATIVE_CALL n_callback(AMX *amx, cell *params)
 	// PLUGIN_HANDLED here is what made `say /hp` go quiet after a reload.
 	if (g_slots[slot].plugin == SLOT_ORPHANED)
 		return 0;
-
-	if (g_slots[slot].off)
-		return g_slots[slot].fallback;
 
 	// The host plugin says how many arguments it pushed; never read past what
 	// actually arrived.
@@ -6056,7 +6135,6 @@ static cell AMX_NATIVE_CALL n_setPlayerDataString(AMX *amx, cell *params)
 
 AMX_NATIVE_INFO g_natives[] = {
 	{ "amxts_natives",  n_natives  },
-	{ "amxts_event",    n_event    },
 	{ "amxts_callback", n_callback },
 	{ "amxts_get_player_data",        n_getPlayerData       },
 	{ "amxts_set_player_data",        n_setPlayerData       },
@@ -6090,10 +6168,15 @@ void OnAmxxAttach()
 
 	MF_AddNatives(g_natives);
 	MF_AddNatives(g_exportedList);
+	if (g_pengfuncsTable)
+		g_pengfuncsTable->pfnAlertMessage = AlertMessage;
+	MessageHooks(false);
 	MF_RegAuthFunc(OnAuthorized);
 	FieldsAttach();
 	HookDrops();
 	FindChains();
+	FindCvarSet();
+	FindCstrike();
 	FindClientCommandPath();
 	ReadListFile();
 	InstallHost();
@@ -6122,6 +6205,8 @@ void OnPluginsUnloaded()
 void OnAmxxDetach()
 {
 	MF_UnregAuthFunc(OnAuthorized);
+	ForgetCstrike();
+	UnhookCvars();
 	UnhookDrops();
 	FieldsDetach();
 	Teardown();

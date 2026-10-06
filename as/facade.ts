@@ -28,11 +28,9 @@ import {
 	cs_get_user_team, cs_set_user_team, cs_get_user_deaths, get_speak, set_speak, cs_set_user_bpammo, cs_set_user_deaths, ExecuteHamB,
 	read_argc, read_args, read_argv, set_hudmessage, show_hudmessage, create_cvar, get_cvar_pointer,
 	get_pcvar_float, get_pcvar_num, get_pcvar_string, set_pcvar_float, set_pcvar_num, set_pcvar_string,
-	hook_cvar_change, get_localinfo, register_dictionary,
+	get_localinfo, register_dictionary,
 	set_dhudmessage, show_dhudmessage, CreateHudSyncObj, ShowSyncHudMsg, ClearSyncHud,
-	precache_model, precache_sound, precache_generic, query_client_cvar, register_touch,
-	register_message, get_msg_args, get_msg_argtype, get_msg_arg_int, get_msg_arg_float, get_msg_arg_string,
-	set_msg_arg_int, set_msg_arg_float, set_msg_arg_string, get_user_userid,
+	precache_model, precache_sound, precache_generic, get_user_userid,
 	emessage_begin, ewrite_byte, ewrite_short, ewrite_string, emessage_end, elog_message,
 	has_reunion, REU_GetAuthtype, REU_GetProtocol, REU_GetAuthKey
 } from "./natives";
@@ -66,8 +64,6 @@ import { Vector } from "./vector";
 @external("env", "export")       declare function _export(name: string, fn: i32): i32;
 // @ts-ignore: decorator
 @external("env", "slot")         declare function _slot(fn: i32, shape: i32, key: string, fallback: i32): i32;
-// @ts-ignore: decorator
-@external("env", "slot_on")      declare function _slotOn(slot: i32, on: i32): void;
 // @ts-ignore: decorator
 @external("env", "arg")          declare function _arg(index: i32): i32;
 // @ts-ignore: decorator
@@ -232,17 +228,6 @@ export function ret(value: number): void {
  * the server when typed.
  */
 export function publicFor(handler: WideHandler, key: string, fallback: number = 0): string {
-	return __switchedPublic(handler, key, null, fallback);
-}
-
-// Must match SLOT_REUSED in runtime/src/module.cpp.
-const SLOT_REUSED: i32 = 0x10000;
-
-/**
- * @hidden `publicFor`, the public switched by `hook`: switched off, a call
- * answers `fallback` in the module, without reaching the plugin.
- */
-export function __switchedPublic(handler: WideHandler, key: string, hook: __Switch | null, fallback: number = 0): string {
 	const slot = _slot(hostIndex(handler, true), SHAPE_WIDE, key, fallback);
 
 	if (slot < 0) {
@@ -250,10 +235,11 @@ export function __switchedPublic(handler: WideHandler, key: string, hook: __Swit
 		return "";
 	}
 
-	const index = slot & ~SLOT_REUSED;
-	if (hook != null) hook.add((on: bool): void => _slotOn(index, on ? 1 : 0));
 	return (slot & SLOT_REUSED) ? "" : `__amxts_cb${slot}`;
 }
+
+// Must match SLOT_REUSED in runtime/src/module.cpp.
+const SLOT_REUSED: i32 = 0x10000;
 
 /**
  * @hidden A registration with AMX Mod X - a hook, or a public it calls - that
@@ -1976,23 +1962,31 @@ export class Player extends PlayerFields implements Client {
 			return promise;
 		}
 
-		if (cvarAnswer.length == 0) cvarAnswer = callbackName(cvarAnswered, "querycvar");
-		const query = new CvarQuery(this.id, name.toLowerCase(), promise);
+		if (!cvarAnswerHeard) {
+			cvarAnswerHeard = true;
+			_stockHook(STOCK_CVAR_ANSWER, hostIndex<WideHandler>(cvarAnswered, true), 0);
+		}
+		const request = _queryCvar(this.id, name);
+		if (request == 0) {
+			__co_resolve<string | null>(promise, null);
+			return promise;
+		}
+		const query = new CvarQuery(request, promise);
 		query.guard = new __AbortGuard(query, this.signal);
 		cvarQueries.push(query);
-		query_client_cvar(this.id, name, cvarAnswer);
 		return promise;
 	}
 }
 
 // ---------------------------------------------------------------- a client's cvars
 
-// The questions sent and not answered yet, in the order asked. The engine
-// hands every answer to one public, with the player and the cvar's name.
+// The questions sent and not answered yet, by the id the module gave each.
+// The engine hands every answer to the game, which the module hears, with
+// the player, the id, the cvar's name and its value.
 class CvarQuery extends __AbortWatch {
 	guard: __AbortGuard | null = null;
 
-	constructor(public player: i32, public name: string, public promise: Promise<string | null>) {
+	constructor(public request: i32, public promise: Promise<string | null>) {
 		super();
 	}
 
@@ -2004,7 +1998,7 @@ class CvarQuery extends __AbortWatch {
 }
 
 const cvarQueries: CvarQuery[] = [];
-let cvarAnswer = "";
+let cvarAnswerHeard = false;
 
 function forgetQuery(query: CvarQuery): void {
 	const at = cvarQueries.indexOf(query);
@@ -2012,17 +2006,15 @@ function forgetQuery(query: CvarQuery): void {
 	(query.guard as __AbortGuard).release();
 }
 
-/** public cvar_answer(id, const cvar[], const value[], const param[]) */
-function cvarAnswered(id: number, cvar: number, value: number, param: number): void {
-	const name = argText(1).toLowerCase();
-
+/** A client's answer: (player, id, cvar, value) - its id is one of this plugin's questions, or another's. */
+function cvarAnswered(player: number, request: number, c: number, d: number): void {
 	for (let i = 0; i < cvarQueries.length; i++) {
 		const query = cvarQueries[i];
-		if (query.player != <i32>id || query.name != name) continue;
+		if (query.request != <i32>request) continue;
 
 		forgetQuery(query);
 		// What the engine answers for a cvar the client has not, or will not tell.
-		const text = argText(2);
+		const text = argText(3);
 		const unknown = text == "Bad CVAR request" || text == "CVAR is privileged";
 		__co_resolve<string | null>(query.promise, unknown ? null : text);
 		return;
@@ -2032,7 +2024,7 @@ function cvarAnswered(id: number, cvar: number, value: number, param: number): v
 /**
  * The public name that calls `handler`, whether the slot is new or taken back
  * after a reload: for a native handed a callback on every call
- * (query_client_cvar), not a registration made once (see publicFor).
+ * (menu_makecallback), not a registration made once (see publicFor).
  */
 function callbackName(handler: WideHandler, key: string): string {
 	const slot = _slot(hostIndex(handler, true), SHAPE_WIDE, key, 0);
@@ -2330,10 +2322,10 @@ function runCommand(at: i32, id: i32, words: __CommandWords): void {
 const serverCommandRuns: ((words: __CommandWords) => void)[] = [];
 const serverCommandUsages: string[] = [];
 
-// A touch the engine module filters by class, so a touch nobody listens for -
-// and there is one every frame for a player on the ground - never reaches the
-// plugin. One register_touch per pair of classes, its listeners behind it,
-// switched off while it has none.
+// A touch the module filters by class, so a touch nobody listens for - and
+// there is one every frame for a player on the ground - never reaches the
+// plugin. One hook per pair of classes, its listeners behind it, switched off
+// while it has none.
 class TouchFilter {
 	listeners: __Listeners<TouchListener> = new __Listeners<TouchListener>();
 	hook: __Switch = new __Switch();
@@ -2341,7 +2333,6 @@ class TouchFilter {
 }
 
 const touchFilters: TouchFilter[] = [];
-const waitingTouches: TouchFilter[] = [];
 
 // A Ham Sandwich function's hook waiting for plugin_init: the module makes an
 // entity of the class to find the class's functions, which is not for the
@@ -2806,39 +2797,37 @@ const FFADE_STAYOUT = 0x0004;
 export class MessageArgs {
 	/** The number of arguments. */
 	get length(): number {
-		return get_msg_args();
+		return _msgArgc();
 	}
 
 	/** Whether the argument at `index` is text; otherwise it is a number. */
 	isText(index: number): boolean {
-		return get_msg_argtype(<i32>index + 1) == ARG_STRING;
+		return _msgArgType(<i32>index) == ARG_STRING;
 	}
 
 	/** The argument at `index` as a number: a byte, a short, a coordinate, an angle. */
 	number(index: number): number {
-		const arg = <i32>index + 1;
-		const type = get_msg_argtype(arg);
-		return type == ARG_COORD || type == ARG_ANGLE ? get_msg_arg_float(arg) : get_msg_arg_int(arg);
+		return _msgNumber(<i32>index);
 	}
 
 	/** The argument at `index` as text. */
 	text(index: number): string {
-		return get_msg_arg_string(<i32>index + 1);
+		const length = _msgText(<i32>index, changetype<i32>(textBuf), textBuf.length);
+		return String.UTF8.decodeUnsafe(changetype<usize>(textBuf), length);
 	}
 
 	/** Writes a number argument: the message goes out with it. */
 	setNumber(index: number, value: number): void {
-		const arg = <i32>index + 1;
-		const type = get_msg_argtype(arg);
-		if (type == ARG_COORD || type == ARG_ANGLE) set_msg_arg_float(arg, type, value);
-		else set_msg_arg_int(arg, type, value);
+		_msgSetNumber(<i32>index, value);
 	}
 
 	/** Writes a text argument: the message goes out with it. */
 	setText(index: number, value: string): void {
-		set_msg_arg_string(<i32>index + 1, value);
+		_msgSetText(<i32>index, value);
 	}
 }
+
+const messageArgs = new MessageArgs();
 
 /**
  * A message the server sends its clients - a chat line, the round clock, a
@@ -2871,7 +2860,7 @@ export class ClientMessage {
 
 	/** The message's arguments, by their place: `event.args.text(1)`. */
 	get args(): MessageArgs {
-		return new MessageArgs();
+		return messageArgs;
 	}
 
 	/**
@@ -2890,7 +2879,7 @@ export class ClientMessage {
 
 	/** @hidden Whether the message has the argument. */
 	protected __has(arg: i32): bool {
-		return arg <= get_msg_args();
+		return arg <= _msgArgc();
 	}
 
 	/** @hidden An argument as a number. */
@@ -2905,24 +2894,24 @@ export class ClientMessage {
 
 	/** @hidden */
 	protected __text(arg: i32): string {
-		return this.__has(arg) ? get_msg_arg_string(arg) : "";
+		return this.__has(arg) ? this.args.text(arg - 1) : "";
 	}
 
 	/** @hidden */
 	protected __setText(arg: i32, value: string): void {
-		if (this.__has(arg)) set_msg_arg_string(arg, value);
+		if (this.__has(arg)) this.args.setText(arg - 1, value);
 	}
 
 	/** @hidden Every text from the argument on. */
 	protected __texts(arg: i32): string[] {
 		const texts: string[] = [];
-		for (let at = arg; this.__has(at); at++) texts.push(get_msg_arg_string(at));
+		for (let at = arg; this.__has(at); at++) texts.push(this.args.text(at - 1));
 		return texts;
 	}
 
 	/** @hidden Writes the texts from the argument on, as many as the message has. */
 	protected __setTexts(arg: i32, value: string[]): void {
-		for (let i = 0; i < value.length && this.__has(arg + i); i++) set_msg_arg_string(arg + i, value[i]);
+		for (let i = 0; i < value.length && this.__has(arg + i); i++) this.args.setText(arg + i - 1, value[i]);
 	}
 
 	/** @hidden A player's number argument; `0` or past the players is none. */
@@ -2965,12 +2954,10 @@ export class ClientMessage {
 	}
 }
 
-// One register_message per message name, its listeners behind it: the engine
-// hands the plugin only the messages it listens to. Registered when the
-// server is up - a message's id is known from plugin_init - and a reload
-// takes the same public back. AMX Mod X's unregister_message can take
-// another plugin's hook off instead, so with no listener left the public is
-// switched off in the module.
+// One hook of the module per message name, its listeners behind it: the
+// module holds only the messages a plugin listens to. Made when the server is
+// up - the game numbers its messages as the map loads - and switched off with
+// no listener left.
 class MessageChannel {
 	listeners: __Listeners<(event: ClientMessage) => void> = new __Listeners<(event: ClientMessage) => void>();
 	hook: __Switch = new __Switch();
@@ -3016,12 +3003,21 @@ function registerMessage(channel: MessageChannel): void {
 		return;
 	}
 
-	const fired = (message: number, dest: number, receiver: number, d: number): void => messageFired(channel, <i32>receiver);
-	const pub = __switchedPublic(fired, `msg:${channel.name}`, channel.hook);
-	if (pub.length > 0) register_message(id, pub);
+	const fired = (receiver: number, message: number, dest: number, d: number): void => messageFired(channel, <i32>receiver);
+	__messageHook(id, fired, channel.hook);
 }
 
-/** The public register_message calls: (message, dest, receiver). */
+/**
+ * @hidden A handler of the game's message `id` (receiver, id, destination),
+ * switched by `hook`: it reads the message with a ClientMessage's `args`,
+ * and handled() keeps it from the clients.
+ */
+export function __messageHook(id: i32, handler: WideHandler, hook: __Switch | null): void {
+	const handle = _msgHook(id, hostIndex(handler, true));
+	if (hook != null && handle != 0) hook.add((on: bool): void => _hookOn(handle, on ? 1 : 0));
+}
+
+/** A message's listeners: the module hands its receiver, 0 for a message to everyone. */
 function messageFired(channel: MessageChannel, receiver: i32): void {
 	const event = channel.make();
 	event.name = channel.name;
@@ -3197,8 +3193,6 @@ function attachWaitingCvars(event: PluginInitEvent): void {
 	precacheOpen = false;
 	waitingPrecaches.length = 0;
 	makeWaitingCvars();
-	for (let i = 0; i < waitingTouches.length; i++) registerTouch(waitingTouches[i]);
-	waitingTouches.length = 0;
 	for (let i = 0; i < waitingHams.length; i++) registerHam(waitingHams[i]);
 	waitingHams.length = 0;
 	for (let i = 0; i < waitingMessages.length; i++) registerMessage(waitingMessages[i]);
@@ -3285,8 +3279,7 @@ export class Cvar {
 		if (this.hooked || this.pointer == 0) return;
 		this.hooked = true;
 		watchedCvars.push(this);
-		const pub = publicFor(cvarChanged, "cvarchange:" + this.name);
-		if (pub.length > 0) hook_cvar_change(this.pointer, pub);
+		_cvarHook(this.name, hostIndex<WideHandler>(cvarChanged, true));
 	}
 
 	/** `true` when the server has this cvar. */
@@ -3805,8 +3798,7 @@ function addTouchListener(listener: TouchListener, toucher: string, touched: str
 	if (filter == null) {
 		filter = new TouchFilter(toucher, touched);
 		touchFilters.push(filter);
-		if (serverUp) registerTouch(filter);
-		else waitingTouches.push(filter);
+		registerTouch(filter);
 	}
 
 	filter.listeners.push(listener);
@@ -3820,14 +3812,14 @@ function removeTouchListener(listener: TouchListener, toucher: string, touched: 
 	filter.hook.set(filter.listeners.count > 0);
 }
 
-/** Hands one pair of classes to the engine module; a reload takes the same public back. */
+/** Hooks one pair of classes' touches: the module calls (touched, toucher). */
 function registerTouch(filter: TouchFilter): void {
 	const fired = (touched: number, toucher: number, c: number, d: number): void => touchFired(filter, touched, toucher);
-	const pub = __switchedPublic(fired, `touch:${filter.toucher}:${filter.touched}`, filter.hook);
-	if (pub.length > 0) register_touch(filter.touched, filter.toucher, pub);
+	const handle = _touchHook(filter.touched, filter.toucher, hostIndex(fired, true));
+	filter.hook.add((on: bool): void => _hookOn(handle, on ? 1 : 0));
 }
 
-/** The public register_touch calls: (touched, toucher), in its order. */
+/** A touch's listeners: (touched, toucher). */
 function touchFired(filter: TouchFilter, touched: number, toucher: number): void {
 	const event = new TouchEvent(new Entity(toucher), new Entity(touched));
 	const listeners = filter.listeners;
@@ -3898,7 +3890,7 @@ import { Flag, FlagName, flagOf, HookName, hookIdOf } from "./constants";
 import { Entity, GameFields, PlayerFields } from "./entities";
 import {
 	MSG_ALL, MSG_ONE, MSG_ONE_UNRELIABLE, MODEL_AUTO, m_iDeaths, m_iTeam, LibType_Library, SPEAK_MUTED, SPEAK_ALL, SPEAK_LISTENALL, CS_T_TERROR, CS_CT_URBAN, CS_DONTCHANGE,
-	Ham_CS_RoundRespawn, Ham_CS_Player_ResetMaxSpeed, ARG_ANGLE, ARG_COORD, ARG_STRING
+	Ham_CS_RoundRespawn, Ham_CS_Player_ResetMaxSpeed, ARG_STRING
 } from "./constants";
 export { Entity, Weapon, WeaponKind, weaponKindOf } from "./entities";
 // The names an enum field takes and gives: `entity.renderMode = "additive"`.
@@ -4643,6 +4635,30 @@ export function __setField<T>(call: Call, kind: i32, value: T, element: number, 
 // @ts-ignore: decorator
 @external("env", "hook_on")        declare function _hookOn(handle: i32, on: i32): void;
 // @ts-ignore: decorator
+@external("env", "msg_hook")       declare function _msgHook(id: i32, fn: i32): i32;
+// @ts-ignore: decorator
+@external("env", "msg_argc")       declare function _msgArgc(): i32;
+// @ts-ignore: decorator
+@external("env", "msg_arg_type")   declare function _msgArgType(index: i32): i32;
+// @ts-ignore: decorator
+@external("env", "msg_number")     declare function _msgNumber(index: i32): f64;
+// @ts-ignore: decorator
+@external("env", "msg_text")       declare function _msgText(index: i32, out: i32, max: i32): i32;
+// @ts-ignore: decorator
+@external("env", "msg_set_number") declare function _msgSetNumber(index: i32, value: f64): void;
+// @ts-ignore: decorator
+@external("env", "msg_set_text")   declare function _msgSetText(index: i32, text: string): void;
+// @ts-ignore: decorator
+@external("env", "log_hook")       declare function _logHook(argc: i32, filter: string, fn: i32): i32;
+// @ts-ignore: decorator
+@external("env", "cvar_hook")      declare function _cvarHook(name: string, fn: i32): i32;
+// @ts-ignore: decorator
+@external("env", "touch_hook")     declare function _touchHook(touched: string, toucher: string, fn: i32): i32;
+// @ts-ignore: decorator
+@external("env", "stock_hook")     declare function _stockHook(fn: i32, handler: i32, post: i32): i32;
+// @ts-ignore: decorator
+@external("env", "query_cvar")     declare function _queryCvar(id: i32, name: string): i32;
+// @ts-ignore: decorator
 @external("env", "chain_set")      declare function _chainSet(index: i32, cell: i32): void;
 // @ts-ignore: decorator
 @external("env", "chain_set_text") declare function _chainSetText(index: i32, text: string): void;
@@ -4680,6 +4696,31 @@ export function hook(name: HookName, handler: WideHandler, post: bool = false): 
  */
 export function unhook(handle: number): void {
 	_hookOn(<i32>handle, 0);
+}
+
+// A client's answer about a cvar, by stock_hook's number (StockFunction in
+// runtime/src/enginehooks.h; as/hlds.ts has the others).
+const STOCK_CVAR_ANSWER: i32 = 7;
+
+/**
+ * @hidden A handler of one of the engine's and the game's functions fakemeta
+ * hooks (STOCK_* in as/hlds.ts), before the game's or after it, switched by
+ * `hook`: it reads the call with arg() and argText(), blocks
+ * it with handled() and answers it with __chainSet(-1, ...).
+ */
+export function __stockHook(fn: i32, handler: WideHandler, post: bool, hook: __Switch | null): void {
+	const handle = _stockHook(fn, hostIndex(handler, true), post ? 1 : 0);
+	if (hook != null && handle != 0) hook.add((on: bool): void => _hookOn(handle, on ? 1 : 0));
+}
+
+/**
+ * @hidden A handler of the game's log lines of `argc` arguments that
+ * `filter` takes - AMX Mod X's logevent filter, `"1=Round_Start"` - switched
+ * by `hook`; read_logargv reads the line.
+ */
+export function __logHook(argc: i32, filter: string, handler: () => void, hook: __Switch): void {
+	const handle = _logHook(argc, filter, hostIndex<WideHandler>((a: number, b: number, c: number, d: number): void => handler(), true));
+	hook.add((on: bool): void => _hookOn(handle, on ? 1 : 0));
 }
 
 /** @hidden Switches a hook the hood made off and on (as/hooks.ts). */

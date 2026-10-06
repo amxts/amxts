@@ -5,7 +5,11 @@
 // listener hears only its own message's name. AMX Mod X's message hooks do
 // not see a message a plugin sends with message_begin, so the game's is
 // waited for; player.screen sends through the engine, and progressBar's
-// BarTime2 is heard by the name that hears BarTime too.
+// BarTime2 is heard by the name that hears BarTime too. What goes out is
+// what the module's trace says of each message it holds: HideWeapon with the
+// flag a listener added, a bar a listener blocked not at all.
+// @log [amxts] TRACE message HideWeapon sent changed
+// @log [amxts] TRACE message BarTime blocked
 import { cs_get_user_money } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
@@ -27,6 +31,8 @@ let restarts = 0;
 let deadOnBoard = "";
 /** The progress bar heard for the bot: its game's name and start percent. */
 let bar = "";
+/** Whether the bar's listener blocks it. */
+let blockBar = false;
 
 server.addMessageListener("hideWeapon", (event) => {
 	if (event.player?.id == watched && seen.length == 0) seen = event.flags;
@@ -53,6 +59,7 @@ server.addMessageListener("scoreAttribute", (event) => {
 
 server.addMessageListener("progressBar", (event) => {
 	if (event.player?.id == watched) bar = `${event.name} ${event.seconds} ${event.startPercent}`;
+	if (blockBar) event.preventDefault();
 });
 
 game.addEventListener("newRound", () => {
@@ -93,6 +100,20 @@ async function run() {
 	check.expect(bar, "progressBar hears the screen's bar with a start percent, BarTime2").toBe("BarTime2 3 50");
 	bot.screen.progressBar(0);
 	check.expect(bar, "and the bar hidden, BarTime").toBe("BarTime 0 0");
+
+	// The trace says what the module sent of each message it held.
+	server.command("amxts_trace");
+	await sleep(100);
+	seen = [];
+	bot.hideHud = ["flashlight"];
+	for (let waits = 0; waits < 10 && seen.length == 0; waits++) await sleep(50);
+	blockBar = true;
+	bot.screen.progressBar(2);
+	blockBar = false;
+	check.expect(bar, "a blocked bar is heard by its listener").toBe("BarTime 2 0");
+	server.command("amxts_trace");
+	await sleep(100);
+	bot.hideHud = [];
 
 	// The game resets everyone's money as it restarts, ReAPI or not, a
 	// second after it reads sv_restart. A plugin's own message

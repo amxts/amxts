@@ -39,7 +39,8 @@ test('the last listener taken off switches its hook off, the next one on', async
 	expect(server.hooked('resetMaxSpeed')).toBe(false);
 	expect(server.hooked('think', { classname: 'info_target' })).toBe(false);
 	expect(relays()).toBe(false);
-	expect([...server.messageHooks.values()].flat().every(slot => slot.off)).toBe(true);
+	const messages = [...server.moduleMessageHooks.values()].flat();
+	expect(messages.length > 0 && messages.every(slot => slot.off)).toBe(true);
 	expect(server.touches.every(touch => touch.slot.off)).toBe(true);
 	fireAll();
 	expect(server.log).not.toMatch(/^(reset|think|join|death|touch)$/m);
