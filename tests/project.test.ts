@@ -11,7 +11,7 @@ import { installMenus } from '@amxts/menu-core/testing';
 // plugin that writes "@amxts/menu-core" gets the module.
 // @ts-ignore - bun:test types not available during type checking
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { CORE_PLUGINS, loadProject, mergeOptions, modulesInUse, moduleSource, pluginList, PROJECT_GAME_FOLDERS, readDefinition, setProjectDir, Sources } from '../scripts/project';
+import { CORE_PLUGINS, loadProject, mergeOptions, modulesInUse, moduleSource, pluginList, PROJECT_GAME_FOLDERS, projectPlugins, readDefinition, setProjectDir, Sources, staleCopies } from '../scripts/project';
 
 setDefaultTimeout(240_000);
 
@@ -527,6 +527,31 @@ describe('the official modules by package name', () => {
 		expect(server.native('by_name_show', alice.id)).toBe(true);
 		expect(menus.screen(alice)!.text).toContain('By package name');
 	});
+});
+
+/** A copy of the core's as/<file> an older amxts left in plugins/: the core's first line, then API this core's compiler refuses as a plugin. */
+function staleCopy(file: string): string {
+	return `${readFileSync(join(CORE_PLUGINS, file), 'utf8').split('\n', 1)[0]}\nexport function flagOf(name: string): i32 {\n\treturn name.length;\n}\n`;
+}
+
+test('copies of the core\'s API an older amxts left in plugins/ are not plugins; an author\'s file of such a name is', async () => {
+	const dir = project({
+		'amxts.config.ts': 'export default defineConfig({ modules: [] });\n',
+		'plugins/flags.ts': staleCopy('flags.ts'),
+		'plugins/facade.ts': staleCopy('facade.ts'),
+		'plugins/myplugin.ts': 'export function my_answer(): number {\n\treturn 42;\n}\n',
+	});
+	const own = loadProject(dir);
+	expect(staleCopies(own)).toEqual([join(own.pluginsDir, 'facade.ts'), join(own.pluginsDir, 'flags.ts')]);
+	expect(projectPlugins(own)).toEqual([join(own.pluginsDir, 'myplugin.ts')]);
+
+	const server = await setup({ rootDir: dir });
+	expect(loaded(server)).toEqual(['myplugin.ts']);
+	expect(server.native('my_answer')).toBe(42);
+
+	// Without the core's first line it is the author's plugin.
+	writeFileSync(join(dir, 'plugins/constants.ts'), 'export function my_constant(): number {\n\treturn 7;\n}\n');
+	expect(projectPlugins(loadProject(dir)).sort()).toEqual([join(own.pluginsDir, 'constants.ts'), join(own.pluginsDir, 'myplugin.ts')]);
 });
 
 test('the test server lays the game folders of a project out as the amxts-server image does', () => {

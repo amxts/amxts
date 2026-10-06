@@ -29,13 +29,13 @@ import type { Kind } from './upgrade-names';
 // functions take one object, the menu's context, and an item is one object
 // with its title (scripts/upgrade-menus.ts). What is rewritten no longer
 // matches, so a second run changes nothing.
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { MESSAGE_NAMES } from './client-messages';
-import { CORE_ENTRIES, CORE_PLUGINS, loadProject } from './project';
-import { apiFiles, serverFolder } from './system';
+import { CORE_ENTRIES, CORE_PLUGINS, loadProject, SERVER_FOLDER, serverDir, staleCopies } from './project';
+import { apiFiles } from './system';
 import { c, log } from './ui';
 import { upgradeMenus } from './upgrade-menus';
 import { COMMON, EVENTS, FLAG_NAMES, GAME_EVENT_FIELDS, HIDDEN, HIDDEN_EVENTS, JOIN_OPTIONS, RENAMED, SERVER_EVENT_CLASSES, SERVER_EVENT_FIELDS, SERVER_EVENTS, SERVER_EVENTS_BY_HAND, SERVER_FIELD_CLASSES, SERVER_GAME_EVENTS } from './upgrade-names';
@@ -775,9 +775,6 @@ export function upgradeFlags(file: string, text: string): { text: string; change
 /** Folders that are not the project's code: what is installed, built or generated. */
 const SKIP = new Set(['node_modules', 'dist', '.amxts', '.git']);
 
-/** A server's addons/amxts: the module's files, written over on every start. */
-const SERVER_FOLDER = /[\\/]addons[\\/]amxts$/i;
-
 /** The project's TypeScript files: its plugins, its tests and fixtures, a module's sources. */
 function codeFiles(dir: string, skip: Set<string>): string[] {
 	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -785,16 +782,6 @@ function codeFiles(dir: string, skip: Set<string>): string[] {
 		if (entry.isDirectory()) return SKIP.has(entry.name) || skip.has(path) || entry.name.startsWith('.') || SERVER_FOLDER.test(path) ? [] : codeFiles(path, skip);
 		return /\.(?:ts|mts|cts)$/.test(entry.name) ? [path] : [];
 	});
-}
-
-/** The server's addons/amxts that AMXTS_SERVER names, or '' when it names none. */
-function serverDir(): string {
-	try {
-		const dir = serverFolder(process.env.AMXTS_SERVER ?? '');
-		return dir && resolve(dir);
-	} catch {
-		return '';
-	}
 }
 
 /**
@@ -810,14 +797,20 @@ function projectFiles(dir: string, pluginsDir: string, outDir: string): string[]
 	return codeFiles(dir, new Set([outDir, serverDir()])).filter(file => !theirs.has(basename(file)) || dirname(file) === pluginsDir);
 }
 
-/** Rewrites the project in `dir`: every change, in the order of the files, and what is left to do by hand. `write: false` only lists them. */
-export function upgradeProject(dir: string, { write = true } = {}): { changes: Change[]; left: Left[] } {
+/**
+ * Rewrites the project in `dir`: every change, in the order of the files, and
+ * what is left to do by hand. Then removes the copies of the core's API an
+ * older amxts left in the plugins folder - after the rewrite, so nothing
+ * still imports them by `~/`. `write: false` only lists them.
+ */
+export function upgradeProject(dir: string, { write = true } = {}): { changes: Change[]; left: Left[]; removed: string[] } {
 	const project = loadProject(dir);
 	const ownFolder = resolve(project.pluginsDir) !== resolve(CORE_PLUGINS);
-	const renames = renamesFor(project.modules, place => ownFolder && existsSync(join(project.pluginsDir, place)));
+	const stale = staleCopies(project);
+	const renames = renamesFor(project.modules, place => ownFolder && existsSync(join(project.pluginsDir, place)) && !stale.includes(join(project.pluginsDir, place)));
 	const changes: Change[] = [];
 	const left: Left[] = [];
-	for (const file of projectFiles(project.dir, resolve(project.pluginsDir), project.outDir)) {
+	for (const file of projectFiles(project.dir, resolve(project.pluginsDir), project.outDir).filter(file => !stale.includes(file))) {
 		const text = readFileSync(file, 'utf8');
 		const name = relative(project.dir, file).replace(/\\/g, '/');
 		const http = dropHttpImports(name, text);
@@ -835,7 +828,10 @@ export function upgradeProject(dir: string, { write = true } = {}): { changes: C
 		if (write) writeFileSync(file, flags.text);
 		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...menus.changes, ...names.changes, ...events.changes, ...messages.changes, ...flags.changes);
 	}
-	return { changes, left };
+	if (write) {
+		for (const file of stale) rmSync(file);
+	}
+	return { changes, left, removed: stale.map(file => basename(file)) };
 }
 
 // Run as a task (scripts/run.ts names it in argv) or by itself.
@@ -844,14 +840,16 @@ if (import.meta.main || resolve(process.argv[1] ?? '') === fileURLToPath(import.
 	// amxts command as JSON, which prints what is left to do in its summary.
 	const args = process.argv.slice(2);
 	const report = args.includes('--report') ? args[args.indexOf('--report') + 1] : undefined;
-	const { changes, left } = upgradeProject(process.cwd(), { write: !args.includes('--dry-run') });
+	const write = !args.includes('--dry-run');
+	const { changes, left, removed } = upgradeProject(process.cwd(), { write });
+	if (removed.length) log.success(`${write ? 'removed' : 'would remove'} amxts's old API copies from plugins/: ${removed.join(', ')}`);
 	for (const change of changes) console.log(`  ${c.dim(`${change.file}:${change.line}`)}  ${change.from} ${c.dim('→')} ${change.to}`);
 	if (report) {
 		writeFileSync(report, JSON.stringify({ changes, left }));
 	} else {
 		const files = new Set(changes.map(change => change.file)).size;
 		if (changes.length) log.success(`upgraded ${changes.length} place(s) in ${files} file(s)`);
-		else if (!left.length) log.success('nothing to upgrade: the code already uses this core\'s API');
+		else if (!left.length && !removed.length) log.success('nothing to upgrade: the code already uses this core\'s API');
 		for (const each of left) log.warn(`${each.file}:${each.line}  ${each.why}`);
 	}
 }
