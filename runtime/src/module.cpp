@@ -706,6 +706,23 @@ static cell Invoke(const Resolved &native, cell *params)
 // amx_Allot's own margin between the heap and the stack (STKMARGIN in amx.h).
 #define HEAP_MARGIN (16 * (long)sizeof(cell))
 
+// The start of amx.h's AMX_HEADER, which the module SDK leaves out: where an
+// AMX's data begins. Each field is at its natural alignment, as packed.
+struct AmxHeaderStart {
+	int32_t size;
+	uint16_t magic;
+	char fileVersion, amxVersion;
+	int16_t flags, defsize;
+	int32_t cod, dat;
+};
+
+/** The cells at `addr` in `amx`'s data, as amx_GetAddr finds them: for an address this module took from the heap. */
+static cell *HeapAt(AMX *amx, cell addr)
+{
+	unsigned char *data = amx->data ? amx->data : amx->base + ((const AmxHeaderStart *)amx->base)->dat;
+	return (cell *)(data + addr);
+}
+
 /**
  * Takes `cells` cells of `amx`'s heap; NULL when the heap would run into the
  * stack. amx_Allot checks that too, but in unsigned arithmetic: a request
@@ -714,15 +731,17 @@ static cell Invoke(const Resolved &native, cell *params)
  */
 static cell *HeapCells(AMX *amx, int cells, cell *addr)
 {
-	cell *phys = NULL;
 	if (!amx || cells < 0
-	    || (long)amx->stk - (long)amx->hea - (long)cells * (long)sizeof(cell) < HEAP_MARGIN
-	    || MF_AmxAllot(amx, cells, addr, &phys) != AMX_ERR_NONE) {
+	    || (long)amx->stk - (long)amx->hea - (long)cells * (long)sizeof(cell) < HEAP_MARGIN) {
 		MF_PrintSrvConsole("[amxts] %d cells do not fit in the %s heap\n", cells, amx == g_image ? "natives' image's" : "Pawn plugin's");
 		*addr = 0;
 		return NULL;
 	}
-	return phys;
+	// amx_Allot's own work, without its call through AMX Mod X: a native's
+	// call takes the heap once for each buffer.
+	*addr = amx->hea;
+	amx->hea += cells * (cell)sizeof(cell);
+	return HeapAt(amx, *addr);
 }
 
 /** `cells` cells of the image's heap, for a native the module calls itself. */
@@ -1138,7 +1157,7 @@ struct Frame {
 	{
 		if (cells > MAX_CROSSING_CELLS)
 			cells = MAX_CROSSING_CELLS;
-		const cell *phys = MF_GetAmxAddr(amx, addr);
+		const cell *phys = HeapAt(amx, addr);
 		// Asked again: the plugin's memory can move while the native runs.
 		unsigned char *dst = (unsigned char *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ptr);
 		int i = 0;
@@ -1200,10 +1219,7 @@ struct Frame {
 		if (!n || !addr)
 			return;
 
-		cell *phys = MF_GetAmxAddr(amx, addr);
-		if (!phys)
-			return;
-
+		const cell *phys = HeapAt(amx, addr);
 		int32_t *dst = (int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ptr);
 		for (int i = 0; i < n; i++)
 			dst[i] = (int32_t)phys[i];

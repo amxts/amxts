@@ -38,7 +38,7 @@ const LIMITS: Record<string, number> = {
 	"money with its HUD": 2.5,
 	"origin read": 45,
 	"origin into a vector": 4,
-	"string in": 6,
+	"string in": 5,
 	"string out": 26,
 	"player.name": 3,
 	"raw hook": 3,
