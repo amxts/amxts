@@ -174,6 +174,12 @@ static char *EntvarAt(int32_t id, int32_t offset)
 	return edict ? edict + EDICT_ENTVARS + offset : NULL;
 }
 
+/** A player's entvar while it is in the game, when its edict is in use: no edict's checks. */
+static char *PlayerEntvarAt(int32_t id, int32_t offset)
+{
+	return InGame(id) && FindEdicts() ? g_edicts + id * EDICT_SIZE + EDICT_ENTVARS + offset : NULL;
+}
+
 static int32_t w_entGet(wasm_exec_env_t env, int32_t id, int32_t offset)
 {
 	char *at = EntvarAt(id, offset);

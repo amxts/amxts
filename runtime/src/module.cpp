@@ -1476,8 +1476,27 @@ static int32_t w_get_name(wasm_exec_env_t env, int32_t id, int32_t out, int32_t 
 	return written;
 }
 
-// fields.h's: an entvar's four bytes where the game keeps them.
+// fields.h's: an entvar's four bytes where the game keeps them, of an
+// entity and of a player in the game.
 static char *EntvarAt(int32_t id, int32_t offset);
+static char *PlayerEntvarAt(int32_t id, int32_t offset);
+
+/** Every slot a client can take, 0 unused. */
+#define CLIENT_SLOTS 33
+
+/**
+ * AMX Mod X's view of each client, kept the same way: connected
+ * (CPlayer::initialized, from client_connect) and in the game (ingame, from
+ * client_putinserver), until the slot is let go.
+ */
+static bool g_connected[CLIENT_SLOTS];
+static bool g_inGame[CLIENT_SLOTS];
+
+/** Whether the client in slot `id` is in the game, as MF_IsPlayerIngame says, without its call. */
+static bool InGame(int32_t id)
+{
+	return id > 0 && id < CLIENT_SLOTS && g_inGame[id];
+}
 
 // pev->health's place in entvars_t (scripts/entvars.ts checks the layout).
 #define ENTVAR_HEALTH 352
@@ -1489,7 +1508,7 @@ static char *EntvarAt(int32_t id, int32_t offset);
  */
 static int32_t w_get_health(wasm_exec_env_t env, int32_t id)
 {
-	char *at = MF_IsPlayerIngame(id) ? EntvarAt(id, ENTVAR_HEALTH) : NULL;
+	char *at = PlayerEntvarAt(id, ENTVAR_HEALTH);
 	if (at)
 		return (int32_t)*(float *)at;
 
@@ -1502,7 +1521,7 @@ static int32_t w_get_health(wasm_exec_env_t env, int32_t id)
 /** set_user_health's: above 0 the field is written; 0 or less kills, which the native does. */
 static void w_set_health(wasm_exec_env_t env, int32_t id, int32_t hp)
 {
-	char *at = hp > 0 && MF_IsPlayerIngame(id) ? EntvarAt(id, ENTVAR_HEALTH) : NULL;
+	char *at = hp > 0 ? PlayerEntvarAt(id, ENTVAR_HEALTH) : NULL;
 	if (at) {
 		*(float *)at = (float)hp;
 		return;
@@ -3640,9 +3659,6 @@ static void HookOff(EntryHook &h)
 	h.on = false;
 }
 
-/** Every slot a client can take, 0 unused. */
-#define CLIENT_SLOTS 33
-
 static int ClientId(const edict_t *e);
 static void MessagesAttach(bool on);
 
@@ -5701,13 +5717,6 @@ static bool g_precached = false;
 /** Whether the precache event is running: the one time the game takes a precache. */
 static bool g_precaching = false;
 
-/**
- * AMX Mod X's view of each client, kept the same way: connected
- * (CPlayer::initialized, from client_connect) and in the game (ingame, from
- * client_putinserver), until the slot is let go.
- */
-static bool g_connected[CLIENT_SLOTS];
-static bool g_inGame[CLIENT_SLOTS];
 // Whether VoiceTranscoder last said the client speaks (PollSpeaking).
 static bool g_speaking[CLIENT_SLOTS];
 
