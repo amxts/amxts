@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.2.3
+
+[compare changes](https://github.com/amxts/amxts/compare/v0.2.2...v0.2.3)
+
+### Summary
+
+A fix for a plugin that gives items on `playerSpawn`: when a bot took the slot of a player who had left the map, the game spawned it before it counted it in again, so the listener ran for a player ReAPI still counted out. Every ReAPI native it called then failed with `player N is not connected`, which the server log showed as run time errors of `amxts_host.amxx`. Such a spawn no longer reaches the listeners; the bot's next spawn does, as before.
+
+### ⬆️ Upgrade guide
+
+`npx amxts upgrade` in the project, with the server stopped: it moves `@amxts/core` to 0.2.3, builds the plugins again and puts the 0.2.3 module on the server named in `.env`. A server installed by hand takes the module (and `amxts-compile`, where it has one) from this release, and its plugins are built again.
+
+### 🩹 Fixes
+
+- **hooks:** No `playerSpawn` for a player counted out - a bot that takes the slot of one who left the map no longer reaches the listeners while ReAPI's natives refuse it ([0d7ce9f](https://github.com/amxts/amxts/commit/0d7ce9f))
+
+### ❤️ Contributors
+
+- Ernest Manukyan ([@kukson777](https://github.com/kukson777))
+
 ## v0.2.2
 
 [compare changes](https://github.com/amxts/amxts/compare/v0.2.1...v0.2.2)
