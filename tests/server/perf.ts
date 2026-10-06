@@ -39,7 +39,7 @@ const LIMITS: Record<string, number> = {
 	"origin read": 45,
 	"origin into a vector": 4,
 	"string in": 5,
-	"string out": 26,
+	"string out": 12,
 	"player.name": 3,
 	"raw hook": 3,
 	"event": 7,

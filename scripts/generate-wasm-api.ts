@@ -830,8 +830,36 @@ function __textBack(): string {
  */
 export function __textAt(at: usize, max: i32): string {
 	let length = 0;
-	while (length < max && load<u8>(at + length) != 0) length++;
-	return String.UTF8.decodeUnsafe(at, length);
+	let bits: u32 = 0;
+	let hash: u32 = 0;
+	while (length < max) {
+		const byte = <u32>load<u8>(at + length);
+		if (byte == 0) break;
+		bits |= byte;
+		hash = hash * 31 + byte;
+		length++;
+	}
+	if (bits >= 0x80) return String.UTF8.decodeUnsafe(at, length);
+	// ASCII, most text: a byte is its UTF-16 unit. A text read before is the
+	// string made then - a string cannot change - and nothing is allocated.
+	const slot = hash & (__TEXTS - 1);
+	const kept = unchecked(__texts[slot]);
+	if (changetype<usize>(kept) != 0 && __sameText(changetype<string>(kept), at, length)) return changetype<string>(kept);
+	const text = changetype<string>(__new(<usize>length << 1, idof<String>()));
+	for (let i = 0; i < length; i++) store<u16>(changetype<usize>(text) + (<usize>i << 1), load<u8>(at + i));
+	unchecked(__texts[slot] = text);
+	return text;
+}
+
+// The ASCII texts natives gave last, by a hash of their bytes: a name, a
+// cvar's value or a path read again and again is one string.
+const __TEXTS = 64;
+const __texts = new StaticArray<string | null>(__TEXTS);
+
+function __sameText(text: string, at: usize, length: i32): bool {
+	if (text.length != length) return false;
+	for (let i = 0; i < length; i++) if (load<u16>(changetype<usize>(text) + (<usize>i << 1)) != <u16>load<u8>(at + i)) return false;
+	return true;
 }
 
 function __floatCells(values: f64[]): StaticArray<i32> {
