@@ -31,28 +31,28 @@ const ours = new Map<string, number>();
  * with room for a noisy machine and another system.
  */
 const LIMITS: Record<string, number> = {
-	"native": 3,
+	"native": 2,
 	"money read": 1,
 	"health read": 2,
-	"health write": 2.5,
+	"health write": 1.5,
 	"money with its HUD": 2.5,
-	"origin read": 20,
-	"origin into a vector": 4,
+	"origin read": 15,
+	"origin into a vector": 2.5,
 	"string in": 4,
 	"string out": 12,
-	"player.name": 3,
+	"player.name": 1,
 	"raw hook": 3,
-	"event": 7,
+	"event": 5,
 	"forward to a listener": 12,
 	"relay with no listener": 1.5,
 	"Pawn calls a plugin": 2,
-	"timer armed": 1.5,
+	"timer armed": 1,
 	"timer firing": 2,
 	"command": 2,
 	"menu choice": 3,
 	"remainder": 2.5,
 	"fractions": 0.5,
-	"hot path": 3,
+	"hot path": 1.5,
 };
 
 let sink = 0;

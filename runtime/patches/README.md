@@ -38,7 +38,21 @@ bytes) goes on a list of its size, and the next allocation of that size
 takes it without TLSF's search, split or merge; and the incremental collector
 starts a cycle only once the heap has doubled and grown 1 MB more
 (`ASC_GC_IDLEGAP`), not 1 KB, since a cycle visits every root and every
-live object.
+live object. `ASC_GC_STRESS` steps the collector on every allocation, for
+the tests of what the shadow stack keeps.
+
+And it makes a plugin's many small calls cheaper:
+
+- a function that can reach no collection - no allocation, no import (a
+  native may call back into the plugin), no call through a function value -
+  keeps no shadow-stack frame, and a call to it no slots for its arguments;
+  in one that can, a local gets a slot only if it holds a value across such
+  a call (`src/passes/shadowstack.ts`);
+- the check for an error on its way to a catch after a call is kept only
+  where the callee may throw, which is known once the whole program is
+  compiled;
+- a variable a closure captured is read and written in place, not through
+  a call.
 
 After changing `src/` or `std/` in `runtime/deps/assemblyscript`, rebuild it
 and write the patch back from there:

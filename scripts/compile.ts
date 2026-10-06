@@ -297,11 +297,10 @@ function functionsOf(module: any): { name: string; imported: string | null }[] {
 }
 
 /**
- * A full build's small functions inlined where they are called. Every
- * function asc writes calls ~stack_check, its shadow stack's guard, and
+ * A full build's small functions inlined where they are called. A function
+ * that keeps a shadow-stack frame calls ~stack_check, its guard, and
  * Binaryen does not inline a function that calls another unless it is
- * tiny - so a getter or an array's element read stayed a call, a frame
- * and a check each.
+ * tiny - so a small function with a frame stayed a call.
  */
 function inlineSmall(module: any) {
 	const always = binaryen.getAlwaysInlineMaxSize();
