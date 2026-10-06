@@ -47,7 +47,9 @@ runs:
       run: sudo apt-get update -qq && sudo apt-get install -y -qq libc6-i386 lib32stdc++6 lib32gcc-s1
 
     # There is no lock file (the folders are linked with --no-package-lock), so
-    # npm's download cache is keyed by the package.json files.
+    # npm's download cache is keyed by the package.json files. It serves the
+    # packages, not the registry's lists of versions (no --prefer-offline): a
+    # cache restored from an older key would not know a version published since.
     - uses: actions/cache@v6
       with:
         path: ${{ runner.os == 'Windows' && '~/AppData/Local/npm-cache' || '~/.npm' }}
@@ -56,12 +58,12 @@ runs:
     - name: Install
       shell: bash
       run: |
-        (cd amxts-cli && npm install --no-package-lock --prefer-offline --no-audit --no-fund)
-        (cd amxts && npm install --no-package-lock --prefer-offline --no-audit --no-fund)
+        (cd amxts-cli && npm install --no-package-lock --no-audit --no-fund)
+        (cd amxts && npm install --no-package-lock --no-audit --no-fund)
         # The modules' own code imports the core (@amxts/core/test-utils)
         # from their folders, which resolve it through their node_modules.
         for module in config-core menu-core; do
-          (cd amxts-modules/$module && npm install --no-package-lock --prefer-offline --no-audit --no-fund --ignore-scripts)
+          (cd amxts-modules/$module && npm install --no-package-lock --no-audit --no-fund --ignore-scripts)
         done
 
     # The pinned includes (ReAPI, resemiclip) as they were
