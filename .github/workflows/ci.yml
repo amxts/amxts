@@ -254,8 +254,10 @@ jobs:
       - name: The Linux files, packed as the release packs them
         working-directory: amxts
         run: bun run release:linux --skip-build --no-upload --dry-run
-      # docker/server with the Linux kit, as Publish builds the image: here
-      # with the cache of its layers, then taken by name.
+      # docker/server with the Linux kit, as Publish builds the image: from
+      # scratch, then taken by name. A cached layer keeps the SteamCMD of the
+      # day it was made, and a server on that steamclient.so exited right
+      # after the plugins loaded.
       - name: The Linux server kit
         run: |
           mkdir "$RUNNER_TEMP/kit"
@@ -268,8 +270,6 @@ jobs:
           build-contexts: kit=${{ runner.temp }}/kit
           tags: amxts-release-test
           load: true
-          cache-from: type=gha,scope=amxts-server
-          cache-to: type=gha,mode=max,scope=amxts-server
       - name: The packages, end to end
         working-directory: amxts
         run: bun run test:release --image amxts-release-test
