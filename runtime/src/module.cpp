@@ -275,6 +275,19 @@ static void Bind(Handler &h)
 	if (!p.inst || !p.hasTable)
 		return;
 
+	// A timer binds the same function at every arm: the last one bound is
+	// kept, by the run of its plugin, which no other load shares.
+	static Handler last;
+	static int32_t lastRun = 0;
+	if (p.run == lastRun && h.fn == last.fn) {
+		h.func = last.func;
+		h.count = last.count;
+		memcpy(h.kinds, last.kinds, sizeof(h.kinds));
+		h.entry = last.entry;
+		h.doubles = last.doubles;
+		return;
+	}
+
 	wasm_function_inst_t func = wasm_table_get_func_inst(p.inst, &p.table, h.fn);
 	// More parameters than Fire passes: called by its index, it traps on its type.
 	if (!func || wasm_func_get_param_count(func, p.inst) > (uint32_t)(MAX_EVENT_ARGS + 1))
@@ -297,6 +310,8 @@ static void Bind(Handler &h)
 	if (shape && results <= 1 && (result == WASM_I32 || result == WASM_I64))
 		h.entry = wasm_runtime_direct_entry(func);
 	h.doubles = doubles > 0;
+	last = h;
+	lastRun = p.run;
 }
 
 /**
