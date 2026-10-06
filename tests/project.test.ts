@@ -551,7 +551,7 @@ test('copies of the core\'s API an older amxts left in plugins/ are not plugins;
 
 	// Without the core's first line it is the author's plugin.
 	writeFileSync(join(dir, 'plugins/constants.ts'), 'export function my_constant(): number {\n\treturn 7;\n}\n');
-	expect(projectPlugins(loadProject(dir))).toEqual([join(own.pluginsDir, 'constants.ts'), join(own.pluginsDir, 'myplugin.ts')]);
+	expect(projectPlugins(loadProject(dir)).sort()).toEqual([join(own.pluginsDir, 'constants.ts'), join(own.pluginsDir, 'myplugin.ts')]);
 });
 
 test('the test server lays the game folders of a project out as the amxts-server image does', () => {

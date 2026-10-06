@@ -242,7 +242,7 @@ function mismatch(manifest: PrebuiltManifest, pkg: ModulePackage, sources: Sourc
 		}
 	}
 	const own = resolve(sources.project.pluginsDir) !== resolve(CORE_PLUGINS);
-	const shadow = own ? manifest.places.find(place => existsSync(join(sources.project.pluginsDir, place))) : undefined;
+	const shadow = own ? manifest.places.find(place => sources.ownFile(place)) : undefined;
 	if (shadow) return `${posix(relative(sources.project.dir, join(sources.project.pluginsDir, shadow)))} takes the place of a file ${named} was built from`;
 	return null;
 }
