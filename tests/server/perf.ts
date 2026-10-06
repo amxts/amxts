@@ -31,7 +31,7 @@ const LIMITS: Record<string, number> = {
 	"native": 3.5,
 	"money read": 1,
 	"health read": 2.5,
-	"health write": 2,
+	"health write": 2.5,
 	"money with its HUD": 2.5,
 	"origin read": 50,
 	"origin into a vector": 7,
