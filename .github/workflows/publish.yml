@@ -74,6 +74,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
+      # Built from scratch, with no cache of its layers: a release's image has
+      # the SteamCMD and the Steam client of its day.
       - uses: docker/build-push-action@v7
         with:
           context: docker/server
@@ -84,8 +86,6 @@ jobs:
             org.opencontainers.image.version=${{ steps.image.outputs.version }}
             org.opencontainers.image.revision=${{ steps.image.outputs.revision }}
             org.opencontainers.image.created=${{ steps.image.outputs.created }}
-          cache-from: type=gha,scope=amxts-server
-          cache-to: type=gha,mode=max,scope=amxts-server
 
   # The site built again with the release: its docs are the newest release
   # line's (cut by the release job), its modules' READMEs theirs.
