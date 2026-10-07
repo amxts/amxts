@@ -1,9 +1,10 @@
 // The Pawn side of the speed check (perf.ts): the same operations as Pawn
 // plugins write them, each the best of three runs, timed with perf.ts's
 // clock and handed back to it. Run by amxts_perf_pawn <player id>, which
-// perf.ts sends, amxts_perf_pawn_timers, once a round of timers, and
+// perf.ts sends, amxts_perf_pawn_timers, once a round of timers,
 // amxts_perf_pawn_commands, for how many commands its handler got, and
-// amxts_perf_pawn_menu <player id>, which opens its menu on the bot. What
+// amxts_perf_pawn_menu <player id>, which opens its menu on the bot, and
+// amxts_perf_pawn_impulse <player id>, which times perf.ts's impulse listener. What
 // only Pawn can time on perf.ts's side - a forward reaching it, a call of its
 // native - is timed here too and handed back with perf_ours.
 #include <amxmodx>
@@ -22,8 +23,9 @@
 // The turns impulse_listener_ns takes, and the moves of each, as perf.ts's.
 #define IMPULSE_ROUNDS 1001
 #define IMPULSE_RUN 200
-// The impulse this plugin's handler hears: perf.ts's listener hears another.
+// The impulse this plugin's handler hears, and the one perf.ts's listener hears.
 #define PAWN_IMPULSE 2
+#define OUR_IMPULSE 1
 
 // The native perf-lib.sma registers.
 native perf_lib_echo(value);
@@ -81,6 +83,7 @@ public plugin_init()
 	register_srvcmd("amxts_perf_pawn_commands", "report_commands");
 	register_clcmd("amxts_perf_pawn_command", "on_command");
 	register_srvcmd("amxts_perf_pawn_menu", "show_menu_to");
+	register_srvcmd("amxts_perf_pawn_impulse", "time_listener");
 	g_menu = menu_create("Perf", "on_menu");
 	menu_additem(g_menu, "choose");
 	g_impulse = CreateMultiForward("client_impulse", ET_IGNORE, FP_CELL, FP_CELL);
@@ -125,6 +128,13 @@ public on_impulse(id)
 public on_command(id)
 {
 	g_commands++;
+	return PLUGIN_HANDLED;
+}
+
+// perf.ts's listener of the bot's impulse, timed by the same moves as this plugin's handler.
+public time_listener()
+{
+	perf_ours("forward to a listener", impulse_listener_ns(read_argv_int(1), OUR_IMPULSE));
 	return PLUGIN_HANDLED;
 }
 
@@ -247,17 +257,19 @@ Float:moves_ms(id, impulse, count)
 	return perf_now() - start;
 }
 
-// Nanoseconds the handler of an impulse adds to a move of the bot, as
-// perf.ts times its listener: moves without an impulse and with the one it
-// hears, a short run each in turns, the median of the differences.
+// Nanoseconds the handler of `impulse` adds to a move of the bot: a move is
+// many times a handler's cost, and it drifts with the bot's state, so moves
+// without an impulse and with it are run in turns, a short run each, and the
+// median of the differences is taken. Between two moves the game's own work
+// leaves the handler's path cold.
 new Float:g_differences[IMPULSE_ROUNDS];
 
-Float:impulse_listener_ns(id)
+Float:impulse_listener_ns(id, impulse)
 {
 	for (new round = 0; round < IMPULSE_ROUNDS; round++)
 	{
 		new Float:without = moves_ms(id, 0, IMPULSE_RUN);
-		new Float:heard = moves_ms(id, PAWN_IMPULSE, IMPULSE_RUN);
+		new Float:heard = moves_ms(id, impulse, IMPULSE_RUN);
 		g_differences[round] = (heard - without) * 1000000.0 / float(IMPULSE_RUN);
 	}
 	SortFloats(g_differences, IMPULSE_ROUNDS);
@@ -350,8 +362,8 @@ public measure()
 
 	report_each("relay with no listener", FORWARD_NOBODY, id, FEW);
 	report_ours("relay with no listener", FORWARD_RELAYED, id, FEW);
-	// A handler of the bot's impulse, as perf.ts times its listener.
-	perf_report("forward to a listener", impulse_listener_ns(id));
+	// A handler of the bot's impulse; perf.ts's listener is timed the same way (time_listener).
+	perf_report("forward to a listener", impulse_listener_ns(id, PAWN_IMPULSE));
 
 	report_each("Pawn calls a plugin", ECHO_PAWN, id, FEW);
 	report_ours("Pawn calls a plugin", ECHO_OURS, id, FEW);

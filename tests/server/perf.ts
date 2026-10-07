@@ -6,8 +6,8 @@
 // best of three runs. A limit is changed on purpose, with the measurement
 // that moves it.
 import { hook, unhook } from "@amxts/core";
-import { EngFunc_RunPlayerMove, LibType_Library } from "@amxts/core/constants";
-import { engfunc, get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, server_exec, strlen } from "@amxts/core/natives";
+import { LibType_Library } from "@amxts/core/constants";
+import { get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, server_exec, strlen } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
 const TRIES = 3;
@@ -15,7 +15,7 @@ const MANY = 1_000_000;
 const FEW = 100_000;
 const FRAMES = 10_000;
 const TIMERS = 300;
-// The turns impulseListenerNs takes, and the moves of each.
+// The turns perf-pawn.sma times an impulse listener in, and the moves of each.
 const IMPULSE_ROUNDS = 1001;
 const IMPULSE_RUN = 200;
 
@@ -68,9 +68,13 @@ let fired = 0;
 let firstFired = 0;
 let firing = Number.POSITIVE_INFINITY;
 
+// Where perf_now counts from: a Float holds a time to the microsecond only
+// while it is small, so the clock starts again before Pawn times anything.
+let clockStart = 0;
+
 /** The clock perf-pawn.sma times itself with: milliseconds, to the microsecond. */
 export function perf_now(): Float {
-	return performance.now();
+	return performance.now() - clockStart;
 }
 
 /** One of Pawn's results. */
@@ -215,36 +219,16 @@ menu.addItem({
 });
 
 /**
- * Milliseconds `count` moves of the bot with `impulse` take: the game's
- * CmdStart, which the module hears an impulse in. The impulse is one the
- * game ignores, and not perf-pawn.sma's.
+ * Nanoseconds an impulse listener adds to a move of the bot, timed by
+ * perf-pawn.sma as it times its own handler: the same loop of the bot's moves
+ * drives both, so the two differ only in who hears the impulse.
  */
-function impulseMs(id: number, impulse: number, count: number) {
-	const angles = [0, 0, 0];
-	const start = performance.now();
-	for (let i = 0; i < count; i++) engfunc(EngFunc_RunPlayerMove, id, angles, 0, 0, 0, 0, impulse, 0);
-	return performance.now() - start;
-}
-
-/**
- * Nanoseconds an impulse listener adds to a move of the bot, as
- * perf-pawn.sma times its handler of one: a move is many times the
- * listener's cost, and it drifts with the bot's state, so the moves without
- * an impulse and with one are run in turns, a short run each, and the median
- * of the differences is taken. Between two moves the game's own work leaves
- * the listener's path cold, on either side.
- */
-function impulseListenerNs(id: number) {
-	const differences: number[] = [];
+function timeImpulseListener(id: number) {
 	server.addEventListener("impulse", onImpulse);
-	for (let round = 0; round < IMPULSE_ROUNDS; round++) {
-		const without = impulseMs(id, 0, IMPULSE_RUN);
-		const heard = impulseMs(id, 1, IMPULSE_RUN);
-		differences.push((heard - without) * 1_000_000 / IMPULSE_RUN);
-	}
+	clockStart = performance.now();
+	server.command(`amxts_perf_pawn_impulse ${id}`);
+	server_exec();
 	server.removeEventListener("impulse", onImpulse);
-	differences.sort((a, b) => a - b);
-	return differences[Math.floor(IMPULSE_ROUNDS / 2)];
 }
 
 /**
@@ -316,7 +300,7 @@ function measure(player: Player) {
 	ours.set("raw hook", resetNs(id) - before);
 	unhook(raw);
 
-	ours.set("forward to a listener", impulseListenerNs(id));
+	timeImpulseListener(id);
 
 	before = resetNs(id);
 	game.addEventListener("resetMaxSpeed", onReset);
@@ -381,6 +365,7 @@ server.addServerCommand("amxts_test_perf", async () => {
 	// Pawn measures first, in a frame of its own - before any listener of
 	// this plugin's hooks the event it times - and this side right after, while
 	// the same players are alive. Then the timers fire, a round at a time.
+	clockStart = performance.now();
 	server.command(`amxts_perf_pawn ${player.id}`);
 	await sleep(200);
 	check.expect(pawn.size > 0, "Pawn's results came").toBe(true);
