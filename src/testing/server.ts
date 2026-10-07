@@ -2469,6 +2469,11 @@ export class FakeServer {
 			return this.hookSlots.size;
 		},
 
+		// Every cvar's change is heard as it is made here.
+		cvar_exact() {
+			return 1;
+		},
+
 		touch_hook(this: FakeServer, plugin: PluginInstance, touched: number, toucher: number, fn: number) {
 			const slot = this.takeSlot(plugin, fn, SHAPE_WIDE, '', 0);
 			this.touches.push({ touched: plugin.memory.string(touched), toucher: plugin.memory.string(toucher), slot });

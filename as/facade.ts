@@ -1539,6 +1539,19 @@ export class Player extends PlayerFields implements Client {
 	__name: string | null = null;
 	/** @hidden */
 	__nameAt: i32 = -1;
+	/**
+	 * @hidden The SteamID, the IP and the auth key as last read, kept while
+	 * the slot's count (nameChanges) is the one they were read at - a new
+	 * player in the slot moves it; null for one not read since. A SteamID
+	 * still pending is never kept: it changes when Steam answers.
+	 */
+	__steamId: string | null = null;
+	/** @hidden */
+	__ip: string | null = null;
+	/** @hidden */
+	__authKey: string | null = null;
+	/** @hidden */
+	__keptAt: i32 = -1;
 
 	constructor(id: number) {
 		super(id);
@@ -1554,6 +1567,30 @@ export class Player extends PlayerFields implements Client {
 		const kept = this.__name;
 		if (changetype<usize>(kept) != 0 && unchecked(nameChanges[<i32>this.id]) == this.__nameAt) return changetype<string>(kept);
 		return this.__readName();
+	}
+
+	/**
+	 * @hidden Whether a value read now may be kept (__steamId): in a slot,
+	 * and its count even. What was kept at another count is let go.
+	 */
+	__keeps(): bool {
+		const slot = <i32>this.id;
+		if (<u32>(slot - 1) >= <u32>MAX_PLAYERS) return false;
+		if (!playersTold) tellPlayers();
+		const at = unchecked(nameChanges[slot]);
+		if (at & 1) return false;
+		if (at != this.__keptAt) {
+			this.__keptAt = at;
+			this.__steamId = null;
+			this.__ip = null;
+			this.__authKey = null;
+		}
+		return true;
+	}
+
+	/** @hidden Whether what is kept was kept at the slot's count now. */
+	@inline __keptNow(): bool {
+		return unchecked(nameChanges[<i32>this.id]) == this.__keptAt;
 	}
 
 	/** @hidden The name read from the game, kept while the slot's count stays. */
@@ -1672,9 +1709,13 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `get_user_ip`
 	 */
 	get ip(): string {
+		const kept = this.__ip;
+		if (changetype<usize>(kept) != 0 && this.__keptNow()) return changetype<string>(kept);
 		// The fourth argument drops the port, which is what a plugin means by
 		// an address nine times out of ten.
-		return get_user_ip(this.id, 1);
+		const ip = get_user_ip(this.id, 1);
+		if (ip.length > 0 && this.__keeps()) this.__ip = ip;
+		return ip;
 	}
 
 	/**
@@ -1683,7 +1724,11 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `get_user_authid`
 	 */
 	get steamId(): string {
-		return get_user_authid(this.id);
+		const kept = this.__steamId;
+		if (changetype<usize>(kept) != 0 && this.__keptNow()) return changetype<string>(kept);
+		const id = get_user_authid(this.id);
+		if (id.length > 0 && id != "STEAM_ID_PENDING" && id != "VALVE_ID_PENDING" && this.__keeps()) this.__steamId = id;
+		return id;
 	}
 
 	/**
@@ -1711,7 +1756,12 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `REU_GetAuthKey`
 	 */
 	get authKey(): string {
-		return hasReunion() ? REU_GetAuthKey(this.id) : "";
+		const kept = this.__authKey;
+		if (changetype<usize>(kept) != 0 && this.__keptNow()) return changetype<string>(kept);
+		if (!hasReunion()) return "";
+		const key = REU_GetAuthKey(this.id);
+		if (key.length > 0 && this.__keeps()) this.__authKey = key;
+		return key;
 	}
 
 	/**
@@ -3320,10 +3370,19 @@ function cvarChanged(pointer: number, oldText: number, newText: number, unused: 
 	for (let i = 0; i < watchedCvars.length; i++) {
 		const cvar = watchedCvars[i];
 		if (cvar.pointer != <i32>pointer) continue;
-		cvar.dispatch(new CvarChangeEvent(cvar, argText(1), argText(2)));
+		cvar.__text = null;
+		if (cvar.__heard()) cvar.dispatch(new CvarChangeEvent(cvar, argText(1), argText(2)));
 		return;
 	}
 }
+
+// @ts-ignore: decorator
+@external("env", "cvar_exact") declare function _cvarExact(): i32;
+
+// Whether the module hears a cvar's change as it is made, so a Cvar keeps
+// its text (Cvar.value); 1 or 0 once asked, -1 before. Where it compares
+// the cvars once a frame instead, a Cvar reads its text every time.
+let cvarsExact: i32 = -1;
 
 /**
  * A server cvar, read and written like an input's `value`:
@@ -3349,6 +3408,8 @@ export class Cvar {
 	pointer: i32 = 0;
 	private listeners = new __Listeners<CvarListener>();
 	private hooked: bool = false;
+	/** @hidden The text as last read, kept until the cvar changes (cvarChanged); null for none. */
+	__text: string | null = null;
 
 	constructor(
 		/** The cvar's name, as the console knows it, e.g. `"mp_timelimit"`. */
@@ -3383,20 +3444,41 @@ export class Cvar {
 	get exists(): bool { return this.pointer != 0; }
 
 	/** The cvar's value as text, e.g. `"250"`. */
-	get value(): string { return this.pointer != 0 ? get_pcvar_string(this.pointer) : ""; }
-	set value(text: string) { if (this.pointer != 0) set_pcvar_string(this.pointer, text); }
+	get value(): string {
+		const kept = this.__text;
+		if (changetype<usize>(kept) != 0) return changetype<string>(kept);
+		if (this.pointer == 0) return "";
+		const text = get_pcvar_string(this.pointer);
+		// Kept from here on, and let go when the cvar changes.
+		if (cvarsExact < 0) cvarsExact = _cvarExact();
+		if (cvarsExact == 1) {
+			this.hook();
+			this.__text = text;
+		}
+		return text;
+	}
+	set value(text: string) {
+		if (this.pointer == 0) return;
+		this.__text = null;
+		set_pcvar_string(this.pointer, text);
+	}
 
 	/** The cvar's value as a number. A whole number is written without a fraction: `"5"`, not `"5.000000"`. */
 	get number(): number { return this.pointer != 0 ? get_pcvar_float(this.pointer) : 0; }
 	set number(value: number) {
 		if (this.pointer == 0) return;
+		this.__text = null;
 		if (value == Math.floor(value)) set_pcvar_num(this.pointer, <i32>value);
 		else set_pcvar_float(this.pointer, value);
 	}
 
 	/** The cvar as an on/off switch: `true` for anything but `0`. Writing `true` sets `1`, `false` sets `0`. */
 	get boolean(): bool { return this.pointer != 0 && get_pcvar_num(this.pointer) != 0; }
-	set boolean(on: bool) { if (this.pointer != 0) set_pcvar_num(this.pointer, on ? 1 : 0); }
+	set boolean(on: bool) {
+		if (this.pointer == 0) return;
+		this.__text = null;
+		set_pcvar_num(this.pointer, on ? 1 : 0);
+	}
 
 	/** Calls `listener` whenever the cvar's value changes. */
 	addEventListener(type: "change", listener: CvarListener): void {
@@ -3407,6 +3489,11 @@ export class Cvar {
 	/** Stops calling a listener added with `addEventListener`. */
 	removeEventListener(type: "change", listener: CvarListener): void {
 		this.listeners.remove(listener);
+	}
+
+	/** @hidden Whether anything listens to the cvar's changes, beyond keeping its text. */
+	__heard(): bool {
+		return this.listeners.count > 0;
 	}
 
 	/** @internal Calls the change listeners; the server does it when the cvar changes. A plugin listens with `addEventListener`. */
@@ -3491,7 +3578,11 @@ export class Server {
 	 * Pawn: `get_mapname`
 	 */
 	get map(): string {
-		return get_mapname();
+		const kept = keptMap;
+		if (changetype<usize>(kept) != 0) return changetype<string>(kept);
+		const map = get_mapname();
+		if (map.length > 0) keptMap = map;
+		return map;
 	}
 
 	/**
@@ -3559,8 +3650,12 @@ export class Server {
 	 * Pawn: `get_configsdir`
 	 */
 	get configsDir(): string {
-		const dir = get_localinfo("amxx_configsdir");
-		return dir.length > 0 ? dir : "addons/amxmodx/configs";
+		let dir = keptConfigsDir;
+		if (changetype<usize>(dir) != 0) return changetype<string>(dir);
+		dir = get_localinfo("amxx_configsdir");
+		if (dir.length == 0) dir = "addons/amxmodx/configs";
+		keptConfigsDir = dir;
+		return dir;
 	}
 
 	/**
@@ -3569,8 +3664,12 @@ export class Server {
 	 * Pawn: `get_datadir`
 	 */
 	get dataDir(): string {
-		const dir = get_localinfo("amxx_datadir");
-		return dir.length > 0 ? dir : "addons/amxmodx/data";
+		let dir = keptDataDir;
+		if (changetype<usize>(dir) != 0) return changetype<string>(dir);
+		dir = get_localinfo("amxx_datadir");
+		if (dir.length == 0) dir = "addons/amxmodx/data";
+		keptDataDir = dir;
+		return dir;
 	}
 
 	/**
@@ -3663,6 +3762,12 @@ export class Server {
 		return resource;
 	}
 }
+
+// What the server tells once a map, read the first time it is asked: a
+// plugin is loaded anew with each map.
+let keptMap: string | null = null;
+let keptConfigsDir: string | null = null;
+let keptDataDir: string | null = null;
 
 /** The server the plugin runs on: its events, commands and map. */
 export const server = new Server();

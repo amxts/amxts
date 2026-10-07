@@ -86,6 +86,10 @@ function shapeOf(get: string, memberType: string): Shape | null {
 	return null;
 }
 
+// The string_t entvars whose text is kept by the string_t (keptText): a
+// class's and a model's, which the engine never rewrites in place.
+const KEPT_TEXT = new Set(['var_classname', 'var_model', 'var_viewmodel', 'var_weaponmodel']);
+
 // entvar names are lowercase and glued - `var_rendermode` - so the words are
 // spelled out here; anything not listed keeps its name as it is.
 const ENTVAR_WORDS: Record<string, string> = {
@@ -940,7 +944,8 @@ function accessor(f: Field, kind: 'entvar' | 'member' | 'game') {
 			// A string entvar is read through the engine module, EV_SZ_<name>
 			// being the same field: the text is in the engine's string table.
 			if (kind === 'entvar') {
-				lines.push(`\tget ${f.name}(): string { return entity_get_string(this.id, EV_SZ_${f.reapi.slice(4)}); }`);
+				const read = KEPT_TEXT.has(f.reapi) ? `keptText(this.id, ${offsetOf(f.reapi)}, EV_SZ_${f.reapi.slice(4)})` : `entity_get_string(this.id, EV_SZ_${f.reapi.slice(4)})`;
+				lines.push(`\tget ${f.name}(): string { return ${read}; }`);
 				// A model is the engine's SET_MODEL, not the text alone: it also
 				// sets modelindex, without which nothing is drawn, and the size.
 				if (f.settable && f.reapi === 'var_model') lines.push(`\tset ${f.name}(value: string) { entity_set_model(this.id, value); }`);
@@ -1178,6 +1183,31 @@ function slotOf(at: i32): i32 {
 		unchecked(memberSlots[at] = slot);
 	}
 	return slot - 1;
+}
+
+// The text of a class's or a model's string_t: the engine points one
+// string_t at one text for the whole map - a class name, a model's name in
+// its precache list - so a read is a cell, and the text is made once a
+// string_t. Kept by the string_t, a slot of the table each; one another
+// string_t takes is read again. Not netname: the engine points a player's at
+// his name's buffer, which it rewrites.
+const KEPT_TEXTS: i32 = 256;
+const keptKeys = new StaticArray<i32>(KEPT_TEXTS);
+const keptTexts = new StaticArray<string | null>(KEPT_TEXTS);
+
+/** The text of the string_t entvar at \`offset\` (keptTexts); \`key\` is its EV_SZ_, for the engine module's read of one not kept. */
+function keptText(id: number, offset: i32, key: i32): string {
+	const at = _entGet(<i32>id, offset);
+	const slot = (at ^ (at >>> 8)) & (KEPT_TEXTS - 1);
+	const kept = unchecked(keptTexts[slot]);
+	// A kept text is a load and a compare: \`kept != null\` on a string is a call.
+	if (at != 0 && changetype<usize>(kept) != 0 && unchecked(keptKeys[slot]) == at) return changetype<string>(kept);
+	// 0 is no text, or no entity: the engine module's read says which.
+	const text = entity_get_string(id, key);
+	if (at == 0) return text;
+	unchecked(keptKeys[slot] = at);
+	unchecked(keptTexts[slot] = text);
+	return text;
 }
 
 /** An entvar's cell: a whole number, or a Float's bits. */
@@ -1656,7 +1686,7 @@ export class Weapon extends Entity {
 
 	// Entity's classname, typed as the name the player's weapon methods take.
 	${methodDoc('Weapon.classname')}
-	get classname(): WeaponName { return entity_get_string(this.id, EV_SZ_classname) as WeaponName; }
+	get classname(): WeaponName { return keptText(this.id, ${offsetOf('var_classname')}, EV_SZ_classname) as WeaponName; }
 	set classname(value: WeaponName) { entity_set_string(this.id, EV_SZ_classname, value); }
 
 ${weaponBody}

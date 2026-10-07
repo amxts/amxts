@@ -1,10 +1,11 @@
 // The speed check: what a native, a field, a vector, the HUD's money, text,
-// an event, a forward, a timer, a variadic native, a command, a menu's
-// choice, Pawn calling this plugin, whole and fractional arithmetic and a
-// real plugin's hot path cost here, against the same in Pawn
-// (perf-pawn.sma), measured in one run on one machine. It checks ratios, not
-// times, so it holds on any machine; each figure is the best of three runs.
-// A limit is changed on purpose, with the measurement that moves it.
+// the values a plugin keeps, an event, a forward, a timer, a variadic
+// native, a command, a menu's choice, Pawn calling this plugin, whole and
+// fractional arithmetic and a real plugin's hot path cost here, against the
+// same in Pawn (perf-pawn.sma), measured in one run on one machine. It
+// checks ratios, not times, so it holds on any machine; each figure is the
+// best of three runs. A limit is changed on purpose, with the measurement
+// that moves it.
 import { hook, unhook } from "@amxts/core";
 import { EngFunc_RunPlayerMove, LibType_Library } from "@amxts/core/constants";
 import { engfunc, get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, server_exec, strlen } from "@amxts/core/natives";
@@ -41,6 +42,8 @@ const LIMITS: Record<string, number> = {
 	"string in": 3,
 	"string out": 6,
 	"player.name": 1,
+	"player.steamId": 1,
+	"server.map": 1,
 	"raw hook": 2,
 	"event": 2.5,
 	"forward to a listener": 2.5,
@@ -283,6 +286,12 @@ function measure(player: Player) {
 	}));
 	ours.set("player.name", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) sink += player.name.length;
+	}));
+	ours.set("player.steamId", nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) sink += player.steamId.length;
+	}));
+	ours.set("server.map", nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) sink += server.map.length;
 	}));
 	// A move of the bot through the native's `...` tail, as perf-pawn.sma makes it.
 	const angles = [0.0, 0.0, 0.0];

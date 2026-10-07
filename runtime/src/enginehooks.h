@@ -588,6 +588,18 @@ static int32_t w_cvar_hook(wasm_exec_env_t env, int32_t name, int32_t fn)
 	return AddOtherHook(p.point, fn, 0);
 }
 
+/**
+ * cvar_exact() - 1 when a cvar's handlers hear its change as it is made
+ * (ReHLDS's hookchain, or the jump at the gamedata's signature), 0 where
+ * the cvars are compared once a frame: a plugin keeps a cvar's text only
+ * when a change can let it go at once.
+ */
+static int32_t w_cvar_exact(wasm_exec_env_t env)
+{
+	(void)env;
+	return g_rehlds || g_cvarSet.at ? 1 : 0;
+}
+
 /** The cvar's handlers, with its pointer, the text before and the text now as the call's arguments. */
 static void CvarChanged(CvarPoint &p, const char *before)
 {
@@ -946,6 +958,7 @@ static void ForgetOtherPoints()
 	{ "msg_set_text",   (void *)w_msg_set_text,   "(ii)",    NULL }, \
 	{ "log_hook",       (void *)w_log_hook,       "(iii)i",  NULL }, \
 	{ "cvar_hook",      (void *)w_cvar_hook,      "(ii)i",   NULL }, \
+	{ "cvar_exact",     (void *)w_cvar_exact,     "()i",     NULL }, \
 	{ "touch_hook",     (void *)w_touch_hook,     "(iii)i",  NULL }, \
 	{ "stock_hook",     (void *)w_stock_hook,     "(iii)i",  NULL }, \
 	{ "query_cvar",     (void *)w_query_cvar,     "(ii)i",   NULL }, \

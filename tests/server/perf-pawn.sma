@@ -49,7 +49,9 @@ enum
 	FORWARD_NOBODY,
 	ECHO_OURS,
 	ECHO_PAWN,
-	VARIADIC
+	VARIADIC,
+	STEAM_ID,
+	MAP_NAME
 }
 
 new HookChain:g_hook;
@@ -302,6 +304,8 @@ run(what, id, count)
 		case HOT_PATH: g_writes = hot_path();
 		case STRING_IN: for (new i = 0; i < count; i++) g_sink += strlen("hello, world");
 		case STRING_OUT: for (new i = 0; i < count; i++) g_sink += get_user_name(id, name, charsmax(name));
+		case STEAM_ID: for (new i = 0; i < count; i++) g_sink += get_user_authid(id, name, charsmax(name));
+		case MAP_NAME: for (new i = 0; i < count; i++) g_sink += get_mapname(name, charsmax(name));
 		case TIMER_ARMED:
 		{
 			for (new i = 0; i < count; i++)
@@ -361,6 +365,8 @@ public measure()
 	// player.name is get_user_name on perf.ts's side.
 	report_each("string out", STRING_OUT, id, FEW);
 	report_each("player.name", STRING_OUT, id, FEW);
+	report_each("player.steamId", STEAM_ID, id, FEW);
+	report_each("server.map", MAP_NAME, id, FEW);
 	report_each("timer armed", TIMER_ARMED, id, FEW);
 	report_each("variadic native", VARIADIC, id, FEW);
 
