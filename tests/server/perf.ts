@@ -43,7 +43,7 @@ const LIMITS: Record<string, number> = {
 	"string out": 6,
 	"player.name": 1,
 	"player.steamId": 1,
-	"server.map": 1,
+	"server.map": 0.5,
 	"raw hook": 2,
 	"event": 2.5,
 	"forward to a listener": 2.5,
