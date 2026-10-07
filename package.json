@@ -63,6 +63,7 @@
 		"scripts/file-contents.ts",
 		"scripts/hlds-events.ts",
 		"scripts/includes.ts",
+		"scripts/leaf-natives.ts",
 		"scripts/player-fields.ts",
 		"scripts/plugin-cache.ts",
 		"scripts/plugin-natives.ts",

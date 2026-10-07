@@ -50,7 +50,7 @@ describe('the generated native table', () => {
 			// clocks: Date.now, performance.now and Math.random's seed - and for
 			// a number field plugins add to Player, which crosses as an f64 both ways
 			// (player_data_get, player_data_set).
-			expect(line).toMatch(/^\S+ \(i*F?\)[iF]?(?: \S+)?$/);
+			expect(line).toMatch(/^\S+ \(i*F?\)[iF]?(?: \S+)?(?: leaf)?$/);
 		}
 	});
 
@@ -60,13 +60,13 @@ describe('the generated native table', () => {
 			// wamrc reads a line into 256 bytes: a longer one would go on as a line of its own.
 			expect(line.length).toBeLessThan(255);
 			const [name, signature, crossing] = line.split(' ');
-			if (!crossing) continue;
+			if (!crossing || crossing === 'leaf') continue;
 			const params = signature.slice(1, signature.indexOf(')')).length;
 			expect([name, crossing.split(',').length]).toEqual([name, params]);
 			for (const each of crossing.split(',')) expect(each).toMatch(/^(?:[stv]|\[(?:\d+|[an]\d+)>?)$/);
 		}
 		// Text the native fills, its length after it, a string going in.
-		expect(signatures).toMatch(/^add \(iiii\)i t,v,s,v$/m);
+		expect(signatures).toMatch(/^add \(iiii\)i t,v,s,v leaf$/m);
 		expect(signatures).toMatch(/^admins_flush \(\)i$/m);
 	});
 
@@ -128,16 +128,17 @@ describe('the generated native table', () => {
 	});
 
 	test('reads a string going in where it is, and writes text coming back only up to its end', () => {
-		expect(thunkOf('strlen')).toContain('p[1] = f.inText(a0);');
+		expect(thunkOf('set_cvar_string')).toContain('p[1] = f.inText(a0);');
 		expect(declarations).toMatch(/__raw_strlen\(changetype<i32>\(string_\)\)/);
 		// A raw native takes the plugin's string too.
 		expect(declarations).toMatch(/declare function get_players\(a0: i32, a1: i32, a2: string, a3: string\): i32;/);
 
-		const body = thunkOf('get_user_name');
+		const body = thunkOf('get_user_authid');
 		expect(body).toContain('p[2] = f.outText(a1, a2);');
 		expect(body).toContain('f.backText(a1, a2, p[2]);');
 		expect(body).not.toContain('f.in(');
-		expect(signatures).toMatch(/^get_user_name \(iii\)i v,t,v$/m);
+		expect(signatures).toMatch(/^get_user_authid \(iii\)i v,t,v$/m);
+		expect(signatures).toMatch(/^get_user_name \(iii\)i v,t,v leaf$/m);
 	});
 
 	test('copies a buffer of a guessed size as far as the plugin\'s memory goes, the same both ways', () => {

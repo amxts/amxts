@@ -89,6 +89,13 @@ struct FuncStubNT { ucell address; ucell nameofs; };
 #define ALWAYS_INLINE inline __attribute__((always_inline))
 #endif
 
+// What such a path seldom takes, kept out of it: a thunk stays small.
+#ifdef _MSC_VER
+#define NEVER_INLINE __declspec(noinline)
+#else
+#define NEVER_INLINE __attribute__((noinline))
+#endif
+
 // The same paths without Visual C++'s stack cookie (/GS), which a function
 // with an array on its stack checks on every return: their arrays are of a
 // fixed size and filled by a count that cannot pass it.
@@ -1122,27 +1129,155 @@ struct CallArgs {
  * not in the plugin's memory: the memory moves when it grows, which it can
  * while a native runs code of the same plugin, and a native keeps the AMX it
  * was called with for its callbacks.
+ *
+ * A leaf native (scripts/leaf-natives.ts) runs no plugin code. A literal it
+ * takes - a string of the plugin's static data, which never changes - is
+ * made into cells once a map, in an area of the image's heap no call gives
+ * back, and kept by the plugin and the string's address (KeptText): the next
+ * call hands the native those cells, and reads nothing of the plugin's.
  */
 // The bytes before a text a native fills (Frame::backText): its count and its hash.
 #define TEXT_HEAD 8
 
+// The area of the image's heap the kept literals are in, taken as the image
+// loads, in cells; and how many literals are kept, a power of two.
+#define KEPT_CELLS 16384
+#define KEPT_TEXTS 2048
+
+// AssemblyScript's id of String (idof<String>), which its runtime fixes.
+#define STRING_ID 2
+
+/** A literal kept as cells: the plugin (its one exec env), the string's address there, and the cells' in the image. */
+struct KeptText {
+	wasm_exec_env_t env;
+	int32_t ptr;
+	cell addr;
+};
+static KeptText g_kept[KEPT_TEXTS];
+// What is left of the area, as the image's addresses: from g_keptAt to g_keptEnd.
+static cell g_keptAt = 0, g_keptEnd = 0;
+
+/** The first place a literal's entry may be, by its address's hash. */
+static ALWAYS_INLINE uint32_t KeptSlot(int32_t ptr)
+{
+	return ((uint32_t)ptr * 2654435761u) >> 21;
+}
+
+/** Where a literal's entry is, or would go: a few places from its hash, NULL when they are taken. */
+static KeptText *KeptFind(wasm_exec_env_t env, int32_t ptr)
+{
+	uint32_t at = KeptSlot(ptr);
+	for (int i = 0; i < 4; i++) {
+		KeptText *e = &g_kept[(at + i) & (KEPT_TEXTS - 1)];
+		if ((e->ptr == ptr && e->env == env) || !e->env)
+			return e;
+	}
+	return NULL;
+}
+
+/** Takes the area from a newly loaded image's heap, every literal forgotten; with no image, there is none. */
+static void KeptReset(AMX *image)
+{
+	memset(g_kept, 0, sizeof(g_kept));
+	g_keptAt = g_keptEnd = 0;
+	cell addr;
+	if (image && HeapCells(image, KEPT_CELLS, &addr)) {
+		g_keptAt = addr;
+		g_keptEnd = addr + KEPT_CELLS * (cell)sizeof(cell);
+	}
+}
+
+/** Forgets the literals of a plugin that goes: another may get its address. Their cells stay taken until the next map. */
+static void KeptForget(wasm_exec_env_t env)
+{
+	for (int i = 0; i < KEPT_TEXTS; i++)
+		if (g_kept[i].env == env)
+			g_kept[i].env = NULL, g_kept[i].ptr = 0;
+}
+
+/**
+ * The plugin's string of `n` UTF-16 units as a Pawn string in `dst`: UTF-8,
+ * a byte a cell, and the terminator, in at most `room` cells before it. Cut
+ * there, never inside a letter. Returns the cells written before the
+ * terminator.
+ */
+static uint32_t TextCells(const uint16_t *chars, uint32_t n, cell *dst, uint32_t room)
+{
+	// ASCII first, most text: a unit a cell, and the room holds them all;
+	// four units at a time while all four are.
+	cell *start = dst, *stop = dst + room;
+	uint32_t i = 0, ascii = n < room ? n : room;
+	for (; i + 4 <= ascii; i += 4, dst += 4) {
+		uint32_t low, high;
+		memcpy(&low, chars + i, 4);
+		memcpy(&high, chars + i + 2, 4);
+		if ((low | high) & 0xFF80FF80u)
+			break;
+		dst[0] = (cell)(low & 0xFFFF);
+		dst[1] = (cell)(low >> 16);
+		dst[2] = (cell)(high & 0xFFFF);
+		dst[3] = (cell)(high >> 16);
+	}
+	for (; i < ascii && chars[i] < 0x80; i++)
+		*dst++ = (cell)chars[i];
+
+	for (; i < n; i++) {
+		uint32_t c = chars[i];
+		if (c < 0x80) {
+			if (dst == stop)
+				break;
+			*dst++ = (cell)c;
+			continue;
+		}
+
+		// A surrogate pair is one character; a lone half is not one at all.
+		if (c >= 0xD800 && c <= 0xDBFF && i + 1 < n && chars[i + 1] >= 0xDC00 && chars[i + 1] <= 0xDFFF)
+			c = 0x10000 + ((c - 0xD800) << 10) + (chars[++i] - 0xDC00);
+		else if (c >= 0xD800 && c <= 0xDFFF)
+			c = 0xFFFD;
+
+		int size = c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+		if (stop - dst < size)
+			break;
+		if (size == 2) {
+			*dst++ = (cell)(0xC0 | (c >> 6));
+		} else if (size == 3) {
+			*dst++ = (cell)(0xE0 | (c >> 12));
+			*dst++ = (cell)(0x80 | ((c >> 6) & 0x3F));
+		} else {
+			*dst++ = (cell)(0xF0 | (c >> 18));
+			*dst++ = (cell)(0x80 | ((c >> 12) & 0x3F));
+			*dst++ = (cell)(0x80 | ((c >> 6) & 0x3F));
+		}
+		*dst++ = (cell)(0x80 | (c & 0x3F));
+	}
+	*dst = 0;
+	return (uint32_t)(dst - start);
+}
+
 struct Frame {
 	wasm_exec_env_t env;
-	wasm_module_inst_t inst;
 	AMX *amx;
 	cell mark;
-	// The plugin's memory as the call starts: nothing of the plugin runs
-	// before the native is called.
+	// The plugin's memory as the call starts, asked when first needed:
+	// nothing of the plugin runs before the native is called.
 	uint8_t *base;
 	uint64_t size;
 
 	Frame(wasm_exec_env_t from, AMX *to)
 	{
 		env = from;
-		inst = wasm_runtime_get_module_inst(env);
 		amx = to;
 		mark = amx ? amx->hea : 0;
-		base = wasm_runtime_memory_view(env, &size);
+		base = NULL;
+		size = 0;
+	}
+
+	ALWAYS_INLINE uint8_t *view()
+	{
+		if (!base)
+			base = wasm_runtime_memory_view(env, &size);
+		return base;
 	}
 
 	~Frame()
@@ -1160,7 +1295,7 @@ struct Frame {
 			return 0;
 		if (cells > MAX_CROSSING_CELLS)
 			cells = MAX_CROSSING_CELLS;
-		if (!wasm_runtime_validate_app_addr(inst, (uint64_t)ptr, (uint64_t)cells * 4))
+		if (!wasm_runtime_validate_app_addr(Inst(env), (uint64_t)ptr, (uint64_t)cells * 4))
 			return 0;
 		return cells;
 	}
@@ -1178,90 +1313,91 @@ struct Frame {
 	int32_t fits(int32_t ptr, int32_t cells)
 	{
 		uint64_t start = 0, end = 0;
-		if (ptr <= 0 || !wasm_runtime_get_app_addr_range(inst, (uint64_t)ptr, &start, &end))
+		if (ptr <= 0 || !wasm_runtime_get_app_addr_range(Inst(env), (uint64_t)ptr, &start, &end))
 			return -1;
 		uint64_t room = (end - (uint64_t)ptr) / 4;
 		return room < (uint64_t)cells ? (int32_t)room : cells;
 	}
 
+	/** The plugin's string at `ptr`: its UTF-16 units and their count; NULL when the pointer is not a string. */
+	const uint16_t *chars(int32_t ptr, uint32_t *n)
+	{
+		uint8_t *at = view();
+		if (ptr <= 4 || (uint64_t)ptr > size)
+			return NULL;
+		// The byte length is the u32 before it, as AsString reads it.
+		uint32_t bytes = *(const uint32_t *)(at + ptr - 4);
+		if (bytes > size - (uint64_t)ptr)
+			return NULL;
+		*n = bytes / 2;
+		return (const uint16_t *)(at + ptr);
+	}
+
 	/**
-	 * The plugin's own string, as a Pawn string in the AMX heap: its UTF-16
-	 * (the byte length is the u32 before it, as AsString reads it) written
-	 * as UTF-8, a byte a cell, in one pass - the plugin makes nothing for
-	 * it. Cut at MAX_CROSSING_CELLS - 1 bytes, never inside a letter. 0 when
-	 * the pointer is not a string, or the heap has no room.
+	 * The plugin's own string, as a Pawn string in the AMX heap, written in
+	 * one pass (TextCells) - the plugin makes nothing for it. Cut at
+	 * MAX_CROSSING_CELLS - 1 bytes. 0 when the pointer is not a string, or
+	 * the heap has no room.
 	 */
 	cell inText(int32_t ptr)
 	{
-		if (ptr <= 4 || (uint64_t)ptr > size)
+		uint32_t n;
+		const uint16_t *text = chars(ptr, &n);
+		if (!text)
 			return 0;
-		uint32_t bytes = *(const uint32_t *)(base + ptr - 4);
-		if (bytes > size - (uint64_t)ptr)
-			return 0;
-
-		const uint16_t *chars = (const uint16_t *)(base + ptr);
-		uint32_t n = bytes / 2;
 
 		// Three bytes at most for each unit (a pair's four are two units'),
-		// then given back down to what the text took.
+		// then given back down to what the text took: nothing was taken
+		// after it, so the heap's top comes back to its end.
 		uint32_t room = (uint64_t)n * 3 < MAX_CROSSING_CELLS - 1 ? n * 3 : MAX_CROSSING_CELLS - 1;
 		cell addr;
 		cell *phys = HeapCells(amx, (int)room + 1, &addr);
 		if (!phys)
 			return 0;
+		amx->hea = addr + (cell)((TextCells(text, n, phys, room) + 1) * sizeof(cell));
+		return addr;
+	}
 
-		// ASCII first, most text: a unit a cell, and the room holds them all;
-		// four units at a time while all four are.
-		cell *dst = phys, *stop = phys + room;
-		uint32_t i = 0, ascii = n < room ? n : room;
-		for (; i + 4 <= ascii; i += 4, dst += 4) {
-			uint32_t low, high;
-			memcpy(&low, chars + i, 4);
-			memcpy(&high, chars + i + 2, 4);
-			if ((low | high) & 0xFF80FF80u)
-				break;
-			dst[0] = (cell)(low & 0xFFFF);
-			dst[1] = (cell)(low >> 16);
-			dst[2] = (cell)(high & 0xFFFF);
-			dst[3] = (cell)(high >> 16);
-		}
-		for (; i < ascii && chars[i] < 0x80; i++)
-			*dst++ = (cell)chars[i];
+	/**
+	 * A leaf native's string (scripts/leaf-natives.ts): a literal is handed
+	 * over as the cells kept for it (KeptText), made on its first call
+	 * (keepText); any other string crosses as inText's.
+	 */
+	ALWAYS_INLINE cell keptText(int32_t ptr)
+	{
+		const KeptText &kept = g_kept[KeptSlot(ptr)];
+		if (kept.ptr == ptr && kept.env == env && amx == g_image)
+			return kept.addr;
+		return keepText(ptr);
+	}
 
-		for (; i < n; i++) {
-			uint32_t c = chars[i];
-			if (c < 0x80) {
-				if (dst == stop)
-					break;
-				*dst++ = (cell)c;
-				continue;
-			}
+	/**
+	 * A literal not kept yet, made into cells in the area and kept; any
+	 * other string, or one with no room left, crosses as inText's. A literal
+	 * is told by its header, which only static data has: no collector's
+	 * links, as no object the collector made is without them.
+	 */
+	NEVER_INLINE cell keepText(int32_t ptr)
+	{
+		KeptText *kept = amx == g_image ? KeptFind(env, ptr) : NULL;
+		if (kept && kept->env)
+			return kept->addr;
 
-			// A surrogate pair is one character; a lone half is not one at all.
-			if (c >= 0xD800 && c <= 0xDBFF && i + 1 < n && chars[i + 1] >= 0xDC00 && chars[i + 1] <= 0xDFFF)
-				c = 0x10000 + ((c - 0xD800) << 10) + (chars[++i] - 0xDC00);
-			else if (c >= 0xD800 && c <= 0xDFFF)
-				c = 0xFFFD;
+		uint32_t n;
+		const uint16_t *text = chars(ptr, &n);
+		if (!text || !kept || ptr < 20)
+			return inText(ptr);
+		// The object's header before its data: gcInfo and gcInfo2, the collector's links, then rtId.
+		const uint32_t *header = (const uint32_t *)((const uint8_t *)text - 16);
+		uint32_t room = (uint64_t)n * 3 < MAX_CROSSING_CELLS - 1 ? n * 3 : MAX_CROSSING_CELLS - 1;
+		if (header[0] || header[1] || header[2] != STRING_ID || g_keptEnd - g_keptAt < (cell)((room + 1) * sizeof(cell)))
+			return inText(ptr);
 
-			int size = c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
-			if (stop - dst < size)
-				break;
-			if (size == 2) {
-				*dst++ = (cell)(0xC0 | (c >> 6));
-			} else if (size == 3) {
-				*dst++ = (cell)(0xE0 | (c >> 12));
-				*dst++ = (cell)(0x80 | ((c >> 6) & 0x3F));
-			} else {
-				*dst++ = (cell)(0xF0 | (c >> 18));
-				*dst++ = (cell)(0x80 | ((c >> 12) & 0x3F));
-				*dst++ = (cell)(0x80 | ((c >> 6) & 0x3F));
-			}
-			*dst++ = (cell)(0x80 | (c & 0x3F));
-		}
-		*dst = 0;
-
-		// Nothing was taken after it, so the heap's top comes back to its end.
-		amx->hea = addr + (cell)((dst - phys + 1) * sizeof(cell));
+		cell addr = g_keptAt;
+		g_keptAt += (cell)((TextCells(text, n, HeapAt(amx, addr), room) + 1) * sizeof(cell));
+		kept->env = env;
+		kept->ptr = ptr;
+		kept->addr = addr;
 		return addr;
 	}
 
@@ -1277,6 +1413,7 @@ struct Frame {
 			return 0;
 		if (cells > MAX_CROSSING_CELLS)
 			cells = MAX_CROSSING_CELLS;
+		view();
 		if ((uint64_t)ptr + (uint64_t)cells + 1 > size)
 			return 0;
 
@@ -1297,12 +1434,19 @@ struct Frame {
 	 */
 	void backText(int32_t ptr, int32_t cells, cell addr)
 	{
+		// Asked again: the plugin's memory can move while the native runs.
+		// It never shrinks, so the room outText checked is still there.
+		base = wasm_runtime_memory_view(env, &size);
+		backTextLeaf(ptr, cells, addr);
+	}
+
+	/** backText for a leaf native, which cannot have grown the plugin's memory: it is where it was. */
+	void backTextLeaf(int32_t ptr, int32_t cells, cell addr)
+	{
 		if (cells > MAX_CROSSING_CELLS)
 			cells = MAX_CROSSING_CELLS;
 		const cell *phys = HeapAt(amx, addr);
-		// Asked again: the plugin's memory can move while the native runs.
-		// It never shrinks, so the room outText checked is still there.
-		unsigned char *dst = wasm_runtime_memory_view(env, &size) + ptr;
+		unsigned char *dst = base + ptr;
 		// Four bytes at a time, the hash taken a word at a time (the fake
 		// server's setTextHead hashes the same way).
 		uint32_t bits = 0, hash = 0;
@@ -1366,7 +1510,7 @@ struct Frame {
 		if (!phys)
 			return 0;
 
-		int32_t *src = (int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ptr);
+		int32_t *src = (int32_t *)wasm_runtime_addr_app_to_native(Inst(env), (uint64_t)ptr);
 		for (int i = 0; i < n; i++)
 			phys[i] = (cell)src[i];
 		phys[n] = 0;
@@ -1382,7 +1526,7 @@ struct Frame {
 			return;
 
 		const cell *phys = HeapAt(amx, addr);
-		int32_t *dst = (int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ptr);
+		int32_t *dst = (int32_t *)wasm_runtime_addr_app_to_native(Inst(env), (uint64_t)ptr);
 		for (int i = 0; i < n; i++)
 			dst[i] = (int32_t)phys[i];
 	}
@@ -3038,16 +3182,17 @@ static int32_t w_call(wasm_exec_env_t env, int32_t id, int32_t argsPtr, int32_t 
 
 	static Cached natives[sizeof(g_dispatchedNatives) / sizeof(g_dispatchedNatives[0])];
 	Frame f(env, Resolve(natives[id], g_dispatchedNatives[id]));
+	wasm_module_inst_t inst = Inst(env);
 
 	if (argc < 0 || argc > MAX_CALL_ARGS)
 		return 0;
 
-	if (!wasm_runtime_validate_app_addr(f.inst, (uint64_t)argsPtr, (uint64_t)argc * 4)
-	    || !wasm_runtime_validate_app_addr(f.inst, (uint64_t)maskPtr, (uint64_t)argc))
+	if (!wasm_runtime_validate_app_addr(inst, (uint64_t)argsPtr, (uint64_t)argc * 4)
+	    || !wasm_runtime_validate_app_addr(inst, (uint64_t)maskPtr, (uint64_t)argc))
 		return 0;
 
-	int32_t *args = (int32_t *)wasm_runtime_addr_app_to_native(f.inst, (uint64_t)argsPtr);
-	unsigned char *mask = (unsigned char *)wasm_runtime_addr_app_to_native(f.inst, (uint64_t)maskPtr);
+	int32_t *args = (int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)argsPtr);
+	unsigned char *mask = (unsigned char *)wasm_runtime_addr_app_to_native(inst, (uint64_t)maskPtr);
 
 	struct Back { int32_t ptr; int32_t cells; cell addr; };
 	Back back[MAX_CALL_ARGS];
@@ -3075,7 +3220,7 @@ static int32_t w_call(wasm_exec_env_t env, int32_t id, int32_t argsPtr, int32_t 
 			case 'b':
 				if (i + 1 < argc)
 					cells = mask[i + 1] == 'r' && f.Cells(args[i + 1], 1)
-						? *(int32_t *)wasm_runtime_addr_app_to_native(f.inst, (uint64_t)args[i + 1])
+						? *(int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)args[i + 1])
 						: args[i + 1];
 				if (cells > MAX_CROSSING_CELLS)
 					clamped = cells = MAX_CROSSING_CELLS;
@@ -3095,7 +3240,7 @@ static int32_t w_call(wasm_exec_env_t env, int32_t id, int32_t argsPtr, int32_t 
 			// native: PrepareArray keeps a pointer to it, which ExecuteForward reads.
 			case 'a': {
 				int32_t n = 0;
-				int32_t *values = ForwardArray(f.inst, args[i], &n);
+				int32_t *values = ForwardArray(inst, args[i], &n);
 				Args prepare(3);
 				cell *phys = values ? HeapCells(f.amx, n + 1, &prepare[1]) : NULL;
 				if (phys)
@@ -4367,6 +4512,7 @@ static void UnloadImage()
 	g_imageComplete = false;
 	g_nativeCache.clear();
 	g_nativeGeneration++;
+	KeptReset(NULL);
 }
 
 /**
@@ -4406,6 +4552,7 @@ static void LoadImage()
 		return;
 	}
 	g_image = &g_imageAmx;
+	KeptReset(g_image);
 }
 
 /**
@@ -4463,8 +4610,10 @@ static void ReleasePlugin(int index)
 	uses.swap(p.uses);
 	int32_t run = p.run;
 	p.run = 0;
-	if (p.inst)
+	if (p.inst) {
 		NetForget(p.inst);
+		KeptForget(p.env);
+	}
 	DropTimers(index);
 	if (!p.coroutines.empty())
 		MF_PrintSrvConsole("[amxts] %s: %d async function(s) were still waiting, and are dropped\n",
@@ -4556,7 +4705,7 @@ static void Teardown()
 	for (size_t i = 0; i < g_plugins.size(); i++) {
 		Plugin &p = g_plugins[i];
 		// Their requests are let go; the worker goes on for the next map.
-		if (p.inst)   NetForget(p.inst);
+		if (p.inst)   NetForget(p.inst), KeptForget(p.env);
 		if (p.env)    wasm_runtime_destroy_exec_env(p.env);
 		if (p.inst)   wasm_runtime_deinstantiate(p.inst);
 		if (p.module) wasm_runtime_unload(p.module);

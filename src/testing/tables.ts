@@ -47,7 +47,7 @@ export interface Tables {
 	constants: Map<string, number>;
 	/** The dispatcher's native ids (`NATIVE_x`) to names. */
 	dispatched: Map<number, string>;
-	/** A native's arguments as they cross, by its name: runtime/natives.txt's marks (`s` text in, `t` text back). */
+	/** A native's arguments as they cross, by its name: runtime/natives.txt's marks (`s` text in, `t` text back), without the `leaf` after them. */
 	crossings: Map<string, string[]>;
 	/** A hookchain's number (hookIdOf) to its short name. */
 	hookNames: Map<number, string>;
@@ -105,7 +105,7 @@ export function tables(): Tables {
 
 	const crossings = new Map<string, string[]>();
 	const natives = readFileSync(join(PLUGINS_ROOT, '../runtime/natives.txt'), 'utf-8');
-	for (const [, name, marks] of natives.matchAll(/^(\w+) \([^)]*\)\S* (\S+)$/gm)) crossings.set(name, marks.split(','));
+	for (const [, name, marks] of natives.matchAll(/^(\w+) \([^)]*\)\S* (\S+)(?: leaf)?$/gm)) crossings.set(name, marks.split(','));
 
 	const hookNames = new Map<number, string>();
 	const switchBody = constantsSource.slice(constantsSource.indexOf('export function hookIdOf'));

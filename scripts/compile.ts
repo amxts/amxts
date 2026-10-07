@@ -20,6 +20,7 @@ import * as assemblyscript from '../runtime/deps/assemblyscript/dist/assemblyscr
 import binaryen from '../runtime/deps/assemblyscript/node_modules/binaryen/index.js';
 import { ascMain } from './asc';
 import { ABI_SECTION, abiIdentity } from './build-identity';
+import { LEAF_NATIVES } from './leaf-natives';
 import { playerFieldsBuild } from './player-fields';
 import { includeName, nativeContract, nativesTransform, pawnInclude } from './plugin-natives';
 import { ascPath, sourcesFor } from './project';
@@ -120,7 +121,7 @@ const BORROWING_IMPORTS = new Set(['env.ent_vector']);
  * collector: a function whose objects are all made in its frame and that
  * calls nothing else keeps no shadow stack (makeStackObjects).
  */
-const QUIET_IMPORTS = new Set(['env.abort', 'env.ent_vector']);
+const QUIET_IMPORTS = new Set(['env.abort', 'env.ent_vector', ...[...LEAF_NATIVES].map(name => `env.${name}`)]);
 
 /**
  * What wamrc keeps for a failed call's stack (scripts/source-map.ts): each
