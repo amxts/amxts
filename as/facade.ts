@@ -265,6 +265,22 @@ export class __Switch {
 }
 
 /**
+ * @hidden What a server event's object is underneath (as/events.ts): its
+ * listeners read a field from the forward's call when they read it, and the
+ * next call hands out the same object - unless the object is kept, by an
+ * async function that takes it (__co_keep) or a listener that writes a
+ * field. Then it reads every field into itself and keeps them, and the next
+ * call makes another.
+ */
+export class __ServerEvent {
+	/** @hidden Whether the object keeps its fields. */
+	__kept: bool = false;
+
+	/** @hidden Reads every field from the running call into the object, once. */
+	__keep(): void {}
+}
+
+/**
  * @hidden The listeners of one event, walked by its dispatch in place - no
  * copy, no allocation - with the DOM's rules: a dispatch calls the listeners
  * there when it began (`begin` gives their count), so one added meanwhile
@@ -2765,6 +2781,32 @@ export function __off(event: string, fn: i32): void {
 	_off(event, fn);
 }
 
+// @ts-ignore: decorator
+@external("env", "on_direct") declare function _onDirect(event: string, fn: i32, listener: i32, env: i32, view: usize, player: i32): void;
+
+/**
+ * @hidden Has the module call `listener` itself, with the event's object
+ * `view`, in place of the handler `fn` of a forward the module raises -
+ * the walk of its listeners, which would call that one alone; null has the
+ * handler called again. `player`: the forward's first cell is the player an
+ * async function started there runs under.
+ */
+export function __onDirect(event: string, fn: i32, listener: usize, view: usize, player: bool): void {
+	_onDirect(event, fn, __callee(listener), __calleeEnv(listener), view, player ? 1 : 0);
+}
+
+/** @hidden The table index of a function value - what calling it calls; 0 for null. */
+// @ts-ignore: decorator
+@inline export function __callee(fn: usize): i32 {
+	return fn != 0 ? load<i32>(fn) : 0;
+}
+
+/** @hidden A function value's closure variables, set before it is called; 0 for null or a plain function. */
+// @ts-ignore: decorator
+@inline export function __calleeEnv(fn: usize): i32 {
+	return fn != 0 ? load<i32>(fn, 4) : 0;
+}
+
 /** @hidden Runs `register` from plugin_init on: now, or when it comes. */
 export function __whenUp(register: () => void): void {
 	if (serverUp) register();
@@ -4647,6 +4689,8 @@ export function __setField<T>(call: Call, kind: i32, value: T, element: number, 
 // @ts-ignore: decorator
 @external("env", "hook_on")        declare function _hookOn(handle: i32, on: i32): void;
 // @ts-ignore: decorator
+@external("env", "hook_direct")    declare function _hookDirect(handle: i32, listener: i32, env: i32, view: usize): void;
+// @ts-ignore: decorator
 @external("env", "msg_hook")       declare function _msgHook(id: i32, fn: i32): i32;
 // @ts-ignore: decorator
 @external("env", "msg_argc")       declare function _msgArgc(): i32;
@@ -4738,6 +4782,15 @@ export function __logHook(argc: i32, filter: string, handler: () => void, hook: 
 /** @hidden Switches a hook the hood made off and on (as/hooks.ts). */
 export function __hookOn(handle: i32, on: bool): void {
 	_hookOn(handle, on ? 1 : 0);
+}
+
+/**
+ * @hidden Has the module call `listener` itself, with the event's object
+ * `view`, in place of what a hook the hood made calls - the walk of its
+ * listeners, which would call that one alone; null has it called again.
+ */
+export function __hookDirect(handle: i32, listener: usize, view: usize): void {
+	_hookDirect(handle, __callee(listener), __calleeEnv(listener), view);
 }
 
 /** @hidden Writes an argument of the hooked call that is running; `-1` is its answer. */

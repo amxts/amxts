@@ -30,6 +30,8 @@
 // (__tryDepth): the count is kept across an await and put back around a
 // spawn and a resume.
 
+import { __ServerEvent } from "./facade";
+
 // ---------------------------------------------------------------- host
 
 // @ts-ignore: decorator
@@ -827,10 +829,15 @@ function __co_current(): __Coroutine {
 	return changetype<usize>(__spawnArgs);
 }
 
-/** @hidden a managed argument, held while the call lasts. */
+/**
+ * @hidden a managed argument, held while the call lasts. A server event's
+ * object is read after the call: it keeps its fields (__ServerEvent).
+ */
 // @ts-ignore: decorator
 @global function __co_keep(value: usize): void {
-	if (value != 0) __keep.push(changetype<Object>(value));
+	if (value == 0) return;
+	if (changetype<Object>(value) instanceof __ServerEvent) changetype<__ServerEvent>(value).__keep();
+	__keep.push(changetype<Object>(value));
 }
 
 /** @hidden runs an async function's body as a coroutine - see the top of this file. */

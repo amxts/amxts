@@ -99,3 +99,27 @@ test('a game event a listener keeps is the next one too, and reads the call that
 	server.fireHook('resetMaxSpeed', [1]);
 	expect(heard('kept', () => server.fireHook('resetMaxSpeed', [bob.id]))).toEqual([`kept event: same: true, player ${bob.id}`]);
 });
+
+describe('a server event', () => {
+	test('a listener keeps is the next one too, and reads the call that runs', () => {
+		server.serverCommand('keep_impulse_on');
+		server.fire('client_impulse', 1, 100);
+		expect(heard('kept', () => server.fire('client_impulse', 1, 201))).toEqual(['kept impulse: same: true, impulse 201']);
+		server.serverCommand('keep_impulse_off');
+	});
+
+	test('an async listener reads after its await keeps the values of its call', () => {
+		server.serverCommand('wait_impulse_on');
+		server.fire('client_impulse', 1, 100);
+		server.fire('client_impulse', 1, 201);
+		server.serverCommand('wait_impulse_off');
+		expect(heard('waited', () => server.advance(200))).toEqual(['waited impulse 100, player 1', 'waited impulse 201, player 1']);
+	});
+
+	test('a listener that writes a field keeps its value, and the next call is another event', () => {
+		server.serverCommand('write_impulse_on');
+		server.fire('client_impulse', 1, 100);
+		expect(heard('written', () => server.fire('client_impulse', 1, 201))).toEqual(['written impulse: same: false, before 7, now 201']);
+		server.serverCommand('write_impulse_off');
+	});
+});

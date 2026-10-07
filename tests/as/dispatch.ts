@@ -202,3 +202,55 @@ function keepReset(event: ResetMaxSpeedEvent) {
 server.addServerCommand("keep_on", () => {
 	game.addEventListener("resetMaxSpeed", keepReset);
 });
+
+// A server event a listener keeps: the next call hands out the same object,
+// which reads the call that runs then.
+let keptImpulse: ClientImpulseEvent | null = null;
+
+function keepImpulse(event: ClientImpulseEvent) {
+	const before = keptImpulse;
+	if (before != null) console.log(`kept impulse: same: ${before == event}, impulse ${before.impulse}`);
+	keptImpulse = event;
+}
+
+server.addServerCommand("keep_impulse_on", () => {
+	server.addEventListener("impulse", keepImpulse);
+});
+
+server.addServerCommand("keep_impulse_off", () => {
+	server.removeEventListener("impulse", keepImpulse);
+	keptImpulse = null;
+});
+
+// An async listener reads its event after the call: the event keeps its values.
+async function waitImpulse(event: ClientImpulseEvent) {
+	await sleep(100);
+	console.log(`waited impulse ${event.impulse}, player ${event.player.id}`);
+}
+
+server.addServerCommand("wait_impulse_on", () => {
+	server.addEventListener("impulse", waitImpulse);
+});
+
+server.addServerCommand("wait_impulse_off", () => {
+	server.removeEventListener("impulse", waitImpulse);
+});
+
+// A listener that writes a field keeps the value, and the next call hands out another event.
+let written: ClientImpulseEvent | null = null;
+
+function writeImpulse(event: ClientImpulseEvent) {
+	const before = written;
+	if (before != null) console.log(`written impulse: same: ${before == event}, before ${before.impulse}, now ${event.impulse}`);
+	if (event.impulse == 100) event.impulse = 7;
+	written = event;
+}
+
+server.addServerCommand("write_impulse_on", () => {
+	server.addEventListener("impulse", writeImpulse);
+});
+
+server.addServerCommand("write_impulse_off", () => {
+	server.removeEventListener("impulse", writeImpulse);
+	written = null;
+});

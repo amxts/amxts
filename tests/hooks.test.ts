@@ -48,8 +48,11 @@ test('game.addEventListener: every chain is a key, with its event and its answer
 	// A chain with nothing to answer takes a listener that returns nothing.
 	expect(hooks).toMatch(/export interface GameAnswerMap \{[\s\S]*\tplayerSpawn: void;/);
 	// The chain is registered once per side, however many listeners it gets,
-	// and switched off with the side's last listener (ChainPhase).
-	expect(hooks).toContain('(post ? takeDamagePost : takeDamagePre).add(entry, "take_damage", post ? takeDamageFirePost : takeDamageFirePre, post);');
+	// and switched off with the side's last listener (ChainPhase), which also
+	// has the module call one listener itself, with the event's object.
+	expect(hooks).toContain('(post ? takeDamagePost : takeDamagePre).add(entry, "take_damage", post ? takeDamageFirePost : takeDamageFirePre, post, changetype<usize>(takeDamageEvent()), true);');
+	// Not where the walk does more than call: playerSpawn passes over a player counted out.
+	expect(hooks).toContain('changetype<usize>(playerSpawnEvent()), false);');
 	expect(hooks).toContain('(post ? takeDamagePost : takeDamagePre).remove(fn);');
 	expect(hooks).toContain(`ERROR("a playerSpawn listener cannot answer: the game's function returns nothing")`);
 });

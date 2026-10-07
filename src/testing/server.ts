@@ -67,6 +67,13 @@ interface Handler {
 	tag?: number;
 	/** on_cell's filter: the handler hears the forward only when this argument is `value`. */
 	where?: { arg: number; value: number };
+	/**
+	 * The plugin's one listener, called in place of the handler with the
+	 * event's object (Handler.via in module.cpp, set by on_direct and
+	 * hook_direct): its table index, its closure's variables, the object, and
+	 * whether the first cell is the player an async function runs under.
+	 */
+	via?: { fn: number; env: number; arg: number; player: boolean };
 }
 
 /** A host public standing in for a handler: `__amxts_cb<index>`. */
@@ -1610,12 +1617,33 @@ export class FakeServer {
 		this.outcomeSaid = false;
 
 		try {
-			this.within(handler.plugin, () => fn(...cells));
+			const via = handler.via;
+			this.within(handler.plugin, () => (via ? this.callVia(handler.plugin, via, args[0] ?? 0) : fn(...cells)));
 			return this.outcomeSaid ? this.outcome : fallback;
 		} finally {
 			this.outcomeSaid = said;
 			this.outcome = before;
 		}
+	}
+
+	/** CallVia in module.cpp: the one listener, with what the plugin's own call of it sets first. */
+	private callVia(plugin: PluginInstance, via: NonNullable<Handler['via']>, first: number): void {
+		const globals = plugin.instance.exports;
+		if (globals.__env) globals.__env.value = via.env;
+		if (globals.__argumentsLength) globals.__argumentsLength.value = 1;
+		const ambient = via.player ? globals.__co_ambient_player : undefined;
+		const before = ambient?.value;
+		if (ambient) ambient.value = first;
+		try {
+			plugin.table.get(via.fn)(via.arg);
+		} finally {
+			if (ambient) ambient.value = before;
+		}
+	}
+
+	/** Has `handler` call its plugin's one listener `fn` itself (Handler.via); 0 the handler again. */
+	private direct(handler: Handler, fn: number, env: number, arg: number, player: boolean): void {
+		handler.via = fn ? { fn, env, arg, player } : undefined;
 	}
 
 	/** Runs `body` as `plugin`: what its natives are called on behalf of. @internal */
@@ -2238,6 +2266,13 @@ export class FakeServer {
 			list.push({ plugin, fn, shape });
 		},
 
+		// The plugin's handler of a forward calls its one listener itself, or the handler again.
+		on_direct(this: FakeServer, plugin: PluginInstance, name: number, fn: number, target: number, env: number, arg: number, player: number) {
+			for (const handler of this.events.get(plugin.memory.string(name)) ?? []) {
+				if (handler.plugin === plugin && handler.fn === fn) this.direct(handler, target, env, arg, player !== 0);
+			}
+		},
+
 		// The plugin's handler of a forward taken off, once its event has no listener left.
 		off(this: FakeServer, plugin: PluginInstance, name: number, fn: number) {
 			const list = this.events.get(plugin.memory.string(name)) ?? [];
@@ -2353,6 +2388,12 @@ export class FakeServer {
 
 		hook_on(this: FakeServer, _plugin: PluginInstance, handle: number, on: number) {
 			this.switchHook(handle, on !== 0);
+		},
+
+		// A hook's handler calls its plugin's one listener itself, or the handler again.
+		hook_direct(this: FakeServer, _plugin: PluginInstance, handle: number, target: number, env: number, arg: number) {
+			const slot = this.hookSlots.get(handle);
+			if (slot) this.direct(slot, target, env, arg, false);
 		},
 
 		// The module's hooks of the engine's and the game's functions
