@@ -1390,11 +1390,14 @@ import { __textFrom, __textInto, __textRoom, dllfunc, engfunc, global_get, set_p
 import { DLLFunc_ClientConnect, DLLFunc_ClientPutInServer, EngFunc_CreateFakeClient, EngFunc_RunPlayerMove, glb_frametime, MAX_PLAYERS, pev_health } from "./constants";
 import { BUTTON, Button } from "./flags";
 
+// What a bot's move reads into, made once: a move is made every frame.
+const frameTimeRead = new Ref<f64>(0.0);
+const moveAngles = new Vector();
+
 /** How long the server's current frame lasts, in seconds. */
 function frameTime(): f64 {
-	const time = new Ref<f64>(0.0);
-	global_get(glb_frametime, time);
-	return time.value;
+	global_get(glb_frametime, frameTimeRead);
+	return frameTimeRead.value;
 }
 
 /**
@@ -1967,8 +1970,9 @@ export class Player extends PlayerFields implements Client {
 	move(options: MoveOptions = {}): void {
 		if (!this.isBot) throw new Error(`move: ${this.name} is not a bot - only a bot is moved by a plugin`);
 
-		const angles: number[] = options.angles ?? this.viewAngle;
-		const buttons = BUTTON.maskOf<Button>(options.buttons ?? []);
+		const angles: number[] = options.angles ?? this.getViewAngle(moveAngles);
+		const pressed = options.buttons;
+		const buttons = pressed != null ? BUTTON.maskOf<Button>(pressed) : 0;
 		const msec = options.msec ?? frameTime() * 1000;
 		engfunc(EngFunc_RunPlayerMove, this.id, angles, options.forward ?? 0, options.side ?? 0, options.up ?? 0, buttons, 0, <i32>Math.round(Math.min(Math.max(msec, 1), 255)));
 	}
@@ -4359,8 +4363,32 @@ export class Call {
 	// The same for strings, which the module reads where they are.
 	private texts: string[] | null = null;
 	private n: i32 = 0;
+	// A pooled call's room for the vectors of its tail (__call): three cells
+	// each, at addresses that never move; one past them is made and held.
+	private vectors: StaticArray<i32> | null = null;
+	private vectorsUsed: i32 = 0;
+	// Its place in the pool, -1 for one made with `new`.
+	private depth: i32 = -1;
 
 	constructor(private id: i32) {}
+
+	/** @hidden The pooled call at `depth`, emptied for native `id` (__call). */
+	__reuse(id: i32, depth: i32): Call {
+		this.id = id;
+		this.n = 0;
+		this.depth = depth;
+		this.vectorsUsed = 0;
+		const held = this.held;
+		if (held != null) held.length = 0;
+		const texts = this.texts;
+		if (texts != null) texts.length = 0;
+		return this;
+	}
+
+	/** @hidden Gives a pooled call back once what the native wrote is read (__call). */
+	__done(): void {
+		if (this.depth >= 0) callDepth = this.depth;
+	}
 
 	/** Keeps an argument's cells alive until the call is done. */
 	private hold(cells: StaticArray<i32>): void {
@@ -4435,12 +4463,24 @@ export class Call {
 
 	/** Adds a vector: three fractional numbers at one address - an origin, angles, a colour. Unlike `buffer`, no length follows it. */
 	vec(x: f64, y: f64, z: f64): Call {
-		const cells = new StaticArray<i32>(3);
-		unchecked(cells[0] = reinterpret<i32>(<f32>x));
-		unchecked(cells[1] = reinterpret<i32>(<f32>y));
-		unchecked(cells[2] = reinterpret<i32>(<f32>z));
-		this.hold(cells);
-		return this.push(changetype<i32>(cells), 0x76); // v
+		let at: usize;
+		if (this.depth >= 0 && this.vectorsUsed < CALL_VECTORS) {
+			let vectors = this.vectors;
+			if (vectors == null) {
+				vectors = new StaticArray<i32>(CALL_VECTORS * 3);
+				this.vectors = vectors;
+			}
+			at = changetype<usize>(vectors) + <usize>this.vectorsUsed * 12;
+			this.vectorsUsed++;
+		} else {
+			const cells = new StaticArray<i32>(3);
+			this.hold(cells);
+			at = changetype<usize>(cells);
+		}
+		store<i32>(at, reinterpret<i32>(<f32>x));
+		store<i32>(at, reinterpret<i32>(<f32>y), 4);
+		store<i32>(at, reinterpret<i32>(<f32>z), 8);
+		return this.push(<i32>at, 0x76); // v
 	}
 
 	/** Adds a vector the native fills in; after `run` the result is in `cells`. */
@@ -4500,6 +4540,42 @@ export class Call {
 
 /** A Call argument's kind: a number passed by address. */
 const REF: u8 = 0x72; // r
+
+/** The vectors a pooled call keeps room for: a native's tail rarely has more than one. */
+const CALL_VECTORS: i32 = 4;
+
+// The calls the generated natives build their arguments in (__call), one a
+// depth: a native may run plugin code that calls another before it returns.
+// A call given back sets the depth to its own, so one a trap left taken is
+// taken again by the next call at its depth.
+const calls: Call[] = [];
+let callDepth = 0;
+
+// ponytail: past this depth a call is made anew, never pooled: what a depth
+// deeper than any real nesting means is calls a trap left taken.
+const CALL_POOL: i32 = 16;
+
+/**
+ * @hidden A call of native `id` to build: the pooled one of this depth,
+ * emptied - building and running it allocates nothing - given back with
+ * `__done` once what the native wrote is read.
+ */
+export function __call(id: i32): Call {
+	const depth = callDepth;
+	if (depth >= CALL_POOL) return new Call(id);
+	callDepth = depth + 1;
+	if (depth < calls.length) return unchecked(calls[depth]).__reuse(id, depth);
+	const call = new Call(id).__reuse(id, depth);
+	calls.push(call);
+	return call;
+}
+
+/** @hidden Runs a call `__call` made and gives it back: the native's result. */
+export function __run(call: Call): number {
+	const result = call.run();
+	call.__done();
+	return result;
+}
 
 /** An array as the module reads one for a forward: its count, then its cells. */
 function arrayCells(values: number[], floats: bool): StaticArray<i32> {
@@ -4593,6 +4669,36 @@ function tailBack<T>(call: Call, value: T, at: i32, float: bool): void {
 	}
 }
 
+// @ts-ignore: decorator
+@external("env", "run_player_move") declare function _runPlayerMove(id: i32, pitch: f64, yaw: f64, roll: f64, forward: f64, side: f64, up: f64, buttons: i32, impulse: i32, msec: i32): i32;
+
+/** Whether a tail's argument of type T is a number the module takes as it is: a number or a boolean. */
+// @ts-ignore: decorator
+@inline function plainTail<T>(): bool {
+	return isBoolean<T>() || isFloat<T>() || isInteger<T>();
+}
+
+/** A number or a boolean of a tail as a number (plainTail). */
+// @ts-ignore: decorator
+@inline function tailNumber<T>(value: T): f64 {
+	if (isBoolean<T>()) return value ? 1 : 0;
+	return <f64>value;
+}
+
+/**
+ * @hidden engfunc(EngFunc_RunPlayerMove, ...) made by the module itself - a
+ * bot's move every frame builds no call: true once made. False when the
+ * arguments are not a bot's id, its angles and six numbers, or the entity
+ * is one fakemeta refuses: engfunc's tail takes the call, and says why.
+ */
+export function __runPlayerMove<A, B, C, D, E, F, G, H>(id: A, angles: B, forward: C, side: D, up: E, buttons: F, impulse: G, msec: H): bool {
+	if (!plainTail<A>() || !isArray<B>() || !plainTail<C>() || !plainTail<D>() || !plainTail<E>() || !plainTail<F>() || !plainTail<G>() || !plainTail<H>()) return false;
+	const view = changetype<number[]>(angles);
+	if (view.length < 3) return false;
+	return _runPlayerMove(<i32>tailNumber<A>(id), unchecked(view[0]), unchecked(view[1]), unchecked(view[2]), tailNumber<C>(forward), tailNumber<D>(side), tailNumber<E>(up),
+		<i32>tailNumber<F>(buttons), <i32>tailNumber<G>(impulse), <i32>tailNumber<H>(msec)) != 0;
+}
+
 /** @hidden What an argument left out of a native's `...` tail stands at: nothing is sent for it. */
 export function __noArgument<T>(): T {
 	return zeroOf<T>();
@@ -4635,6 +4741,7 @@ export function __callTail<A, B, C, D, E, F, G, H, I, J, K, L>(call: Call, float
 	tailBack<J>(call, j, at9, (floats & 512) != 0);
 	tailBack<K>(call, k, at10, (floats & 1024) != 0);
 	tailBack<L>(call, l, at11, (floats & 2048) != 0);
+	call.__done();
 	return (floats & TAIL_FLOAT_RESULT) != 0 ? cellFloat(result) : result;
 }
 
@@ -4674,26 +4781,35 @@ function fieldTakes<T>(kind: i32, native: string): bool {
  */
 export function __getField<T>(call: Call, kind: i32, element: number, native: string): T {
 	if (isString<T>()) {
-		if (!fieldTakes<T>(kind, native)) return changetype<T>("");
+		if (!fieldTakes<T>(kind, native)) {
+			call.__done();
+			return changetype<T>("");
+		}
 		const text = new CellBuffer(FIELD_TEXT);
 		call.tailBuffer(text, FIELD_TEXT - 1);
 		if (kind & FIELD_ELEMENT) call.ref(element);
-		call.run();
+		__run(call);
 		return changetype<T>(text.text());
 	}
 	if (isReference<T>()) {
 		// A Vector, or number[] it is one of.
-		if (!fieldTakes<T>(kind, native)) return changetype<T>(new Vector());
+		if (!fieldTakes<T>(kind, native)) {
+			call.__done();
+			return changetype<T>(new Vector());
+		}
 		const cells = new CellBuffer(3);
 		call.vecInto(cells);
 		if (kind & FIELD_ELEMENT) call.ref(element);
-		call.run();
+		__run(call);
 		return changetype<T>(new Vector(cells.float(0), cells.float(1), cells.float(2)));
 	}
 	if (!isFloat<T>() && !isInteger<T>()) ERROR("a field reads as number, boolean, string or Vector");
-	if (!fieldTakes<T>(kind, native)) return <T>0;
+	if (!fieldTakes<T>(kind, native)) {
+		call.__done();
+		return <T>0;
+	}
 	if (kind & FIELD_ELEMENT) call.ref(element);
-	const cell = <i32>call.run();
+	const cell = <i32>__run(call);
 	if (isBoolean<T>()) return <T>(cell != 0);
 	return <T>((kind & 3) == FIELD_FLOAT ? cellFloat(cell) : <f64>cell);
 }
@@ -4705,7 +4821,10 @@ export function __getField<T>(call: Call, kind: i32, element: number, native: st
  * console says so. The native's result: 1 when it wrote.
  */
 export function __setField<T>(call: Call, kind: i32, value: T, element: number, native: string): number {
-	if (!fieldTakes<T>(kind, native)) return 0;
+	if (!fieldTakes<T>(kind, native)) {
+		call.__done();
+		return 0;
+	}
 	if (isString<T>()) {
 		call.str(changetype<string>(value));
 	} else if (isArray<T>()) {
@@ -4717,7 +4836,7 @@ export function __setField<T>(call: Call, kind: i32, value: T, element: number, 
 		call.ref((kind & 3) == FIELD_FLOAT ? floatCell(<f64>value) : <i32>value);
 	}
 	if (kind & FIELD_ELEMENT) call.ref(element);
-	return call.run();
+	return __run(call);
 }
 
 // @ts-ignore: decorator

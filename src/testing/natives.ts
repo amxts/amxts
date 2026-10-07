@@ -1060,13 +1060,7 @@ export const NATIVES: Record<string, Native> = {
 			if (c.server.players.length >= c.server.maxPlayers) return 0;
 			return c.server.join(text(0), { bot: true, team: 'UNASSIGNED', alive: false }).id;
 		}
-		if (type === constant('EngFunc_RunPlayerMove')) {
-			const bot = player(c, cell(0));
-			const [, yaw] = c.memory.vector(tail[1]);
-			const [forward, msec] = [float(2), cell(7)];
-			call(`RunPlayerMove ${cell(0)} ${vector(1)} ${forward} ${float(3)} ${float(4)} ${cell(5)} ${cell(6)} ${msec}`);
-			if (bot) bot.origin = [bot.origin[0] + Math.cos(yaw * Math.PI / 180) * forward * msec / 1000, bot.origin[1] + Math.sin(yaw * Math.PI / 180) * forward * msec / 1000, bot.origin[2]];
-		}
+		if (type === constant('EngFunc_RunPlayerMove')) c.server.runPlayerMove(cell(0), c.memory.vector(tail[1]), float(2), float(3), float(4), cell(5), cell(6), cell(7));
 		return 0;
 	},
 	dllfunc: (c, [type, ...tail]) => {

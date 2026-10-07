@@ -48,7 +48,8 @@ enum
 	FORWARD_RELAYED,
 	FORWARD_NOBODY,
 	ECHO_OURS,
-	ECHO_PAWN
+	ECHO_PAWN,
+	VARIADIC
 }
 
 new HookChain:g_hook;
@@ -313,6 +314,8 @@ run(what, id, count)
 		case FORWARD_NOBODY: for (new i = 0; i < count; i++) ExecuteForward(g_nobody, ret, id, 0);
 		case ECHO_OURS: for (new i = 0; i < count; i++) g_sink += perf_echo(i);
 		case ECHO_PAWN: for (new i = 0; i < count; i++) g_sink += perf_lib_echo(i);
+		// A move of the bot, as moves_ms makes it: no time passes, so the bot stays as it is.
+		case VARIADIC: for (new i = 0; i < count; i++) engfunc(EngFunc_RunPlayerMove, id, origin, 0.0, 0.0, 0.0, 0, 0, 0);
 	}
 }
 
@@ -359,6 +362,7 @@ public measure()
 	report_each("string out", STRING_OUT, id, FEW);
 	report_each("player.name", STRING_OUT, id, FEW);
 	report_each("timer armed", TIMER_ARMED, id, FEW);
+	report_each("variadic native", VARIADIC, id, FEW);
 
 	report_each("relay with no listener", FORWARD_NOBODY, id, FEW);
 	report_ours("relay with no listener", FORWARD_RELAYED, id, FEW);

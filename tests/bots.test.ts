@@ -14,7 +14,7 @@ const natives = readFileSync('as/natives.ts', 'utf8');
 test('an `any:...` tail is an argument of its own type each, and its Floats are read off the include', () => {
 	expect(natives).toContain('export function engfunc<T1 = NoArgument, T2 = NoArgument');
 	expect(natives).toContain('a1: T1 = __noArgument<T1>()');
-	expect(natives).toContain('__callTail<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12>(new Call(NATIVE_engfunc).num(type_), __engfunc_floats(<i32>type_), a1');
+	expect(natives).toContain('__callTail<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12>(__call(NATIVE_engfunc).num(type_), __engfunc_floats(<i32>type_), a1');
 	// RunPlayerMove: forwardmove, sidemove and upmove - the tail's 2, 3 and 4.
 	expect(natives).toMatch(/case EngFunc_RunPlayerMove:\n\t\t\treturn 28;/);
 	// Time's float is the result; VecToYaw's comes back through one more argument.

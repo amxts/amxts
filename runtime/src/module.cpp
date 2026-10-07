@@ -4174,6 +4174,7 @@ static void MenuMessage(int type, edict_t *ed)
 #include "enginehooks.h"
 
 static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line);
+static int32_t w_runPlayerMove(wasm_exec_env_t env, int32_t id, double pitch, double yaw, double roll, double forward, double side, double up, int32_t buttons, int32_t impulse, int32_t msec);
 
 static NativeSymbol g_wasmNatives[] = {
 	{ "abort",        (void *)w_abort,        "(iiii)", NULL },
@@ -4223,6 +4224,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "clcmd",        (void *)w_clcmd,        "(iiii)", NULL },
 	{ "srvcmd",       (void *)w_srvcmd,       "(iii)", NULL },
 	{ "bot_cmd",      (void *)w_botCmd,       "(ii)", NULL },
+	{ "run_player_move", (void *)w_runPlayerMove, "(iFFFFFFiii)i", NULL },
 	{ "task",         (void *)w_task,         "(iii)i",  NULL },
 	{ "stop_task",    (void *)w_stopTask,     "(i)i", NULL },
 	{ "tag",          (void *)w_tag,          "(i)",  NULL },
@@ -7070,6 +7072,23 @@ static const char *StackLow()
 #else
 #define FRAME_TOP() ((const char *)__builtin_frame_address(0))
 #endif
+
+/**
+ * run_player_move(id, pitch, yaw, roll, forward, side, up, buttons, impulse,
+ * msec) - engfunc(EngFunc_RunPlayerMove, ...) as fakemeta makes it, with no
+ * call built: 1; 0 for an entity fakemeta refuses, which the plugin then
+ * hands to engfunc for its error.
+ */
+static int32_t w_runPlayerMove(wasm_exec_env_t env, int32_t id, double pitch, double yaw, double roll, double forward, double side, double up, int32_t buttons, int32_t impulse, int32_t msec)
+{
+	(void)env;
+	edict_t *e = id > 0 && id <= gpGlobals->maxEntities ? INDEXENT(id) : NULL;
+	if (FNullEnt(e))
+		return 0;
+	float angles[3] = { (float)pitch, (float)yaw, (float)roll };
+	g_engfuncs.pfnRunPlayerMove(e, angles, (float)forward, (float)side, (float)up, (unsigned short)buttons, (byte)impulse, (byte)msec);
+	return 1;
+}
 
 // bot_cmd(id, line) - the bot sends `line`.
 static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line)

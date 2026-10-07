@@ -1,13 +1,13 @@
 // The speed check: what a native, a field, a vector, the HUD's money, text,
-// an event, a forward, a timer, a command, a menu's choice, Pawn calling this
-// plugin, whole and fractional arithmetic and a real plugin's hot path cost here, against
-// the same in Pawn (perf-pawn.sma), measured in one run on one machine. It
-// checks ratios, not times, so it holds on any machine; each figure is the
-// best of three runs. A limit is changed on purpose, with the measurement
-// that moves it.
+// an event, a forward, a timer, a variadic native, a command, a menu's
+// choice, Pawn calling this plugin, whole and fractional arithmetic and a
+// real plugin's hot path cost here, against the same in Pawn
+// (perf-pawn.sma), measured in one run on one machine. It checks ratios, not
+// times, so it holds on any machine; each figure is the best of three runs.
+// A limit is changed on purpose, with the measurement that moves it.
 import { hook, unhook } from "@amxts/core";
-import { LibType_Library } from "@amxts/core/constants";
-import { get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, server_exec, strlen } from "@amxts/core/natives";
+import { EngFunc_RunPlayerMove, LibType_Library } from "@amxts/core/constants";
+import { engfunc, get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, server_exec, strlen } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
 const TRIES = 3;
@@ -48,6 +48,7 @@ const LIMITS: Record<string, number> = {
 	"Pawn calls a plugin": 1.5,
 	"timer armed": 1,
 	"timer firing": 1.5,
+	"variadic native": 1.5,
 	"command": 2,
 	"menu choice": 2.5,
 	"remainder": 2.5,
@@ -282,6 +283,11 @@ function measure(player: Player) {
 	}));
 	ours.set("player.name", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) sink += player.name.length;
+	}));
+	// A move of the bot through the native's `...` tail, as perf-pawn.sma makes it.
+	const angles = [0.0, 0.0, 0.0];
+	ours.set("variadic native", nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) engfunc(EngFunc_RunPlayerMove, id, angles, 0, 0, 0, 0, 0, 0);
 	}));
 	ours.set("timer armed", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) clearTimeout(setTimeout(idle, 1000));

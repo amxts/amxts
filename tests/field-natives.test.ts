@@ -22,8 +22,8 @@ test('each field native pair has a table of its fields\' kinds, read off reapi\'
 	// m_rgAmmo is a whole-number array member: 0 + 4.
 	expect(natives).toMatch(/case m_rgAmmo:\n(?:\t\tcase \w+:\n)*\t\t\treturn 4;/);
 	// set_member shares get_member's table; get_member_s, reapi's rename, too.
-	expect(natives).toContain('__setField<T>(new Call(NATIVE_set_member).num(index).num(member), __get_member_kind(<i32>member), value, element, "set_member")');
-	expect(natives).toContain('__getField<T>(new Call(NATIVE_get_member_s).num(index).num(member), __get_member_kind(<i32>member), element, "get_member_s")');
+	expect(natives).toContain('__setField<T>(__call(NATIVE_set_member).num(index).num(member), __get_member_kind(<i32>member), value, element, "set_member")');
+	expect(natives).toContain('__getField<T>(__call(NATIVE_get_member_s).num(index).num(member), __get_member_kind(<i32>member), element, "get_member_s")');
 });
 
 test('a field native reads and writes a field as what it holds', async () => {

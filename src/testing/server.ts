@@ -1062,6 +1062,14 @@ export class FakeServer {
 		return vault;
 	}
 
+	/** A bot's move, through engfunc or the module's own call: written to engineCalls, and the bot carried along its yaw. @internal */
+	runPlayerMove(id: number, angles: number[], forward: number, side: number, up: number, buttons: number, impulse: number, msec: number): void {
+		this.engineCalls.push(`RunPlayerMove ${id} ${angles.join(',')} ${forward} ${side} ${up} ${buttons} ${impulse} ${msec}`);
+		const bot = this.players.find(each => each.id === id);
+		const turn = angles[1] * Math.PI / 180;
+		if (bot) bot.origin = [bot.origin[0] + Math.cos(turn) * forward * msec / 1000, bot.origin[1] + Math.sin(turn) * forward * msec / 1000, bot.origin[2]];
+	}
+
 	// ------------------------------------------------------------ what a test does
 
 	/** A player connects: client_connect, client_authorized, client_putinserver. */
@@ -2344,6 +2352,13 @@ export class FakeServer {
 		// A bot's command, as one it sent.
 		bot_cmd(this: FakeServer, plugin: PluginInstance, id: number, line: number) {
 			this.players.find(each => each.id === id)?.command(plugin.memory.string(line));
+		},
+
+		// engfunc(EngFunc_RunPlayerMove, ...) made by the module itself; 0 for no player there, which engfunc then takes.
+		run_player_move(this: FakeServer, plugin: PluginInstance, id: number, pitch: number, yaw: number, roll: number, forward: number, side: number, up: number, buttons: number, impulse: number, msec: number) {
+			if (!this.players.some(each => each.id === id)) return 0;
+			this.runPlayerMove(id, [pitch, yaw, roll], forward, side, up, buttons, impulse, msec);
+			return 1;
 		},
 
 		task(this: FakeServer, plugin: PluginInstance, secondsBits: number, fn: number, repeat: number) {

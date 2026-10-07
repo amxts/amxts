@@ -1035,11 +1035,11 @@ function variadicWrapper(n: NativeFunction, id: string): string | null {
 
 	const returnTag = tagOf({ name: '', type: n.returnType } as Parameter);
 	const doc = `/** ${n.name}(${n.params.map(p => p.isRest ? '...' : `${p.isConst ? 'const ' : ''}${p.isRef ? '&' : ''}${p.type ? `${p.type}:` : ''}${p.name}${p.isArray ? '[]' : ''}`).join(', ')}) */`;
-	const call = `new Call(${id})${pushes.join('')}`;
+	const call = `__call(${id})${pushes.join('')}`;
 	const asBool = (result: string) => returnTag === 'bool' ? `${result} != 0` : result;
 
 	if (formats) {
-		const result = returnTag === 'Float' ? `__floatOf(${call}.run())` : asBool(`${call}.run()`);
+		const result = returnTag === 'Float' ? `__floatOf(__run(${call}))` : asBool(`__run(${call})`);
 		return `${doc}\nexport function ${asName(n.name)}(${signature.join(', ')}) {\n\treturn ${result};\n}`;
 	}
 
@@ -1057,9 +1057,22 @@ function variadicWrapper(n: NativeFunction, id: string): string | null {
 		: `${tagOf(rest) === 'Float' ? (1 << TAIL.length) - 1 : 0}${resultFloat}`;
 	const generics = `<${types.map(type => `${type} = NoArgument`).join(', ')}>`;
 	const result = asBool(`__callTail<${types.join(', ')}>(${call}, ${floats}, ${args.join(', ')})`);
+	const typed = (TYPED_SELECTORS.get(n.name) ?? []).map((each) => {
+		const taken = `<${types.slice(0, each.count).join(', ')}>(${args.slice(0, each.count).join(', ')})`;
+		return `\tif (<i32>${selector} == ${each.selector} && ${each.fn}${taken}) return 1;\n`;
+	}).join('');
 
-	return `${doc}\nexport function ${asName(n.name)}${generics}(${signature.join(', ')}) {\n\treturn ${result};\n}`;
+	return `${doc}\nexport function ${asName(n.name)}${generics}(${signature.join(', ')}) {\n${typed}\treturn ${result};\n}`;
 }
+
+/**
+ * The selectors of a variadic native the module makes itself, typed, with
+ * no call built (as/facade.ts): the wrapper tries one first, and the
+ * native's `...` tail takes what it does not - a call it would refuse too.
+ */
+const TYPED_SELECTORS = new Map<string, { selector: string; fn: string; count: number }[]>([
+	['engfunc', [{ selector: 'EngFunc_RunPlayerMove', fn: '__runPlayerMove', count: 8 }]],
+]);
 
 // ---------------------------------------------------------------- a tail's Floats
 //
@@ -1262,7 +1275,7 @@ function fieldWrapper(n: NativeFunction, id: string, table: string): string {
 	const setter = n.name.startsWith('set_');
 	const doc = `/** ${n.name}(${n.params.map(p => p.isRest ? '...' : `${p.isConst ? 'const ' : ''}${p.type ? `${p.type}:` : ''}${p.name}`).join(', ')}) */`;
 	const signature = [...names.map(name => `${name}: number`), ...(setter ? ['value: T'] : []), 'element: number = 0'].join(', ');
-	const call = `new Call(${id})${pushes}, __${table}_kind(<i32>${field})`;
+	const call = `__call(${id})${pushes}, __${table}_kind(<i32>${field})`;
 	return setter
 		? `${doc}\nexport function ${asName(n.name)}<T = number>(${signature}): number {\n\treturn __setField<T>(${call}, value, element, "${n.name}");\n}`
 		: `${doc}\nexport function ${asName(n.name)}<T = number>(${signature}): T {\n\treturn __getField<T>(${call}, element, "${n.name}");\n}`;
@@ -1320,7 +1333,7 @@ ${asLines.join('\n\n')}
 // itself. Each one whose shape can be read is also a function here, a Call
 // from as/facade.ts underneath; the rest are \`new Call(NATIVE_x)\` in the facade.
 
-import { Call, NoArgument, __callTail, __getField, __noArgument, __setField } from "./facade";
+import { NoArgument, __call, __callTail, __getField, __noArgument, __run, __runPlayerMove, __setField } from "./facade";
 import {
 ${chunkNames(members)}
 } from "./constants";
