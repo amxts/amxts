@@ -99,6 +99,8 @@ version`.
   and, on Windows, the 64-bit division helpers (`_alldiv`, `_aullrem`, ...);
 - `wasm_runtime_take_trap_frames`: the frames a trap left, for the module to
   print its own way rather than WAMR printing them to stdout;
+- `wasm_runtime_memory_view`: where the plugin's memory is and its size, in
+  one call, for a native's thunk that reads and writes it;
 - a direct call (`wasm_runtime_direct_entry`, `_begin`, `_end`): the machine
   code of an AOT function, which the module calls itself with the C types of
   its parameters - what `wasm_runtime_call_wasm` does on every call, less

@@ -98,12 +98,13 @@ export class Memory {
 
 	/** Frame::backText's head before a text a native filled: its count, the top bit for one not ASCII, and its hash. */
 	private setTextHead(pointer: number, bytes: Uint8Array): void {
+		// As the module's: four bytes a word, little-endian, while all four are there, then a byte at a time.
 		let hash = 0;
 		let bits = 0;
-		for (const byte of bytes) {
-			hash = (Math.imul(hash, 31) + byte) >>> 0;
-			bits |= byte;
-		}
+		let i = 0;
+		for (; i + 4 <= bytes.length; i += 4) hash = (Math.imul(hash, 31) + (bytes[i] | bytes[i + 1] << 8 | bytes[i + 2] << 16 | bytes[i + 3] << 24)) >>> 0;
+		for (; i < bytes.length; i++) hash = (Math.imul(hash, 31) + bytes[i]) >>> 0;
+		for (const byte of bytes) bits |= byte;
 		this.view.setUint32(pointer - 8, (bytes.length | (bits >= 0x80 ? 0x80000000 : 0)) >>> 0, true);
 		this.view.setUint32(pointer - 4, hash, true);
 	}

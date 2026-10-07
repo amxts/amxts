@@ -1127,15 +1127,22 @@ struct CallArgs {
 #define TEXT_HEAD 8
 
 struct Frame {
+	wasm_exec_env_t env;
 	wasm_module_inst_t inst;
 	AMX *amx;
 	cell mark;
+	// The plugin's memory as the call starts: nothing of the plugin runs
+	// before the native is called.
+	uint8_t *base;
+	uint64_t size;
 
-	Frame(wasm_exec_env_t env, AMX *to)
+	Frame(wasm_exec_env_t from, AMX *to)
 	{
+		env = from;
 		inst = wasm_runtime_get_module_inst(env);
 		amx = to;
 		mark = amx ? amx->hea : 0;
+		base = wasm_runtime_memory_view(env, &size);
 	}
 
 	~Frame()
@@ -1186,15 +1193,13 @@ struct Frame {
 	 */
 	cell inText(int32_t ptr)
 	{
-		uint64_t start = 0, end = 0;
-		if (ptr <= 4 || !wasm_runtime_get_app_addr_range(inst, (uint64_t)(ptr - 4), &start, &end))
+		if (ptr <= 4 || (uint64_t)ptr > size)
 			return 0;
-		const uint8_t *at = (const uint8_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)(ptr - 4));
-		uint32_t bytes = *(const uint32_t *)at;
-		if (bytes > end - (uint64_t)ptr)
+		uint32_t bytes = *(const uint32_t *)(base + ptr - 4);
+		if (bytes > size - (uint64_t)ptr)
 			return 0;
 
-		const uint16_t *chars = (const uint16_t *)(at + 4);
+		const uint16_t *chars = (const uint16_t *)(base + ptr);
 		uint32_t n = bytes / 2;
 
 		// Three bytes at most for each unit (a pair's four are two units'),
@@ -1205,10 +1210,22 @@ struct Frame {
 		if (!phys)
 			return 0;
 
-		// ASCII first, most text: a unit a cell, and the room holds them all.
+		// ASCII first, most text: a unit a cell, and the room holds them all;
+		// four units at a time while all four are.
 		cell *dst = phys, *stop = phys + room;
-		uint32_t i = 0;
-		for (uint32_t ascii = n < room ? n : room; i < ascii && chars[i] < 0x80; i++)
+		uint32_t i = 0, ascii = n < room ? n : room;
+		for (; i + 4 <= ascii; i += 4, dst += 4) {
+			uint32_t low, high;
+			memcpy(&low, chars + i, 4);
+			memcpy(&high, chars + i + 2, 4);
+			if ((low | high) & 0xFF80FF80u)
+				break;
+			dst[0] = (cell)(low & 0xFFFF);
+			dst[1] = (cell)(low >> 16);
+			dst[2] = (cell)(high & 0xFFFF);
+			dst[3] = (cell)(high >> 16);
+		}
+		for (; i < ascii && chars[i] < 0x80; i++)
 			*dst++ = (cell)chars[i];
 
 		for (; i < n; i++) {
@@ -1260,7 +1277,7 @@ struct Frame {
 			return 0;
 		if (cells > MAX_CROSSING_CELLS)
 			cells = MAX_CROSSING_CELLS;
-		if (!wasm_runtime_validate_app_addr(inst, (uint64_t)(ptr - TEXT_HEAD), (uint64_t)cells + 1 + TEXT_HEAD))
+		if ((uint64_t)ptr + (uint64_t)cells + 1 > size)
 			return 0;
 
 		cell addr;
@@ -1284,19 +1301,30 @@ struct Frame {
 			cells = MAX_CROSSING_CELLS;
 		const cell *phys = HeapAt(amx, addr);
 		// Asked again: the plugin's memory can move while the native runs.
-		unsigned char *dst = (unsigned char *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ptr);
+		// It never shrinks, so the room outText checked is still there.
+		unsigned char *dst = wasm_runtime_memory_view(env, &size) + ptr;
+		// Four bytes at a time, the hash taken a word at a time (the fake
+		// server's setTextHead hashes the same way).
 		uint32_t bits = 0, hash = 0;
 		int i = 0;
+		for (; i + 4 <= cells && phys[i] && phys[i + 1] && phys[i + 2] && phys[i + 3]; i += 4) {
+			uint32_t word = (uint32_t)(unsigned char)phys[i] | (uint32_t)(unsigned char)phys[i + 1] << 8
+				| (uint32_t)(unsigned char)phys[i + 2] << 16 | (uint32_t)(unsigned char)phys[i + 3] << 24;
+			memcpy(dst + i, &word, 4);
+			bits |= word;
+			hash = hash * 31 + word;
+		}
 		for (; i < cells && phys[i]; i++) {
 			unsigned char byte = (unsigned char)phys[i];
 			dst[i] = byte;
 			bits |= byte;
 			hash = hash * 31 + byte;
 		}
+		bool ascii = (bits & 0x80808080u) == 0;
 
 		// A native that cut the text at its length may have cut a letter in
 		// two: its first bytes alone are no letter, so they are left out.
-		if (bits >= 0x80) {
+		if (!ascii) {
 			int lead = i;
 			while (lead > 0 && (dst[lead - 1] & 0xC0) == 0x80)
 				lead--;
@@ -1307,7 +1335,7 @@ struct Frame {
 			}
 		}
 		dst[i] = 0;
-		uint32_t head[2] = { (uint32_t)i | (bits >= 0x80 ? 0x80000000u : 0), hash };
+		uint32_t head[2] = { (uint32_t)i | (ascii ? 0 : 0x80000000u), hash };
 		memcpy(dst - TEXT_HEAD, head, sizeof(head));
 	}
 

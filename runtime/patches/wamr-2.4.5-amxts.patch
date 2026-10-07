@@ -163,7 +163,7 @@ index 771ef87..7bdb74d 100644
                  }
              }
 diff --git a/core/iwasm/aot/aot_runtime.c b/core/iwasm/aot/aot_runtime.c
-index d2621fb..d8f2db7 100644
+index d2621fb..eca720d 100644
 --- a/core/iwasm/aot/aot_runtime.c
 +++ b/core/iwasm/aot/aot_runtime.c
 @@ -2682,9 +2682,9 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
@@ -192,7 +192,7 @@ index d2621fb..d8f2db7 100644
  #endif
          }
  
-@@ -2773,6 +2773,109 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
+@@ -2773,6 +2773,124 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
      }
  }
  
@@ -208,6 +208,21 @@ index d2621fb..d8f2db7 100644
 +    AOTFunctionInstance *func = (AOTFunctionInstance *)function;
 +
 +    return func->is_import_func ? NULL : func->u.func.func_ptr;
++}
++
++/* amxts: see wasm_runtime_memory_view in wasm_export.h */
++uint8_t *
++wasm_runtime_memory_view(WASMExecEnv *exec_env, uint64_t *size)
++{
++    WASMMemoryInstance *memory =
++        wasm_get_default_memory((WASMModuleInstance *)exec_env->module_inst);
++
++    if (!memory) {
++        *size = 0;
++        return NULL;
++    }
++    *size = memory->memory_data_size;
++    return memory->memory_data;
 +}
 +
 +uint32_t
@@ -302,7 +317,7 @@ index d2621fb..d8f2db7 100644
  void
  aot_set_exception(AOTModuleInstance *module_inst, const char *exception)
  {
-@@ -3414,6 +3517,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
+@@ -3414,6 +3532,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
  #endif
          ret = invoke_native_internal(exec_env, func_ptr, func_type, signature,
                                       attachment, argv1, argc, argv);
@@ -314,7 +329,7 @@ index d2621fb..d8f2db7 100644
  #if WASM_ENABLE_AOT_STACK_FRAME != 0
          /* Free all frames allocated, note that some frames
             may be allocated in AOT code and haven't been
-@@ -3474,6 +3582,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
+@@ -3474,6 +3597,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
  #endif
          ret = invoke_native_internal(exec_env, func_ptr, func_type, signature,
                                       attachment, argv, argc, argv);
@@ -531,10 +546,10 @@ index fa5c2ab..a70adde 100644
              if (sign) {
                  res = LLVMBuildFPToSI(comp_ctx->builder, operand, dest_type,
 diff --git a/core/iwasm/include/wasm_export.h b/core/iwasm/include/wasm_export.h
-index 81efb8f..2398e2a 100644
+index 81efb8f..3a08bbe 100644
 --- a/core/iwasm/include/wasm_export.h
 +++ b/core/iwasm/include/wasm_export.h
-@@ -2075,6 +2075,78 @@ WASM_RUNTIME_API_EXTERN uint32_t
+@@ -2075,6 +2075,93 @@ WASM_RUNTIME_API_EXTERN uint32_t
  wasm_runtime_dump_call_stack_to_buf(wasm_exec_env_t exec_env, char *buf,
                                      uint32_t len);
  
@@ -567,6 +582,21 @@ index 81efb8f..2398e2a 100644
 + */
 +WASM_RUNTIME_API_EXTERN void *
 +wasm_runtime_direct_entry(wasm_function_inst_t function);
++
++/**
++ * amxts: the linear memory of the instance an exec env runs, as it is now:
++ * where it starts in the host, and its size. A native reads and writes the
++ * plugin's memory through it without asking for each address; the memory
++ * moves when it grows, so it is asked again after anything that may run the
++ * plugin's code.
++ *
++ * @param exec_env the exec env
++ * @param size where its size in bytes goes
++ *
++ * @return where it starts, or NULL with a size of 0 when it has none
++ */
++WASM_RUNTIME_API_EXTERN uint8_t *
++wasm_runtime_memory_view(wasm_exec_env_t exec_env, uint64_t *size);
 +
 +/**
 + * amxts: how an instance's AOT code keeps its frames, for
