@@ -4177,6 +4177,17 @@ static void MenuMessage(int type, edict_t *ed)
 
 static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line);
 static int32_t w_runPlayerMove(wasm_exec_env_t env, int32_t id, cell pitch, cell yaw, cell roll, cell forward, cell side, cell up, int32_t buttons, int32_t impulse, int32_t msec);
+static int32_t w_playerGive(wasm_exec_env_t env, int32_t id, int32_t name);
+static void w_playerStrip(wasm_exec_env_t env, int32_t id, int32_t suit);
+static void w_playerRespawn(wasm_exec_env_t env, int32_t id);
+static void w_playerSpeed(wasm_exec_env_t env, int32_t id);
+static int32_t w_playerSwitch(wasm_exec_env_t env, int32_t id, int32_t name);
+static int32_t w_playerJoin(wasm_exec_env_t env, int32_t id, int32_t team);
+static int32_t w_playerObserve(wasm_exec_env_t env, int32_t id, int32_t mode);
+static void w_playerTeam(wasm_exec_env_t env, int32_t id, int32_t team);
+static int32_t w_gameRulesRun(wasm_exec_env_t env, int32_t action);
+static int32_t w_reunion(wasm_exec_env_t env, int32_t what, int32_t id);
+static int32_t w_reunionKey(wasm_exec_env_t env, int32_t id, int32_t out, int32_t max);
 
 static NativeSymbol g_wasmNatives[] = {
 	{ "abort",        (void *)w_abort,        "(iiii)", NULL },
@@ -4227,6 +4238,17 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "srvcmd",       (void *)w_srvcmd,       "(iii)", NULL },
 	{ "bot_cmd",      (void *)w_botCmd,       "(ii)", NULL },
 	{ "run_player_move", (void *)w_runPlayerMove, "(iiiiiiiiii)i", NULL },
+	{ "player_give",    (void *)w_playerGive,    "(ii)i", NULL },
+	{ "player_strip",   (void *)w_playerStrip,   "(ii)",  NULL },
+	{ "player_respawn", (void *)w_playerRespawn, "(i)",   NULL },
+	{ "player_speed",   (void *)w_playerSpeed,   "(i)",   NULL },
+	{ "player_switch",  (void *)w_playerSwitch,  "(ii)i", NULL },
+	{ "player_join",    (void *)w_playerJoin,    "(ii)i", NULL },
+	{ "player_observe", (void *)w_playerObserve, "(ii)i", NULL },
+	{ "player_team",    (void *)w_playerTeam,    "(ii)",  NULL },
+	{ "game_rules_run", (void *)w_gameRulesRun,  "(i)i",  NULL },
+	{ "reunion",        (void *)w_reunion,       "(ii)i", NULL },
+	{ "reunion_key",    (void *)w_reunionKey,    "(iii)i", NULL },
 	{ "task",         (void *)w_task,         "(iii)i",  NULL },
 	{ "stop_task",    (void *)w_stopTask,     "(i)i", NULL },
 	{ "tag",          (void *)w_tag,          "(i)",  NULL },
@@ -7094,23 +7116,84 @@ static int32_t w_runPlayerMove(wasm_exec_env_t env, int32_t id, cell pitch, cell
 	return 1;
 }
 
-// bot_cmd(id, line) - the bot sends `line`.
-static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line)
+// On plain HLDS on Windows the engine's tokenizer cannot be reached, so a
+// command run as a client's is the game's ClientCommand called while the
+// module's engine functions answer Cmd_Argc, Cmd_Argv and Cmd_Args with its
+// words - as AMX Mod X runs engclient_cmd. The answers are in Metamod's
+// table only for the call.
+static std::vector<std::string> g_fakeWords;
+static std::string              g_fakeArgs;
+
+static int FakeArgc()
+{
+	RETURN_META_VALUE(MRES_SUPERCEDE, (int)g_fakeWords.size());
+}
+
+static const char *FakeArgv(int i)
+{
+	RETURN_META_VALUE(MRES_SUPERCEDE, i >= 0 && i < (int)g_fakeWords.size() ? g_fakeWords[i].c_str() : "");
+}
+
+static const char *FakeArgs()
+{
+	RETURN_META_VALUE(MRES_SUPERCEDE, g_fakeArgs.c_str());
+}
+
+/** The game's ClientCommand for `id` with `text` as the command's words, the engine's tokenizer not at hand. */
+static void FakeClientCommand(int32_t id, const std::string &text)
+{
+	if (!g_pengfuncsTable || !gpGamedllFuncs || !gpGamedllFuncs->dllapi_table)
+		return;
+	g_fakeWords.clear();
+	g_fakeArgs.clear();
+	size_t at = 0;
+	while (at < text.size()) {
+		while (at < text.size() && (unsigned char)text[at] <= ' ')
+			at++;
+		if (at >= text.size())
+			break;
+		if (g_fakeWords.size() == 1)
+			g_fakeArgs = text.substr(at);
+		bool quoted = text[at] == '"';
+		size_t start = quoted ? at + 1 : at;
+		size_t end = quoted ? text.find('"', start) : text.find_first_of(" \t\r\n", start);
+		if (end == std::string::npos)
+			end = text.size();
+		g_fakeWords.push_back(text.substr(start, end - start));
+		at = end + (quoted && end < text.size() ? 1 : 0);
+	}
+	if (g_fakeWords.empty())
+		return;
+
+	g_pengfuncsTable->pfnCmd_Argc = FakeArgc;
+	g_pengfuncsTable->pfnCmd_Argv = FakeArgv;
+	g_pengfuncsTable->pfnCmd_Args = FakeArgs;
+	gpGamedllFuncs->dllapi_table->pfnClientCommand(INDEXENT(id));
+	g_pengfuncsTable->pfnCmd_Argc = NULL;
+	g_pengfuncsTable->pfnCmd_Argv = NULL;
+	g_pengfuncsTable->pfnCmd_Args = NULL;
+	g_fakeWords.clear();
+}
+
+/**
+ * Runs `text` as client `id` sends it: the engine splits it and calls the
+ * game's ClientCommand through Metamod's table, so every plugin and the game
+ * hear it in their order; without the engine's tokenizer, the game's
+ * ClientCommand with the words answered as AMX Mod X's engclient_cmd does.
+ */
+static void ClientCommandLine(int32_t id, const std::string &line)
 {
 	if (id < 1 || id > gpGlobals->maxClients)
 		return;
 	if (!g_tokenize || !g_entityApi) {
-		static bool said = false;
-		if (!said)
-			MF_PrintSrvConsole("[amxts] a bot's command is not sent on this server: it needs ReHLDS, or HLDS on Linux\n");
-		said = true;
+		FakeClientCommand(id, line);
 		return;
 	}
 
 	// The line being run - a command whose handler sends this - is put back
 	// after, for whatever reads it next. The engine's Cmd_Args points into
 	// the line it split until it splits another, so the line put back lives
-	// on: one a depth, for a bot's command sent while another is handled
+	// on: one a depth, for a client's command sent while another is handled
 	// (a deque, whose strings stay where they are as it grows).
 	// The engine's Cmd_Args is NULL for a command with no argument.
 	// Outside a command's dispatch the engine's line is whatever was split
@@ -7123,7 +7206,7 @@ static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line)
 	const char *args = g_commandDepth > 0 && CMD_ARGC() > 0 ? CMD_ARGS() : NULL;
 	bool gone = args && args >= StackLow() && args < FRAME_TOP();
 	std::string outer = g_commandDepth > 0 && CMD_ARGC() > 0 && !gone ? std::string(CMD_ARGV(0)) + " " + (args ? args : "") : "";
-	std::string text = AsString(Inst(env), line);
+	std::string text = line;
 	g_tokenize(&text[0]);
 	depth++;
 	g_entityApi->pfnClientCommand(INDEXENT(id));
@@ -7133,6 +7216,15 @@ static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line)
 	restored[depth].swap(outer);
 	g_tokenize(&restored[depth][0]);
 }
+
+// bot_cmd(id, line) - the client sends `line`: a bot's command, the team menu's choice, a weapon's.
+static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line)
+{
+	ClientCommandLine(id, AsString(Inst(env), line));
+}
+
+// What a player is given and does, the game rules' actions: ReGameDLL's API, or the game's own functions.
+#include "regame.h"
 
 // ---------------------------------------------------------------- the frame
 

@@ -104,6 +104,17 @@ static edict_t *EdictOfCell(cell id)
 
 /** The player a movement chain is about: the playermove the game moves him with, or ReGameDLL's. */
 static re::IReGameApi *g_regame;
+
+static bool RegameHere()
+{
+	return g_regame != NULL;
+}
+
+static void *RegameRules()
+{
+	return g_regame ? g_regame->GetGameRules() : NULL;
+}
+
 static int PmovePlayer(playermove_t *pmove)
 {
 	if (!pmove && g_regame)

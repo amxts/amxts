@@ -200,7 +200,7 @@ function cvarNumber(value: number): string {
 	return Number.isInteger(value) ? String(value) : value.toFixed(6);
 }
 
-function giveWeapon(target: FakePlayer | undefined, name: string): number {
+export function giveWeapon(target: FakePlayer | undefined, name: string): number {
 	if (!target) return 0;
 	if (name === 'item_kevlar' || name === 'item_assaultsuit') {
 		target.armor = 100;
@@ -214,7 +214,15 @@ function weaponByName(target: FakePlayer | undefined, name: string) {
 	return target?.items.find(w => w.kind === name);
 }
 
-function switchTo(target: FakePlayer | undefined, name: string): number {
+/** A command run as the player's, as the game takes it: a weapon chosen, a side picked in the team menu. */
+export function clientCommand(target: FakePlayer | undefined, line: string): void {
+	target?.commands.push(line);
+	if (line.startsWith('weapon_')) switchTo(target, line);
+	const side = { 'jointeam 1': 'TERRORIST', 'jointeam 2': 'CT', 'jointeam 6': 'SPECTATOR' }[line];
+	if (target && side) target.team = side as TeamName;
+}
+
+export function switchTo(target: FakePlayer | undefined, name: string): number {
 	const weapon = weaponByName(target, name);
 	if (!target || !weapon) return 0;
 	target.set('m_pActiveItem', weapon.id);
@@ -298,7 +306,7 @@ function sendText(call: NativeCall, id: number, variant: 'chat' | 'center' | 'co
 const PRINT_VARIANTS = ['', 'notify', 'console', 'chat', 'center'] as const;
 
 // Reunion's client_auth_type by its number, as the player's API names each.
-const AUTH_TYPES = ['unknown', 'dproto', 'steam', 'steamEmu', 'revEmu', 'oldRevEmu', 'hltv', 'sc2009', 'avsmp', 'sxei', 'revEmu2013', 'sse3'];
+export const AUTH_TYPES = ['unknown', 'dproto', 'steam', 'steamEmu', 'revEmu', 'oldRevEmu', 'hltv', 'sc2009', 'avsmp', 'sxei', 'revEmu2013', 'sse3'];
 
 /** A Pawn string of UTF-8 bytes - a path, a line of a file - as text. */
 function bytesText(call: NativeCall, pointer: number): string {
@@ -637,13 +645,7 @@ export const NATIVES: Record<string, Native> = {
 	rg_switch_weapon: (c, [id, weapon]) => switchTo(player(c, id), entity(c, weapon)?.classname ?? ''),
 	user_has_weapon: (c, [id, weapon]) => +!!weaponByName(player(c, id), WEAPON_NAMES[weapon] ?? ''),
 	engclient_cmd: (c, [id, command, arg1, arg2]) => {
-		const target = player(c, id);
-		const line = [command, arg1, arg2].map(p => c.memory.text(p)).filter(Boolean).join(' ');
-		target?.commands.push(line);
-		if (line.startsWith('weapon_')) switchTo(target, line);
-		// The team menu's slots, as the game handles `jointeam`.
-		const side = { 'jointeam 1': 'TERRORIST', 'jointeam 2': 'CT', 'jointeam 6': 'SPECTATOR' }[line];
-		if (target && side) target.team = side as TeamName;
+		clientCommand(player(c, id), [command, arg1, arg2].map(p => c.memory.text(p)).filter(Boolean).join(' '));
 	},
 	rg_reset_maxspeed: () => {},
 

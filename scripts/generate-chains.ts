@@ -503,6 +503,14 @@ public:
 	virtual void *GetWeaponInfo(int weaponID) = 0;
 	virtual void *GetWeaponInfo(const char *weaponName) = 0;
 	virtual playermove_t *GetPlayerMove() = 0;
+	virtual void *GetWeaponSlot(int weaponID) = 0;
+	virtual void *GetWeaponSlot(const char *weaponName) = 0;
+	virtual void *GetItemInfo(int weaponID) = 0;
+	virtual void *GetAmmoInfo(int ammoID) = 0;
+	virtual void *GetAmmoInfoEx(int ammoID) = 0;
+	virtual void *GetAmmoInfoEx(const char *ammoName) = 0;
+	virtual bool BGetICSEntity(const char *version) const = 0;
+	virtual bool BGetIGameRules(const char *version) const = 0;
 };
 
 }  // namespace re

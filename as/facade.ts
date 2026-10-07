@@ -20,19 +20,17 @@ import {
 	get_user_armor, get_user_authid, get_user_deaths, get_user_frags, get_user_ip,
 	get_maxplayers, is_user_alive, is_user_bot, is_user_connected,
 	set_user_armor, set_user_frags,
-	get_member, set_member, get_user_msgid, message_begin, message_end, write_byte, write_short,
-	rg_give_item, rg_remove_all_items, rg_set_user_bpammo, rg_get_user_bpammo, cs_get_user_bpammo, rg_round_respawn, rg_switch_weapon,
-	rg_reset_maxspeed, rg_set_user_team, rg_join_team, rg_find_weapon_bpack_by_name, user_kill, get_user_flags, read_flags,
+	get_user_msgid, message_begin, message_end, write_byte, write_short,
+	user_kill, get_user_flags, read_flags,
 	get_cvar_num, get_cvar_string, set_cvar_num, set_cvar_string, get_players, get_user_info,
-	LibraryExists, module_exists, give_item, strip_user_weapons, user_has_weapon, engclient_cmd,
-	cs_get_user_team, cs_set_user_team, cs_get_user_deaths, get_speak, set_speak, cs_set_user_bpammo, cs_set_user_deaths, ExecuteHamB,
+	LibraryExists, module_exists, get_speak, set_speak,
 	read_args, read_argv, set_hudmessage, show_hudmessage, create_cvar, get_cvar_pointer,
 	get_pcvar_float, get_pcvar_num, get_pcvar_string, set_pcvar_float, set_pcvar_num, set_pcvar_string,
 	get_localinfo, register_dictionary,
 	set_dhudmessage, show_dhudmessage, CreateHudSyncObj, ShowSyncHudMsg, ClearSyncHud,
 	precache_model, precache_sound, precache_generic, get_user_userid,
 	emessage_begin, ewrite_byte, ewrite_short, ewrite_string, emessage_end, elog_message,
-	has_reunion, REU_GetAuthtype, REU_GetProtocol, REU_GetAuthKey
+	has_reunion, REU_GetAuthKey
 } from "./natives";
 // Promise, async/await and AbortSignal, as the globals they are in JavaScript.
 import "./promise";
@@ -54,6 +52,30 @@ import { Vector } from "./vector";
 @external("env", "srvcmd")       declare function _srvcmd(name: string, fn: i32, shape: i32): void;
 // @ts-ignore: decorator
 @external("env", "bot_cmd")      declare function _botCmd(id: i32, line: string): void;
+// What a player is given and does, done by the module itself.
+// @ts-ignore: decorator
+@external("env", "player_give")    declare function _playerGive(id: i32, name: string): i32;
+// @ts-ignore: decorator
+@external("env", "player_strip")   declare function _playerStrip(id: i32, suit: i32): void;
+// @ts-ignore: decorator
+@external("env", "player_respawn") declare function _playerRespawn(id: i32): void;
+// @ts-ignore: decorator
+@external("env", "player_speed")   declare function _playerSpeed(id: i32): void;
+// @ts-ignore: decorator
+@external("env", "player_switch")  declare function _playerSwitch(id: i32, name: string): i32;
+// @ts-ignore: decorator
+@external("env", "player_join")    declare function _playerJoin(id: i32, team: i32): i32;
+// @ts-ignore: decorator
+@external("env", "player_team")    declare function _playerTeam(id: i32, team: i32): void;
+// Reunion's answers about a client, through its API: -1 without Reunion.
+// @ts-ignore: decorator
+@external("env", "reunion")        declare function _reunion(what: i32, id: i32): i32;
+// @ts-ignore: decorator
+@external("env", "member_slot")    declare function _playerMemberSlot(className: string, name: string): i32;
+// @ts-ignore: decorator
+@external("env", "member_get")     declare function _playerMemberGet(id: i32, slot: i32, element: i32): i32;
+// @ts-ignore: decorator
+@external("env", "member_set")     declare function _playerMemberSet(id: i32, slot: i32, element: i32, cell: i32): void;
 // @ts-ignore: decorator
 @external("env", "task")         declare function _task(secondsBits: i32, fn: i32, repeat: i32): i32;
 // @ts-ignore: decorator
@@ -1270,6 +1292,10 @@ export type AuthType =
 	| "unknown" | "steam" | "steamEmu" | "revEmu" | "revEmu2013" | "oldRevEmu"
 	| "sc2009" | "avsmp" | "sxei" | "sse3" | "dproto" | "hltv";
 
+// What the reunion import is asked.
+const REUNION_PROTOCOL: i32 = 1;
+const REUNION_AUTH: i32 = 2;
+
 // Reunion's client_auth_type, by its number: CA_TYPE_NONE is "unknown".
 const AUTH_TYPES: AuthType[] = [
 	"unknown", "dproto", "steam", "steamEmu", "revEmu", "oldRevEmu",
@@ -1366,6 +1392,29 @@ export function __sayOnce(text: string): void {
 	saidOnce.add(text);
 	console.warn(text);
 }
+
+/** A member of every player, by its gamedata name, its slot looked up the first time it is used. */
+class PlayerMember {
+	private slot: i32 = -2;
+	constructor(readonly name: string) {}
+
+	private here(): i32 {
+		if (this.slot == -2) this.slot = _playerMemberSlot("CBasePlayer", this.name);
+		return this.slot;
+	}
+
+	get(id: number, element: i32 = 0): i32 {
+		return _playerMemberGet(<i32>id, this.here(), element);
+	}
+
+	set(id: number, cell: i32, element: i32 = 0): void {
+		_playerMemberSet(<i32>id, this.here(), element, cell);
+	}
+}
+
+const TEAM = new PlayerMember("m_iTeam");
+const DEATHS = new PlayerMember("m_iDeaths");
+const AMMO = new PlayerMember("m_rgAmmo");
 
 /** Tells everyone's scoreboard a player's frags and deaths - what cs_set_user_deaths sends. */
 function sendScoreInfo(id: number, frags: number, deaths: number, team: number) {
@@ -1636,17 +1685,13 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `cs_get_user_deaths`, `cs_set_user_deaths`
 	 */
 	get deaths(): number {
-		return __hasReapi() ? get_member(this.id, m_iDeaths) : cs_get_user_deaths(this.id);
+		return DEATHS.get(this.id);
 	}
 
 	/** The deaths on the scoreboard; setting them tells the scoreboard too. */
 	set deaths(value: number) {
-		if (__hasReapi()) {
-			set_member(this.id, m_iDeaths, value);
-			sendScoreInfo(this.id, this.frags, value, get_member(this.id, m_iTeam));
-			return;
-		}
-		cs_set_user_deaths(this.id, value);
+		DEATHS.set(this.id, <i32>value);
+		sendScoreInfo(this.id, this.frags, value, TEAM.get(this.id));
 	}
 
 	/**
@@ -1656,7 +1701,7 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `cs_get_user_team`, `rg_set_user_team`
 	 */
 	get team(): Team {
-		const index = __hasReapi() ? get_member(this.id, m_iTeam) : cs_get_user_team(this.id);
+		const index = TEAM.get(this.id);
 		return index >= 0 && index < TEAM_NAMES.length ? TEAM_NAMES[index] : "UNASSIGNED";
 	}
 
@@ -1666,14 +1711,7 @@ export class Player extends PlayerFields implements Client {
 	 * win conditions are not checked - the caller decides when that happens.
 	 */
 	set team(value: Team) {
-		const index = teamCell(value);
-		if (__hasReapi()) {
-			rg_set_user_team(this.id, index, MODEL_AUTO, true, false);
-			return;
-		}
-		// cstrike keeps the model unless told: the first one of the new side.
-		const model = value == "TERRORIST" ? CS_T_TERROR : value == "CT" ? CS_CT_URBAN : CS_DONTCHANGE;
-		cs_set_user_team(this.id, index, model);
+		_playerTeam(this.id, teamCell(value));
 	}
 
 	/**
@@ -1687,18 +1725,19 @@ export class Player extends PlayerFields implements Client {
 	 */
 	joinTeam(team: Team): boolean {
 		if (team == "UNASSIGNED") return false;
-		if (__hasReapi()) return rg_join_team(this.id, teamCell(team)) != 0;
+		const joined = _playerJoin(this.id, teamCell(team));
+		if (joined >= 0) return joined != 0;
 
-		// Without reapi, what the player would type: the team menu's slot, then
-		// the appearance menu's automatic pick. The menu takes a living player
-		// to the spectators only in the freeze time, so he dies quietly first,
-		// as rg_join_team has him: no death, no frag.
+		// Without ReGameDLL, what the player would type: the team menu's slot,
+		// then the appearance menu's automatic pick. The menu takes a living
+		// player to the spectators only in the freeze time, so he dies quietly
+		// first, as ReGameDLL's JoinTeam has him: no death, no frag.
 		if (team == "SPECTATOR" && this.isAlive) {
 			this.deadFlag = "dead";
 			set_pev(this.id, pev_health, 0);
 		}
-		engclient_cmd(this.id, "jointeam", team == "TERRORIST" ? "1" : team == "CT" ? "2" : "6");
-		if (team != "SPECTATOR") engclient_cmd(this.id, "joinclass", "5");
+		_botCmd(this.id, `jointeam ${team == "TERRORIST" ? "1" : team == "CT" ? "2" : "6"}`);
+		if (team != "SPECTATOR") _botCmd(this.id, "joinclass 5");
 		return this.team == team;
 	}
 
@@ -1736,7 +1775,7 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `REU_GetAuthtype`
 	 */
 	get authType(): AuthType {
-		const type = hasReunion() ? REU_GetAuthtype(this.id) : 0;
+		const type = _reunion(REUNION_AUTH, this.id);
 		return type > 0 && type < AUTH_TYPES.length ? AUTH_TYPES[type] : "unknown";
 	}
 
@@ -1746,7 +1785,7 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `REU_GetProtocol`
 	 */
 	get protocol(): number {
-		return hasReunion() ? REU_GetProtocol(this.id) : 0;
+		return max(_reunion(REUNION_PROTOCOL, this.id), 0);
 	}
 
 	/**
@@ -1883,8 +1922,7 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `rg_give_item`, `give_item`
 	 */
 	give(item: ItemName): boolean {
-		if (__hasReapi()) return rg_give_item(this.id, item) > 0;
-		return give_item(this.id, item) > 0;
+		return _playerGive(this.id, item) > 0;
 	}
 
 	/**
@@ -1894,11 +1932,7 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `rg_remove_all_items`, `strip_user_weapons`
 	 */
 	removeAllItems(removeSuit: boolean = false): void {
-		if (__hasReapi()) {
-			rg_remove_all_items(this.id, removeSuit);
-			return;
-		}
-		strip_user_weapons(this.id);
+		_playerStrip(this.id, removeSuit ? 1 : 0);
 	}
 
 	/**
@@ -1907,10 +1941,8 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `rg_set_user_bpammo`, `cs_set_user_bpammo`
 	 */
 	setAmmo(weapon: WeaponName, amount: number): void {
-		const id = WEAPON_IDS.indexOf(weapon);
-		if (id <= 0) return;
-		if (__hasReapi()) rg_set_user_bpammo(this.id, id, amount);
-		else cs_set_user_bpammo(this.id, id, amount);
+		const item = this.items.find(item => item.classname == weapon);
+		if (item) AMMO.set(this.id, <i32>amount, <i32>item.ammoType);
 	}
 
 	/**
@@ -1920,9 +1952,8 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `rg_get_user_bpammo`, `cs_get_user_bpammo`
 	 */
 	getAmmo(weapon: WeaponName): number {
-		const id = WEAPON_IDS.indexOf(weapon);
-		if (id <= 0) return 0;
-		return __hasReapi() ? rg_get_user_bpammo(this.id, id) : cs_get_user_bpammo(this.id, id);
+		const item = this.items.find(item => item.classname == weapon);
+		return item ? AMMO.get(this.id, <i32>item.ammoType) : 0;
 	}
 
 	/**
@@ -1931,8 +1962,7 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `rg_round_respawn`
 	 */
 	respawn(): void {
-		if (__hasReapi()) rg_round_respawn(this.id);
-		else ExecuteHamB(Ham_CS_RoundRespawn, this.id);
+		_playerRespawn(this.id);
 	}
 
 	/**
@@ -1962,15 +1992,8 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `rg_switch_weapon`
 	 */
 	switchWeapon(weapon: WeaponName): boolean {
-		if (__hasReapi()) {
-			const entity = rg_find_weapon_bpack_by_name(this.id, weapon);
-			return entity > 0 && rg_switch_weapon(this.id, entity) != 0;
-		}
-
-		const id = WEAPON_IDS.indexOf(weapon);
-		if (id <= 0 || user_has_weapon(this.id, id) == 0) return false;
-		engclient_cmd(this.id, weapon);
-		return true;
+		if (!this.items.some(item => item.classname == weapon)) return false;
+		return _playerSwitch(this.id, weapon) != 0;
 	}
 
 	/**
@@ -1980,8 +2003,7 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `rg_reset_maxspeed`
 	 */
 	resetMaxSpeed(): void {
-		if (__hasReapi()) rg_reset_maxspeed(this.id);
-		else ExecuteHamB(Ham_CS_Player_ResetMaxSpeed, this.id);
+		_playerSpeed(this.id);
 	}
 
 	/**
@@ -3869,23 +3891,17 @@ export class Game extends GameFields {
 			unchecked(cells[1] = ROUND_REASONS[status]);
 			unchecked(cells[2] = floatCell(delay));
 			if (_chainDispatch(RG_RoundEnd, 0, changetype<usize>(cells), 3, 0) != 0) return;
-			this.finishRound(unchecked(cells[0]), unchecked(cells[1]), cellFloat(unchecked(cells[2])), options, true);
+			this.finishRound(unchecked(cells[0]), cellFloat(unchecked(cells[2])), options, true);
 			_chainDispatch(RG_RoundEnd, 1, changetype<usize>(cells), 3, 1);
 			return;
 		}
-		this.finishRound(status, ROUND_REASONS[status], delay, options, dispatch);
+		this.finishRound(status, delay, options, dispatch);
 	}
 
-	private finishRound(status: i32, reason: i32, delay: f64, options: EndRoundOptions, dispatch: bool): void {
+	private finishRound(status: i32, delay: f64, options: EndRoundOptions, dispatch: bool): void {
 		const message = options.message ?? "default";
 		const sound = options.sound ?? "default";
-		if (__hasReapi()) {
-			rg_round_end(delay, status, reason, message, sound, dispatch);
-			return;
-		}
-
-		// Without reapi, what rg_round_end does through the game's
-		// TerminateRound: the winner, the moment the next round starts, and the
+		// What the game's TerminateRound does: the winner, the moment the next round starts, and the
 		// round marked as ending, so the game does not end it again meanwhile;
 		// then the message and the sound.
 		this.roundWinner = WINNER_NAMES[status];
@@ -4090,8 +4106,7 @@ export * from "./events";
 import { Flag, FlagName, flagOf, HookName, hookIdOf } from "./constants";
 import { Entity, GameFields, PlayerFields } from "./entities";
 import {
-	MSG_ALL, MSG_ONE, MSG_ONE_UNRELIABLE, MODEL_AUTO, m_iDeaths, m_iTeam, LibType_Library, SPEAK_MUTED, SPEAK_ALL, SPEAK_LISTENALL, CS_T_TERROR, CS_CT_URBAN, CS_DONTCHANGE,
-	Ham_CS_RoundRespawn, Ham_CS_Player_ResetMaxSpeed, ARG_STRING
+	MSG_ALL, MSG_ONE, MSG_ONE_UNRELIABLE, LibType_Library, SPEAK_MUTED, SPEAK_ALL, SPEAK_LISTENALL, ARG_STRING
 } from "./constants";
 export { Entity, Weapon, WeaponKind, weaponKindOf } from "./entities";
 // The names an enum field takes and gives: `entity.renderMode = "additive"`.

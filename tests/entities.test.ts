@@ -25,8 +25,10 @@ const members = [...source.matchAll(/^\t"\w+", "\w+", \/\/ (\w+)$/gm)].map(m => 
 function fieldOf(access: string) {
 	const entvar = access.match(/(?:entvar\w*|Entvar\w*)\(this\.id, (\d+)/);
 	if (entvar) return entvarAt.get(entvar[1]) ?? null;
-	const member = access.match(/(?:member\w*|Member\w*)\(this\.id, (\d+)/);
-	if (member) return members[Number(member[1])] ?? null;
+	const member = access.match(/(?:member\w*|Member\w*)\(this\.id, (\d+)|\b(?:gameCell|regameCell)\((\d+)/);
+	if (member) return members[Number(member[1] ?? member[2])] ?? null;
+	// The game's name is read where every server keeps it, not as a member.
+	if (access.includes('regameText("gameName"')) return 'm_GameDesc';
 	const named = access.match(/\b(var_\w+|m_\w+|EV_SZ_\w+)\b/);
 	return named ? named[1].replace(/^EV_SZ_/, 'var_') : null;
 }
@@ -164,9 +166,9 @@ test('a field is read where the game keeps it, not through reapi\'s natives', ()
 	expect(source).not.toContain('NATIVE_get_entvar');
 	expect(source).not.toContain('NATIVE_get_member)');
 	expect(source).toContain('\tget gravity(): number { return cellFloat(entvarCell(this.id, 284)); }');
-	// The game rules are read in memory too, through reapi only where the gamedata cannot find them.
-	expect(source).toMatch(/\tget ctWins\(\): number \{ return gameCell\(\d+, m_iNumCTWins\); \}/);
-	// ReGameDLL's own member is reapi's; without it, what the server has instead (as/hlds.ts), or nothing, said once.
-	expect(source).toContain('\tget gameName(): string { return reapiGameText(m_GameDesc, "gameName", gameNameHlds); }');
-	expect(source).toContain('\tget teamBalanced(): boolean { return reapiGameCell(m_bTeamBalanced, "teamBalanced") != 0; }');
+	// The game rules are read in memory too, on every server.
+	expect(source).toMatch(/\tget ctWins\(\): number \{ return gameCell\(\d+\); \}/);
+	// ReGameDLL's own member is read in memory where the server has it; elsewhere what the server has instead (as/hlds.ts), or nothing, said once.
+	expect(source).toContain('\tget gameName(): string { return regameText("gameName", gameNameHlds); }');
+	expect(source).toMatch(/\tget teamBalanced\(\): boolean \{ return regameCell\(\d+, "teamBalanced"\) != 0; \}/);
 });

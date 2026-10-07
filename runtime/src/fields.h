@@ -16,10 +16,12 @@
 //   (member_slot), with its type, which says how many bytes it is and whether
 //   it points at an entity.
 // - The game rules are the object g_pGameRules points at; the gamedata finds
-//   that variable in the game's library. The gamedata lays the rules out as
-//   the original game does, which ReGameDLL's do not (their base class has a
-//   member more), so on a server with reapi the facade reads them through
-//   reapi instead.
+//   that variable in the game's library, and ReGameDLL's API gives it. The
+//   gamedata lays the rules out as the original game does. ReGameDLL's base
+//   class of them has two members more (m_GameDesc, m_bGameOver: 8 bytes on
+//   both systems), so on ReGameDLL every member of CHalfLifeMultiplay is 8
+//   bytes further; and the members ReGameDLL adds after the original's last
+//   are found from that last one (RULES_EXTRA).
 //
 // The engine's edict array is found once per map, from the engine's
 // functions Metamod gives the module: it starts at the world's edict
@@ -50,10 +52,88 @@ static bool  g_edictsSaid = false;
 struct Member {
 	std::string     name;   // "CBasePlayer::m_iAccount", for the console
 	TypeDescription type;   // FIELD_NONE: not in the gamedata
+	bool            wide = false; // a double, which the facade takes as a float
 };
 
 static std::vector<Member>         g_members;
 static std::map<std::string, int>  g_memberSlots;
+
+// gamehooks.h: whether the server runs ReGameDLL with its API, and its game rules.
+static bool  RegameHere();
+static void *RegameRules();
+
+/** The game rules' object: ReGameDLL's, else where the gamedata finds g_pGameRules; NULL before a map has them. */
+static char *RulesBase()
+{
+	void *rules = RegameRules();
+	if (rules)
+		return (char *)rules;
+	return g_rulesAddress ? (char *)*g_rulesAddress : NULL;
+}
+
+// How much further ReGameDLL keeps a member of CHalfLifeMultiplay than the original game.
+#define REGAME_RULES_SHIFT 8
+
+/**
+ * A game rules member that is not in the gamedata, by where it is from one
+ * that is: the voice manager's, inside m_VoiceGameMgr, on every server; and
+ * those ReGameDLL adds after m_bSkipSpawn, on ReGameDLL alone.
+ */
+// The voice manager's m_UpdateInterval, a double: MSVC aligns it to 8 bytes, GCC on i386 to 4.
+#ifdef _WIN32
+#define VOICE_INTERVAL 24
+#else
+#define VOICE_INTERVAL 20
+#endif
+
+static const struct { const char *name; const char *anchor; int offset; FieldType type; bool regame; bool wide; } RULES_EXTRA[] = {
+	{ "m_msgPlayerVoiceMask", "m_VoiceGameMgr", 4,  FieldType::FIELD_INTEGER, false, false },
+	{ "m_msgRequestState",    "m_VoiceGameMgr", 8,  FieldType::FIELD_INTEGER, false, false },
+	{ "m_nMaxPlayers",        "m_VoiceGameMgr", 16, FieldType::FIELD_INTEGER, false, false },
+	{ "m_UpdateInterval",     "m_VoiceGameMgr", VOICE_INTERVAL, FieldType::FIELD_FLOAT, false, true },
+	{ "m_bSkipShowMenu",      "m_bSkipSpawn",   1,  FieldType::FIELD_BOOLEAN, true, false },
+	{ "m_bNeededPlayers",     "m_bSkipSpawn",   2,  FieldType::FIELD_BOOLEAN, true, false },
+	{ "m_flEscapeRatio",      "m_bSkipSpawn",   4,  FieldType::FIELD_FLOAT,   true, false },
+	{ "m_flTimeLimit",        "m_bSkipSpawn",   8,  FieldType::FIELD_FLOAT,   true, false },
+	{ "m_flGameStartTime",    "m_bSkipSpawn",   12, FieldType::FIELD_FLOAT,   true, false },
+	{ "m_bTeamBalanced",      "m_bSkipSpawn",   16, FieldType::FIELD_BOOLEAN, true, false },
+};
+
+/**
+ * A game rules member's place and type on this server: the gamedata's, moved
+ * on ReGameDLL, or an extra one's; false when the server has none.
+ */
+static bool RulesMemberType(const std::string &className, const std::string &name, TypeDescription *type, bool *wide = NULL)
+{
+	if (!g_rulesData)
+		return false;
+	int shift = RegameHere() ? REGAME_RULES_SHIFT : 0;
+	if (g_rulesData->GetOffsetByClass(className.c_str(), name.c_str(), type) && type->fieldOffset >= 0) {
+		if (className == "CHalfLifeMultiplay")
+			type->fieldOffset += shift;
+		return true;
+	}
+	for (const auto &extra : RULES_EXTRA) {
+		TypeDescription anchor;
+		if (name != extra.name || (extra.regame && !shift) || !g_rulesData->GetOffsetByClass("CHalfLifeMultiplay", extra.anchor, &anchor))
+			continue;
+		type->reset();
+		type->fieldType = extra.type;
+		type->fieldOffset = anchor.fieldOffset + shift + extra.offset;
+		if (wide)
+			*wide = extra.wide;
+		return true;
+	}
+	return false;
+}
+
+/** An int member of the game rules, by its name; NULL when there is none. */
+static int *RulesMember(const char *name)
+{
+	TypeDescription type;
+	char *rules = RulesBase();
+	return rules && RulesMemberType("CHalfLifeMultiplay", name, &type) ? (int *)(rules + type.fieldOffset) : NULL;
+}
 
 /** The gamedata, and where the game keeps its rules. */
 static void FieldsAttach()
@@ -246,9 +326,15 @@ static int32_t w_memberSlot(wasm_exec_env_t env, int32_t classPtr, int32_t nameP
 
 	Member member;
 	member.name = key;
-	IGameConfig *data = IsRulesClass(className) ? g_rulesData : g_entityData;
-	if (!data || !data->GetOffsetByClass(className.c_str(), memberName.c_str(), &member.type) || member.type.fieldOffset < 0) {
+	bool rules = IsRulesClass(className);
+	bool known = rules ? RulesMemberType(className, memberName, &member.type, &member.wide)
+	                   : g_entityData && g_entityData->GetOffsetByClass(className.c_str(), memberName.c_str(), &member.type) && member.type.fieldOffset >= 0;
+	if (!known) {
 		member.type.reset();
+		// A member of ReGameDLL's own on another server: the facade has its way there.
+		for (const auto &extra : RULES_EXTRA)
+			if (rules && memberName == extra.name && extra.regame)
+				return -1;
 		MF_PrintSrvConsole("[amxts] %s is not in AMX Mod X's gamedata on this server: it reads 0 and writes nothing\n", key.c_str());
 	}
 
@@ -262,7 +348,7 @@ static int32_t w_memberSlot(wasm_exec_env_t env, int32_t classPtr, int32_t nameP
 static char *MemberObject(int32_t id)
 {
 	if (id == RULES_ID)
-		return g_rulesAddress ? (char *)*g_rulesAddress : NULL;
+		return RulesBase();
 	return ObjectOf(id);
 }
 
@@ -303,6 +389,12 @@ static int32_t w_memberGet(wasm_exec_env_t env, int32_t id, int32_t slot, int32_
 	char *at = MemberAt(id, slot, element, &t);
 	if (!at)
 		return 0;
+	if (g_members[slot].wide) {
+		float value = (float)*(double *)at;
+		int32_t bits;
+		memcpy(&bits, &value, sizeof(bits));
+		return bits;
+	}
 
 	switch (t->fieldType) {
 		case FieldType::FIELD_SHORT:     return t->fieldUnsigned ? *(uint16_t *)at : *(int16_t *)at;
@@ -329,6 +421,12 @@ static void w_memberSet(wasm_exec_env_t env, int32_t id, int32_t slot, int32_t e
 	char *at = MemberAt(id, slot, element, &t);
 	if (!at)
 		return;
+	if (g_members[slot].wide) {
+		float value;
+		memcpy(&value, &cell, sizeof(value));
+		*(double *)at = value;
+		return;
+	}
 
 	switch (t->fieldType) {
 		case FieldType::FIELD_SHORT:     *(int16_t *)at = (int16_t)cell; break;
@@ -392,7 +490,7 @@ static void w_memberSetText(wasm_exec_env_t env, int32_t id, int32_t slot, int32
 /** 1 when the game rules are read here, 0 when this server's gamedata cannot find them. */
 static int32_t w_gameRules(wasm_exec_env_t env)
 {
-	return g_rulesAddress && g_rulesData ? 1 : 0;
+	return (RegameHere() || g_rulesAddress) && g_rulesData ? 1 : 0;
 }
 
 #define FIELD_NATIVES \

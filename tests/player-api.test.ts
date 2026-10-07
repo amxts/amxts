@@ -37,7 +37,7 @@ test('language: his setinfo lang, else the server\'s - as lang.translate picks i
 	expect([none, own, notALanguage, serverWide]).toEqual(['de', 'ru', 'de', 'de']);
 });
 
-test('authType, protocol and authKey: what Reunion says, and "unknown", 0 and "" without it or without reapi', async () => {
+test('authType, protocol and authKey: what Reunion says, and "unknown", 0 and "" without it or without ReHLDS', async () => {
 	const lines: string[] = [];
 	for (const options of [{ reunion: true }, {}, { reunion: true, modules: ['cstrike', 'fun', 'hamsandwich', 'engine', 'fakemeta'] }]) {
 		const server = await loadPlugin(PLUGIN, options);

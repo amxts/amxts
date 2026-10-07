@@ -16,7 +16,7 @@ import { compile } from './compile';
 import { Coroutines } from './coroutines';
 import { installKitFor } from './kits';
 import { bitsFloat, floatBits, Memory, utf8Fit } from './memory';
-import { fieldCell, NATIVES, setFieldCell, WEAPON_NAMES } from './natives';
+import { AUTH_TYPES, clientCommand, fieldCell, giveWeapon, NATIVES, setFieldCell, switchTo, WEAPON_NAMES } from './natives';
 import { FakeNetwork } from './network';
 import { constant, tables } from './tables';
 
@@ -209,12 +209,12 @@ export interface ServerOptions {
 	platform?: 'win32' | 'linux';
 	/** The server's time zone, what Date's local getters read: "Asia/Yerevan". This machine's unless said. */
 	timeZone?: string;
-	/** Whether reapi finds Reunion, so a player's `authType`, `protocol` and `authKey` are his own. Not unless said. */
+	/** Whether the server has Reunion, so a player's `authType`, `protocol` and `authKey` are his own: the first two through ReHLDS (`chains`), the key through reapi. Not unless said. */
 	reunion?: boolean;
 	/**
-	 * Whether the server has ReGameDLL's and ReHLDS's hookchains, which the
-	 * module hooks itself. As it has reapi (`modules`) unless said: a server
-	 * without reapi is plain HLDS's model.
+	 * Whether the server has ReGameDLL and ReHLDS - their hookchains, which the
+	 * module hooks itself, and ReGameDLL's API, through which it acts. As it has
+	 * reapi (`modules`) unless said: a server without reapi is plain HLDS's model.
 	 */
 	chains?: boolean;
 }
@@ -333,10 +333,51 @@ export class FakeWeapon extends FakeEntity {
 	constructor(server: FakeServer, id: number, readonly kind: string, owner: number) {
 		super(server, id, kind);
 		this.set('m_iId', WEAPON_NAMES.indexOf(kind));
+		this.set('m_Weapon_iPrimaryAmmoType', ammoTypeOf(kind));
 		this.set('var_owner', owner);
 		this.set('m_pPlayer', owner);
 	}
 }
+
+/** A player's backpack ammo by weapon name, read and written in his m_rgAmmo. */
+class AmmoMap extends Map<string, number> {
+	constructor(private readonly owner: FakeEntity) {
+		super();
+	}
+
+	override get(weapon: string): number {
+		return ammoTypeOf(weapon) < 0 ? 0 : Number(this.owner.get('m_rgAmmo', ammoTypeOf(weapon)));
+	}
+
+	override set(weapon: string, amount: number): this {
+		if (ammoTypeOf(weapon) >= 0) this.owner.set('m_rgAmmo', amount, ammoTypeOf(weapon));
+		return this;
+	}
+}
+
+/** The kind of ammo a weapon takes, its place in m_rgAmmo, as the game numbers them; -1 for none. */
+function ammoTypeOf(kind: string): number {
+	const at = AMMO_KINDS.findIndex(weapons => weapons.split(' ').includes(kind.replace('weapon_', '')));
+	return at < 0 ? -1 : at + 1;
+}
+
+/** The weapons each kind of ammo is for, from 1: .338 Magnum, 7.62 NATO, ... the bomb. */
+const AMMO_KINDS = [
+	'awp',
+	'ak47 scout g3sg1',
+	'm249',
+	'aug sg550 galil famas m4a1 sg552',
+	'm3 xm1014',
+	'usp mac10 ump45',
+	'p90 fiveseven',
+	'deagle',
+	'p228',
+	'glock18 mp5navy tmp elite',
+	'flashbang',
+	'hegrenade',
+	'smokegrenade',
+	'c4',
+];
 
 /** Which of m_rgpPlayerItems a weapon goes in: 1 primary, 2 pistol, 3 knife, 4 grenades, 5 C4. */
 function slotOf(kind: string): number {
@@ -361,8 +402,8 @@ export class FakePlayer extends FakeEntity {
 	flags: number;
 	/** SPEAK_* flags: `muted` is SPEAK_MUTED. */
 	speak = 0;
-	/** Backpack ammo by weapon name. */
-	readonly ammo = new Map<string, number>();
+	/** Backpack ammo by weapon name: his m_rgAmmo at the weapon's kind of ammo, as the game keeps it. */
+	readonly ammo: Map<string, number> = new AmmoMap(this);
 	/** Every line he was shown, in order. */
 	readonly messages: Message[] = [];
 	/** What was run in his console: client_cmd, engclient_cmd. */
@@ -668,6 +709,8 @@ export class FakeServer {
 	readonly map: string;
 	readonly maxPlayers: number;
 	readonly modules: Set<string>;
+	/** What the game rules were asked to run, in order: "restartRound", "checkWinConditions". */
+	readonly rulesRuns: string[] = [];
 	/** Whether reapi finds Reunion (has_reunion). */
 	readonly reunion: boolean;
 	/** Whether the module finds ReGameDLL's and ReHLDS's hookchains (game_api). */
@@ -845,6 +888,8 @@ export class FakeServer {
 		this.modules = new Set(options.modules ?? ['reapi', 'cstrike', 'fun', 'hamsandwich', 'engine', 'fakemeta', 'nvault', 'resemiclip']);
 		this.reunion = options.reunion ?? false;
 		this.chains = options.chains ?? this.modules.has('reapi');
+		// The voice manager counts the server's slots, as the game sets it up.
+		this.rules.set(constant('m_nMaxPlayers'), this.maxPlayers);
 		this.entityIds = this.maxPlayers + 1;
 		this.timeZone = options.timeZone;
 		// AMX Mod X's own, which a test may set: the languages.
@@ -2350,9 +2395,53 @@ export class FakeServer {
 			if (id > 0 && keys & 0x3FF) this.shownMenus.set(id, { plugin, fn, shape: SHAPE_WIDE, tag, keys: keys & 0x3FF });
 		},
 
-		// A bot's command, as one it sent.
+		// A client's command, as one he sent: a bot's line, the team menu's choice, a weapon's.
 		bot_cmd(this: FakeServer, plugin: PluginInstance, id: number, line: number) {
-			this.players.find(each => each.id === id)?.command(plugin.memory.string(line));
+			const target = this.players.find(each => each.id === id);
+			const text = plugin.memory.string(line);
+			if (target?.bot) target.command(text);
+			else clientCommand(target, text);
+		},
+
+		// What a player is given and does, as the module does it on ReGameDLL.
+		player_give(this: FakeServer, plugin: PluginInstance, id: number, name: number) {
+			return giveWeapon(this.player(id), plugin.memory.string(name));
+		},
+		player_strip(this: FakeServer, plugin: PluginInstance, id: number) {
+			this.player(id)?.stripWeapons();
+		},
+		player_respawn(this: FakeServer, plugin: PluginInstance, id: number) {
+			NATIVES.rg_round_respawn({ server: this, plugin, memory: plugin.memory }, [id]);
+		},
+		player_speed() {},
+		player_switch(this: FakeServer, plugin: PluginInstance, id: number, name: number) {
+			return switchTo(this.player(id), plugin.memory.string(name));
+		},
+		player_join(this: FakeServer, plugin: PluginInstance, id: number, team: number) {
+			if (!this.chains) return -1;
+			return NATIVES.rg_join_team({ server: this, plugin, memory: plugin.memory }, [id, team]);
+		},
+		player_observe(this: FakeServer, plugin: PluginInstance, id: number, mode: number) {
+			if (!this.chains) return -1;
+			return NATIVES.rg_set_observer_mode({ server: this, plugin, memory: plugin.memory }, [id, mode]);
+		},
+		player_team(this: FakeServer, plugin: PluginInstance, id: number, team: number) {
+			NATIVES.rg_set_user_team({ server: this, plugin, memory: plugin.memory }, [id, team]);
+		},
+		// The game rules' RestartRound (1) and CheckWinConditions (2), counted.
+		game_rules_run(this: FakeServer, plugin: PluginInstance, action: number) {
+			this.rulesRuns.push(action === 1 ? 'restartRound' : 'checkWinConditions');
+			return 1;
+		},
+		// Reunion's answers: -1 without it.
+		reunion(this: FakeServer, plugin: PluginInstance, what: number, id: number) {
+			const target = this.players.find(each => each.id === id);
+			if (!this.reunion || !this.chains || !target) return -1;
+			return what === 1 ? target.protocol : Math.max(0, AUTH_TYPES.indexOf(target.authType));
+		},
+		reunion_key(this: FakeServer, plugin: PluginInstance, id: number, out: number, max: number) {
+			const target = this.players.find(each => each.id === id);
+			return plugin.memory.setUtf8(out, max, this.reunion ? target?.authKey ?? '' : '');
 		},
 
 		// engfunc(EngFunc_RunPlayerMove, ...) made by the module itself, the angles and the speeds Floats' bits; 0 for no player there, which engfunc then takes.
@@ -2675,7 +2764,11 @@ export class FakeServer {
 
 		member_slot(this: FakeServer, plugin: PluginInstance, className: number, name: number) {
 			const key = `${plugin.memory.string(className)}::${plugin.memory.string(name)}`;
-			const field = tables().memberNamed.get(key);
+			// A member of ReGameDLL's own is not on a server without it.
+			const regameOnly = ['m_bSkipShowMenu', 'm_bNeededPlayers', 'm_flEscapeRatio', 'm_flTimeLimit', 'm_flGameStartTime', 'm_bTeamBalanced'];
+			if (!this.chains && regameOnly.includes(plugin.memory.string(name))) return -1;
+			// A member the facade reads by its own name (m_iTeam) has reapi's name too.
+			const field = tables().memberNamed.get(key) ?? tables().constants.get(plugin.memory.string(name));
 			if (field === undefined) throw new Error(`no reapi member is ${key} in the gamedata`);
 			const slot = this.memberSlots.indexOf(field);
 			return slot >= 0 ? slot : this.memberSlots.push(field) - 1;
