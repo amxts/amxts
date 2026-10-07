@@ -467,7 +467,7 @@ index 82f70ca..ea501fb 100644
      while (frame_ip < frame_ip_end) {
          opcode = *frame_ip++;
 diff --git a/core/iwasm/compilation/aot_emit_conversion.c b/core/iwasm/compilation/aot_emit_conversion.c
-index fa5c2ab..a70adde 100644
+index fa5c2ab..0317f29 100644
 --- a/core/iwasm/compilation/aot_emit_conversion.c
 +++ b/core/iwasm/compilation/aot_emit_conversion.c
 @@ -254,6 +254,74 @@ trunc_sat_float_to_int(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
@@ -545,6 +545,139 @@ index fa5c2ab..a70adde 100644
          else {
              if (sign) {
                  res = LLVMBuildFPToSI(comp_ctx->builder, operand, dest_type,
+@@ -319,6 +387,83 @@ fail:
+     return false;
+ }
+ 
++/* amxts: i32.trunc_sat_f64_s on i386 with SSE2 as cvttsd2si itself, which
++   answers 0x80000000 for NaN and for a number out of i32's range: only that
++   answer, rare, takes the branch that saturates. WAMR's own way tests NaN,
++   the bottom and the top, a branch each, around every conversion: a `%`
++   checks both its numbers are whole this way, and the three branches cost a
++   remainder of two numbers that change in a loop a tenth of its time. */
++static bool
++trunc_sat_f64_to_i32_x86(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
++                         LLVMValueRef operand)
++{
++    LLVMBasicBlockRef fast_block, slow_block, res_block;
++    LLVMTypeRef vector_type = LLVMVectorType(F64_TYPE, 2);
++    LLVMValueRef vector, raw, indefinite, branch, nan, positive, slow, phi;
++    LLVMMetadataRef weights[3];
++
++    if (!(vector = LLVMBuildInsertElement(comp_ctx->builder,
++                                          LLVMGetUndef(vector_type), operand,
++                                          I32_ZERO, "cvttsd2si_in"))
++        || !(raw = aot_call_llvm_intrinsic(comp_ctx, func_ctx,
++                                           "llvm.x86.sse2.cvttsd2si", I32_TYPE,
++                                           &vector_type, 1, vector))
++        || !(indefinite =
++                 LLVMBuildICmp(comp_ctx->builder, LLVMIntEQ, raw,
++                               I32_CONST(INT32_MIN), "cvttsd2si_indefinite"))) {
++        aot_set_last_error("llvm build conversion failed.");
++        return false;
++    }
++
++    fast_block = LLVMGetInsertBlock(comp_ctx->builder);
++    ADD_BASIC_BLOCK(res_block, "trunc_sat_done");
++    ADD_BASIC_BLOCK(slow_block, "trunc_sat_edge");
++    if (!(branch = LLVMBuildCondBr(comp_ctx->builder, indefinite, slow_block,
++                                   res_block))) {
++        aot_set_last_error("llvm build cond br failed.");
++        goto fail;
++    }
++    /* Weighted as nearly never the edge. */
++    weights[0] =
++        LLVMMDStringInContext2(comp_ctx->context, "branch_weights", 14);
++    weights[1] = LLVMValueAsMetadata(I32_CONST(1));
++    weights[2] = LLVMValueAsMetadata(I32_CONST(2000));
++    LLVMSetMetadata(
++        branch, LLVMGetMDKindIDInContext(comp_ctx->context, "prof", 4),
++        LLVMMetadataAsValue(comp_ctx->context,
++                            LLVMMDNodeInContext2(comp_ctx->context, weights, 3)));
++
++    /* NaN is 0, a number above the range INT32_MAX, any other INT32_MIN -
++       -2^31 itself among them. */
++    LLVMPositionBuilderAtEnd(comp_ctx->builder, slow_block);
++    if (!(nan = LLVMBuildFCmp(comp_ctx->builder, LLVMRealUNO, operand,
++                              operand, "is_nan"))
++        || !(positive = LLVMBuildFCmp(comp_ctx->builder, LLVMRealOGT, operand,
++                                      F64_CONST(0.0), "is_positive"))
++        || !(slow = LLVMBuildSelect(
++                 comp_ctx->builder, nan, I32_ZERO,
++                 LLVMBuildSelect(comp_ctx->builder, positive,
++                                 I32_CONST(INT32_MAX), I32_CONST(INT32_MIN),
++                                 "saturated"),
++                 "saturated_or_nan"))
++        || !LLVMBuildBr(comp_ctx->builder, res_block)) {
++        aot_set_last_error("llvm build conversion failed.");
++        goto fail;
++    }
++
++    LLVMPositionBuilderAtEnd(comp_ctx->builder, res_block);
++    if (!(phi = LLVMBuildPhi(comp_ctx->builder, I32_TYPE, "trunc_sat_phi"))) {
++        aot_set_last_error("llvm build phi failed.");
++        goto fail;
++    }
++    LLVMAddIncoming(phi, &raw, &fast_block, 1);
++    LLVMAddIncoming(phi, &slow, &slow_block, 1);
++    PUSH_I32(phi);
++    return true;
++fail:
++    return false;
++}
++
+ bool
+ aot_compile_op_i32_wrap_i64(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx)
+ {
+@@ -438,6 +583,11 @@ aot_compile_op_i32_trunc_f64(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
+         return trunc_float_to_int(
+             comp_ctx, func_ctx, value, F64_TYPE, I32_TYPE, min_value, max_value,
+             sign ? "i32_trunc_f64_s" : "i32_trunc_f64_u", sign);
++    else if (sign && !comp_ctx->is_indirect_mode
++             && !comp_ctx->disable_llvm_intrinsics
++             && !strncmp(comp_ctx->target_arch, "i386", 4)
++             && aot_target_has_sse2(comp_ctx))
++        return trunc_sat_f64_to_i32_x86(comp_ctx, func_ctx, value);
+     else
+         return trunc_sat_float_to_int(
+             comp_ctx, func_ctx, value, F64_TYPE, I32_TYPE, min_value, max_value,
+diff --git a/core/iwasm/compilation/aot_llvm.h b/core/iwasm/compilation/aot_llvm.h
+index 9f62f66..b8cb7d3 100644
+--- a/core/iwasm/compilation/aot_llvm.h
++++ b/core/iwasm/compilation/aot_llvm.h
+@@ -644,6 +644,10 @@ aot_load_const_from_table(AOTCompContext *comp_ctx, LLVMValueRef base,
+ bool
+ aot_check_simd_compatibility(const char *arch_c_str, const char *cpu_c_str);
+ 
++/* amxts: whether the machine code is for a CPU with SSE2. */
++bool
++aot_target_has_sse2(const AOTCompContext *comp_ctx);
++
+ void
+ aot_apply_llvm_new_pass_manager(AOTCompContext *comp_ctx, LLVMModuleRef module);
+ 
+diff --git a/core/iwasm/compilation/aot_llvm_extra.cpp b/core/iwasm/compilation/aot_llvm_extra.cpp
+index 35b25c8..f06a36c 100644
+--- a/core/iwasm/compilation/aot_llvm_extra.cpp
++++ b/core/iwasm/compilation/aot_llvm_extra.cpp
+@@ -145,6 +145,17 @@ ExpandMemoryOpPass::run(Function &F, FunctionAnalysisManager &AM)
+     return PA;
+ }
+ 
++/* amxts: whether the machine code is for a CPU with SSE2: --cpu=pentium4
++   and every one after it, not a bare --target=i386. */
++bool
++aot_target_has_sse2(const AOTCompContext *comp_ctx)
++{
++    const llvm::MCSubtargetInfo *info =
++        reinterpret_cast<llvm::TargetMachine *>(comp_ctx->target_machine)
++            ->getMCSubtargetInfo();
++    return info != nullptr && info->checkFeatures("+sse2");
++}
++
+ bool
+ aot_check_simd_compatibility(const char *arch_c_str, const char *cpu_c_str)
+ {
 diff --git a/core/iwasm/include/wasm_export.h b/core/iwasm/include/wasm_export.h
 index 81efb8f..3a08bbe 100644
 --- a/core/iwasm/include/wasm_export.h

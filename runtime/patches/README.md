@@ -94,6 +94,11 @@ version`.
 - on i386, a double made a 64-bit integer with saturation (`i64.trunc_sat_f64_s`,
   what every number made a cell becomes) through SSE2 when it fits in 32 bits,
   and through the x87 only when it does not;
+- on i386 with SSE2, a double made a 32-bit integer with saturation
+  (`i32.trunc_sat_f64_s`, what a `%` checks its numbers are whole with) as
+  `cvttsd2si` itself: only its answer for NaN and a number out of range,
+  `0x80000000`, takes the branch that saturates, not three branches around
+  every conversion;
 - the i386 symbols the loader did not resolve, which LLVM spells with one
   underscore: the float and vector constant pools (`_real@...`, `_xmm@...`)
   and, on Windows, the 64-bit division helpers (`_alldiv`, `_aullrem`, ...);
