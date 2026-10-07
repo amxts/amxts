@@ -231,7 +231,10 @@ run the site from its repository,
 this one.
 
 The API's tooltips come from `scripts/docs/`, in both languages; every new
-public element gets an entry in both.
+public element gets an entry in both. The page "From Pawn" is written from
+the tooltips' `Pawn:` lines: after a change to them,
+`bun scripts/coverage.ts --write` writes it again (`tests/coverage.test.ts`
+fails until then).
 
 ## Branches
 

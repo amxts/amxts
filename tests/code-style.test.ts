@@ -1127,7 +1127,7 @@ test('every tracked JSON file is strict JSON, without comments', () => {
  * data under a comment that says `Cyrillic on purpose` - the mark covers its
  * own line and the lines below it, down to the next blank line.
  */
-const RUSSIAN_FILES = /^(?:docs\/ru\/|scripts\/docs\/|scripts\/(?:apply-docs|generate-entities|generate-hooks|generate-image|hlds-events)\.ts$|tests\/code-style\.test\.ts$|tests\/server\/utf8\.ts$)/;
+const RUSSIAN_FILES = /^(?:docs\/ru\/|scripts\/docs\/|scripts\/(?:apply-docs|coverage|generate-entities|generate-hooks|generate-image|hlds-events)\.ts$|tests\/code-style\.test\.ts$|tests\/server\/utf8\.ts$)/;
 
 export function cyrillicOutsideTestData(file: string, source: string): Finding[] {
 	let marked = false;
