@@ -51,7 +51,9 @@ function runFile(item: string): Promise<void> {
 	const file = `tests/${item}.test.ts`;
 	progress.start(item);
 	return new Promise((finish) => {
-		const child = spawn(process.execPath, ['test', '--smol', file], { stdio: ['ignore', 'pipe', 'pipe'] });
+		// A compile takes longer with the files side by side than alone: bun's
+		// 5 s a test or hook would end one that is only slow, not stuck.
+		const child = spawn(process.execPath, ['test', '--smol', '--timeout', '120000', file], { stdio: ['ignore', 'pipe', 'pipe'] });
 		let output = '';
 		let partial = '';
 		const take = (chunk: Buffer) => {
