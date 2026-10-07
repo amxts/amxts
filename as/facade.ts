@@ -5794,8 +5794,9 @@ export function showMenu(id: number, keys: number, text: string, title: string):
 // A menu as an object: `new Menu(title)`, items with a title, a test for when
 // each is shown and when it can be chosen, and what choosing it does;
 // `show(player, data)`. It is drawn here, as AMX Mod X draws its own menus -
-// pages, Back, More and Exit: each show() builds the page afresh, the title
-// and every item's title, `visible` and `enabled` asked then, for that player.
+// pages, Back, More and Exit: each show() asks the title and every item's
+// title, `visible` and `enabled` then, for that player, and draws the page's
+// text again only when they give a page other than the one drawn last.
 // AMX Mod X's show_menu sends it, and the module hears its keys (menu_open)
 // and calls menuKey with the one pressed. A menu shown over it - this
 // plugin's, another plugin's, a Pawn plugin's, the game's - takes the keys,
@@ -5915,6 +5916,27 @@ function menuTest<C>(test: boolean | ((context: C) => boolean) | undefined, cont
 	return test == null || test(context);
 }
 
+/** A page of a Menu as it was drawn: what it showed, and its text. */
+class DrawnPage {
+	constructor(
+		readonly page: i32,
+		readonly pages: i32,
+		readonly title: string,
+		readonly names: StaticArray<string>,
+		readonly keys: i32,
+		readonly text: string
+	) {}
+
+	/** Whether it is the page these draw. */
+	shows(page: i32, pages: i32, title: string, names: StaticArray<string>, keys: i32): bool {
+		if (page != this.page || pages != this.pages || keys != this.keys || title != this.title || names.length != this.names.length) return false;
+		for (let i = 0; i < names.length; i++) {
+			if (names[i] != this.names[i]) return false;
+		}
+		return true;
+	}
+}
+
 /**
  * A menu: items a player picks with the number keys, on pages with Back and
  * More, and Exit, drawn as AMX Mod X draws its own. `Data` is what it
@@ -5944,6 +5966,12 @@ function menuTest<C>(test: boolean | ((context: C) => boolean) | undefined, cont
  */
 export class Menu<Data extends object = object> {
 	private readonly items: MenuItemOptions<Data>[] = [];
+	// Whether an item can be hidden: without one, every item is shown and
+	// no list of the shown ones is made.
+	private hides: bool = false;
+	// The page drawn last, whose text the next show of the same page - the
+	// same title, items and keys - sends again rather than drawing it anew.
+	private drawn: DrawnPage | null = null;
 
 	constructor(
 		private readonly title: string | ((context: MenuContext<Data>) => string),
@@ -5969,6 +5997,7 @@ export class Menu<Data extends object = object> {
 	 */
 	addItem(item: MenuItemOptions<Data>): void {
 		this.items.push(item);
+		if (item.visible != null) this.hides = true;
 	}
 
 	/**
@@ -5979,7 +6008,7 @@ export class Menu<Data extends object = object> {
 	 */
 	show(player: Player, data: Data | null = null): void {
 		const context: MenuContext<Data> = { player, menu: this, data: changetype<Data>(data) };
-		const shown = this.items.filter((item: MenuItemOptions<Data>) => menuTest(item.visible, context));
+		const shown = this.hides ? this.items.filter((item: MenuItemOptions<Data>) => menuTest(item.visible, context)) : this.items;
 		this.showPage(context, shown, 0);
 	}
 
@@ -5992,53 +6021,48 @@ export class Menu<Data extends object = object> {
 		const given = options.perPage;
 		const perPage: i32 = given !== undefined ? <i32>Math.min(Math.max(given, 0), 7) : 7;
 		const pages = perPage == 0 ? 1 : (count + perPage - 1) / perPage;
-		const color = menuOption(options.numberColor, "\\r");
 		const title = menuText(this.title, context);
-		let text = perPage > 0 && pages > 1 ? `\\y${title} ${page + 1}/${pages}\n\\w\n` : `\\y${title}\n\\w\n`;
 
 		// What each key does: an item's index, MENU_BACK, MENU_MORE or
 		// MENU_EXIT; a key `keys` leaves out does not come.
-		const actions = new Array<i32>(10).fill(MENU_EXIT);
+		const actions = new StaticArray<i32>(10);
+		for (let i = 0; i < 10; i++) actions[i] = MENU_EXIT;
 		let keys = 0;
 		let option = 0;
 		const first = page * perPage;
 		const last = perPage > 0 ? min(first + perPage, count) : min(count, 10);
+		const names = new StaticArray<string>(last - first);
 		for (let i = first; i < last; i++, option++) {
 			const item = shown[i];
-			const name = menuText(item.title, context);
-			const number = (option + 1) % 10;
+			names[option] = menuText(item.title, context);
 			if (menuTest(item.enabled, context)) {
 				keys |= 1 << option;
 				actions[option] = i;
-				text += `${color}${number}.\\w ${name}\n`;
-			} else {
-				text += `\\d${number}. ${name}\n\\w`;
 			}
 		}
 
 		if (perPage > 0) {
-			for (; option < perPage; option++) text += "\n";
-			text += "\n";
+			option = perPage;
 			if (pages > 1) {
-				const back = page > 0;
-				text += pageItem(color, option, menuOption(options.backText, "Back"), back);
-				if (back) keys |= 1 << option;
+				if (page > 0) keys |= 1 << option;
 				actions[option++] = MENU_BACK;
-				const more = last < count;
-				text += pageItem(color, option, menuOption(options.nextText, "More"), more);
-				if (more) keys |= 1 << option;
+				if (last < count) keys |= 1 << option;
 				actions[option++] = MENU_MORE;
 			} else {
 				option += 2;
 			}
-			if (options.exit != false) {
-				text += pageItem(color, option, menuOption(options.exitText, "Exit"), true);
-				keys |= 1 << option;
-			}
+			if (options.exit != false) keys |= 1 << option;
+		}
+
+		// Drawn again only when something on it is not what it was.
+		let drawn = this.drawn;
+		if (drawn == null || !drawn.shows(page, pages, title, names, keys)) {
+			drawn = new DrawnPage(page, pages, title, names, keys, this.pageText(page, pages, perPage, title, names, keys));
+			this.drawn = drawn;
 		}
 
 		const id = <i32>context.player.id;
-		show_menu(id, keys, text, -1, MENU_TITLE);
+		show_menu(id, keys, drawn.text, -1, MENU_TITLE);
 		const menu = this;
 		shownPages.set(id, (key: i32) => {
 			const action = actions[key];
@@ -6047,5 +6071,31 @@ export class Menu<Data extends object = object> {
 			else if (action == MENU_MORE) menu.showPage(context, shown, page + 1);
 		});
 		_menuOpen(id, keys, hostIndex(menuKey, true));
+	}
+
+	/** The text of page `page`: its title, the items' `names`, and Back, More and Exit; an item `keys` leaves out is grey. */
+	private pageText(page: i32, pages: i32, perPage: i32, title: string, names: StaticArray<string>, keys: i32): string {
+		const options = this.options;
+		const color = menuOption(options.numberColor, "\\r");
+		let text = perPage > 0 && pages > 1 ? `\\y${title} ${page + 1}/${pages}\n\\w\n` : `\\y${title}\n\\w\n`;
+		let option = 0;
+		for (; option < names.length; option++) {
+			const number = (option + 1) % 10;
+			text += (keys & 1 << option) != 0 ? `${color}${number}.\\w ${names[option]}\n` : `\\d${number}. ${names[option]}\n\\w`;
+		}
+		if (perPage == 0) return text;
+
+		for (; option < perPage; option++) text += "\n";
+		text += "\n";
+		if (pages > 1) {
+			text += pageItem(color, option, menuOption(options.backText, "Back"), (keys & 1 << option) != 0);
+			option++;
+			text += pageItem(color, option, menuOption(options.nextText, "More"), (keys & 1 << option) != 0);
+			option++;
+		} else {
+			option += 2;
+		}
+		if (options.exit != false) text += pageItem(color, option, menuOption(options.exitText, "Exit"), true);
+		return text;
 	}
 }
