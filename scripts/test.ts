@@ -5,14 +5,14 @@
 //   bun run test showcase timers  the files whose names hold these words
 //   bun run test --changed        the files that what changed since origin/next reaches
 //   bun run test --part 2/3       every third file from the second: CI's parts
-//   bun run test --jobs 3         three at once (AMXTS_TEST_JOBS; one fewer than the CPUs by default)
+//   bun run test --jobs 3         three at once (AMXTS_TEST_JOBS; half the CPUs by default)
 //
 // A line per file as it ends, a failure as soon as bun reports it, the
 // slowest files at the end; dist/test-progress.txt says where the run is
 // (scripts/test-progress.ts).
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { availableParallelism } from 'node:os';
+import { availableParallelism, constants, setPriority } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import process from 'node:process';
 import { clock, testProgress } from './test-progress';
@@ -23,7 +23,7 @@ function option(name: string): string | undefined {
 	return at < 0 ? undefined : args.splice(at, 2)[1];
 }
 const part = option('--part');
-const jobs = Math.max(1, Number(option('--jobs') ?? process.env.AMXTS_TEST_JOBS) || availableParallelism() - 1);
+const jobs = Math.max(1, Number(option('--jobs') ?? process.env.AMXTS_TEST_JOBS) || Math.floor(availableParallelism() / 2));
 const changed = args.includes('--changed') && args.splice(args.indexOf('--changed'), 1).length > 0;
 
 let files = readdirSync('tests').filter(name => name.endsWith('.test.ts')).sort().map(name => `tests/${name}`);
@@ -54,6 +54,9 @@ function runFile(item: string): Promise<void> {
 		// A compile takes longer with the files side by side than alone: bun's
 		// 5 s a test or hook would end one that is only slow, not stuck.
 		const child = spawn(process.execPath, ['test', '--smol', '--timeout', '120000', file], { stdio: ['ignore', 'pipe', 'pipe'] });
+		// Below the machine's other work, which its compiles inherit: the
+		// machine stays responsive while the files run.
+		setPriority(child.pid!, constants.priority.PRIORITY_BELOW_NORMAL);
 		let output = '';
 		let partial = '';
 		const take = (chunk: Buffer) => {

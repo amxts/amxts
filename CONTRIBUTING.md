@@ -183,8 +183,8 @@ made its GitHub Release (`wamrc` comes from it): a maintainer runs `npm
 login`, then `bun run publish:npm` - all nine, in order, skipping what npm
 has, so a run after a failure finishes it.
 
-`bun run test` runs each test file in a `bun test --smol` of its own, one
-fewer at once than the machine has CPUs (`--jobs N` or `AMXTS_TEST_JOBS`
+`bun run test` runs each test file in a `bun test --smol` of its own, half
+as many at once as the machine has CPUs, below normal priority (`--jobs N` or `AMXTS_TEST_JOBS`
 for fewer, when memory is short), and prints a line as each file ends, a
 failed test at once, and the slowest files at the end;
 `dist/test-progress.txt` says where a run is - `cat` it while one runs in

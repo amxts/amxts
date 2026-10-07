@@ -611,7 +611,7 @@ async function build(plugins: string[], pawn: string[]): Promise<string[] | null
 	// What an earlier run compiled from the same files is taken as it is.
 	const cache = pluginCache(project.dir);
 	const fresh = all.filter(plugin => !cache.reuse(plugin));
-	const compiled = await compileAll(fresh, { dir: project.dir, includes: [], here: (plugin, natives) => cache.compile(plugin, natives) });
+	const compiled = await compileAll(fresh, { dir: project.dir, includes: [], here: (plugin, natives) => cache.compile(plugin, natives), low: true });
 	const failed = compiled.findIndex(each => each?.problem);
 	if (failed >= 0) {
 		fail(`${fresh[failed].source} does not compile:\n${compiled[failed]!.problem!.trim()}`);

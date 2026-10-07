@@ -7,7 +7,7 @@
 import type { Plugin } from './compile';
 import type { NativesBeside, PluginNative } from './plugin-natives';
 import { spawn } from 'node:child_process';
-import { availableParallelism } from 'node:os';
+import { availableParallelism, constants, setPriority } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setNativesBeside } from './plugin-natives';
@@ -66,8 +66,9 @@ export interface WorkerJob {
 export type WorkerResult = Compiled & { beside: NativesBeside };
 
 /** A worker process: one job at a time, until it is closed. */
-function worker() {
+function worker(low: boolean) {
 	const child = spawn(process.execPath, [WORKER], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
+	if (low) setPriority(child.pid!, constants.priority.PRIORITY_BELOW_NORMAL);
 	let waiting: { resolve: (result: WorkerResult) => void; reject: (error: Error) => void } | null = null;
 	const answer = () => {
 		const now = waiting;
@@ -93,6 +94,8 @@ export interface CompileAll {
 	here: (plugin: Plugin, natives: PluginNative[]) => Promise<string | null>;
 	started?: (index: number) => void;
 	finished?: (index: number, compiled: Compiled) => void;
+	/** The workers below the machine's other work: the test server's build, which no one waits on at the keyboard. */
+	low?: boolean;
 }
 
 /**
@@ -102,7 +105,7 @@ export interface CompileAll {
  */
 export async function compileAll(plugins: Plugin[], options: CompileAll): Promise<(Compiled | null)[]> {
 	const slots = Math.min(plugins.length, compileSlots());
-	const workers = slots > 1 ? Array.from({ length: slots }, worker) : [];
+	const workers = slots > 1 ? Array.from({ length: slots }, () => worker(options.low ?? false)) : [];
 	let failed = false;
 	const compile = async (plugin: Plugin, slot: number): Promise<Compiled> => {
 		if (workers.length === 0) {
