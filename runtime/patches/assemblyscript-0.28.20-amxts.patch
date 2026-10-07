@@ -378,7 +378,7 @@ index f876049..8d02018 100644
  function builtin_isArray(ctx: BuiltinFunctionContext): ExpressionRef {
    let compiler = ctx.compiler;
 diff --git a/src/compiler.ts b/src/compiler.ts
-index f99bd5a..b109ab8 100644
+index f99bd5a..530b181 100644
 --- a/src/compiler.ts
 +++ b/src/compiler.ts
 @@ -49,22 +49,26 @@ import {
@@ -4950,7 +4950,7 @@ index f99bd5a..b109ab8 100644
            );
          }
          let toStringReturnType = toStringSignature.returnType;
-@@ -10416,6 +13441,21 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10416,6 +13441,23 @@ export class Compiler extends DiagnosticEmitter {
      }
    }
  
@@ -4958,11 +4958,13 @@ index f99bd5a..b109ab8 100644
 +   * amxts: `thisExpr.field = valueExpr` through the field's setter - or, for
 +   * null into a reference field, a plain store: the collector's barrier has
 +   * nothing to link then, and its call is too big to be inlined and dropped.
++   * An accessor (`set view(entity: Entity | null)`) has no memory of its own,
++   * so its setter runs whatever it is given.
 +   */
 +  makeFieldSet(field: Property, thisExpr: ExpressionRef, valueExpr: ExpressionRef, reportNode: Node): ExpressionRef {
 +    let setterInstance = assert(field.setterInstance);
 +    let type = field.type;
-+    if (type.isManaged && !setterInstance.is(CommonFlags.Overridden) && isConstZero(valueExpr)) {
++    if (field.isField && type.isManaged && !setterInstance.is(CommonFlags.Overridden) && isConstZero(valueExpr)) {
 +      this.currentType = Type.void;
 +      return this.module.store(type.byteSize, thisExpr, valueExpr, type.toRef(), field.memoryOffset);
 +    }
@@ -4972,7 +4974,7 @@ index f99bd5a..b109ab8 100644
    /** Makes a conditional allocation where `this` might not have been initialized yet. */
    makeConditionalAllocation(
      classInstance: Class,
-@@ -10436,85 +13476,666 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10436,85 +13478,666 @@ export class Compiler extends DiagnosticEmitter {
      );
    }
  
@@ -5710,7 +5712,7 @@ index f99bd5a..b109ab8 100644
    }
  
    /** Makes a call to `abort`, if present, otherwise creates a trap. */
-@@ -10554,20 +14175,72 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10554,20 +14177,72 @@ export class Compiler extends DiagnosticEmitter {
      let filenameExpr = this.ensureStaticString(codeLocation.range.source.normalizedPath);
      let range = codeLocation.range;
      let source = range.source;
@@ -5792,7 +5794,7 @@ index f99bd5a..b109ab8 100644
    /** Makes a runtime non-null check, e.g. on `<Type>possiblyNull` or `possiblyNull!`. */
    makeRuntimeNonNullCheck(
      /** Expression being checked. */
-@@ -10575,7 +14248,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10575,7 +14250,9 @@ export class Compiler extends DiagnosticEmitter {
      /** Type of the expression. */
      type: Type,
      /** Report node. */
@@ -5803,7 +5805,7 @@ index f99bd5a..b109ab8 100644
    ): ExpressionRef {
      let module = this.module;
      let flow = this.currentFlow;
-@@ -10584,10 +14259,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10584,10 +14261,7 @@ export class Compiler extends DiagnosticEmitter {
      if (!flow.canOverflow(expr, type)) flow.setLocalFlag(tempIndex, LocalFlags.Wrapped);
      flow.setLocalFlag(tempIndex, LocalFlags.NonNull);
  
@@ -5815,7 +5817,7 @@ index f99bd5a..b109ab8 100644
  
      if (type.isExternalReference) {
        let nonNullExpr = module.local_get(tempIndex, type.toRef());
-@@ -10629,10 +14301,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10629,10 +14303,7 @@ export class Compiler extends DiagnosticEmitter {
      let temp = flow.getTempLocal(type);
      let tempIndex = temp.index;
  
@@ -5827,7 +5829,7 @@ index f99bd5a..b109ab8 100644
  
      if (!toType.isNullableReference || flow.isNonnull(expr, type)) {
        // Simplify if the value cannot be `null`. If toType is non-nullable, a
-@@ -10669,6 +14338,20 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10669,6 +14340,20 @@ export class Compiler extends DiagnosticEmitter {
  
  // helpers
  
@@ -5848,7 +5850,7 @@ index f99bd5a..b109ab8 100644
  function mangleImportName(
    element: Element,
    declaration: DeclarationStatement
-@@ -10725,3 +14408,505 @@ function mangleImportName(
+@@ -10725,3 +14410,505 @@ function mangleImportName(
      );
    }
  }

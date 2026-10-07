@@ -84,3 +84,23 @@ export function run(): number {
 		});
 	});
 }
+
+test('null given to an accessor\'s setter runs the setter: an accessor has no field to store into', async () => {
+	const { error, exports } = await probe({ 'probe.ts': `
+class Entity { constructor(public id: f64) {} }
+class Player extends Entity {
+	seen: f64 = -1;
+	get view(): Entity | null { return null; }
+	set view(entity: Entity | null) { this.seen = entity == null ? 0 : entity.id; }
+}
+export function run(): f64 {
+	const player = new Player(1);
+	player.view = new Entity(7);
+	const first = player.seen;
+	player.view = null;
+	return first * 10 + player.seen;
+}
+` });
+	expect(error).toBe('');
+	expect(exports.run()).toBe(70);
+});
