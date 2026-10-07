@@ -1710,7 +1710,8 @@ export class FakeServer {
 		const flags = this.players.find(each => each.id === id)?.flags ?? 0;
 		return [...(handlers.get(this.argv[0].toLowerCase()) ?? [])].some((slot) => {
 			if (slot.access && !(flags & slot.access)) return false;
-			const args = [id, 0, slot.index];
+			// The module's own handlers read the count of the command's words, its name counted, last.
+			const args = [id, 0, slot.index, this.argv.length];
 			return this.withCallArgs(args, () => this.call(slot, args, slot.fallback)) >= PLUGIN_HANDLED;
 		});
 	}

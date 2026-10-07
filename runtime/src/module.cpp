@@ -2426,7 +2426,8 @@ static void AddCommand(Commands &commands, const std::string &lower, int32_t fn,
 
 /**
  * Runs a command's handlers in order, as AMX Mod X runs its own: a player's
- * id, the command's flags and 0, as register_clcmd's handler gets them. One
+ * id, the command's flags and 0, as register_clcmd's handler gets them, and
+ * the count of the command's words, its name counted (read_argc). One
  * that answers PLUGIN_HANDLED takes the command; PLUGIN_HANDLED_MAIN keeps
  * it from the game and lets the rest have it. A handler that says nothing
  * has handled it. What the handlers answered, or'ed.
@@ -2436,6 +2437,7 @@ static cell RunCommand(Forward &f, int id)
 	f.depth++;
 	cell result = 0;
 	int flags = -1;
+	uint32_t argc = (uint32_t)CMD_ARGC();
 	for (size_t i = 0, end = f.handlers.size(); i < end && !(result & 1); i++) {
 		const Handler &h = f.handlers[i];
 		if (h.plugin == HANDLER_GONE)
@@ -2446,7 +2448,7 @@ static cell RunCommand(Forward &f, int id)
 			if (!(flags & h.access))
 				continue;
 		}
-		uint32_t argv[MAX_EVENT_ARGS] = { (uint32_t)id, (uint32_t)h.access, 0, 0 };
+		uint32_t argv[MAX_EVENT_ARGS] = { (uint32_t)id, (uint32_t)h.access, 0, argc };
 		result |= Fire(h, argv, MAX_EVENT_ARGS, 1);   // PLUGIN_HANDLED
 	}
 	EndDispatch(f);

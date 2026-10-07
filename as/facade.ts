@@ -26,7 +26,7 @@ import {
 	get_cvar_num, get_cvar_string, set_cvar_num, set_cvar_string, get_players, get_user_info,
 	LibraryExists, module_exists, give_item, strip_user_weapons, user_has_weapon, engclient_cmd,
 	cs_get_user_team, cs_set_user_team, cs_get_user_deaths, get_speak, set_speak, cs_set_user_bpammo, cs_set_user_deaths, ExecuteHamB,
-	read_argc, read_args, read_argv, set_hudmessage, show_hudmessage, create_cvar, get_cvar_pointer,
+	read_args, read_argv, set_hudmessage, show_hudmessage, create_cvar, get_cvar_pointer,
 	get_pcvar_float, get_pcvar_num, get_pcvar_string, set_pcvar_float, set_pcvar_num, set_pcvar_string,
 	get_localinfo, register_dictionary,
 	set_dhudmessage, show_dhudmessage, CreateHudSyncObj, ShowSyncHudMsg, ClearSyncHud,
@@ -2175,16 +2175,16 @@ export class __CommandWords {
 		readonly rests: string[] | null = null
 	) {
 		this.read = words;
-		this.count = words != null ? words.length : read_argc() - 1;
+		this.count = words != null ? words.length : 0;
 	}
 
-	/** The same object for the engine's command that runs now, as a new one would be (consoleWords). */
-	again(player: Player | null, usage: string): __CommandWords {
+	/** The object for the engine's command that runs now, typed with `argc` words, its name counted (consoleWords). */
+	@inline again(player: Player | null, usage: string, argc: i32): __CommandWords {
 		this.failed = false;
 		this.player = player;
 		this.usage = usage;
 		this.read = null;
-		this.count = read_argc() - 1;
+		this.count = argc - 1;
 		return this;
 	}
 
@@ -2237,13 +2237,13 @@ export class __CommandWords {
 	}
 
 	/** Whether at least `count` words were typed; fewer fails. */
-	need(count: i32): bool {
+	@inline need(count: i32): bool {
 		if (this.count < count) this.fail("");
 		return !this.failed;
 	}
 
 	/** Whether no word is left over after the first `count`; one more fails. */
-	done(count: i32): bool {
+	@inline done(count: i32): bool {
 		if (this.count > count) this.fail("");
 		return !this.failed;
 	}
@@ -2284,12 +2284,13 @@ function chatWords(player: Player, usage: string, line: string): __CommandWords 
 	return new __CommandWords(player, usage, words, rests);
 }
 
-/** A console command's words, as the engine split them. */
-function consoleWords(player: Player | null, usage: string): __CommandWords {
-	const spare = spareWords;
-	if (spare == null) return new __CommandWords(player, usage, null);
+/** A console command's words, as the engine split them: `argc` of them, its name counted. */
+// @ts-ignore: decorator
+@inline function consoleWords(player: Player | null, usage: string, argc: i32): __CommandWords {
+	let words = spareWords;
 	spareWords = null;
-	return spare.again(player, usage);
+	if (words == null) words = new __CommandWords(player, usage, null);
+	return words.again(player, usage, argc);
 }
 
 // A console command's words are read by the build's code for the command
@@ -2298,7 +2299,8 @@ function consoleWords(player: Player | null, usage: string): __CommandWords {
 // that runs while another is handled makes its own.
 let spareWords: __CommandWords | null = null;
 
-function doneWith(words: __CommandWords): void {
+// @ts-ignore: decorator
+@inline function doneWith(words: __CommandWords): void {
 	words.player = null;
 	spareWords = words;
 }
@@ -2358,9 +2360,14 @@ function chatCommand(player: number, level: number, cid: number, unused: number)
 	runCommand(at, id, chatWords(__playerOf(id), playerCommandInfos[at].usage, slash && space >= 0 ? text.substring(space + 1) : ""));
 }
 
-/** name a b - the console command at `at`, its arguments as the engine split them. */
-function consoleCommand(at: i32, id: i32): void {
-	const words = consoleWords(__playerOf(id), playerCommandInfos[at].usage);
+/**
+ * name a b - the console command at `at` - its tag less one (_tag) - as the
+ * module runs a command: the player, the command's right, 0, and how many
+ * words the engine split it into, its name counted.
+ */
+function consoleCommand(tag: i32, id: i32, access: i32, unused: i32, argc: i32): void {
+	const at = tag - 1;
+	const words = consoleWords(__playerOf(id), playerCommandInfos[at].usage, argc);
 	runCommand(at, id, words);
 	doneWith(words);
 }
@@ -2370,7 +2377,8 @@ function consoleCommand(at: i32, id: i32): void {
  * (see __co_ambient_player); the command is handled, so a chat command is not
  * repeated in chat, as a Pawn command's PLUGIN_HANDLED does.
  */
-function runCommand(at: i32, id: i32, words: __CommandWords): void {
+// @ts-ignore: decorator
+@inline function runCommand(at: i32, id: i32, words: __CommandWords): void {
 	const ambient = __co_ambient_player;
 	__co_ambient_player = id;
 	commandRuns[at](words);
@@ -2420,9 +2428,10 @@ export function __ham(fn: i32, classname: string, handler: WideHandler, post: bo
 	else waitingHams.push(registration);
 }
 
-/** name a b - the server command at `at`, typed in the server console or sent over rcon. */
-function serverCommand(at: i32): void {
-	const words = consoleWords(null, serverCommandUsages[at]);
+/** name a b - the server command at `at` (consoleCommand), typed in the server console or sent over rcon. */
+function serverCommand(tag: i32, id: i32, access: i32, unused: i32, argc: i32): void {
+	const at = tag - 1;
+	const words = consoleWords(null, serverCommandUsages[at], argc);
 	serverCommandRuns[at](words);
 	doneWith(words);
 	handled();
@@ -3610,9 +3619,9 @@ export class Server {
 
 		if (!chat) {
 			// The module finds the command by its name and checks the right.
-			const at = commandRuns.length - 1;
 			const flags = access != null ? ACCESS.bitOf(access) : 0;
-			_clcmd(name, hostIndex((player: number, level: number, cid: number, unused: number): void => consoleCommand(at, <i32>player), true), flags, SHAPE_WIDE);
+			_tag(commandRuns.length);
+			_clcmd(name, consoleCommand.index, flags, SHAPE_WIDE);
 			return;
 		}
 
@@ -3624,11 +3633,11 @@ export class Server {
 
 	/** @hidden A command of the server console, its words read by `run`, as `__addCommand`'s are. */
 	__addServerCommand(usage: string, run: (words: __CommandWords) => void): void {
-		const at = serverCommandRuns.length;
 		serverCommandRuns.push(run);
 		serverCommandUsages.push(usage);
 		commandInfos.push(new CommandInfo(usage, "", null, true));
-		_srvcmd(commandName(usage), hostIndex((a: number, b: number, c: number, d: number): void => serverCommand(at), true), SHAPE_WIDE);
+		_tag(serverCommandRuns.length);
+		_srvcmd(commandName(usage), serverCommand.index, SHAPE_WIDE);
 	}
 
 	/** Shows a HUD message to every player, with the same options as `player.showHud`. */
