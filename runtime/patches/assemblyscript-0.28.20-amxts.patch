@@ -6759,7 +6759,7 @@ index ddc7941..5f51d17 100644
 +  return both;
 +}
 diff --git a/src/index-wasm.ts b/src/index-wasm.ts
-index b448aa0..a1f0543 100644
+index b448aa0..eb8cda3 100644
 --- a/src/index-wasm.ts
 +++ b/src/index-wasm.ts
 @@ -39,7 +39,8 @@ import {
@@ -6772,7 +6772,7 @@ index b448aa0..a1f0543 100644
  import { Program } from "./program";
  import { Source } from "./ast";
  
-@@ -390,3 +391,15 @@ export function optimize(
+@@ -390,3 +391,16 @@ export function optimize(
  ): void {
    module.optimize(optimizeLevel, shrinkLevel, debugInfo, zeroFilledMemory);
  }
@@ -6782,11 +6782,12 @@ index b448aa0..a1f0543 100644
 + * in its frame (passes/stackobjects.ts), in an optimized wasm32 module with
 + * a shadow stack; returns how many. `borrowers` are the imports that use
 + * memory they are given only while they run, `suspends` those an async
-+ * function's coroutine parks in, `dataEnd` where static data ends.
++ * function's coroutine parks in, `dataEnd` where static data ends, `quiet`
++ * the imports that never run the plugin's code (the abort, `@leaf` natives).
 + */
-+export function makeStackObjects(moduleRef: ModuleRef, borrowers: string[], suspends: string[], dataEnd: i32): i32 {
++export function makeStackObjects(moduleRef: ModuleRef, borrowers: string[], suspends: string[], dataEnd: i32, quiet: string[] = []): i32 {
 +  let module = new Module(moduleRef, true, TypeRef.I32);
-+  return new StackObjects(module, new Set(borrowers), new Set(suspends), dataEnd).run();
++  return new StackObjects(module, new Set(borrowers), new Set(suspends), dataEnd, new Set(quiet)).run();
 +}
 diff --git a/src/module.ts b/src/module.ts
 index def4e78..03675c2 100644
@@ -10215,10 +10216,10 @@ index d34997e..e735e21 100644
        let func = _keys[i];
 diff --git a/src/passes/stackobjects.ts b/src/passes/stackobjects.ts
 new file mode 100644
-index 0000000..6659ff9
+index 0000000..6379b37
 --- /dev/null
 +++ b/src/passes/stackobjects.ts
-@@ -0,0 +1,432 @@
+@@ -0,0 +1,660 @@
 +/**
 + * @fileoverview amxts: objects made in the frame of the function that makes them.
 + *
@@ -10279,7 +10280,11 @@ index 0000000..6659ff9
 +  _BinaryenGetFunctionByIndex,
 +  _BinaryenGetNumFunctions,
 +  _BinaryenGlobalGetGetName,
++  _BinaryenGlobalSetGetName,
++  _BinaryenGlobalSetGetValue,
 +  _BinaryenIfGetCondition,
++  _BinaryenLoadGetBytes,
++  _BinaryenLoadGetOffset,
 +  _BinaryenLoadGetPtr,
 +  _BinaryenLocalGetGetIndex,
 +  _BinaryenLocalSetGetIndex,
@@ -10287,9 +10292,12 @@ index 0000000..6659ff9
 +  _BinaryenLocalSetSetValue,
 +  _BinaryenReturnGetValue,
 +  _BinaryenSelectGetCondition,
++  _BinaryenMemoryFillGetDest,
 +  _BinaryenStoreGetBytes,
++  _BinaryenStoreGetOffset,
 +  _BinaryenStoreGetPtr,
 +  _BinaryenStoreGetValue,
++  _BinaryenStoreSetPtr,
 +  _BinaryenUnaryGetOp
 +} from "../glue/binaryen";
 +
@@ -10314,11 +10322,26 @@ index 0000000..6659ff9
 +const MARK = -1;
 +/** The label the body is wrapped in, which a return becomes a branch to. */
 +const BODY = "~stack_objects";
++/** The collector's functions: any of them may run a step of it. */
++const COLLECTOR = "~lib/rt/itcms/";
++/** What tidies a function after its objects are made in its frame. */
++const CLEAN_UP = [
++  "precompute-propagate",
++  "optimize-instructions",
++  "simplify-locals",
++  "vacuum",
++  "merge-blocks",
++  "remove-unused-brs",
++  "coalesce-locals",
++  "reorder-locals",
++  "vacuum"
++];
 +
 +/** The calls between functions: who calls whom, and the functions that call through a table. */
 +class Calls extends Pass {
 +  callers: Map<string, string[]> = new Map();
 +  makers: Set<string> = new Set();
++  indirect: Set<string> = new Set();
 +  private current: string = "";
 +
 +  run(): void {
@@ -10357,6 +10380,11 @@ index 0000000..6659ff9
 +    if (!callers) this.callers.set(target, callers = []);
 +    callers.push(this.current);
 +  }
++
++  /** @override */
++  visitCallIndirect(call: ExpressionRef): void {
++    this.indirect.add(this.current);
++  }
 +}
 +
 +/** A function's expressions by their parent, its locals' reads and writes, its allocations and returns. */
@@ -10367,6 +10395,19 @@ index 0000000..6659ff9
 +  news: ExpressionRef[] = [];
 +  returns: ExpressionRef[] = [];
 +  tailCalls: bool = false;
++  /** The reads and writes of the shadow stack's pointer. */
++  stackPointerGets: ExpressionRef[] = [];
++  stackPointerSets: ExpressionRef[] = [];
++
++  /** @override */
++  visitGlobalGet(expr: ExpressionRef): void {
++    if (this.module.readStringCached(_BinaryenGlobalGetGetName(expr)) == STACK_POINTER) this.stackPointerGets.push(expr);
++  }
++
++  /** @override */
++  visitGlobalSet(expr: ExpressionRef): void {
++    if (this.module.readStringCached(_BinaryenGlobalSetGetName(expr)) == STACK_POINTER) this.stackPointerSets.push(expr);
++  }
 +
 +  /** @override */
 +  visit(expr: ExpressionRef): void {
@@ -10422,7 +10463,9 @@ index 0000000..6659ff9
 +    /** Imports that may suspend the plugin's code: an async function's coroutine parks there. */
 +    private suspends: Set<string>,
 +    /** Where static data ends: the lowest a stack pointer may go. */
-+    private dataEnd: i32
++    private dataEnd: i32,
++    /** Imports that never run the plugin's code: the abort, and the natives marked `@leaf`. */
++    private quiet: Set<string> = new Set()
 +  ) {}
 +
 +  run(): i32 {
@@ -10431,16 +10474,31 @@ index 0000000..6659ff9
 +    let calls = new Calls(module);
 +    calls.run();
 +    let suspending = calls.reaching(this.suspends);
-+    let made = 0;
++    let functions = new Array<FunctionRef>();
++    let saved = new Array<i32>();
 +    for (let i: Index = 0, k = _BinaryenGetNumFunctions(moduleRef); i < k; ++i) {
 +      let func = _BinaryenGetFunctionByIndex(moduleRef, i);
 +      let name = assert(module.readStringCached(_BinaryenFunctionGetName(func)));
 +      if (!calls.makers.has(name) || suspending.has(name)) continue;
-+      made += this.runFunction(func);
++      functions.push(func);
++      saved.push(this.runFunction(func));
 +    }
-+    return made;
++    // Only a step of the collector reads the shadow stack: a function whose
++    // objects are now all in its frame may call nothing left that collects.
++    let collecting = this.collecting();
++    for (let i = 0, k = functions.length; i < k; ++i) {
++      let func = functions[i];
++      if (saved[i] >= 0 && !collecting.has(assert(module.readStringCached(_BinaryenFunctionGetName(func))))) {
++        this.dropShadowStack(func, <Index>saved[i]);
++      }
++      module.runPasses(CLEAN_UP, func);
++    }
++    return this.made;
 +  }
 +
++  private made: i32 = 0;
++
++  /** Makes a function's objects that never leave it in its frame; the local its frame's start is kept in, or -1 when it made none. */
 +  private runFunction(func: FunctionRef): i32 {
 +    let module = this.module;
 +    // Each value a local holds gets a local of its own, where no two meet:
@@ -10461,19 +10519,96 @@ index 0000000..6659ff9
 +        objects.push(object);
 +      }
 +    }
-+    if (objects.length) this.makeInFrame(func, body, objects, frame);
-+    module.runPasses([
-+      "precompute-propagate",
-+      "optimize-instructions",
-+      "simplify-locals",
-+      "vacuum",
-+      "merge-blocks",
-+      "remove-unused-brs",
-+      "coalesce-locals",
-+      "reorder-locals",
-+      "vacuum"
-+    ], func);
-+    return objects.length;
++    if (!objects.length) return -1;
++    this.made += objects.length;
++    return this.makeInFrame(func, body, objects, frame);
++  }
++
++  /** The functions a call to which may run the collector: the collector's own, an import that may run the plugin's code, a call through a table, and their callers. */
++  private collecting(): Set<string> {
++    let module = this.module;
++    let moduleRef = module.ref;
++    let calls = new Calls(module);
++    calls.run();
++    let seeds = new Set<string>();
++    for (let i: Index = 0, k = _BinaryenGetNumFunctions(moduleRef); i < k; ++i) {
++      let func = _BinaryenGetFunctionByIndex(moduleRef, i);
++      let name = assert(module.readStringCached(_BinaryenFunctionGetName(func)));
++      if (
++        _BinaryenFunctionGetBody(func) ? name.startsWith(COLLECTOR) || calls.indirect.has(name) : !this.quiet.has(name)
++      ) seeds.add(name);
++    }
++    let found = calls.reaching(seeds);
++    for (let _values = Set_values(seeds), i = 0, k = _values.length; i < k; ++i) found.add(_values[i]);
++    return found;
++  }
++
++  /**
++   * Drops the shadow stack's frames of a function that calls nothing that
++   * collects: nothing reads their slots while it runs. Each read of the
++   * pointer must be one the frames are made of - a slot's store or zeroing,
++   * the pointer moved down or back up by a constant, its overflow check - or
++   * the copy that restores this pass's own frame (`saved`); any other use
++   * leaves the function as it is.
++   */
++  private dropShadowStack(func: FunctionRef, saved: Index): void {
++    let module = this.module;
++    let body = new Body(module);
++    body.walkFunction(func);
++    let parents = body.parents;
++    let found = new Array<ExpressionRef>();
++    let replacements = new Array<ExpressionRef>();
++    let gets = body.stackPointerGets;
++    for (let i = 0, k = gets.length; i < k; ++i) {
++      let get = gets[i];
++      let parent = parents.get(get);
++      if (!parent) return;
++      switch (_BinaryenExpressionGetId(parent)) {
++        case ExpressionId.Store: {
++          if (_BinaryenStoreGetPtr(parent) != get) return;
++          found.push(parent);
++          replacements.push(module.drop(_BinaryenStoreGetValue(parent)));
++          break;
++        }
++        case ExpressionId.MemoryFill: {
++          if (_BinaryenMemoryFillGetDest(parent) != get) return;
++          found.push(parent);
++          replacements.push(module.nop());
++          break;
++        }
++        case ExpressionId.Binary: {
++          let op = _BinaryenBinaryGetOp(parent);
++          let right = _BinaryenBinaryGetRight(parent);
++          if (_BinaryenBinaryGetLeft(parent) != get || _BinaryenExpressionGetId(right) != ExpressionId.Const) return;
++          if (op == BinaryOp.LtI32 && _BinaryenConstGetValueI32(right) == this.dataEnd) {
++            found.push(parent);
++            replacements.push(module.i32(0));
++            break;
++          }
++          let set = parents.get(parent);
++          if (
++            (op != BinaryOp.SubI32 && op != BinaryOp.AddI32) || !set ||
++            _BinaryenExpressionGetId(set) != ExpressionId.GlobalSet || _BinaryenGlobalSetGetValue(set) != parent
++          ) return;
++          found.push(set);
++          replacements.push(module.nop());
++          break;
++        }
++        case ExpressionId.LocalSet: {
++          if (_BinaryenLocalSetGetIndex(parent) != saved) return;
++          break;
++        }
++        default: return;
++      }
++    }
++    let sets = body.stackPointerSets;
++    for (let i = 0, k = sets.length; i < k; ++i) {
++      let set = sets[i];
++      if (_BinaryenExpressionGetId(_BinaryenGlobalSetGetValue(set)) != ExpressionId.LocalGet && !found.includes(set)) return;
++    }
++    for (let i = 0, k = found.length; i < k; ++i) {
++      assert(replaceChild(assert(parents.get(found[i])), found[i], replacements[i]));
++    }
 +  }
 +
 +  /** The object `call` makes, when it can be made in the frame. */
@@ -10587,13 +10722,105 @@ index 0000000..6659ff9
 +    return true;
 +  }
 +
-+  /** Makes the objects in a frame of `size` bytes the function takes for them, below the stack pointer. */
-+  private makeInFrame(func: FunctionRef, body: Body, objects: StackObject[], size: i32): void {
++  /**
++   * Whether the code right after the object is made - its inlined
++   * constructor's stores - writes every byte of it before anything reads
++   * one: then it needs no zeroing. On the way, a store written over before
++   * any read is dropped, and a store through a field holding an address in
++   * the object (an array's `dataStart`) goes to that address directly. Only
++   * stores of a constant or an address in the object are followed, and the
++   * stores into the shadow stack's slots between them, which are elsewhere.
++   */
++  private writtenFirst(body: Body, object: StackObject): bool {
++    let module = this.module;
++    // The object is made by a statement of a block, or kept in a frame's
++    // slot as it is made.
++    let made = assert(body.parents.get(object.call));
++    let block = body.parents.get(made);
++    if (
++      block && _BinaryenExpressionGetId(block) == ExpressionId.Store && _BinaryenStoreGetValue(block) == made &&
++      this.isStackPointer(body, _BinaryenStoreGetPtr(block))
++    ) {
++      made = block;
++      block = body.parents.get(made);
++    }
++    if (!block || _BinaryenExpressionGetId(block) != ExpressionId.Block) return false;
++    let count = _BinaryenBlockGetNumChildren(block);
++    let at: Index = 0;
++    while (at < count && _BinaryenBlockGetChildAt(block, at) != made) ++at;
++    let size = object.size;
++    let written = new Array<bool>(size).fill(false);
++    // The offset of each word that holds an address in the object, and that address's offset.
++    let pointers = new Map<i32, i32>();
++    // The last store at each offset, not read since: its size, and the store.
++    let unread = new Map<i32, ExpressionRef>();
++    for (let i = at + 1; i < count; ++i) {
++      let store = _BinaryenBlockGetChildAt(block, i);
++      if (_BinaryenExpressionGetId(store) != ExpressionId.Store) break;
++      let ptr = _BinaryenStoreGetPtr(store);
++      let value = _BinaryenStoreGetValue(store);
++      let valueId = _BinaryenExpressionGetId(value);
++      let points = valueId == ExpressionId.Const ? -1 : this.offsetIn(object, value);
++      if (valueId != ExpressionId.Const && points < 0) break;
++      if (this.isStackPointer(body, ptr)) continue;
++      let start: i32;
++      if (_BinaryenExpressionGetId(ptr) == ExpressionId.LocalGet && _BinaryenLocalGetGetIndex(ptr) == object.local) {
++        start = 0;
++      } else if (
++        _BinaryenExpressionGetId(ptr) == ExpressionId.Load && _BinaryenLoadGetBytes(ptr) == 4 &&
++        this.offsetIn(object, _BinaryenLoadGetPtr(ptr)) == 0 && pointers.has(<i32>_BinaryenLoadGetOffset(ptr))
++      ) {
++        let field = <i32>_BinaryenLoadGetOffset(ptr);
++        start = pointers.get(field)!;
++        // The field is read here: a store that wrote any of it stays.
++        for (let k = field - 7; k < field + 4; ++k) {
++          if (unread.has(k) && k + <i32>_BinaryenStoreGetBytes(unread.get(k)!) > field) unread.delete(k);
++        }
++        _BinaryenStoreSetPtr(store, module.binary(BinaryOp.AddI32, module.local_get(object.local, TypeRef.I32), module.i32(start)));
++      } else {
++        break;
++      }
++      start += <i32>_BinaryenStoreGetOffset(store);
++      let bytes = <i32>_BinaryenStoreGetBytes(store);
++      if (start < 0 || start + bytes > size) break;
++      let earlier = unread.has(start) ? unread.get(start)! : 0;
++      if (earlier && _BinaryenStoreGetBytes(earlier) == <u32>bytes) {
++        assert(replaceChild(block, earlier, module.nop()));
++      }
++      for (let k = start; k < start + bytes; ++k) {
++        written[k] = true;
++        unread.delete(k);
++        pointers.delete(k);
++      }
++      unread.set(start, store);
++      if (points >= 0 && bytes == 4) pointers.set(start, points);
++    }
++    for (let k = 0; k < size; ++k) if (!written[k]) return false;
++    return true;
++  }
++
++  /** The offset in the object that `expr` is the address of - its local, or that plus a constant - or -1. */
++  private offsetIn(object: StackObject, expr: ExpressionRef): i32 {
++    switch (_BinaryenExpressionGetId(expr)) {
++      case ExpressionId.LocalGet: return _BinaryenLocalGetGetIndex(expr) == object.local ? 0 : -1;
++      case ExpressionId.Binary: {
++        let right = _BinaryenBinaryGetRight(expr);
++        if (_BinaryenBinaryGetOp(expr) != BinaryOp.AddI32 || _BinaryenExpressionGetId(right) != ExpressionId.Const) return -1;
++        let offset = _BinaryenConstGetValueI32(right);
++        return offset >= 0 && this.offsetIn(object, _BinaryenBinaryGetLeft(expr)) == 0 ? offset : -1;
++      }
++    }
++    return -1;
++  }
++
++  /** Makes the objects in a frame of `size` bytes the function takes for them, below the stack pointer; returns the local the pointer is restored from. */
++  private makeInFrame(func: FunctionRef, body: Body, objects: StackObject[], size: i32): Index {
 +    let module = this.module;
 +    let base = _BinaryenFunctionAddVar(func, TypeRef.I32);
 +    let saved = _BinaryenFunctionAddVar(func, TypeRef.I32);
 +    // Each object's header is written once, where the function starts; its
-+    // fields are zeroed each time it is made, as an allocation's are.
++    // fields are zeroed each time it is made, as an allocation's are, unless
++    // its constructor writes all of them first.
 +    let headers = new Array<ExpressionRef>();
 +    let offset = 0;
 +    for (let i = 0, k = objects.length; i < k; ++i) {
@@ -10605,9 +10832,10 @@ index 0000000..6659ff9
 +      headers.push(module.store(4, module.local_get(base, TypeRef.I32), module.i32(object.id), TypeRef.I32, address - 8));
 +      headers.push(module.store(4, module.local_get(base, TypeRef.I32), module.i32(object.size), TypeRef.I32, address - 4));
 +      let set = assert(body.parents.get(object.call));
-+      _BinaryenLocalSetSetValue(set, module.block(null, [
++      let made = module.binary(BinaryOp.AddI32, module.local_get(base, TypeRef.I32), module.i32(address));
++      _BinaryenLocalSetSetValue(set, this.writtenFirst(body, object) ? made : module.block(null, [
 +        module.memory_fill(module.binary(BinaryOp.AddI32, module.local_get(base, TypeRef.I32), module.i32(address)), module.i32(0), module.i32(object.size)),
-+        module.binary(BinaryOp.AddI32, module.local_get(base, TypeRef.I32), module.i32(address))
++        made
 +      ], TypeRef.I32));
 +      offset += SLOT_HEADER + ((object.size + 15) & ~15);
 +    }
@@ -10649,6 +10877,7 @@ index 0000000..6659ff9
 +      stmts.push(module.local_get(result, results));
 +    }
 +    _BinaryenFunctionSetBody(func, module.block(null, stmts, results));
++    return saved;
 +  }
 +}
 diff --git a/src/program.ts b/src/program.ts

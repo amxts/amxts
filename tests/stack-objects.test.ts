@@ -47,6 +47,27 @@ export function dropped(count: i32): f64 {
 	return sum;
 }
 
+class Pair {
+	a: f64;
+	b: f64 = 0;
+	// @ts-ignore: decorator
+	@inline constructor(a: f64) {
+		this.a = a;
+	}
+}
+
+/** An object whose constructor leaves a field at zero: zeroed each time it is made in the frame. */
+export function zeroed(count: i32): f64 {
+	let sum = 0.0;
+	for (let i = 0; i < count; i++) {
+		const pair = new Pair(i);
+		sum += pair.b;
+		pair.b = 7;
+		sum += pair.b - 7 + pair.a;
+	}
+	return sum;
+}
+
 /** Vectors in the frame while the collector runs: their numbers are no references to visit. */
 export function heldAcross(): f64 {
 	const sum = read(3).x + read(3).y;
@@ -113,6 +134,7 @@ test('a vector that does not leave its function is made in its frame, one that l
 	memory = exports.memory;
 
 	expect(exports.dropped(1000)).toBe(499500 + 1000 * 1.5);
+	expect(exports.zeroed(1000)).toBe(499500);
 	exports.collect();
 	expect(exports.freed.value).toBe(0);
 

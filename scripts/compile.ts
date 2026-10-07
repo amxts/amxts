@@ -115,6 +115,14 @@ const WAKE_IMPORT = 'env.co_wake';
 const BORROWING_IMPORTS = new Set(['env.ent_vector']);
 
 /**
+ * The imports that never run the plugin's code - the abort, which does not
+ * return, and those marked `@leaf` - so a call to one runs no step of the
+ * collector: a function whose objects are all made in its frame and that
+ * calls nothing else keeps no shadow stack (makeStackObjects).
+ */
+const QUIET_IMPORTS = new Set(['env.abort', 'env.ent_vector']);
+
+/**
  * What wamrc keeps for a failed call's stack (scripts/source-map.ts): each
  * function's frame with its index and the offset of the call it is in, or of
  * the trap - a store at each call, a push and a pop at each function. No
@@ -336,7 +344,7 @@ const DATA_END = '~lib/memory/__data_end';
 function makeStackObjects(module: any, dataEnd: number) {
 	const functions = functionsOf(module);
 	const named = (imports: Set<string>) => functions.filter(each => each.imported && imports.has(each.imported)).map(each => each.name);
-	assemblyscript.makeStackObjects(module.ptr, named(BORROWING_IMPORTS), named(new Set([SUSPEND_IMPORT])), dataEnd);
+	assemblyscript.makeStackObjects(module.ptr, named(BORROWING_IMPORTS), named(new Set([SUSPEND_IMPORT])), dataEnd, named(QUIET_IMPORTS));
 }
 
 /**
