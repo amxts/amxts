@@ -23,7 +23,7 @@
 
 // Promise, for the promise versions, whether or not the plugin imports the facade.
 import "./promise";
-import { __textAt } from "./natives";
+import { __textFrom, __textInto, __textRoom } from "./natives";
 
 // @ts-ignore: decorator
 @external("env", "fopen")        declare function _fopen(name: string, mode: string, valve: i32, pathId: usize): i32;
@@ -156,16 +156,16 @@ export function existsSync(path: string): boolean {
  * Pawn: `open_dir`, `next_file`
  */
 export function readdirSync(path: string): string[] | null {
-	const name = new StaticArray<u8>(NAME_BYTES);
+	const name = __textRoom(NAME_BYTES);
 	const type = new StaticArray<i32>(1);
-	const handle = _openDir(path, changetype<usize>(name), NAME_BYTES - 1, changetype<usize>(type), 0, 0);
+	const handle = _openDir(path, <usize>__textInto(name), NAME_BYTES - 1, changetype<usize>(type), 0, 0);
 	if (handle == 0) return null;
 
 	const names: string[] = [];
 	for (;;) {
-		const entry = __textAt(changetype<usize>(name), NAME_BYTES);
+		const entry = __textFrom(name);
 		if (entry != "." && entry != "..") names.push(entry);
-		if (_nextFile(handle, changetype<usize>(name), NAME_BYTES - 1, changetype<usize>(type)) == 0) break;
+		if (_nextFile(handle, <usize>__textInto(name), NAME_BYTES - 1, changetype<usize>(type)) == 0) break;
 	}
 
 	_closeDir(handle);

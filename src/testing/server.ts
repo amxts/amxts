@@ -2634,6 +2634,14 @@ export class FakeServer {
 			this.callNativeImpl(plugin, 'emessage_end', []);
 		},
 
+		// A message of one or two numbers in one call: each written as its two bits of `kinds` say, 0 for none.
+		send_cells(this: FakeServer, plugin: PluginInstance, player: number, type: number, first: number, second: number, kinds: number) {
+			if (this.callNativeImpl(plugin, 'is_user_connected', [player]) === 0 || this.callNativeImpl(plugin, 'emessage_begin', [MSG_ONE, type, 0, player]) === 0) return;
+			if (kinds & 3) this.writing?.args.push(first);
+			if ((kinds >> 2) & 3) this.writing?.args.push(second);
+			this.callNativeImpl(plugin, 'emessage_end', []);
+		},
+
 		ent_entity(this: FakeServer, plugin: PluginInstance, id: number, offset: number) {
 			const at = tables().entvarAt.get(offset);
 			return at ? fieldCell(this.entities.get(id), at.field) : 0;

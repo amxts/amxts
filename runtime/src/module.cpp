@@ -1123,6 +1123,9 @@ struct CallArgs {
  * while a native runs code of the same plugin, and a native keeps the AMX it
  * was called with for its callbacks.
  */
+// The bytes before a text a native fills (Frame::backText): its count and its hash.
+#define TEXT_HEAD 8
+
 struct Frame {
 	wasm_module_inst_t inst;
 	AMX *amx;
@@ -1247,16 +1250,17 @@ struct Frame {
 
 	/**
 	 * A string the native fills: `cells` cells of the heap, empty, for a
-	 * plugin's buffer of `cells` + 1 bytes - nothing is copied in, as the
-	 * wrapper's buffer holds nothing yet. 0 when it cannot cross.
+	 * plugin's buffer of `cells` + 1 bytes after its head (backText) -
+	 * nothing is copied in, as the wrapper's buffer holds nothing yet. 0 when
+	 * it cannot cross.
 	 */
 	cell outText(int32_t ptr, int32_t cells)
 	{
-		if (ptr <= 0 || cells < 0)
+		if (ptr <= TEXT_HEAD || cells < 0)
 			return 0;
 		if (cells > MAX_CROSSING_CELLS)
 			cells = MAX_CROSSING_CELLS;
-		if (!wasm_runtime_validate_app_addr(inst, (uint64_t)ptr, (uint64_t)cells + 1))
+		if (!wasm_runtime_validate_app_addr(inst, (uint64_t)(ptr - TEXT_HEAD), (uint64_t)cells + 1 + TEXT_HEAD))
 			return 0;
 
 		cell addr;
@@ -1268,7 +1272,12 @@ struct Frame {
 		return addr;
 	}
 
-	/** What the native wrote, back as bytes up to its end and a zero byte. */
+	/**
+	 * What the native wrote, back as bytes up to its end and a zero byte, and
+	 * before them its head, as the facade reads it (__textFrom in
+	 * as/natives.ts): the count of the bytes, with the top bit set when one
+	 * is not ASCII, and their hash - so the plugin does not walk them again.
+	 */
 	void backText(int32_t ptr, int32_t cells, cell addr)
 	{
 		if (cells > MAX_CROSSING_CELLS)
@@ -1276,21 +1285,30 @@ struct Frame {
 		const cell *phys = HeapAt(amx, addr);
 		// Asked again: the plugin's memory can move while the native runs.
 		unsigned char *dst = (unsigned char *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ptr);
+		uint32_t bits = 0, hash = 0;
 		int i = 0;
-		for (; i < cells && phys[i]; i++)
-			dst[i] = (unsigned char)phys[i];
+		for (; i < cells && phys[i]; i++) {
+			unsigned char byte = (unsigned char)phys[i];
+			dst[i] = byte;
+			bits |= byte;
+			hash = hash * 31 + byte;
+		}
 
 		// A native that cut the text at its length may have cut a letter in
 		// two: its first bytes alone are no letter, so they are left out.
-		int lead = i;
-		while (lead > 0 && (dst[lead - 1] & 0xC0) == 0x80)
-			lead--;
-		if (lead > 0 && dst[lead - 1] >= 0xC0) {
-			int size = dst[lead - 1] >= 0xF0 ? 4 : dst[lead - 1] >= 0xE0 ? 3 : 2;
-			if (i - (lead - 1) < size)
-				i = lead - 1;
+		if (bits >= 0x80) {
+			int lead = i;
+			while (lead > 0 && (dst[lead - 1] & 0xC0) == 0x80)
+				lead--;
+			if (lead > 0 && dst[lead - 1] >= 0xC0) {
+				int size = dst[lead - 1] >= 0xF0 ? 4 : dst[lead - 1] >= 0xE0 ? 3 : 2;
+				if (i - (lead - 1) < size)
+					i = lead - 1;
+			}
 		}
 		dst[i] = 0;
+		uint32_t head[2] = { (uint32_t)i | (bits >= 0x80 ? 0x80000000u : 0), hash };
+		memcpy(dst - TEXT_HEAD, head, sizeof(head));
 	}
 
 	/**

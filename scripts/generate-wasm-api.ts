@@ -808,48 +808,90 @@ function __textCells(text: string): StaticArray<i32> {
 	return cells;
 }
 
-// Text a native fills comes back here, as UTF-8 bytes up to its end and a
-// zero byte. One buffer serves every wrapper: it is read as soon as the
-// native returns, before anything else can run.
-const __text = new StaticArray<u8>(${OUTPUT_CELLS});
+// Text a native fills comes back into a room, as UTF-8 bytes up to its end
+// and a zero byte, and before them what the module learnt of the bytes
+// copying them in (Frame::backText): their count, with the top bit set when
+// one is not ASCII, and their hash - so they are not walked again here.
+const __TEXT_HEAD = 8;
 
-/** The buffer, empty: a call that does not reach its native reads "". */
-function __textOut(): i32 {
-	unchecked(__text[0] = 0);
-	return changetype<i32>(__text);
+/** @hidden Room for a text of up to \`max\` bytes a native fills, and its head. */
+export function __textRoom(max: i32): StaticArray<u8> {
+	return new StaticArray<u8>(__TEXT_HEAD + max);
 }
 
-function __textBack(): string {
-	return __textAt(changetype<usize>(__text), ${OUTPUT_CELLS});
+/** @hidden Where a native writes into \`room\`, which reads "" until it does. */
+export function __textInto(room: StaticArray<u8>): i32 {
+	store<u64>(changetype<usize>(room), 0);
+	store<u8>(changetype<usize>(room), 0, __TEXT_HEAD);
+	return changetype<i32>(room) + __TEXT_HEAD;
 }
 
 /**
- * @hidden The UTF-8 text a native wrote at \`at\`, up to its zero byte and at
- * most \`max\` bytes. Measured first: the decoder takes room for all \`max\`
- * bytes otherwise, and a short name made the collector's work of a long one.
+ * @hidden The text a native wrote into \`room\`: the string made for the
+ * same text before, or a new one. The first is all reads, inlined where it
+ * is asked; the second may allocate, a call of its own.
  */
-export function __textAt(at: usize, max: i32): string {
-	let length = 0;
-	let bits: u32 = 0;
-	let hash: u32 = 0;
-	while (length < max) {
-		const byte = <u32>load<u8>(at + length);
-		if (byte == 0) break;
-		bits |= byte;
-		hash = hash * 31 + byte;
-		length++;
-	}
-	if (bits >= 0x80) return String.UTF8.decodeUnsafe(at, length);
-	// ASCII, most text: a byte is its UTF-16 unit. A text read before is the
-	// string made then - a string cannot change - and nothing is allocated.
-	const slot = hash & (__TEXTS - 1);
-	const kept = unchecked(__texts[slot]);
-	if (changetype<usize>(kept) != 0 && __sameText(changetype<string>(kept), at, length)) return changetype<string>(kept);
+// @ts-ignore: decorator
+@inline export function __textFrom(room: StaticArray<u8>): string {
+	const kept = __textKept(changetype<usize>(room));
+	return kept != 0 ? changetype<string>(kept) : __textMade(changetype<usize>(room));
+}
+
+// One room serves every wrapper: it is read as soon as the native returns,
+// before anything else can run.
+const __text = __textRoom(${OUTPUT_CELLS});
+
+function __textOut(): i32 {
+	return __textInto(__text);
+}
+
+// @ts-ignore: decorator
+@inline function __textBack(): string {
+	return __textFrom(__text);
+}
+
+/**
+ * ASCII text, most text, read before: the string made then - a string
+ * cannot change - found by the hash of the bytes in \`room\`'s head and
+ * compared with them; 0 for any other. A byte is its UTF-16 unit. Four bytes
+ * go at a time: each load of the plugin's memory is checked against its
+ * bounds.
+ */
+function __textKept(room: usize): usize {
+	const length = load<u32>(room);
+	if (length >= 0x80000000) return 0;
+	const kept = changetype<usize>(unchecked(__texts[load<u32>(room, 4) & (__TEXTS - 1)]));
+	return kept != 0 && __sameText(kept, room + __TEXT_HEAD, length) ? kept : 0;
+}
+
+/** The text in \`room\` made a string, and an ASCII one kept by its hash for the next time. */
+function __textMade(room: usize): string {
+	const length = load<u32>(room);
+	const at = room + __TEXT_HEAD;
+	if (length >= 0x80000000) return String.UTF8.decodeUnsafe(at, length & 0x7FFFFFFF);
 	// @ts-ignore: the runtime's allocator, which the editor's typings leave out
 	const text = changetype<string>(__new(<usize>length << 1, idof<String>()));
-	for (let i = 0; i < length; i++) store<u16>(changetype<usize>(text) + (<usize>i << 1), load<u8>(at + i));
-	unchecked(__texts[slot] = text);
+	const units = changetype<usize>(text);
+	let i: u32 = 0;
+	for (; i + 4 <= length; i += 4) {
+		const bytes = load<u32>(at + i);
+		store<u32>(units + (i << 1), __unitsLow(bytes));
+		store<u32>(units + (i << 1), __unitsHigh(bytes), 4);
+	}
+	for (; i < length; i++) store<u16>(units + (i << 1), load<u8>(at + i));
+	unchecked(__texts[load<u32>(room, 4) & (__TEXTS - 1)] = text);
 	return text;
+}
+
+// Four ASCII bytes as four UTF-16 units: the first two, the last two.
+// @ts-ignore: decorator
+@inline function __unitsLow(bytes: u32): u32 {
+	return (bytes & 0xFF) | ((bytes & 0xFF00) << 8);
+}
+
+// @ts-ignore: decorator
+@inline function __unitsHigh(bytes: u32): u32 {
+	return ((bytes >>> 16) & 0xFF) | ((bytes >>> 8) & 0xFF0000);
 }
 
 // The ASCII texts natives gave last, by a hash of their bytes: a name, a
@@ -857,9 +899,14 @@ export function __textAt(at: usize, max: i32): string {
 const __TEXTS = 64;
 const __texts = new StaticArray<string | null>(__TEXTS);
 
-function __sameText(text: string, at: usize, length: i32): bool {
-	if (text.length != length) return false;
-	for (let i = 0; i < length; i++) if (load<u16>(changetype<usize>(text) + (<usize>i << 1)) != <u16>load<u8>(at + i)) return false;
+function __sameText(units: usize, at: usize, length: u32): bool {
+	if (changetype<string>(units).length != <i32>length) return false;
+	let i: u32 = 0;
+	for (; i + 4 <= length; i += 4) {
+		const bytes = load<u32>(at + i);
+		if (load<u32>(units + (i << 1)) != __unitsLow(bytes) || load<u32>(units + (i << 1), 4) != __unitsHigh(bytes)) return false;
+	}
+	for (; i < length; i++) if (load<u16>(units + (i << 1)) != <u16>load<u8>(at + i)) return false;
 	return true;
 }
 
@@ -1303,11 +1350,13 @@ const thunks = chosen.map((n) => {
 	if (!framed) {
 		const cells = [`${n.params.length} * sizeof(cell)`, ...n.params.map((_, i) => `a${i}`)];
 		body.push(`\tcell p[] = { ${cells.join(', ')} };`, `\treturn (int32_t)CallCached(cached, "${lookupName(n.name)}", p);`);
-		return `static int32_t w_${n.name}(${sig})\n{\n${body.join('\n')}\n}`;
+		return `NO_STACK_COOKIE static int32_t w_${n.name}(${sig})\n{\n${body.join('\n')}\n}`;
 	}
 
+	// Every parameter is set below, so the cells are as many as the native
+	// declares and none is cleared first.
 	body.push(`\tFrame f(env, Resolve(cached, "${lookupName(n.name)}"));`);
-	body.push(`\tArgs p(${n.params.length});`);
+	body.push(`\tcell p[${n.params.length + 1}];`, `\tp[0] = ${n.params.length} * sizeof(cell);`);
 
 	n.params.forEach((p, i) => {
 		if (isBuffer(p) && !counts[i]) {
@@ -1339,7 +1388,7 @@ const thunks = chosen.map((n) => {
 
 	body.push(`\treturn (int32_t)r;`);
 
-	return `static int32_t w_${n.name}(${sig})\n{\n${body.join('\n')}\n}`;
+	return `NO_STACK_COOKIE static int32_t w_${n.name}(${sig})\n{\n${body.join('\n')}\n}`;
 });
 
 const table = chosen.map(n =>

@@ -1144,6 +1144,9 @@ function hamCall(fn: i32, id: number, options: ActionOptions): Call {
 @external("env", "send_string")     declare function _sendString(text: string): void;
 // @ts-ignore: decorator
 @external("env", "send_end")        declare function _sendEnd(): void;
+// A message of one or two numbers, begun, written as \`kinds\` says (SEND_*) and sent in one call.
+// @ts-ignore: decorator
+@external("env", "send_cells")      declare function _sendCells(player: i32, type: i32, first: i32, second: i32, kinds: i32): void;
 
 /** The id the module reads the game rules' members by. */
 const RULES: i32 = -1;
@@ -1339,8 +1342,22 @@ function sendTeamScore(team: string, score: number): void {
  * a player who is not in the game.
  */
 function messageTo(id: number, message: GameMessage): bool {
+	return _sendOne(<i32>id, messageId(message)) != 0;
+}
+
+/** The message's id, looked up the first time. */
+function messageId(message: GameMessage): i32 {
 	if (message.id == 0) message.id = get_user_msgid(message.name);
-	return _sendOne(<i32>id, message.id) != 0;
+	return message.id;
+}
+
+// How sendCells writes each of its numbers, two bits a number (SEND_* in runtime/src/enginehooks.h).
+const SEND_BYTE: i32 = 1;
+const SEND_LONG: i32 = 2;
+
+/** A message of one or two numbers to the player, if he is in the game, in one call into the module. */
+function sendCells(id: number, message: GameMessage, first: i32, second: i32, kinds: i32): void {
+	_sendCells(<i32>id, messageId(message), first, second, kinds);
 }
 
 /** A message the setters send: its name, and its id, looked up the first time it is sent. */
@@ -1359,26 +1376,19 @@ const ITEM_STATUS = new GameMessage("ItemStatus");
 /** The player's money, and the Money message that shows it on his HUD, flashing - what cs_set_user_money sends. */
 function setMoney(id: number, cell: i32): void {
 	setMemberCell(id, ${AT.money}, cell);
-	if (!messageTo(id, MONEY)) return;
-	_sendLong(cell);
-	_sendByte(1);
-	_sendEnd();
+	sendCells(id, MONEY, cell, 1, SEND_LONG | (SEND_BYTE << 2));
 }
 
 /** The player's armour kind, and ArmorType: whether his HUD shows a helmet. */
 function setKevlar(id: number, cell: i32): void {
 	setMemberCell(id, ${AT.kevlar}, cell);
-	if (!messageTo(id, ARMOR_TYPE)) return;
-	_sendByte(cell == ARMOR_VESTHELM ? 1 : 0);
-	_sendEnd();
+	sendCells(id, ARMOR_TYPE, cell == ARMOR_VESTHELM ? 1 : 0, 0, SEND_BYTE);
 }
 
 /** The flashlight's charge, and FlashBat: the bar on his HUD. */
 function setFlashlightBattery(id: number, cell: i32): void {
 	setMemberCell(id, ${AT.flashlightBattery}, cell);
-	if (!messageTo(id, FLASHLIGHT_BATTERY)) return;
-	_sendByte(cell);
-	_sendEnd();
+	sendCells(id, FLASHLIGHT_BATTERY, cell, 0, SEND_BYTE);
 }
 
 /** Whether he owns night vision goggles, told to his buy menu (ItemStatus). */
@@ -1390,9 +1400,7 @@ function setNightVision(id: number, cell: i32): void {
 /** Night vision switched on or off, and NVGToggle: his screen turns green or back. */
 function setNightVisionOn(id: number, cell: i32): void {
 	setMemberCell(id, ${AT.nightVisionOn}, cell);
-	if (!messageTo(id, NIGHT_VISION_TOGGLE)) return;
-	_sendByte(cell);
-	_sendEnd();
+	sendCells(id, NIGHT_VISION_TOGGLE, cell, 0, SEND_BYTE);
 }
 
 /**
@@ -1417,9 +1425,7 @@ function setDefuser(id: number, cell: i32): void {
 
 /** ItemStatus: the night vision and the defuse kit the player owns, which his buy menu shows. */
 function sendItemStatus(id: number): void {
-	if (!messageTo(id, ITEM_STATUS)) return;
-	_sendByte((memberCell(id, ${AT.nightVision}) != 0 ? 1 : 0) | (memberCell(id, ${AT.defuser}) != 0 ? 2 : 0));
-	_sendEnd();
+	sendCells(id, ITEM_STATUS, (memberCell(id, ${AT.nightVision}) != 0 ? 1 : 0) | (memberCell(id, ${AT.defuser}) != 0 ? 2 : 0), 0, SEND_BYTE);
 }
 
 /**

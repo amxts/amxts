@@ -332,10 +332,37 @@ static int32_t w_sendOne(wasm_exec_env_t env, int32_t player, int32_t type)
 {
 	if (!g_hookedEngine)
 		GET_HOOK_TABLES(PLID, &g_hookedEngine, NULL, NULL);
-	if (!g_hookedEngine || type < 1 || player < 1 || player > gpGlobals->maxClients || !MF_IsPlayerIngame(player))
+	edict_t *e = !g_hookedEngine || type < 1 || player > gpGlobals->maxClients || !InGame(player) ? NULL : (edict_t *)EdictOf(player);
+	if (!e)
 		return 0;
-	g_hookedEngine->pfnMessageBegin(MSG_ONE, type, NULL, INDEXENT(player));
+	g_hookedEngine->pfnMessageBegin(MSG_ONE, type, NULL, e);
 	return 1;
+}
+
+// How send_cells writes each of its numbers, two bits a number: as a byte, a long.
+#define SEND_BYTE 1
+#define SEND_LONG 2
+
+static void SendCell(int32_t value, int kind)
+{
+	if (kind == SEND_BYTE)
+		g_hookedEngine->pfnWriteByte(value);
+	else if (kind == SEND_LONG)
+		g_hookedEngine->pfnWriteLong(value);
+}
+
+/**
+ * send_cells(player, type, first, second, kinds): a message of one or two
+ * numbers to one player in the game, sent whole - what a field's setter
+ * sends with the field, in one call; `kinds` says how each is written.
+ */
+static void w_sendCells(wasm_exec_env_t env, int32_t player, int32_t type, int32_t first, int32_t second, int32_t kinds)
+{
+	if (!w_sendOne(env, player, type))
+		return;
+	SendCell(first, kinds & 3);
+	SendCell(second, (kinds >> 2) & 3);
+	g_hookedEngine->pfnMessageEnd();
 }
 
 static void w_sendByte(wasm_exec_env_t env, int32_t value)
@@ -926,4 +953,5 @@ static void ForgetOtherPoints()
 	{ "send_byte",      (void *)w_sendByte,       "(i)",     NULL }, \
 	{ "send_long",      (void *)w_sendLong,       "(i)",     NULL }, \
 	{ "send_string",    (void *)w_sendString,     "(i)",     NULL }, \
-	{ "send_end",       (void *)w_sendEnd,        "()",      NULL },
+	{ "send_end",       (void *)w_sendEnd,        "()",      NULL }, \
+	{ "send_cells",     (void *)w_sendCells,      "(iiiii)", NULL },

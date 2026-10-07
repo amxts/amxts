@@ -71,12 +71,22 @@ beforeAll(async () => {
 
 	// A dictionary that has every key but NO_* as itself: lang.translate's
 	// line is the key it was given - the plugin's string in, UTF-8 bytes up
-	// to a zero back into its buffer, as the module's thunk crosses them.
+	// to a zero back into its buffer, and their count and hash in the eight
+	// bytes before it, as the module's thunk crosses them (Frame::backText).
 	imports.env.LookupLangKey = (out, size, key) => {
 		const line = text(key);
 		if (line.startsWith('NO_')) return 0;
 		const bytes = new TextEncoder().encode(line).subarray(0, size);
 		new Uint8Array(exports.memory.buffer).set([...bytes, 0], out);
+		let hash = 0;
+		let bits = 0;
+		for (const byte of bytes) {
+			hash = (Math.imul(hash, 31) + byte) >>> 0;
+			bits |= byte;
+		}
+		const head = new DataView(exports.memory.buffer);
+		head.setUint32(out - 8, (bytes.length | (bits >= 0x80 ? 0x80000000 : 0)) >>> 0, true);
+		head.setUint32(out - 4, hash, true);
 		return 1;
 	};
 

@@ -825,15 +825,14 @@ const LANG_TEXT: i32 = 512;
 
 // One buffer for every lookup: a menu translates each of its lines on every draw.
 // The module writes the line into it as UTF-8 bytes, up to its end.
-const langOut = new StaticArray<u8>(LANG_TEXT);
+const langOut = __textRoom(LANG_TEXT);
 const langId = new StaticArray<i32>(1);
 
 /** The key's line in the player's language (`0`: the server's), as the dictionary loaded it; empty when no dictionary has it. */
 function lookupLang(key: string, player: i32): string {
 	unchecked(langId[0] = player);
-	unchecked(langOut[0] = 0);
-	_lookupLangKey(changetype<i32>(langOut), LANG_TEXT - 1, key, changetype<i32>(langId));
-	return __textAt(changetype<usize>(langOut), LANG_TEXT);
+	_lookupLangKey(__textInto(langOut), LANG_TEXT - 1, key, changetype<i32>(langId));
+	return __textFrom(langOut);
 }
 
 function isDigitCode(code: i32): bool {
@@ -1387,7 +1386,7 @@ export interface KillOptions {
 
 // ---------------------------------------------------------------- bots
 
-import { __textAt, dllfunc, engfunc, global_get, set_pev } from "./natives";
+import { __textFrom, __textInto, __textRoom, dllfunc, engfunc, global_get, set_pev } from "./natives";
 import { DLLFunc_ClientConnect, DLLFunc_ClientPutInServer, EngFunc_CreateFakeClient, EngFunc_RunPlayerMove, glb_frametime, MAX_PLAYERS, pev_health } from "./constants";
 import { BUTTON, Button } from "./flags";
 
@@ -5437,15 +5436,15 @@ export class Storage {
 		if (vault < 0) return null;
 
 		// The module writes the value in as UTF-8 bytes, up to its end.
-		const value = new StaticArray<u8>(TEXT_MAX + 1);
+		const value = __textRoom(TEXT_MAX + 1);
 		const stamp = new CellBuffer(1);
 
 		// nvault_lookup rather than nvault_get: the length of nvault_get's
 		// buffer rides in its `...` tail by address, which the dispatcher's
 		// buffer argument cannot say; nvault_lookup takes it as a plain
 		// argument, and answers whether the key exists besides.
-		const found = _nvaultLookup(vault, key, changetype<i32>(value), TEXT_MAX, stamp.address);
-		return found != 0 ? __textAt(changetype<usize>(value), TEXT_MAX + 1) : null;
+		const found = _nvaultLookup(vault, key, __textInto(value), TEXT_MAX, stamp.address);
+		return found != 0 ? __textFrom(value) : null;
 	}
 
 	/** Puts `value` under `key`, replacing what was there. */

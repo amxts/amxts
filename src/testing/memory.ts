@@ -86,12 +86,26 @@ export class Memory {
 			marks.forEach((mark, i) => {
 				if (mark !== 't') return;
 				const bytes = this.bytes(cells[i], args[i + 1]);
-				this.setRaw(args[i], Uint8Array.of(...bytes.subarray(0, wholeUtf8(bytes)), 0));
+				const kept = bytes.subarray(0, wholeUtf8(bytes));
+				this.setRaw(args[i], Uint8Array.of(...kept, 0));
+				this.setTextHead(args[i], kept);
 			});
 			return result;
 		} finally {
 			this.heapTop = top;
 		}
+	}
+
+	/** Frame::backText's head before a text a native filled: its count, the top bit for one not ASCII, and its hash. */
+	private setTextHead(pointer: number, bytes: Uint8Array): void {
+		let hash = 0;
+		let bits = 0;
+		for (const byte of bytes) {
+			hash = (Math.imul(hash, 31) + byte) >>> 0;
+			bits |= byte;
+		}
+		this.view.setUint32(pointer - 8, (bytes.length | (bits >= 0x80 ? 0x80000000 : 0)) >>> 0, true);
+		this.view.setUint32(pointer - 4, hash, true);
 	}
 
 	/** `count` empty cells of the heap: their address. */
