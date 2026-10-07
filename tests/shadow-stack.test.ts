@@ -8,6 +8,7 @@
  */
 // @ts-ignore - bun:test types not available during type checking
 import { describe, expect, test } from 'bun:test';
+import { compileSources } from '../src/testing/compile';
 import { probe } from './probe';
 
 const OFTEN = ['--use', 'ASC_GC_STRESS=1', '--use', 'ASC_GC_GRANULARITY=16'];
@@ -170,3 +171,31 @@ for (const optimize of [false, true]) {
 		});
 	});
 }
+
+test('a call to an import marked @leaf keeps no frame, a call to another one does', async () => {
+	const source = `
+class Box {
+	constructor(public value: i32) {}
+}
+let box = new Box(1);
+// @ts-ignore: decorator
+@external("env", "leaf") @leaf declare function leaf(at: usize): void;
+// @ts-ignore: decorator
+@external("env", "plain") declare function plain(at: usize): void;
+export function viaLeaf(): i32 {
+	const held = box;
+	leaf(changetype<usize>(held));
+	return held.value;
+}
+export function viaPlain(): i32 {
+	const held = box;
+	plain(changetype<usize>(held));
+	return held.value;
+}
+`;
+	const { error, text } = await compileSources(['probe.ts', '--outFile', 'probe.wasm', '--textFile', 'probe.wat'], { 'probe.ts': source });
+	expect(error).toBeNull();
+	const body = (name: string) => text['probe.wat'].split(`(func $probe/${name} `)[1].split('\n (func ')[0];
+	expect(body('viaLeaf')).not.toContain('__stack_pointer');
+	expect(body('viaPlain')).toContain('__stack_pointer');
+});

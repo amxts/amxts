@@ -1113,8 +1113,9 @@ function hamCall(fn: i32, id: number, options: ActionOptions): Call {
 @external("env", "ent_get")         declare function _entGet(id: i32, offset: i32): i32;
 // @ts-ignore: decorator
 @external("env", "ent_set")         declare function _entSet(id: i32, offset: i32, cell: i32): void;
+// A leaf: it only writes the three numbers, so a call to it collects nothing.
 // @ts-ignore: decorator
-@external("env", "ent_vector")      declare function _entVector(id: i32, offset: i32, out: usize): void;
+@external("env", "ent_vector") @leaf declare function _entVector(id: i32, offset: i32, out: usize): void;
 // @ts-ignore: decorator
 @external("env", "ent_entity")      declare function _entEntity(id: i32, offset: i32): i32;
 // @ts-ignore: decorator

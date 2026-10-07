@@ -44,10 +44,10 @@ the tests of what the shadow stack keeps.
 And it makes a plugin's many small calls cheaper:
 
 - a function that can reach no collection - no allocation, no import (a
-  native may call back into the plugin), no call through a function value -
-  keeps no shadow-stack frame, and a call to it no slots for its arguments;
-  in one that can, a local gets a slot only if it holds a value across such
-  a call (`src/passes/shadowstack.ts`);
+  native may call back into the plugin) other than one marked `@leaf`, no
+  call through a function value - keeps no shadow-stack frame, and a call
+  to it no slots for its arguments; in one that can, a local gets a slot
+  only if it holds a value across such a call (`src/passes/shadowstack.ts`);
 - the check for an error on its way to a catch after a call is kept only
   where the callee may throw, which is known once the whole program is
   compiled;

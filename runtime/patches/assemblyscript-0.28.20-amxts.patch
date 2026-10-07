@@ -9594,7 +9594,7 @@ index 157351c..11c0184 100644
 +  return value != null && value.kind == NodeKind.Literal && (<LiteralExpression>value).literalKind == LiteralKind.String;
 +}
 diff --git a/src/passes/shadowstack.ts b/src/passes/shadowstack.ts
-index d34997e..be81fd4 100644
+index d34997e..e735e21 100644
 --- a/src/passes/shadowstack.ts
 +++ b/src/passes/shadowstack.ts
 @@ -87,13 +87,23 @@ import {
@@ -9664,7 +9664,31 @@ index d34997e..be81fd4 100644
    _free
  } from "../glue/binaryen";
  
-@@ -184,6 +222,392 @@ function needsSlot(value: ExpressionRef): bool {
+@@ -141,6 +179,13 @@ import {
+ } from "../compiler";
+ 
+ import {
++  ElementKind,
++  Function,
++  Program
++} from "../program";
++
++import {
++  CommonFlags,
+   Feature
+ } from "../common";
+ 
+@@ -149,6 +194,9 @@ import {
+ } from "../builtins";
+ 
+ import {
++  DecoratorKind,
++  IdentifierExpression,
++  NodeKind,
+   Source
+ } from "../ast";
+ 
+@@ -184,6 +232,416 @@ function needsSlot(value: ExpressionRef): bool {
    return true;
  }
  
@@ -9675,7 +9699,8 @@ index d34997e..be81fd4 100644
 + * values it holds cannot be collected while it runs, and a call to it needs
 + * no slots for its arguments. Reaching it is a direct call to such a
 + * function, an import - a native may call back into the plugin - other than
-+ * the abort, which never returns, or an indirect call.
++ * the abort, which never returns, or one marked `@leaf` - or an indirect
++ * call.
 + */
 +class CollectingFunctions extends Pass {
 +  /** The functions that may collect, by name. */
@@ -9684,7 +9709,7 @@ index d34997e..be81fd4 100644
 +  private callers: Map<string, string[]> = new Map();
 +  private currentName: string = "";
 +
-+  constructor(module: Module, private abortName: string | null) {
++  constructor(module: Module, private abortName: string | null, private leaves: Set<string>) {
 +    super(module);
 +  }
 +
@@ -9700,7 +9725,7 @@ index d34997e..be81fd4 100644
 +      if (_BinaryenFunctionGetBody(func)) {
 +        this.currentName = name;
 +        this.walkFunction(func);
-+      } else if (name != this.abortName) {
++      } else if (name != this.abortName && !this.leaves.has(name)) {
 +        collecting.add(name);
 +      }
 +    }
@@ -9732,6 +9757,29 @@ index d34997e..be81fd4 100644
 +  visitCallIndirect(callIndirect: ExpressionRef): void {
 +    this.collecting.add(this.currentName);
 +  }
++}
++
++/**
++ * amxts: the imports marked `@leaf`: a native that only reads or writes the
++ * memory it is given and never calls back into the plugin, so a call to it
++ * runs no collection.
++ */
++function leafImports(program: Program): Set<string> {
++  let leaves = new Set<string>();
++  for (let _values = Map_values(program.instancesByName), i = 0, k = _values.length; i < k; ++i) {
++    let element = _values[i];
++    if (element.kind != ElementKind.Function || !element.is(CommonFlags.Ambient)) continue;
++    let decorators = (<Function>element).declaration.decorators;
++    if (!decorators) continue;
++    for (let j = 0, l = decorators.length; j < l; ++j) {
++      let name = decorators[j].name;
++      if (
++        decorators[j].decoratorKind == DecoratorKind.Custom && name.kind == NodeKind.Identifier &&
++        (<IdentifierExpression>name).text == "leaf"
++      ) leaves.add(element.internalName);
++    }
++  }
++  return leaves;
 +}
 +
 +/** amxts: the collector's step, which reads the shadow stack. */
@@ -10057,7 +10105,7 @@ index d34997e..be81fd4 100644
  /** Instruments a module with a shadow stack for precise GC. */
  export class ShadowStackPass extends Pass {
    /** Stack frame slots, per function. */
-@@ -194,6 +618,13 @@ export class ShadowStackPass extends Pass {
+@@ -194,6 +652,13 @@ export class ShadowStackPass extends Pass {
    exportMap: Map<string,i32[]> = new Map();
    /** Compiler reference. */
    compiler: Compiler;
@@ -10071,7 +10119,7 @@ index d34997e..be81fd4 100644
  
    constructor(compiler: Compiler) {
      super(compiler.module);
-@@ -340,14 +771,23 @@ export class ShadowStackPass extends Pass {
+@@ -340,14 +805,23 @@ export class ShadowStackPass extends Pass {
      return module.call("~stack_check", null, TypeRef.None);
    }
  
@@ -10097,7 +10145,7 @@ index d34997e..be81fd4 100644
          operands[i] = match;
          continue;
        }
-@@ -390,7 +830,8 @@ export class ShadowStackPass extends Pass {
+@@ -390,7 +864,8 @@ export class ShadowStackPass extends Pass {
      for (let i: Index = 0; i < numOperands; ++i) {
        operands[i] = _BinaryenCallGetOperandAt(call, i);
      }
@@ -10107,7 +10155,7 @@ index d34997e..be81fd4 100644
      for (let i = 0, k = operands.length; i < k; ++i) {
        _BinaryenCallSetOperandAt(call, i, operands[i]);
      }
-@@ -414,7 +855,7 @@ export class ShadowStackPass extends Pass {
+@@ -414,7 +889,7 @@ export class ShadowStackPass extends Pass {
      for (let i: Index = 0; i < numOperands; ++i) {
        operands[i] = _BinaryenCallIndirectGetOperandAt(callIndirect, i);
      }
@@ -10116,7 +10164,7 @@ index d34997e..be81fd4 100644
      for (let i = 0, k = operands.length; i < k; ++i) {
        _BinaryenCallIndirectSetOperandAt(callIndirect, i, operands[i]);
      }
-@@ -437,11 +878,12 @@ export class ShadowStackPass extends Pass {
+@@ -437,11 +912,12 @@ export class ShadowStackPass extends Pass {
      let value = _BinaryenLocalSetGetValue(localSet);
      let match = matchPattern(module, value);
      if (!match) return;
@@ -10131,7 +10179,7 @@ index d34997e..be81fd4 100644
      let slotIndex = this.noteSlot(this.currentFunction, index);
      let stmts = new Array<ExpressionRef>();
      // store<usize>(__stack_pointer, local = match, slotIndex * ptrSize)
-@@ -463,6 +905,16 @@ export class ShadowStackPass extends Pass {
+@@ -463,6 +939,16 @@ export class ShadowStackPass extends Pass {
      }
    }
  
@@ -10148,13 +10196,13 @@ index d34997e..be81fd4 100644
    /** Updates a function with additional locals etc. */
    updateFunction(funcRef: FunctionRef): void {
      let name = _BinaryenFunctionGetName(funcRef);
-@@ -573,11 +1025,15 @@ export class ShadowStackPass extends Pass {
+@@ -573,11 +1059,15 @@ export class ShadowStackPass extends Pass {
  
    /** @override */
    walkModule(): void {
 +    let module = this.module;
 +    let abort = this.compiler.program.abortInstance;
-+    this.collecting = new CollectingFunctions(module, abort ? abort.internalName : null).run();
++    this.collecting = new CollectingFunctions(module, abort ? abort.internalName : null, leafImports(this.compiler.program)).run();
 +    this.finder = new CollectingCallFinder(module, this.collecting);
 +
      // Run the pass normally

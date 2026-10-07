@@ -196,10 +196,11 @@ static void w_entSet(wasm_exec_env_t env, int32_t id, int32_t offset, int32_t ce
 /** A vector entvar's three floats into the plugin's three numbers at `out`; zeros for none. */
 static void w_entVector(wasm_exec_env_t env, int32_t id, int32_t offset, int32_t out)
 {
-	wasm_module_inst_t inst = Inst(env);
-	if (!wasm_runtime_validate_app_addr(inst, (uint64_t)out, 3 * sizeof(double)))
+	uint64_t size;
+	uint8_t *base = wasm_runtime_memory_view(env, &size);
+	if (out < 0 || (uint64_t)out + 3 * sizeof(double) > size)
 		return;
-	double *to = (double *)wasm_runtime_addr_app_to_native(inst, (uint64_t)out);
+	double *to = (double *)(base + out);
 	const float *at = offset <= ENTVARS_SIZE - 12 ? (const float *)EntvarAt(id, offset) : NULL;
 	for (int i = 0; i < 3; i++)
 		to[i] = at ? at[i] : 0.0;
