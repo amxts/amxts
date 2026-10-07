@@ -126,7 +126,8 @@ bun run build:linux --sanitize            # runtime/build/linux-sanitize: the sa
 ```sh
 bun run check          # tsc over src/, scripts/ and tests/
 bun run lint           # oxlint and oxfmt --check; bun run lint:fix fixes what it can
-bun run test           # the suite, on a fake server
+bun run test           # the suite, on a fake server, several files at once
+bun run test --changed # only the files a change since origin/next reaches
 bun run test:fast      # the quick ones: the style test, the generators, the include parser
 bun run test:server    # the server suites, on a test server of the AMXTS_SERVER install
 bun run test:server --linux   # the same suites on a Linux server, in Docker
@@ -181,9 +182,15 @@ npm, — чтобы проверить `amxts upgrade` до выпуска. Се
 login`, затем `bun run publish:npm` — все девять, по порядку, пропуская то,
 что в npm уже есть, так что повторный запуск после сбоя доводит дело до конца.
 
-Наборы запускаются с `--smol`; полный прогон занимает около 1,2 ГБ памяти и
-меньше 2 ГБ, когда компилирует всё с пустым кэшем компиляции (CI);
-один файл — `bun test --smol tests/<имя>.test.ts`.
+`bun run test` запускает каждый файл тестов в своём `bun test --smol`,
+одновременно на один меньше, чем у машины процессоров (`--jobs N` или
+`AMXTS_TEST_JOBS` — меньше, когда не хватает памяти), и печатает строку,
+как только файл закончился, упавший тест сразу, а в конце — самые медленные
+файлы; где сейчас прогон, говорит `dist/test-progress.txt` — `cat` его, пока
+прогон идёт в фоне. `bun run test showcase` запускает файлы, в имени которых
+есть это слово, а один файл с собственным выводом bun —
+`bun test --smol tests/<имя>.test.ts`. `--changed` — для цикла «поправил —
+запустил»; перед пушем гоняйте весь набор.
 `bun run test:server` компилирует свои плагины по нескольку сразу, как сборка
 проекта: сколько — говорит `AMXTS_BUILD_JOBS` или `AMXTS_BUILD_MEMORY` в
 мегабайтах (3072 — две сразу). Локально они компилируются, как компилирует

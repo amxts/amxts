@@ -83,7 +83,7 @@ jobs:
           restore-keys: tests-${{ matrix.part }}-
       - name: Tests, part ${{ matrix.part }} of 3
         working-directory: amxts
-        run: bun run test:part ${{ matrix.part }} 3
+        run: bun run test --part ${{ matrix.part }}/3
 
   # What the server suites run on, built once for the four jobs below: the
   # Linux module and wamrc, the module under AddressSanitizer and UBSan, and

@@ -127,7 +127,8 @@ Run them one at a time:
 ```sh
 bun run check          # tsc over src/, scripts/ and tests/
 bun run lint           # oxlint and oxfmt --check; bun run lint:fix fixes what it can
-bun run test           # the suite, on a fake server
+bun run test           # the suite, on a fake server, several files at once
+bun run test --changed # only the files a change since origin/next reaches
 bun run test:fast      # the quick ones: the style test, the generators, the include parser
 bun run test:server    # the server suites, on a test server of the AMXTS_SERVER install
 bun run test:server --linux   # the same suites on a Linux server, in Docker
@@ -182,9 +183,15 @@ made its GitHub Release (`wamrc` comes from it): a maintainer runs `npm
 login`, then `bun run publish:npm` - all nine, in order, skipping what npm
 has, so a run after a failure finishes it.
 
-The suites run with `--smol`; a full run takes about 1.2 GB of memory, and
-under 2 GB when it compiles everything, from an empty compile cache (CI);
-one file is `bun test --smol tests/<name>.test.ts`.
+`bun run test` runs each test file in a `bun test --smol` of its own, one
+fewer at once than the machine has CPUs (`--jobs N` or `AMXTS_TEST_JOBS`
+for fewer, when memory is short), and prints a line as each file ends, a
+failed test at once, and the slowest files at the end;
+`dist/test-progress.txt` says where a run is - `cat` it while one runs in
+the background. `bun run test showcase` runs the files whose names hold the
+word, and one file with bun's own output is
+`bun test --smol tests/<name>.test.ts`. `--changed` is for the
+edit-and-run loop; run the whole suite before a push.
 `bun run test:server` compiles its plugins several at once, as a project's
 build does: `AMXTS_BUILD_JOBS`, or `AMXTS_BUILD_MEMORY` in megabytes (3072,
 two at once), says how many. Locally they compile as `amxts dev` compiles,

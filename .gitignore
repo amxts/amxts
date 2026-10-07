@@ -7,6 +7,9 @@ runtime/*.err
 runtime/host/*.amxx
 dist-wasm/
 
+# where a test run is (scripts/test-progress.ts)
+dist/
+
 # generated from includes/*.inc by `bun run generate`
 as/natives.ts
 as/constants.ts
