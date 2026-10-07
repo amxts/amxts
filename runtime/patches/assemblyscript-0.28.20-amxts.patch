@@ -10215,10 +10215,10 @@ index d34997e..e735e21 100644
        let func = _keys[i];
 diff --git a/src/passes/stackobjects.ts b/src/passes/stackobjects.ts
 new file mode 100644
-index 0000000..d58b770
+index 0000000..6659ff9
 --- /dev/null
 +++ b/src/passes/stackobjects.ts
-@@ -0,0 +1,424 @@
+@@ -0,0 +1,432 @@
 +/**
 + * @fileoverview amxts: objects made in the frame of the function that makes them.
 + *
@@ -10230,7 +10230,10 @@ index 0000000..d58b770
 + * a getter that returns a new one) is inlined into the code that uses it.
 + *
 + * Such an object has the header of a static one: transparent, so the
-+ * collector neither frees it nor looks inside. That is safe because nothing
++ * collector neither frees it nor looks inside. The collector reads every
++ * word of the shadow stack as a reference, so the frame's objects start with
++ * a mark and the bytes the function took, which it steps over (itcms.ts,
++ * visitStack). That is safe because nothing
 + * inside it can be a reference to another object: a 32-bit word stored into
 + * it is a constant or an address of the object itself, and any other store
 + * of a reference would come with the collector's barrier, a call that is
@@ -10307,6 +10310,8 @@ index 0000000..d58b770
 +const SLOT_HEADER = 32;
 +/** The collector's colour of a static object, which it never frees and never visits (itcms.ts). */
 +const TRANSPARENT = 3;
++/** The word that starts a function's objects in its frame, before their extent in bytes: no reference is -1. */
++const MARK = -1;
 +/** The label the body is wrapped in, which a return becomes a branch to. */
 +const BODY = "~stack_objects";
 +
@@ -10627,7 +10632,10 @@ index 0000000..d58b770
 +      module.local_set(saved, stackPointer, false),
 +      module.local_set(base, module.binary(BinaryOp.AndI32, module.binary(BinaryOp.SubI32, module.local_get(saved, TypeRef.I32), module.i32(size)), module.i32(-16)), false),
 +      module.if(module.binary(BinaryOp.LtI32, module.local_get(base, TypeRef.I32), module.i32(this.dataEnd)), module.unreachable()),
-+      module.global_set(STACK_POINTER, module.local_get(base, TypeRef.I32))
++      module.global_set(STACK_POINTER, module.local_get(base, TypeRef.I32)),
++      // In the first slot, before its object's header.
++      module.store(4, module.local_get(base, TypeRef.I32), module.i32(MARK), TypeRef.I32),
++      module.store(4, module.local_get(base, TypeRef.I32), module.binary(BinaryOp.SubI32, module.local_get(saved, TypeRef.I32), module.local_get(base, TypeRef.I32)), TypeRef.I32, 4)
 +    ];
 +    for (let i = 0, k = headers.length; i < k; ++i) stmts.push(headers[i]);
 +    let inner = module.block(BODY, [ funcBody ], results);
@@ -16036,10 +16044,26 @@ index 8ed6063..efa6398 100644
 +  return c >= 0x30 && c <= 0x39 || c >= 0x41 && c <= 0x5A || c == 0x5F || c >= 0x61 && c <= 0x7A;
  }
 diff --git a/std/assembly/rt/itcms.ts b/std/assembly/rt/itcms.ts
-index ba2e09e..4bc14c5 100644
+index ba2e09e..59e7aef 100644
 --- a/std/assembly/rt/itcms.ts
 +++ b/std/assembly/rt/itcms.ts
-@@ -259,7 +259,9 @@ function free(obj: Object): void {
+@@ -167,7 +167,14 @@ function visitRoots(cookie: u32): void {
+ function visitStack(cookie: u32): void {
+   let ptr = __stack_pointer;
+   while (ptr < __heap_base) {
+-    __visit(load<usize>(ptr), cookie);
++    let word = load<usize>(ptr);
++    // amxts: a function's objects made in its frame, behind a mark and the
++    // bytes they take (src/passes/stackobjects.ts): no references there
++    if (word == <usize>-1) {
++      ptr += load<usize>(ptr, sizeof<usize>());
++      continue;
++    }
++    __visit(word, cookie);
+     ptr += sizeof<usize>();
+   }
+ }
+@@ -259,7 +266,9 @@ function free(obj: Object): void {
  @global @unsafe
  export function __new(size: usize, id: i32): usize {
    if (size >= OBJECT_MAXSIZE) throw new Error(E_ALLOCATION_TOO_LARGE);
@@ -16050,7 +16074,7 @@ index ba2e09e..4bc14c5 100644
    let obj = changetype<Object>(__alloc(OBJECT_OVERHEAD + size) - BLOCK_OVERHEAD);
    obj.rtId = id;
    obj.rtSize = <u32>size;
-@@ -373,7 +375,7 @@ export function __collect(): void {
+@@ -373,7 +382,7 @@ export function __collect(): void {
    // perform a full cycle
    step();
    while (state != STATE_IDLE) step();
@@ -16059,7 +16083,7 @@ index ba2e09e..4bc14c5 100644
    if (TRACE) trace("GC (full) done at cur/max", 2, total, memory.size() << 16);
    if (RTRACE || PROFILE) oncollect(total);
  }
-@@ -390,6 +392,14 @@ export function __collect(): void {
+@@ -390,6 +399,14 @@ export function __collect(): void {
  // @ts-ignore: decorator
  @inline const IDLEFACTOR: usize = isDefined(ASC_GC_IDLEFACTOR) ? ASC_GC_IDLEFACTOR : 200;
  
@@ -16074,7 +16098,7 @@ index ba2e09e..4bc14c5 100644
  /** Threshold of memory used by objects to exceed before interrupting again. */
  // @ts-ignore: decorator
  @lazy let threshold: usize = ((<usize>memory.size() << 16) - __heap_base) >> 1;
-@@ -405,9 +415,9 @@ function interrupt(): void {
+@@ -405,9 +422,9 @@ function interrupt(): void {
        if (TRACE) trace("└ GC (auto) done at cur/max", 2, total, memory.size() << 16);
        if (IDLEFACTOR % 100 == 0) {
          // optimization for the default GC parameters which idle factor is 200%

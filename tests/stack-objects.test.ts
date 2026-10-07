@@ -47,6 +47,13 @@ export function dropped(count: i32): f64 {
 	return sum;
 }
 
+/** Vectors in the frame while the collector runs: their numbers are no references to visit. */
+export function heldAcross(): f64 {
+	const sum = read(3).x + read(3).y;
+	__collect();
+	return sum;
+}
+
 let last: Vector | null = null;
 
 class Box {
@@ -108,6 +115,9 @@ test('a vector that does not leave its function is made in its frame, one that l
 	expect(exports.dropped(1000)).toBe(499500 + 1000 * 1.5);
 	exports.collect();
 	expect(exports.freed.value).toBe(0);
+
+	// 3.0 and 8.0 are words past the end of memory, were they read as addresses.
+	expect(exports.heldAcross()).toBe(3 + 8);
 
 	expect(exports.leaving()).toBe(0);
 	expect(exports.freed.value).toBeGreaterThan(0);
