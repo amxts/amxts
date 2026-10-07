@@ -13,6 +13,7 @@ import { ascMain } from '../scripts/asc';
 import { playerFieldsBuild } from '../scripts/player-fields';
 import { ascPath, sourcesFor } from '../scripts/project';
 import { typedConfigs } from '../scripts/typed-configs';
+import { stressed } from '../src/testing/compile';
 
 declare const WebAssembly: any;
 
@@ -139,7 +140,7 @@ describe('with the module in the same plugin', () => {
 	beforeAll(async () => {
 		let binary: Uint8Array | undefined;
 		const sources = sourcesFor(root);
-		const { error, stderr } = await ascMain(['../tests/as/typed-config.ts', '--outFile', 'typed.wasm', '--exportRuntime'], {
+		const { error, stderr } = await ascMain(stressed(['../tests/as/typed-config.ts', '--outFile', 'typed.wasm', '--exportRuntime']), {
 			readFile(filename: string, baseDir: string): string | null {
 				const path = ascPath(root, filename, baseDir);
 				const text = sources.read(path);

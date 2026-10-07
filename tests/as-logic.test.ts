@@ -13,6 +13,7 @@ import { beforeAll, describe, expect, test } from 'bun:test';
 import { ascMain } from '../scripts/asc';
 import { playerFieldsBuild } from '../scripts/player-fields';
 import { ascPath, sourcesFor } from '../scripts/project';
+import { stressed } from '../src/testing/compile';
 
 // The repository's tsconfig takes node's globals and nothing else, on purpose:
 // the DOM library would bring a console this project does not use. WebAssembly
@@ -40,12 +41,12 @@ beforeAll(async () => {
 	let binary: Uint8Array | undefined;
 
 	const { error, stderr } = await ascMain(
-		[
+		stressed([
 			'../tests/as/logic.ts',
 			'--outFile',
 			'logic.wasm',
 			'--exportRuntime',
-		],
+		]),
 		{
 			readFile,
 			// asc writes the text map as a string when asked for one; only the

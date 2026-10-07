@@ -77,6 +77,19 @@ function moduleOwner(source: string): string | null {
 /** A compile as the disk cache keeps it: no WebAssembly.Module, and an error as its text. */
 type Built = (Omit<Compiled, 'module'> & { beside: NativesBeside }) | { error: string };
 
+/**
+ * `AMXTS_GC_STRESS=1` in the environment: every plugin and snippet a test
+ * compiles runs a step of the collector on every allocation
+ * (`ASC_GC_STRESS`), so a value a function holds without a shadow-stack
+ * slot is freed at once and its test fails. Part of the cache's key.
+ */
+const GC_STRESS = process.env.AMXTS_GC_STRESS ? ['--use', 'ASC_GC_STRESS=1'] : [];
+
+/** `args` with GC_STRESS, unless they ask for it themselves. */
+export function stressed(args: string[]): string[] {
+	return args.includes('ASC_GC_STRESS=1') ? args : [...args, ...GC_STRESS];
+}
+
 /** A failure worth keeping on disk is the compiler's; a file that could not be opened is not. */
 const PASSING = /\b(?:EBUSY|EPERM|EACCES|EMFILE|ENFILE|EAGAIN)\b/;
 
@@ -89,7 +102,7 @@ function lasting(built: Built): boolean {
  * when an earlier run compiled it from the same files.
  */
 async function build(path: string): Promise<Compiled> {
-	const built = await cached<Built>(['plugin', process.cwd(), path, PLUGINS_ROOT], async () => {
+	const built = await cached<Built>(['plugin', process.cwd(), path, PLUGINS_ROOT, GC_STRESS], async () => {
 		try {
 			const fresh = await buildFresh(path);
 			return { ...fresh, beside: nativesBeside(fresh.natives) };
@@ -131,7 +144,7 @@ async function buildWith(path: string, hoodExports: string): Promise<Omit<Compil
 	const shared = await sharedModulesBuild(PLUGINS_ROOT, entry);
 
 	const { error, stderr } = await ascMain(
-		[entry, HOOD_EXPORTS, '--outFile', 'plugin.wasm', '--optimize', '--exportTable', '--exportStart', '_start'],
+		stressed([entry, HOOD_EXPORTS, '--outFile', 'plugin.wasm', '--optimize', '--exportTable', '--exportStart', '_start']),
 		{
 			// scripts/compile.ts's readFile: the `~/` alias, the hood's exports and the fields plugins add to Player.
 			readFile(filename: string, baseDir: string): string | null {
@@ -192,10 +205,10 @@ export interface SourcesCompiled {
  * adds what a full build does after asc's optimiser (finishing).
  */
 export async function compileSources(args: string[], sources: Record<string, string>, finished = false): Promise<SourcesCompiled> {
-	return cached<SourcesCompiled>(['sources', args, sources, finished], async () => {
+	return cached<SourcesCompiled>(['sources', stressed(args), sources, finished], async () => {
 		let binary: Uint8Array | null = null;
 		const text: Record<string, string> = {};
-		const { error, stderr } = await ascMain(args, {
+		const { error, stderr } = await ascMain(stressed(args), {
 			readFile: (name: string) => sources[name] ?? null,
 			writeFile(name: string, contents: string | Uint8Array) {
 				if (typeof contents === 'string') text[name] = contents;

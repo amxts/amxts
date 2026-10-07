@@ -128,6 +128,7 @@ bun run check          # tsc over src/, scripts/ and tests/
 bun run lint           # oxlint and oxfmt --check; bun run lint:fix fixes what it can
 bun run test           # the suite, on a fake server, several files at once
 bun run test --changed # only the files a change since origin/next reaches
+AMXTS_GC_STRESS=1 bun run test   # the same with a step of the collector on every allocation
 bun run test:fast      # the quick ones: the style test, the generators, the include parser
 bun run test:server    # the server suites, on a test server of the AMXTS_SERVER install
 bun run test:server --linux   # the same suites on a Linux server, in Docker
