@@ -170,7 +170,7 @@ function readOf(arg: Argument, at: number, last: boolean, tabs: string): string[
  * implementation of `shape`, the interface the call names - and the function
  * that registers it.
  */
-function commandCode(index: number, method: 'addCommand' | 'addServerCommand', args: Argument[], shape: string | undefined): string {
+function commandCode(index: number, method: 'addCommand' | 'addServerCommand', args: Argument[], shape: string | undefined, kept: boolean): string {
 	const player = method === 'addCommand';
 	const type = `__AmxtsCommandArgs${index}`;
 	const required = args.filter(arg => !arg.optional).length;
@@ -184,9 +184,10 @@ function commandCode(index: number, method: 'addCommand' | 'addServerCommand', a
 		...(player ? ['\tplayer!: __AmxtsPlayer;'] : []),
 		...args.map(arg => `\t${arg.name}${arg.optional ? '?' : '!'}: ${typeOf(arg)};`),
 		'}',
+		...(kept ? [`const __amxtsArgs${index} = new ${type}();`] : []),
 		`function __amxtsCommand${index}(usage: string, handler: (args: ${type}) => void${player ? ', options: __AmxtsCommandOptions = {}' : ''}): void {`,
 		`\t__amxtsServer.__${method}(usage, (words: __AmxtsCommandWords): void => {`,
-		`\t\tconst args = new ${type}();`,
+		`\t\tconst args = ${kept ? `__amxtsArgs${index}` : `new ${type}()`};`,
 		...(player ? ['\t\targs.player = words.player!;'] : []),
 		...(required > 0 ? [`\t\tif (!words.need(${required})) return;`] : []),
 		...reads,
@@ -196,6 +197,24 @@ function commandCode(index: number, method: 'addCommand' | 'addServerCommand', a
 		`\t}${player ? ', options' : ''});`,
 		'}',
 	].join('\n');
+}
+
+/**
+ * Whether a handler can keep nothing of the object its arguments come in: it
+ * takes none, or takes them apart as it starts - `({ player, target }) =>`,
+ * or a function of this file declared so. Then every call of the command
+ * hands it the same object, filled anew: a command allocates nothing. One
+ * with an optional argument gets a new one, which leaves an argument not
+ * typed unset.
+ */
+function keepsNothing(handler: ts.Expression | undefined, file: ts.SourceFile): boolean {
+	const named = handler && ts.isIdentifier(handler) ? handler.text : null;
+	const fn = handler && (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler))
+		? handler
+		: file.statements.find((each): each is ts.FunctionDeclaration => ts.isFunctionDeclaration(each) && named != null && each.name?.text === named);
+	if (!fn) return false;
+	const first = fn.parameters[0];
+	return !first || (ts.isObjectBindingPattern(first.name) && first.name.elements.every(each => !each.dotDotDotToken));
 }
 
 export interface TypedCommands {
@@ -239,7 +258,9 @@ export function typedCommands(path: string, display: string, text: string, impor
 			const usage = usageOf(usageNode, !!node.typeArguments?.length, file);
 			const name = `__amxtsCommand${functions.length}`;
 			const shape = node.typeArguments?.[0]?.getText(file);
-			functions.push(commandCode(functions.length, method, argumentsOf(node, usage, shapes, at, method === 'addCommand'), shape));
+			const args = argumentsOf(node, usage, shapes, at, method === 'addCommand');
+			const kept = !args.some(arg => arg.optional) && keepsNothing(node.arguments[1], file);
+			functions.push(commandCode(functions.length, method, args, shape, kept));
 			const start = node.expression.getStart(file);
 			const end = node.arguments.pos - 1;
 			edits.push({ start, end, with: name.padEnd(end - start) });

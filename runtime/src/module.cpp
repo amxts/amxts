@@ -2346,7 +2346,25 @@ static bool g_amxxReady = false;
  * Metamod's ClientCommand, the server's through the engine's
  * AddServerCommand - so there is no slot and no AMX Mod X timing to wait for.
  */
-typedef std::unordered_map<std::string, Forward> Commands;
+/** A command's name hashed four bytes at a time: the standard library's hash takes one. */
+struct NameHash {
+	size_t operator()(const std::string &name) const noexcept
+	{
+		const char *at = name.data();
+		size_t n = name.size(), i = 0;
+		uint32_t hash = (uint32_t)n;
+		for (; i + 4 <= n; i += 4) {
+			uint32_t word;
+			memcpy(&word, at + i, 4);
+			hash = (hash ^ word) * 0x9E3779B1u;
+		}
+		for (; i < n; i++)
+			hash = (hash ^ (unsigned char)at[i]) * 0x9E3779B1u;
+		return hash ^ (hash >> 15);
+	}
+};
+
+typedef std::unordered_map<std::string, Forward, NameHash> Commands;
 static Commands g_clientCommands;
 static Commands g_serverCommands;
 
@@ -2371,9 +2389,11 @@ static Commands::iterator FindCommand(Commands &commands, const char *name)
 	// Lowered into a string kept for it, which has the room after the first
 	// few: a player's command makes nothing.
 	static std::string lower;
-	lower.clear();
-	for (const char *c = name ? name : ""; *c; c++)
-		lower += LowerByte(*c);
+	size_t n = name ? strlen(name) : 0;
+	lower.resize(n);
+	char *at = &lower[0];
+	for (size_t i = 0; i < n; i++)
+		at[i] = LowerByte(name[i]);
 	return commands.find(lower);
 }
 
