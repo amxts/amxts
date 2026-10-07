@@ -4303,40 +4303,16 @@ static bool FireSlow(const Handler &h, Plugin &p, const uint32_t *call, int n)
 }
 
 /**
- * Calls one handler by its function table index.
- *
- * A narrow handler takes the first cell and returns nothing, which is what a
- * player event and a command both want. A wide one takes four and returns
- * PLUGIN_HANDLED or PLUGIN_CONTINUE. call_indirect checks the type, so the
- * shape recorded at registration is what decides.
+ * What every call of a plugin's handler is wrapped in: the plugin made the
+ * current one, the outcome the handler says kept apart from the one before,
+ * its depth counted, a trap reported, and its jobs run once the last of its
+ * calls on the native stack returns (DrainJobs). `call` makes the call and
+ * says whether it ended without a trap. Written into its callers: Fire, and
+ * RaiseDirect, which has no frame of its own between a hook and a listener.
  */
-NO_STACK_COOKIE static cell Fire(const Handler &h, const uint32_t *argv, int argc, cell fallback)
+template <typename Call>
+static ALWAYS_INLINE cell Called(int index, Plugin &p, cell fallback, Call call)
 {
-	// An orphaned slot, one belonging to the module rather than a plugin, or a
-	// plugin that is not running. `h` may lie in a list the call changes, so
-	// what is needed of it after the call is kept here.
-	int index = h.plugin;
-	if (index < 0 || (size_t)index >= g_plugins.size() || !g_plugins[index].inst)
-		return fallback;
-
-	Plugin &p = g_plugins[index];
-
-	// A closure's dispatcher takes its tag before the cells (Handler.tag);
-	// cells a handler takes past the ones given are 0. Otherwise the cells go
-	// as they came.
-	int first = h.tag ? 1 : 0;
-	int n = ((h.shape == SHAPE_WIDE) ? MAX_EVENT_ARGS : 1) + first;
-	uint32_t made[MAX_EVENT_ARGS + 1];
-	const uint32_t *call = argv;
-	if (first || argc < n || argc < (int)h.count) {
-		memset(made, 0, sizeof(made));
-		if (first)
-			made[0] = (uint32_t)h.tag;
-		for (int i = first; i < n && i - first < argc; i++)
-			made[i] = argv[i - first];
-		call = made;
-	}
-
 	int prev = g_currentPlugin;
 	g_currentPlugin = index;
 
@@ -4347,28 +4323,10 @@ NO_STACK_COOKIE static cell Fire(const Handler &h, const uint32_t *argv, int arg
 
 	cell result = fallback;
 
-	if (g_trace) MF_PrintSrvConsole("[amxts] TRACE fire plugin=%d fn=%u n=%d a0=%d\n", index, h.fn, n, (int)call[0]);
-
-	bool called;
-
 	// Counted so that the plugin's jobs run when the last of its calls on the
 	// native stack returns, and never inside one of them - see DrainJobs.
 	p.depth++;
-
-	// A plugin's `number` is JavaScript's - an f64 - and every argument here
-	// is a cell, an i32. Passed as raw cells, a handler declared
-	// `tick(handle: number)` read the i32 1000 as the bits of a double: a
-	// denormal next to zero, so clearTimeout(handle) stopped nothing and a
-	// countdown ran on into the negatives. So the handler's own parameter
-	// types decide how each cell goes in: as it is to an i32, converted by
-	// value to an f64 (or f32, i64) where that is what the function takes.
-	if (h.via)
-		called = CallVia(h, p, argc > 0 ? argv[0] : 0);
-	else if (h.entry)
-		called = CallDirect(h, p, call);
-	else
-		called = FireSlow(h, p, call, n);
-
+	bool called = call();
 	p.depth--;
 
 	if (!called) {
@@ -4389,6 +4347,65 @@ NO_STACK_COOKIE static cell Fire(const Handler &h, const uint32_t *argv, int arg
 	if (p.depth == 0 && p.wake)
 		DrainJobs(index);
 	return result;
+}
+
+/** Whether `index` is a running plugin a handler of it can be called in. */
+static ALWAYS_INLINE bool Running(int index)
+{
+	return index >= 0 && (size_t)index < g_plugins.size() && g_plugins[index].inst;
+}
+
+/**
+ * Calls one handler by its function table index.
+ *
+ * A narrow handler takes the first cell and returns nothing, which is what a
+ * player event and a command both want. A wide one takes four and returns
+ * PLUGIN_HANDLED or PLUGIN_CONTINUE. call_indirect checks the type, so the
+ * shape recorded at registration is what decides.
+ */
+NO_STACK_COOKIE static cell Fire(const Handler &h, const uint32_t *argv, int argc, cell fallback)
+{
+	// An orphaned slot, one belonging to the module rather than a plugin, or a
+	// plugin that is not running. `h` may lie in a list the call changes, so
+	// what is needed of it after the call is kept here.
+	int index = h.plugin;
+	if (!Running(index))
+		return fallback;
+
+	Plugin &p = g_plugins[index];
+
+	// A closure's dispatcher takes its tag before the cells (Handler.tag);
+	// cells a handler takes past the ones given are 0. Otherwise the cells go
+	// as they came.
+	int first = h.tag ? 1 : 0;
+	int n = ((h.shape == SHAPE_WIDE) ? MAX_EVENT_ARGS : 1) + first;
+	uint32_t made[MAX_EVENT_ARGS + 1];
+	const uint32_t *call = argv;
+	if (first || argc < n || argc < (int)h.count) {
+		memset(made, 0, sizeof(made));
+		if (first)
+			made[0] = (uint32_t)h.tag;
+		for (int i = first; i < n && i - first < argc; i++)
+			made[i] = argv[i - first];
+		call = made;
+	}
+
+	if (g_trace) MF_PrintSrvConsole("[amxts] TRACE fire plugin=%d fn=%u n=%d a0=%d\n", index, h.fn, n, (int)call[0]);
+
+	// A plugin's `number` is JavaScript's - an f64 - and every argument here
+	// is a cell, an i32. Passed as raw cells, a handler declared
+	// `tick(handle: number)` read the i32 1000 as the bits of a double: a
+	// denormal next to zero, so clearTimeout(handle) stopped nothing and a
+	// countdown ran on into the negatives. So the handler's own parameter
+	// types decide how each cell goes in: as it is to an i32, converted by
+	// value to an f64 (or f32, i64) where that is what the function takes.
+	return Called(index, p, fallback, [&]() {
+		if (h.via)
+			return CallVia(h, p, argc > 0 ? argv[0] : 0);
+		if (h.entry)
+			return CallDirect(h, p, call);
+		return FireSlow(h, p, call, n);
+	});
 }
 
 /** When a file was last written, or 0 if it cannot be read. */
@@ -6131,6 +6148,39 @@ static cell RaiseFor(int index, int id)
 	return Heard(index) ? Raise(index, args, 1) : 0;
 }
 
+/**
+ * Raise for a forward a hook raises on every frame or move: its one listener
+ * the module calls itself (Handler.via) is called from the hook's own frame,
+ * with Dispatch's and Fire's work written in, so the return stack between the
+ * engine and the listener holds no frame of theirs. Any other listening goes
+ * through Raise.
+ */
+static ALWAYS_INLINE cell RaiseDirect(int index, cell *args, int argc)
+{
+	Forward &f = g_forwards[index];
+	if (f.handlers.size() != 1 || !f.subscribers.empty() || !g_image)
+		return Raise(index, args, argc);
+	const Handler &h = f.handlers[0];
+	int plugin = h.plugin;
+	if (!h.via || h.whereArg >= 0 || !Running(plugin))
+		return Raise(index, args, argc);
+
+	CallArgs context(args, argc, g_image);
+	Plugin &p = g_plugins[plugin];
+	uint32_t first = argc > 0 ? (uint32_t)args[0] : 0;
+	f.depth++;
+	cell result = Called(plugin, p, 0, [&]() { return CallVia(h, p, first); });
+	EndDispatch(f);
+	return result > 0 ? result : 0;
+}
+
+/** RaiseDirect for a player's event: the player's id its one argument. */
+static ALWAYS_INLINE cell RaiseDirectFor(int index, int id)
+{
+	cell args[1] = { id };
+	return Heard(index) ? RaiseDirect(index, args, 1) : 0;
+}
+
 /** What is pushed onto the image's heap while it lives goes when it does. */
 struct ImageHeap {
 	cell mark;
@@ -6737,10 +6787,10 @@ void CmdStart_Post(const edict_t *player, const struct usercmd_s *cmd, unsigned 
 	g_cmd = (usercmd_t *)cmd;
 	if (impulse) {
 		cell args[2] = { id, g_cmd->impulse };
-		if (Raise(FORWARD_CLIENT_IMPULSE, args, 2) > 0)
+		if (RaiseDirect(FORWARD_CLIENT_IMPULSE, args, 2) > 0)
 			g_cmd->impulse = 0;
 	}
-	RaiseFor(FORWARD_CLIENT_CMDSTART, id);
+	RaiseDirectFor(FORWARD_CLIENT_CMDSTART, id);
 	g_cmd = outer;
 	RETURN_META(MRES_IGNORED);
 }

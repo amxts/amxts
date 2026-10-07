@@ -43,7 +43,7 @@ const LIMITS: Record<string, number> = {
 	"player.name": 1,
 	"raw hook": 2,
 	"event": 2.5,
-	"forward to a listener": 3,
+	"forward to a listener": 2.5,
 	"relay with no listener": 1.5,
 	"Pawn calls a plugin": 1.5,
 	"timer armed": 1,
