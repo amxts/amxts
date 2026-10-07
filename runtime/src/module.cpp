@@ -4187,6 +4187,41 @@ static int32_t w_playerObserve(wasm_exec_env_t env, int32_t id, int32_t mode);
 static void w_playerTeam(wasm_exec_env_t env, int32_t id, int32_t team);
 static int32_t w_gameRulesRun(wasm_exec_env_t env, int32_t action);
 static int32_t w_reunion(wasm_exec_env_t env, int32_t what, int32_t id);
+static int32_t w_playerRemoveSlot(wasm_exec_env_t env, int32_t id, int32_t slot);
+static void w_playerDrop(wasm_exec_env_t env, int32_t id, int32_t name);
+static int32_t w_playerStat(wasm_exec_env_t env, int32_t id, int32_t what);
+static int32_t w_userInfo(wasm_exec_env_t env, int32_t id, int32_t key, int32_t out, int32_t max);
+static void w_setUserInfo(wasm_exec_env_t env, int32_t id, int32_t key, int32_t value);
+static int32_t w_playerSilent(wasm_exec_env_t env, int32_t id, int32_t on);
+static int32_t w_geoCountry(wasm_exec_env_t env, int32_t ip, int32_t what, int32_t out, int32_t max);
+static void w_playerSwitchTeam(wasm_exec_env_t env, int32_t id);
+static int32_t w_storeOpen(wasm_exec_env_t env, int32_t name);
+static int32_t w_storeGet(wasm_exec_env_t env, int32_t handle, int32_t key, int32_t out, int32_t max);
+static void w_storeSet(wasm_exec_env_t env, int32_t handle, int32_t key, int32_t value);
+static int32_t w_storeDelete(wasm_exec_env_t env, int32_t handle, int32_t key);
+static int32_t w_storeCount(wasm_exec_env_t env, int32_t handle);
+static int32_t w_storeKeys(wasm_exec_env_t env, int32_t handle, int32_t out, int32_t max);
+static int32_t w_storePrune(wasm_exec_env_t env, int32_t handle, double before);
+static void FlushStores(bool now);
+static void w_traceLine(wasm_exec_env_t env, int32_t points, int32_t flags, int32_t ignore, int32_t out);
+static void w_traceHull(wasm_exec_env_t env, int32_t points, int32_t hull, int32_t flags, int32_t ignore, int32_t out);
+static int32_t w_pointContents(wasm_exec_env_t env, int32_t point);
+static int32_t w_dropToFloor(wasm_exec_env_t env, int32_t id);
+static int32_t w_serverText(wasm_exec_env_t env, int32_t what, int32_t out, int32_t max);
+static int32_t w_mapValid(wasm_exec_env_t env, int32_t name);
+static int32_t w_changeLevel(wasm_exec_env_t env, int32_t name);
+static void w_lightStyle(wasm_exec_env_t env, int32_t text);
+static void w_playerView(wasm_exec_env_t env, int32_t id, int32_t target);
+static int32_t w_playerViewGet(wasm_exec_env_t env, int32_t id);
+static int32_t w_pluginsCount(wasm_exec_env_t env);
+static int32_t w_pluginText(wasm_exec_env_t env, int32_t index, int32_t what, int32_t out, int32_t max);
+static int32_t w_pluginState(wasm_exec_env_t env, int32_t index);
+static void w_pluginAction(wasm_exec_env_t env, int32_t name, int32_t action);
+static int32_t w_pawnPluginsCount(wasm_exec_env_t env);
+static int32_t w_pawnPluginText(wasm_exec_env_t env, int32_t index, int32_t what, int32_t out, int32_t max);
+static int32_t w_pawnPluginPause(wasm_exec_env_t env, int32_t file, int32_t on);
+static void KeepStepsSilent();
+static void PlayerSlotReset(int id);
 static int32_t w_reunionKey(wasm_exec_env_t env, int32_t id, int32_t out, int32_t max);
 
 static NativeSymbol g_wasmNatives[] = {
@@ -4248,6 +4283,38 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "player_team",    (void *)w_playerTeam,    "(ii)",  NULL },
 	{ "game_rules_run", (void *)w_gameRulesRun,  "(i)i",  NULL },
 	{ "reunion",        (void *)w_reunion,       "(ii)i", NULL },
+	{ "player_remove_slot", (void *)w_playerRemoveSlot, "(ii)i", NULL },
+	{ "player_drop",    (void *)w_playerDrop,    "(ii)",  NULL },
+	{ "player_stat",    (void *)w_playerStat,    "(ii)i", NULL },
+	{ "info_get",       (void *)w_userInfo,      "(iiii)i", NULL },
+	{ "info_set",       (void *)w_setUserInfo,   "(iii)", NULL },
+	{ "player_silent",  (void *)w_playerSilent,  "(ii)i", NULL },
+	{ "geo_country",    (void *)w_geoCountry,    "(iiii)i", NULL },
+	{ "player_switch_team", (void *)w_playerSwitchTeam, "(i)", NULL },
+	{ "store_open",     (void *)w_storeOpen,     "(i)i",  NULL },
+	{ "store_get",      (void *)w_storeGet,      "(iiii)i", NULL },
+	{ "store_set",      (void *)w_storeSet,      "(iii)", NULL },
+	{ "store_delete",   (void *)w_storeDelete,   "(ii)i", NULL },
+	{ "store_count",    (void *)w_storeCount,    "(i)i",  NULL },
+	{ "store_keys",     (void *)w_storeKeys,     "(iii)i", NULL },
+	{ "store_prune",    (void *)w_storePrune,    "(iF)i", NULL },
+	{ "world_trace_line", (void *)w_traceLine,   "(iiii)", NULL },
+	{ "world_trace_hull", (void *)w_traceHull,   "(iiiii)", NULL },
+	{ "world_contents", (void *)w_pointContents, "(i)i", NULL },
+	{ "entity_drop",    (void *)w_dropToFloor,   "(i)i", NULL },
+	{ "server_text",    (void *)w_serverText,    "(iii)i", NULL },
+	{ "map_valid",      (void *)w_mapValid,      "(i)i", NULL },
+	{ "change_level",   (void *)w_changeLevel,   "(i)i", NULL },
+	{ "light_style",    (void *)w_lightStyle,    "(i)", NULL },
+	{ "player_view",    (void *)w_playerView,    "(ii)", NULL },
+	{ "player_view_get", (void *)w_playerViewGet, "(i)i", NULL },
+	{ "plugins_count",  (void *)w_pluginsCount,  "()i",   NULL },
+	{ "plugin_text",    (void *)w_pluginText,    "(iiii)i", NULL },
+	{ "plugin_state",   (void *)w_pluginState,   "(i)i",  NULL },
+	{ "plugin_action",  (void *)w_pluginAction,  "(ii)",  NULL },
+	{ "pawn_plugins_count", (void *)w_pawnPluginsCount, "()i", NULL },
+	{ "pawn_plugin_text",   (void *)w_pawnPluginText,   "(iiii)i", NULL },
+	{ "pawn_plugin_pause",  (void *)w_pawnPluginPause,  "(ii)i", NULL },
 	{ "reunion_key",    (void *)w_reunionKey,    "(iii)i", NULL },
 	{ "task",         (void *)w_task,         "(iii)i",  NULL },
 	{ "stop_task",    (void *)w_stopTask,     "(i)i", NULL },
@@ -5779,6 +5846,131 @@ static void ReloadOne(const std::string &wanted)
  * The new time is taken before the reload, not after, so a plugin that fails
  * to load is not retried every second.
  */
+static void WatchPlugins();
+
+// ---------------------------------------------------------------- server.plugins
+
+#define PLUGIN_STOP   1
+#define PLUGIN_START  2
+#define PLUGIN_RELOAD 3
+
+/**
+ * What plugins asked to be done to plugins (server.plugins), done at the
+ * next frame's start, with no wasm frame underneath - as a console command
+ * would be: a plugin stopping itself, or the one that called it, from inside
+ * a call is never inside that call.
+ */
+static std::vector<std::pair<int, std::string> > g_pluginActions;
+
+static void RunPluginActions()
+{
+	std::vector<std::pair<int, std::string> > actions;
+	actions.swap(g_pluginActions);
+	for (size_t i = 0; i < actions.size(); i++) {
+		const std::string &name = actions[i].second;
+		if (actions[i].first == PLUGIN_STOP)
+			UnloadOne(name);
+		else if (actions[i].first == PLUGIN_START)
+			LoadOne(name);
+		else
+			ReloadOne(name);
+	}
+}
+
+/** plugins_count() - how many entries the list of amxts plugins has. */
+static int32_t w_pluginsCount(wasm_exec_env_t env)
+{
+	(void)env;
+	return (int32_t)g_plugins.size();
+}
+
+#define PLUGIN_FILE    1
+#define PLUGIN_TITLE   2
+#define PLUGIN_VERSION 3
+#define PLUGIN_AUTHOR  4
+
+/** plugin_text(index, what, out, max) - an entry's file, or what plugin() declared; its length. */
+static int32_t w_pluginText(wasm_exec_env_t env, int32_t index, int32_t what, int32_t out, int32_t max)
+{
+	const char *text = "";
+	if (index >= 0 && (size_t)index < g_plugins.size()) {
+		const Plugin &p = g_plugins[index];
+		text = what == PLUGIN_FILE ? p.name.c_str() : what == PLUGIN_TITLE ? p.title.c_str() : what == PLUGIN_VERSION ? p.version.c_str() : what == PLUGIN_AUTHOR ? p.author.c_str() : "";
+	}
+	return WriteBytes(Inst(env), out, max, text);
+}
+
+/** plugin_state(index) - whether an entry runs (PLUGIN_RUNNING and the rest); -1 for none. */
+static int32_t w_pluginState(wasm_exec_env_t env, int32_t index)
+{
+	(void)env;
+	return index >= 0 && (size_t)index < g_plugins.size() ? g_plugins[index].state : -1;
+}
+
+/** plugin_action(name, action) - stop, start or reload a plugin, or load a file of plugins/, at the next frame. */
+static void w_pluginAction(wasm_exec_env_t env, int32_t name, int32_t action)
+{
+	if (action >= PLUGIN_STOP && action <= PLUGIN_RELOAD)
+		g_pluginActions.push_back(std::make_pair((int)action, AsString(Inst(env), name)));
+}
+
+/** How many Pawn plugins AMX Mod X has loaded. AMX Mod X's module API has no list of them: its own native says. */
+static int32_t w_pawnPluginsCount(wasm_exec_env_t env)
+{
+	(void)env;
+	Args params(0);
+	return (int32_t)CallNative("get_pluginsnum", params);
+}
+
+/**
+ * pawn_plugin_text(index, what, out, max) - a Pawn plugin's file, title,
+ * version, author or status ("running", "paused", ...), as get_plugin gives
+ * them; its length.
+ */
+static int32_t w_pawnPluginText(wasm_exec_env_t env, int32_t index, int32_t what, int32_t out, int32_t max)
+{
+	cell mark = g_image->hea;
+	const int size = 128;
+	// get_plugin's seven texts: the file, the title, the version, the author, the status, the address, the description.
+	cell addr[7];
+	for (int i = 0; i < 7; i++) {
+		cell *phys = HeapCells(size, &addr[i]);
+		if (!phys) {
+			g_image->hea = mark;
+			return WriteBytes(Inst(env), out, max, "");
+		}
+		phys[0] = 0;
+	}
+	Args params(15);
+	params[1] = index;
+	for (int i = 0; i < 7; i++) {
+		params[2 + i * 2] = addr[i];
+		params[3 + i * 2] = size - 1;
+	}
+	CallNative("get_plugin", params);
+
+	int field = what >= 1 && what <= 5 ? what - 1 : 0;
+	int len = 0;
+	const char *text = MF_GetAmxString(g_image, addr[field], 0, &len);
+	int32_t written = WriteBytes(Inst(env), out, max, text ? text : "");
+	g_image->hea = mark;
+	return written;
+}
+
+/** pawn_plugin_pause(file, on) - pauses a Pawn plugin, or lets it run again, as AMX Mod X's pause does. */
+static int32_t w_pawnPluginPause(wasm_exec_env_t env, int32_t file, int32_t on)
+{
+	cell mark = g_image->hea;
+	std::string name = AsString(Inst(env), file);
+	Args params(3);
+	params[1] = PushString("ac");
+	params[2] = PushString(name.c_str());
+	params[3] = PushString("");
+	cell done = on ? CallNative("pause", params) : CallNative("unpause", params);
+	g_image->hea = mark;
+	return (int32_t)done;
+}
+
 static void WatchPlugins()
 {
 	bool changed = false;
@@ -6282,6 +6474,7 @@ static void RaiseAuthorized()
 
 static void Connected(int id)
 {
+	PlayerSlotReset(id);
 	g_connected[id] = true;
 	NewPlayer(id);
 	RaiseFor(FORWARD_CLIENT_CONNECT, id);
@@ -6693,6 +6886,7 @@ void ServerDeactivate()
 {
 	if (!g_activated)
 		RETURN_META(MRES_IGNORED);
+	FlushStores(true);
 
 	for (int id = 1; id < CLIENT_SLOTS && id <= gpGlobals->maxClients; id++) {
 		if (g_connected[id])
@@ -7232,6 +7426,18 @@ static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line)
 // What a player is given and does, the game rules' actions: ReGameDLL's API, or the game's own functions.
 #include "regame.h"
 
+// A player's country, from MaxMind's database in AMX Mod X's data folder.
+#include "geoip.h"
+
+// A plugin's Storage: a map on disk, as JSON in AMX Mod X's data folder.
+#include "storage.h"
+
+// Traces through the world, and what is at a point.
+#include "traces.h"
+
+// The server's game, versions, map and light.
+#include "world.h"
+
 // ---------------------------------------------------------------- the frame
 
 /**
@@ -7253,6 +7459,10 @@ void StartFrame_Post()
 	CompareCvars();
 	PollSpeaking();
 	SettleCstrike(g_activated);
+	KeepStepsSilent();
+	FlushStores(false);
+	if (!g_pluginActions.empty())
+		RunPluginActions();
 
 	Forward &f = g_forwards[FORWARD_SERVER_FRAME];
 	if (!f.handlers.empty() || !f.subscribers.empty()) {
@@ -7426,6 +7636,7 @@ void OnPluginsUnloaded()
 
 void OnAmxxDetach()
 {
+	FlushStores(true);
 	MF_UnregAuthFunc(OnAuthorized);
 	ForgetCstrike();
 	UnhookCvars();

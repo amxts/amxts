@@ -395,6 +395,24 @@ export const NATIVES: Record<string, Native> = {
 		return 1;
 	},
 	close_dir: (c, [handle]) => +c.server.handles.delete(handle),
+	delete_file: (c, [name]) => +c.server.files.delete(normalizePath(bytesText(c, name))),
+	rename_file: (c, [from, to]) => {
+		const source = normalizePath(bytesText(c, from));
+		const bytes = c.server.files.get(source);
+		if (!bytes) return 0;
+		c.server.files.delete(source);
+		c.server.files.set(normalizePath(bytesText(c, to)), bytes);
+		return 1;
+	},
+	// An empty folder only, as the real one.
+	rmdir: (c, [name]) => {
+		const folder = normalizePath(bytesText(c, name));
+		const inside = [...c.server.files.keys(), ...c.server.folders].some(path => path.startsWith(`${folder}/`));
+		return +(!inside && c.server.folders.delete(folder));
+	},
+	file_size: (c, [name]) => c.server.files.get(normalizePath(bytesText(c, name)))?.length ?? -1,
+	// Every file of the fake changed when the server was made.
+	GetFileTime: c => Math.floor(c.server.startedAt / 1000),
 	// 0 when made; the parent has to be there, as for the real one.
 	mkdir: (c, [name]) => {
 		const folder = normalizePath(bytesText(c, name));
@@ -751,23 +769,23 @@ export const NATIVES: Record<string, Native> = {
 
 	nvault_open: (c, [name]) => {
 		const vault = c.memory.text(name);
-		c.server.vault(vault);
+		c.server.storage(vault);
 		c.server.vaultHandles.push(vault);
 		return c.server.vaultHandles.length - 1;
 	},
 	nvault_close: () => {},
 	nvault_set: (c, [handle, key, value]) => {
-		c.server.vault(c.server.vaultHandles[handle]).set(c.memory.text(key), c.memory.text(value));
+		c.server.storage(c.server.vaultHandles[handle]).set(c.memory.text(key), c.memory.text(value));
 	},
 	nvault_lookup: (c, [handle, key, value, length, stampAt]) => {
-		const found = c.server.vault(c.server.vaultHandles[handle]).get(c.memory.text(key));
+		const found = c.server.storage(c.server.vaultHandles[handle]).get(c.memory.text(key));
 		if (found === undefined) return 0;
 		c.memory.setText(value, length, found);
 		if (stampAt) c.memory.setCell(stampAt, 0);
 		return 1;
 	},
 	nvault_remove: (c, [handle, key]) => {
-		c.server.vault(c.server.vaultHandles[handle]).delete(c.memory.text(key));
+		c.server.storage(c.server.vaultHandles[handle]).delete(c.memory.text(key));
 	},
 
 	// ------------------------------------------------------------ cvars
@@ -818,6 +836,12 @@ export const NATIVES: Record<string, Native> = {
 	// ------------------------------------------------------------ the game (reapi, engine, resemiclip)
 
 	register_dictionary: (c, [file]) => (c.server.loadDictionary(c.memory.text(file)) ? 1 : 0),
+	get_langsnum: c => c.server.dictionary.size,
+	get_lang: (c, [id, name]) => {
+		const code = [...c.server.dictionary.keys()][id] ?? '';
+		[code.charCodeAt(0) || 0, code.charCodeAt(1) || 0, 0].forEach((cell, at) => c.memory.setCell(name + at * 4, cell));
+		return 1;
+	},
 	GetLangTransKey: (c, [key]) => c.server.langKey(c.memory.text(key)),
 	LookupLangKey: (c, [out, size, key, id]) => {
 		const text = c.server.lookupLang(c.memory.text(key), c.memory.cell(id));
@@ -1111,7 +1135,11 @@ const SAME_AS: Record<string, string> = {
 	write_long: 'write_byte',
 	// A message sent through the engine, which every plugin's message hooks hear (emessage_end).
 	emessage_begin: 'message_begin',
+	emessage_begin_f: 'message_begin_f',
 	ewrite_byte: 'write_byte',
+	ewrite_char: 'write_byte',
+	ewrite_coord_f: 'write_coord_f',
+	ewrite_angle_f: 'write_coord_f',
 	ewrite_long: 'write_byte',
 	ewrite_short: 'write_byte',
 	ewrite_string: 'write_string',

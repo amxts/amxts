@@ -17,6 +17,53 @@ test('getAmmo reads what setAmmo wrote; a weapon he does not carry is 0', async 
 	expect(alice.ammo.get('weapon_flashbang')).toBe(2);
 });
 
+test('removeItems takes a slot with its ammo; dropItem drops one he carries, null for one he has not', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	alice.command('pl_slots');
+
+	expect(alice.console).toBe('true weapon_deagle true weapon_knife,weapon_hegrenade');
+	expect(alice.ammo.get('weapon_ak47')).toBe(0);
+});
+
+test('info reads and writes his userinfo; userId, isHltv, silentSteps and connectedSeconds', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	alice.info.set('cl_righthand', '1');
+
+	alice.command('pl_info');
+
+	expect(alice.console).toBe('1 0 true false true 0');
+	expect(alice.info.get('_vgui_menus')).toBe('0');
+	expect(alice.silentSteps).toBe(true);
+});
+
+test('country and countryCode: what the GeoIP database says of his address, null when it has nothing', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	const bob = server.join('Bob');
+	// The fake's address has the port; the player's ip, the database's key, has not.
+	server.countries.set(alice.ip.split(':')[0], { code: 'DE', name: 'Germany' });
+
+	alice.command('pl_country');
+	bob.command('pl_country');
+
+	expect([alice.console, bob.console]).toEqual(['Germany DE', 'none none']);
+});
+
+test('a HUD line to everyone, a hint, the message of the day in pieces under its title', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	const bob = server.join('Bob');
+
+	alice.command('pl_screen');
+
+	expect([alice, bob].map(each => each.messages.filter(m => m.variant === 'hud').map(m => m.text).join())).toEqual(['for all', 'for all']);
+	const sent = server.userMessages.filter(m => ['HudTextPro', 'MOTD', 'ServerName'].includes(m.name)).map(m => `${m.name} ${m.args.map(a => String(a).length > 20 ? String(a).length : a).join(' ')}`);
+	expect(sent).toEqual(['HudTextPro Plant the bomb 1', 'ServerName Rules', 'MOTD 0 175', 'MOTD 1 25', `ServerName ${server.cvars.get('hostname') ?? ''}`]);
+});
+
 test('language: his setinfo lang, else the server\'s - as lang.translate picks it', async () => {
 	const server = await loadPlugin(PLUGIN, { cvars: { amx_language: 'de' } });
 	const alice = server.join('Alice');
@@ -163,4 +210,17 @@ test('a field the client learns from a message sends it: money, armour, flashlig
 		['StatusIcon', alice.id, 0, 'defuser'],
 		['ItemStatus', alice.id, 1],
 	]);
+});
+
+test('print(0, ...) sends nothing and says server.print; give takes any name and says once the one the game has not', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	alice.command('pl_breaking');
+
+	expect(alice.console).toBe('false false true');
+	expect(alice.chat).not.toContain('nobody');
+	expect(server.log).toContain('print(0, "nobody"): to everyone is server.print("nobody")');
+	expect(server.log.split('weapon_ak74').length - 1).toBe(1);
+	expect(alice.items).toEqual([]);
 });

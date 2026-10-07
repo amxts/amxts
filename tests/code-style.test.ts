@@ -831,7 +831,7 @@ test('28: an example\'s comments are translated, its code is not', () => {
 		'```ts',
 		'readText(get_mapname)   // "c21_kitty"',
 		'set_speed(id, speed)    // native set_speed(id, Float:speed);',
-		'print(0, "Hi")          // чат всех игроков, как "CT" и player.name',
+		'server.print("Hi")      // чат всех игроков, как "CT" и player.name',
 		'fn.call()               // PutinserverEvent',
 		'```',
 	].join('\n'))).toEqual([]);
@@ -1025,7 +1025,7 @@ test('35: what counts as code in prose', () => {
 	expect(codeInProse([
 		'One of `"chat"`, `-1`; `5` by default; e.g. an AK-47, 0.6 seconds, `%name%`.',
 		'```ts',
-		'print(0, "Hi"); // -1',
+		'server.print("Hi"); // -1',
 		'```',
 		'  readText(get_mapname)',
 		'Pawn: `client_print`, set_task',

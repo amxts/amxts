@@ -14,7 +14,7 @@ server.addCommand("/hp", ({ player }) => sayHp(player), { description: "Show hea
 
 // A menu: its title and items can be functions of the player it is shown to.
 const hello = new Menu(({ player }) => `Hello, ${player.name}`);
-hello.addItem({ title: "Wave", onSelect: ({ player }) => print(0, `${player.name} waves`) });
+hello.addItem({ title: "Wave", onSelect: ({ player }) => server.print(`${player.name} waves`) });
 hello.addItem({
 	title: ({ player }) => `Heal (${player.health} HP)`,
 	visible: ({ player }) => player.health < 100,
@@ -31,7 +31,7 @@ server.addEventListener("putInServer", (event) => {
 	const player = event.player;
 
 	console.log(`${player.name} connected`);
-	print(0, `${player.name} joined`);
+	server.print(`${player.name} joined`);
 	print(player, "Welcome to the server!");
 });
 

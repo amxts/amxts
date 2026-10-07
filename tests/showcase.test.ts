@@ -22,18 +22,18 @@ describe('the showcase greets', () => {
 
 	test('a player who comes back by the count it kept', async () => {
 		const server = await loadPlugin('tests/as/showcase.ts');
-		server.vault('showcase_visits').set('STEAM_0:0:42', '6');
+		server.storage('showcase_visits').set('STEAM_0:0:42', '6');
 
 		const alice = server.join('Alice', { steamId: 'STEAM_0:0:42' });
 
 		expect(alice.chat).toContain('Visit #7.');
-		expect(server.vault('showcase_visits').get('STEAM_0:0:42')).toBe('7');
+		expect(server.storage('showcase_visits').get('STEAM_0:0:42')).toBe('7');
 	});
 
 	test('a player whose key is not ASCII by the count kept under it', async () => {
 		const server = await loadPlugin('tests/as/showcase.ts');
 		// Cyrillic on purpose: a vault key beyond ASCII.
-		server.vault('showcase_visits').set('ключ', '6');
+		server.storage('showcase_visits').set('ключ', '6');
 
 		// Cyrillic on purpose: a vault key beyond ASCII.
 		const alice = server.join('Alice', { steamId: 'ключ' });

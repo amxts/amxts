@@ -39,6 +39,15 @@ if (text.includes(to)) {
 	process.exit(1);
 }
 
+// AssemblyScript's own `trace(message, n, ...)` - a debug print to its host,
+// which a server has not - is no TypeScript, and the editor read it against
+// the facade's `trace` (`trace.line`, `trace.hull`): two globals of one name.
+const debugTrace = 'declare function trace(msg: string, n?: i32, a0?: f64, a1?: f64, a2?: f64, a3?: f64, a4?: f64): void;\n';
+if (text.includes(debugTrace)) {
+	text = text.replace(debugTrace, '');
+	console.log('typings: AssemblyScript\'s trace() is left to the facade\'s trace');
+}
+
 // find and findLast are in our AssemblyScript (runtime/patches) but not in the
 // typings asc ships: `server.players.find(...)` was red and compiled fine. They
 // give the element or undefined, as in JavaScript, for any element.

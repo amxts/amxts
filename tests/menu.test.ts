@@ -109,6 +109,16 @@ describe('a Menu', () => {
 		expect(server.native('quick_chosen')).toBe('Alice: no');
 	});
 
+	test('a line of text goes under the title or the last item, with no number', async () => {
+		const server = await loadPlugin(PLUGIN);
+		const alice = server.join('Alice');
+		server.native('quick_show', alice.id, 'store');
+
+		expect(alice.menu?.text).toBe(page('Shop\n\\wMoney: $800', ['\\r1.\\w Armor\n\\wHelmet included\n\\w\n', '\\r2.\\w Grenade\n']));
+		alice.command('menuselect 2');
+		expect(server.native('quick_chosen')).toBe('Alice: grenade');
+	});
+
 	test('a menu without data takes a function for its title, with no type argument', async () => {
 		const server = await loadPlugin(PLUGIN);
 		const alice = server.join('Alice');

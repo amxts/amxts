@@ -3,7 +3,7 @@
 // the game's table, never sv_restart - and the newRound listeners hear it;
 // with completeReset the score starts from zero. game.checkWinConditions() is
 // the game's own check. It restarts the round, so it runs after round-order
-// (the suites go by name).
+// (the suites go by name). swapTeams, swapped back, and timeLeft beside them.
 import { Checks } from "@amxts/core/check";
 
 let newRounds = 0;
@@ -29,5 +29,16 @@ function run() {
 
 	game.checkWinConditions();
 	check.expect(game.ctWins, "checkWinConditions ran the game's check").toBe(0);
+
+	const side = (team: Team) => server.players.filter(player => player.team == team).length;
+	const terrorists = side("TERRORIST");
+	const cts = side("CT");
+	game.ctWins = 2;
+	game.terroristWins = 1;
+	game.swapTeams();
+	check.expect(`${side("TERRORIST")} ${side("CT")}`, "swapTeams swapped the sides").toBe(`${cts} ${terrorists}`);
+	check.expect(`${game.ctWins} ${game.terroristWins}`, "and their scores").toBe("1 2");
+	game.swapTeams();
+	check.expect(game.timeLeft > 0, "timeLeft").toBe(true);
 	check.done();
 }

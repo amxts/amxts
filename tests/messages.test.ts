@@ -177,3 +177,22 @@ test('the layouts: every message the game has, every name\'s words and its field
 	// The menu names are the game event's: VguiMenu from the same include.
 	expect(events).toContain('case 27: return "classCT";');
 });
+
+test('send writes a message by its fields in the game\'s order, a field left out as 0; listeners hear it', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	alice.command('msg_send');
+
+	const sent = server.userMessages.map(m => `${m.name} ${m.player} ${m.args.join(' ')}`);
+	expect(sent).toEqual([
+		`TeamInfo ${alice.id} ${alice.id} CT`,
+		`ScoreInfo 0 ${alice.id} 10 2 0 0`,
+		`SayText 0 ${alice.id} #Cstrike_Chat_All Alice hi`,
+		// The fade's listener heard it going out, and turned it in, to stay.
+		'ScreenFade 0 4096 0 4 255 0 0 128',
+	]);
+	expect(server.log).toContain('fade 1 0 out false false 255,0,0,128');
+	// The bar's listener blocks a 9-second bar: it heard the one sent.
+	expect(server.log).toContain('bar BarTime2 9 0');
+});

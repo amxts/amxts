@@ -1100,6 +1100,9 @@ const USE_TYPES: UseType[] = ["off", "on", "set", "toggle"];
 // ReGameDLL's Observer_SetMode: -1 on a server without it.
 // @ts-ignore: decorator
 @external("env", "player_observe") declare function _playerObserve(id: i32, mode: i32): i32;
+// The engine's DropToFloor: 1 landed, 0 nothing under it, -1 stuck.
+// @ts-ignore: decorator
+@external("env", "entity_drop") declare function _entityDrop(id: i32): i32;
 
 /**
  * An action's call: every plugin's listeners run on it, unless
@@ -1503,6 +1506,9 @@ const SOUND_CHANNELS: SoundChannel[] = ["auto", "weapon", "voice", "item", "body
 
 ${enumTypesUsed.map(enumBlock).join('\n\n')}
 
+// A trace's hit group (trace.line) and a point's contents (pointContents) read as the fields' do.
+export { contentsName, hitGroupName };
+
 /** The WeaponKind names and the bit each has in var_weapons: 1 << its id. */
 const WEAPON_BITS = new FlagFamily(
 	[${weaponBits.map(k => `"${k.name}"`).join(', ')}],
@@ -1588,6 +1594,11 @@ export class Entity {
 	 */
 	remove(): void {
 		entity_set_int(this.id, EV_INT_flags, entity_get_int(this.id, EV_INT_flags) | FL_KILLME);
+	}
+
+	${methodDoc('Entity.dropToFloor')}
+	dropToFloor(): boolean {
+		return _entityDrop(this.id) == 1;
 	}
 
 	// is_valid_ent rather than reapi's is_entity: it answers false for 0 and

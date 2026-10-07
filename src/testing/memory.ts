@@ -138,6 +138,11 @@ export class Memory {
 		return [this.float(pointer), this.float(pointer + 4), this.float(pointer + 8)];
 	}
 
+	/** A plugin's number (f64) read from its own memory. */
+	number(pointer: number): number {
+		return this.view.getFloat64(pointer, true);
+	}
+
 	/** A plugin's number (f64) in its own memory. */
 	setNumber(pointer: number, value: number): void {
 		this.view.setFloat64(pointer, value, true);

@@ -162,6 +162,27 @@ async function checkFs(player: Player) {
 	const missing = await fs.readFile("addons/amxmodx/data/no-such-file.txt").catch(error => `rejected: ${error.message}`);
 	check.expect(missing.startsWith("rejected: ENOENT"), "readFile: no file - rejected with ENOENT").toBe(true);
 
+	const stats = fs.statSync(path);
+	check.expect(stats != null && stats.isFile() && stats.size == 14, "statSync: a file and its size").toBe(true);
+	check.expect(stats != null && stats.mtime.getTime() > 0, "statSync: when it changed").toBe(true);
+	const folder = fs.statSync("addons/amxmodx/data");
+	check.expect(folder != null && folder.isDirectory(), "statSync: a folder").toBe(true);
+	check.expect(fs.statSync("addons/amxmodx/data/no-such-file.txt") == null, "statSync: no file - null").toBe(true);
+
+	const moved = "addons/amxmodx/data/amxts-fs-moved.txt";
+	check.expect(fs.renameSync(path, moved), "renameSync").toBe(true);
+	check.expect(fs.existsSync(path) || !fs.existsSync(moved), "renameSync: moved").toBe(false);
+	check.expect(fs.unlinkSync(moved), "unlinkSync").toBe(true);
+	check.expect(fs.existsSync(moved), "unlinkSync: gone").toBe(false);
+	check.expect(fs.unlinkSync(moved), "unlinkSync: no file").toBe(false);
+
+	const empty = "addons/amxmodx/data/amxts-fs-folder";
+	check.expect(fs.mkdirSync(empty), "mkdirSync for rmdirSync").toBe(true);
+	check.expect(fs.rmdirSync(empty), "rmdirSync").toBe(true);
+	check.expect(fs.existsSync(empty), "rmdirSync: gone").toBe(false);
+	const unlinked = await fs.unlink(moved).then(() => "deleted").catch(error => `rejected: ${error.message}`);
+	check.expect(unlinked.startsWith("rejected: ENOENT"), "unlink: no file - rejected with ENOENT").toBe(true);
+
 	// Cyrillic on purpose: the settings file is UTF-8.
 	check.expect(xn_lookup("greeting"), "the settings file is written on load").toBe("привет");
 	check.done();

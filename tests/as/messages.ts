@@ -68,3 +68,12 @@ function onText(event: TextMsgMessage) {
 function onHideWeapon(event: HideWeaponMessage) {
 	event.flags = event.flags.concat(["money"]);
 }
+
+// Sending by name: a player, everyone, and near a point.
+server.addCommand("msg_send", ({ player }) => {
+	player.send("team", { target: player, team: "CT" });
+	server.send("score", { target: player, frags: 10, deaths: 2 });
+	server.send("chat", { sender: player, text: "#Cstrike_Chat_All", params: [player.name, "hi"] });
+	server.send("screenFade", { duration: 1, color: [255, 0, 0, 128], direction: "out" }, { near: player.origin });
+	player.send("progressBar", { seconds: 9 });
+});

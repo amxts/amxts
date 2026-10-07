@@ -1046,27 +1046,29 @@ export default {
 	'Player.give': {
 		en: `
 			Gives the player a weapon or an item: \`player.give("weapon_flashbang")\`.
-			\`false\` if the game did not give it.
+			\`false\` if the game did not give it. A name read from a config goes
+			as it is; one the game has no item of is said once in the console.
 
 			Pawn: \`rg_give_item\`, \`give_item\`
 		`,
 		ru: `
 			Выдаёт игроку оружие или предмет: \`player.give("weapon_flashbang")\`.
-			\`false\`, если игра его не выдала.
+			\`false\`, если игра его не выдала. Имя, прочитанное из конфига, передаётся как
+			есть; о таком, для которого в игре нет предмета, один раз скажет консоль.
 
 			Pawn: \`rg_give_item\`, \`give_item\`
 		`,
 	},
 	'Player.removeAllItems': {
 		en: `
-			Takes all the player's weapons away. The suit (armour, HUD) stays unless
-			\`removeSuit\` is \`true\`.
+			Takes all the player's weapons away: \`player.removeAllItems()\`. The
+			suit - armour and the HUD - stays, unless \`{ suit: true }\`.
 
 			Pawn: \`rg_remove_all_items\`, \`strip_user_weapons\`
 		`,
 		ru: `
-			Отбирает у игрока всё оружие. Костюм (броня, HUD) остаётся, если
-			\`removeSuit\` не \`true\`.
+			Забирает у игрока всё оружие: \`player.removeAllItems()\`. Костюм — броня и
+			HUD — остаётся, если не указано \`{ suit: true }\`.
 
 			Pawn: \`rg_remove_all_items\`, \`strip_user_weapons\`
 		`,
@@ -2312,6 +2314,1015 @@ export default {
 			Pawn: \`rg_check_win_conditions\`
 		`,
 	},
+	'ItemSlot': {
+		en: `
+			A player's item slot, one of \`"primary"\` (a rifle, a shotgun, a sniper
+			rifle, the shield), \`"secondary"\` (the pistol), \`"knife"\`, \`"grenades"\` or
+			\`"c4"\`.
+		`,
+		ru: `
+			Слот предметов игрока, одно из \`"primary"\` (винтовка, дробовик,
+			снайперская винтовка, щит), \`"secondary"\` (пистолет), \`"knife"\`,
+			\`"grenades"\` или \`"c4"\`.
+		`,
+	},
+	'UserInfo': {
+		en: `
+			The settings a player's game tells the server, his userinfo: keys such as
+			\`"model"\`, \`"cl_righthand"\`, \`"_vgui_menus"\`, each a text.
+		`,
+		ru: `
+			Настройки, которые игра игрока сообщает серверу, — его userinfo: ключи
+			вроде \`"model"\`, \`"cl_righthand"\`, \`"_vgui_menus"\`, каждый — текст.
+		`,
+	},
+	'UserInfo.get': {
+		en: `
+			A key's value: \`player.info.get("cl_righthand")\` is \`"1"\`; \`""\` for a key
+			his game did not send.
+
+			Pawn: \`get_user_info\`
+		`,
+		ru: `
+			Значение ключа: \`player.info.get("cl_righthand")\` — это \`"1"\`; \`""\` для
+			ключа, которого его игра не прислала.
+
+			Pawn: \`get_user_info\`
+		`,
+	},
+	'UserInfo.set': {
+		en: `
+			Writes a key: the server and his game take the new value, as when his
+			game changes it itself.
+
+			Pawn: \`set_user_info\`
+		`,
+		ru: `
+			Записывает ключ: сервер и его игра принимают новое значение, как когда
+			его игра меняет его сама.
+
+			Pawn: \`set_user_info\`
+		`,
+	},
+	'Client.isHltv': {
+		en: `
+			\`true\` for an HLTV proxy: a spectator's relay, which \`server.players\`
+			leaves out.
+		`,
+		ru: `
+			\`true\` для прокси HLTV — ретранслятора для зрителей, которого
+			\`server.players\` не включает.
+		`,
+	},
+	'Player.isHltv': {
+		en: `
+			\`true\` for an HLTV proxy: a spectator's relay, which \`server.players\`
+			leaves out.
+
+			Pawn: \`is_user_hltv\`
+		`,
+		ru: `
+			\`true\` для прокси HLTV — ретранслятора для зрителей, которого
+			\`server.players\` не включает.
+
+			Pawn: \`is_user_hltv\`
+		`,
+	},
+	'Player.removeItems': {
+		en: `
+			Takes every item of one of the player's slots, with its ammo:
+			\`player.removeItems("primary")\`. \`false\` when one stayed.
+
+			Pawn: \`rg_remove_items_by_slot\`
+		`,
+		ru: `
+			Забирает все предметы одного из слотов игрока вместе с их патронами:
+			\`player.removeItems("primary")\`. \`false\`, если какой-то остался.
+
+			Pawn: \`rg_remove_items_by_slot\`
+		`,
+	},
+	'Player.dropItem': {
+		en: `
+			Drops a weapon the player carries, as the game's \`drop\` does:
+			\`player.dropItem("weapon_c4")\`; with no name, the one in his hands. The
+			weapon, now in a box on the ground, or \`null\` when he has none or the
+			game kept it (a knife).
+
+			Pawn: \`rg_drop_item\`, \`engclient_cmd(id, "drop")\`
+		`,
+		ru: `
+			Выбрасывает оружие, которое несёт игрок, как это делает \`drop\` игры:
+			\`player.dropItem("weapon_c4")\`; без имени — то, что у него в руках. Оружие,
+			теперь в коробке на земле, или \`null\`, если такого нет или игра его не
+			отдала (нож).
+
+			Pawn: \`rg_drop_item\`, \`engclient_cmd(id, "drop")\`
+		`,
+	},
+	'Player.slap': {
+		en: `
+			Slaps the player as an admin's slap does: a push in a random direction,
+			his view jolted, a pain sound, and \`damage\` taken from his health - the
+			last of it kills him.
+
+			Pawn: \`user_slap\`
+		`,
+		ru: `
+			Шлёпает игрока, как шлепок админа: толчок в случайную сторону, рывок
+			взгляда, звук боли и \`damage\`, отнятый от здоровья, — последнее здоровье его
+			убивает.
+
+			Pawn: \`user_slap\`
+		`,
+	},
+	'Player.userId': {
+		en: `
+			The player's number for the server's commands, which stays while he is
+			on the server: \`\` server.command(\`kick #\${player.userId}\`) \`\`.
+
+			Pawn: \`get_user_userid\`
+		`,
+		ru: `
+			Номер игрока для команд сервера, который не меняется, пока он на
+			сервере: \`\` server.command(\`kick #\${player.userId}\`) \`\`.
+
+			Pawn: \`get_user_userid\`
+		`,
+	},
+	'Player.ping': {
+		en: `
+			The player's ping, in milliseconds, as the scoreboard shows it.
+
+			Pawn: \`get_user_ping\`
+		`,
+		ru: `
+			Пинг игрока в миллисекундах, как его показывает таблица счёта.
+
+			Pawn: \`get_user_ping\`
+		`,
+	},
+	'Player.connectedSeconds': {
+		en: `
+			The player's time on the server since he connected, in seconds.
+
+			Pawn: \`get_user_time\`
+		`,
+		ru: `
+			Время игрока на сервере с момента подключения, в секундах.
+
+			Pawn: \`get_user_time\`
+		`,
+	},
+	'Player.info': {
+		en: `
+			The settings the player's game tells the server - his userinfo:
+			\`player.info.get("cl_righthand")\`, \`player.info.set("_vgui_menus", "0")\`.
+
+			Pawn: \`get_user_info\`, \`set_user_info\`
+		`,
+		ru: `
+			Настройки, которые игра игрока сообщает серверу, — его userinfo:
+			\`player.info.get("cl_righthand")\`, \`player.info.set("_vgui_menus", "0")\`.
+
+			Pawn: \`get_user_info\`, \`set_user_info\`
+		`,
+	},
+	'Player.silentSteps': {
+		en: `
+			Whether the player's steps make no sound: \`player.silentSteps = true\`.
+			It lasts until he respawns.
+
+			Pawn: \`set_user_footsteps\`, \`rg_set_user_footsteps\`
+		`,
+		ru: `
+			Беззвучны ли шаги игрока: \`player.silentSteps = true\`. Действует, пока он
+			не появится заново.
+
+			Pawn: \`set_user_footsteps\`, \`rg_set_user_footsteps\`
+		`,
+	},
+	'Player.country': {
+		en: `
+			The country the player connects from, in English, e.g. \`"Germany"\`; \`null\`
+			when the GeoIP database does not know his address (a LAN, a bot) or the
+			server has none.
+
+			Pawn: \`geoip_country_ex\`
+		`,
+		ru: `
+			Страна, из которой подключается игрок, по-английски, например \`"Germany"\`; \`null\`,
+			если база GeoIP не знает его адрес (локальная сеть, бот) или её нет на
+			сервере.
+
+			Pawn: \`geoip_country_ex\`
+		`,
+	},
+	'Player.countryCode': {
+		en: `
+			The two letters of the country the player connects from, e.g. \`"DE"\`;
+			\`null\` when the GeoIP database does not know his address or the server
+			has none.
+
+			Pawn: \`geoip_code2_ex\`
+		`,
+		ru: `
+			Две буквы страны, из которой подключается игрок, например \`"DE"\`; \`null\`, если
+			база GeoIP не знает его адрес или её нет на сервере.
+
+			Pawn: \`geoip_code2_ex\`
+		`,
+	},
+	'Game.swapTeams': {
+		en: `
+			Swaps the sides: every terrorist a counter-terrorist and back, their
+			scores too, as the game swaps them halfway through a match.
+
+			Pawn: \`rg_swap_all_players\`
+		`,
+		ru: `
+			Меняет стороны местами: каждый террорист становится спецназовцем и
+			наоборот, их счёт тоже, как игра меняет их в середине матча.
+
+			Pawn: \`rg_swap_all_players\`
+		`,
+	},
+	'Game.balanceTeams': {
+		en: `
+			Evens the sides as the game does at a round's start with
+			\`mp_autoteambalance\`: from the bigger side the players who came last,
+			four at most - on a map with a VIP, a little more counter-terrorists.
+
+			Pawn: \`rg_balance_teams\`
+		`,
+		ru: `
+			Выравнивает стороны, как игра в начале раунда с \`mp_autoteambalance\`: из
+			большей стороны — игроки, пришедшие последними, не больше четырёх; на
+			карте с VIP спецназовцев чуть больше.
+
+			Pawn: \`rg_balance_teams\`
+		`,
+	},
+	'Game.timeLeft': {
+		en: `
+			Seconds until the map ends by its time limit; \`Infinity\` without one.
+
+			Pawn: \`get_timeleft\`
+		`,
+		ru: `
+			Секунды до конца карты по её лимиту времени; \`Infinity\`, если лимита нет.
+
+			Pawn: \`get_timeleft\`
+		`,
+	},
+	'HudLine.showAll': {
+		en: `
+			Shows \`text\` to everyone on this line: \`countdown.showAll(\`\${left}\`)\`.
+
+			Pawn: \`ShowSyncHudMsg(0, ...)\`
+		`,
+		ru: `
+			Показывает \`text\` всем на этой строке: \`countdown.showAll(\`\${left}\`)\`.
+
+			Pawn: \`ShowSyncHudMsg(0, ...)\`
+		`,
+	},
+	'Screen.hint': {
+		en: `
+			Shows a hint in the box at the top of the player's screen, as the game
+			shows its own: \`player.screen.hint("Plant the bomb")\`.
+
+			Pawn: \`rg_hint_message\`, \`HudTextPro\`
+		`,
+		ru: `
+			Показывает подсказку в рамке вверху экрана игрока, как игра показывает
+			свои: \`player.screen.hint("Заложи бомбу")\`.
+
+			Pawn: \`rg_hint_message\`, \`HudTextPro\`
+		`,
+	},
+	'Player.showMotd': {
+		en: `
+			Shows the message-of-the-day window: \`player.showMotd("Rules: ...")\`,
+			a page's address (\`"https://my-server.com/rules"\`) or HTML; \`title\` on
+			its top, the server's name when left out.
+
+			Pawn: \`show_motd\`
+		`,
+		ru: `
+			Показывает окно «сообщения дня»: \`player.showMotd("Правила: ...")\`, адрес
+			страницы (\`"https://my-server.com/rules"\`) или HTML; \`title\` — сверху окна,
+			без него — имя сервера.
+
+			Pawn: \`show_motd\`
+		`,
+	},
+	'Server.plugins': {
+		en: `
+			Every plugin on the server, TypeScript and Pawn, read anew each time:
+			\`server.plugins.find(plugin => plugin.file == "shop.aot")?.stop()\`.
+
+			Pawn: \`get_plugin\`, \`get_pluginsnum\`, \`find_plugin_byfile\`, \`is_plugin_loaded\`
+		`,
+		ru: `
+			Все плагины сервера, на TypeScript и на Pawn, каждый раз заново:
+			\`server.plugins.find(plugin => plugin.file == "shop.aot")?.stop()\`.
+
+			Pawn: \`get_plugin\`, \`get_pluginsnum\`, \`find_plugin_byfile\`, \`is_plugin_loaded\`
+		`,
+	},
+	'Server.loadPlugin': {
+		en: `
+			Loads a TypeScript plugin of the server's \`plugins\` folder the list
+			does not name, at the next frame: \`server.loadPlugin("event.aot")\`. It
+			runs until the map changes.
+
+			Pawn: \`amxts_load\`
+		`,
+		ru: `
+			Загружает плагин на TypeScript из папки \`plugins\` сервера, которого нет в
+			списке, на следующем кадре: \`server.loadPlugin("event.aot")\`. Он работает до
+			смены карты.
+
+			Pawn: \`amxts_load\`
+		`,
+	},
+	'PluginLanguage': {
+		en: `
+			The language a plugin is written in, one of \`"typescript"\` or \`"pawn"\`.
+		`,
+		ru: `
+			Язык, на котором написан плагин, одно из \`"typescript"\` или \`"pawn"\`.
+		`,
+	},
+	'ServerPlugin': {
+		en: `
+			A plugin on the server, TypeScript or Pawn, as \`server.plugins\` lists it:
+			its file, what it says it is, whether it runs - and the means to stop it,
+			start it again and reload it.
+		`,
+		ru: `
+			Плагин на сервере, на TypeScript или на Pawn, как его перечисляет
+			\`server.plugins\`: его файл, что он о себе говорит, работает ли он, — и как его
+			остановить, снова запустить и перезагрузить.
+		`,
+	},
+	'ServerPlugin.language': {
+		en: `
+			\`"typescript"\` or \`"pawn"\`.
+		`,
+		ru: `
+			\`"typescript"\` или \`"pawn"\`.
+		`,
+	},
+	'ServerPlugin.file': {
+		en: `
+			The plugin's file, as the server's list names it, e.g. \`"shop.aot"\`, \`"admin.amxx"\`.
+		`,
+		ru: `
+			Файл плагина, как его называет список сервера, например \`"shop.aot"\`, \`"admin.amxx"\`.
+		`,
+	},
+	'ServerPlugin.name': {
+		en: `
+			The name it gives itself (\`plugin()\`, \`register_plugin\`).
+		`,
+		ru: `
+			Имя, которое он сам себе дал (\`plugin()\`, \`register_plugin\`).
+		`,
+	},
+	'ServerPlugin.version': {
+		en: `
+			The version it gives.
+		`,
+		ru: `
+			Версия, которую он указал.
+		`,
+	},
+	'ServerPlugin.author': {
+		en: `
+			The author it names.
+		`,
+		ru: `
+			Автор, которого он называет.
+		`,
+	},
+	'ServerPlugin.running': {
+		en: `
+			Whether it runs: not stopped, not refused, not paused.
+
+			Pawn: \`get_plugin(..., status)\`
+		`,
+		ru: `
+			Работает ли он: не остановлен, не отвергнут, не на паузе.
+
+			Pawn: \`get_plugin(..., status)\`
+		`,
+	},
+	'ServerPlugin.stop': {
+		en: `
+			Stops it at the next frame. A TypeScript plugin is unloaded, and what
+			it registered with it, until \`start()\` or the map changes; a Pawn plugin
+			is paused, as AMX Mod X pauses one.
+
+			Pawn: \`pause\`, \`amxts_unload\`
+		`,
+		ru: `
+			Останавливает его на следующем кадре. Плагин на TypeScript выгружается
+			вместе со всем, что он зарегистрировал, до \`start()\` или смены карты; плагин
+			на Pawn ставится на паузу, как это делает AMX Mod X.
+
+			Pawn: \`pause\`, \`amxts_unload\`
+		`,
+	},
+	'ServerPlugin.start': {
+		en: `
+			Starts it again: a TypeScript plugin loaded at the next frame, a Pawn
+			plugin let run again.
+
+			Pawn: \`unpause\`, \`amxts_load\`
+		`,
+		ru: `
+			Запускает его снова: плагин на TypeScript загружается на следующем кадре,
+			плагин на Pawn снимается с паузы.
+
+			Pawn: \`unpause\`, \`amxts_load\`
+		`,
+	},
+	'ServerPlugin.reload': {
+		en: `
+			Starts a TypeScript plugin over from its file at the next frame. A Pawn
+			plugin cannot be: AMX Mod X loads its plugins once a map - it throws.
+
+			Pawn: \`amxts_reload\`
+		`,
+		ru: `
+			Запускает плагин на TypeScript заново из его файла на следующем кадре.
+			Плагин на Pawn так нельзя: AMX Mod X загружает плагины раз за карту — бросает
+			ошибку.
+
+			Pawn: \`amxts_reload\`
+		`,
+	},
+	'ServerPlugin.call': {
+		en: `
+			Calls a public function of a Pawn plugin and gives what it returns:
+			\`ranks.call("show_rank", player)\`. A number, a boolean, text or a
+			player crosses as Pawn takes it. A TypeScript plugin is called through
+			its module instead: it throws.
+
+			Pawn: \`callfunc_begin\`, \`callfunc_push_*\`, \`callfunc_end\`
+		`,
+		ru: `
+			Вызывает публичную функцию плагина на Pawn и возвращает её результат:
+			\`ranks.call("show_rank", player)\`. Число, булево значение, текст или игрок
+			передаются так, как их принимает Pawn. Плагин на TypeScript вызывают через его
+			модуль — бросает ошибку.
+
+			Pawn: \`callfunc_begin\`, \`callfunc_push_*\`, \`callfunc_end\`
+		`,
+	},
+	'Player.send': {
+		en: `
+			Sends him a message of the game by its name, its fields typed as
+			\`server.addMessageListener\` hears them: \`player.send("team", { target:
+			other, team: "CT" })\`. A field left out goes as \`0\` or empty text;
+			every message listener hears it on its way.
+
+			Pawn: \`message_begin(MSG_ONE, ...)\`, \`write_*\`, \`message_end\`, \`get_user_msgid\`
+		`,
+		ru: `
+			Отправляет ему сообщение игры по имени, с полями того же типа, что слышит
+			\`server.addMessageListener\`: \`player.send("team", { target: other, team:
+			"CT" })\`. Пропущенное поле уходит как \`0\` или пустой текст; все слушатели
+			сообщений слышат его по пути.
+
+			Pawn: \`message_begin(MSG_ONE, ...)\`, \`write_*\`, \`message_end\`, \`get_user_msgid\`
+		`,
+	},
+	'Server.send': {
+		en: `
+			Sends everyone a message of the game by its name, its fields typed as
+			\`addMessageListener\` hears them: \`server.send("score", { target: player,
+			frags: 10, deaths: 2, team: "CT" })\`; with \`near\`, only the players who
+			can see that point, as effects go. A field left out goes as \`0\` or empty
+			text; every message listener hears it on its way.
+
+			Pawn: \`message_begin(MSG_ALL, ...)\`, \`write_*\`, \`message_end\`, \`get_user_msgid\`
+		`,
+		ru: `
+			Отправляет всем сообщение игры по имени, с полями того же типа, что слышит
+			\`addMessageListener\`: \`server.send("score", { target: player, frags: 10,
+			deaths: 2, team: "CT" })\`; с \`near\` — только игрокам, которые видят эту
+			точку, как эффекты. Пропущенное поле уходит как \`0\` или пустой текст; все
+			слушатели сообщений слышат его по пути.
+
+			Pawn: \`message_begin(MSG_ALL, ...)\`, \`write_*\`, \`message_end\`, \`get_user_msgid\`
+		`,
+	},
+	'SendOptions': {
+		en: `
+			The options of \`server.send\`: the players a message goes to.
+		`,
+		ru: `
+			Параметры \`server.send\`: игроки, которым уходит сообщение.
+		`,
+	},
+	'SendOptions.near': {
+		en: `
+			Only to the players who can see this point, as effects go - not reliably.
+		`,
+		ru: `
+			Только игрокам, которые видят эту точку, как эффекты, — без гарантии доставки.
+		`,
+	},
+	'Player.eyes': {
+		en: `
+			The point he sees from: his origin and the view's height above it.
+
+			Pawn: \`get_user_origin(id, origin, 1)\`
+		`,
+		ru: `
+			Точка, из которой он смотрит: его позиция и высота взгляда над ней.
+
+			Pawn: \`get_user_origin(id, origin, 1)\`
+		`,
+	},
+	'Player.aim': {
+		en: `
+			The player's aim: \`player.aim.entity\` is what his view meets first - a
+			player, an entity, the world - and \`player.aim.point\` the point.
+
+			Pawn: \`get_user_aiming\`, \`get_user_origin(id, origin, 3)\`
+		`,
+		ru: `
+			Прицел игрока: \`player.aim.entity\` — то, во что первым упирается его
+			взгляд, — игрок, сущность, мир, — а \`player.aim.point\` — эта точка.
+
+			Pawn: \`get_user_aiming\`, \`get_user_origin(id, origin, 3)\`
+		`,
+	},
+	'Player.canSee': {
+		en: `
+			Whether he sees an entity: it is inside his field of view and nothing
+			solid stands between his eyes and it - a player's eyes, an entity's
+			origin. \`false\` for one that is gone.
+
+			Pawn: \`is_visible\`, \`is_in_viewcone\`, \`fm_is_ent_visible\`
+		`,
+		ru: `
+			Видит ли он сущность: она в его поле зрения, и между его глазами и ней нет
+			ничего твёрдого — до глаз игрока, до позиции сущности. \`false\` для сущности,
+			которой уже нет.
+
+			Pawn: \`is_visible\`, \`is_in_viewcone\`, \`fm_is_ent_visible\`
+		`,
+	},
+	'Player.canSeePoint': {
+		en: `
+			Whether he sees a point: it is inside his field of view and nothing
+			solid stands between his eyes and it.
+
+			Pawn: \`is_in_viewcone\`, \`trace_line\`
+		`,
+		ru: `
+			Видит ли он точку: она в его поле зрения, и между его глазами и ней нет
+			ничего твёрдого.
+
+			Pawn: \`is_in_viewcone\`, \`trace_line\`
+		`,
+	},
+	'Aim': {
+		en: `
+			A player's aim: the point his view reaches and what is there.
+		`,
+		ru: `
+			Прицел игрока: точка, до которой доходит взгляд, и что там.
+		`,
+	},
+	'Aim.point': {
+		en: `
+			The point where his view first meets something, as far as 8192 units.
+		`,
+		ru: `
+			Точка, где его взгляд впервые во что-то упирается, не дальше 8192 единиц.
+		`,
+	},
+	'Aim.entity': {
+		en: `
+			The entity at that point: a player, an entity, the world (entity \`0\`), or \`null\` for nothing in reach.
+		`,
+		ru: `
+			Сущность в этой точке: игрок, сущность, мир (сущность \`0\`) или \`null\`, если в пределах досягаемости ничего нет.
+		`,
+	},
+	'Aim.hitGroup': {
+		en: `
+			The part of a player he aims at, \`"generic"\` for anything else.
+		`,
+		ru: `
+			Часть тела игрока, в которую он целится; \`"generic"\` для всего остального.
+		`,
+	},
+	'TraceOptions': {
+		en: `
+			The options of \`trace.line\` and \`trace.hull\`: what a trace passes through.
+		`,
+		ru: `
+			Параметры \`trace.line\` и \`trace.hull\`: то, что проходит трассировка.
+		`,
+	},
+	'TraceOptions.ignore': {
+		en: `
+			An entity the trace passes through: the one it starts from, as a rule.
+		`,
+		ru: `
+			Сущность, сквозь которую трассировка проходит, — как правило, та, от которой она начинается.
+		`,
+	},
+	'TraceOptions.monsters': {
+		en: `
+			Whether it stops at players and monsters too, not only at the world and solid entities; \`true\` when left out.
+		`,
+		ru: `
+			Останавливается ли она и на игроках и монстрах, а не только на мире и твёрдых сущностях; \`true\`, если не указано.
+		`,
+	},
+	'TraceHull': {
+		en: `
+			The size of what a hull trace moves: a point, a standing player, a large monster, a crouching player.
+		`,
+		ru: `
+			Размер того, что двигает трассировка коробки: точка, стоящий игрок, большой монстр, присевший игрок.
+		`,
+	},
+	'TraceResult': {
+		en: `
+			A trace's result: where it stopped, at what, and how.
+		`,
+		ru: `
+			Результат трассировки: где она остановилась, на чём и как.
+		`,
+	},
+	'TraceResult.fraction': {
+		en: `
+			The share of the way it went, \`0\` to \`1\`: \`1\` reached the end.
+		`,
+		ru: `
+			Какую часть пути она прошла, от \`0\` до \`1\`: \`1\` — дошла до конца.
+		`,
+	},
+	'TraceResult.end': {
+		en: `
+			The point it stopped at: the end when nothing was in the way.
+		`,
+		ru: `
+			Точка, где она остановилась: конец пути, если ничего не мешало.
+		`,
+	},
+	'TraceResult.normal': {
+		en: `
+			The direction the surface it hit faces; zero when it hit nothing.
+		`,
+		ru: `
+			Направление, куда обращена поверхность, в которую она попала; нулевой вектор, если ни во что не попала.
+		`,
+	},
+	'TraceResult.entity': {
+		en: `
+			The entity it hit - the world is entity \`0\` - or \`null\` when nothing was in the way.
+		`,
+		ru: `
+			Сущность, в которую она попала (мир — сущность \`0\`), или \`null\`, если ничего не мешало.
+		`,
+	},
+	'TraceResult.startSolid': {
+		en: `
+			Whether it started inside something solid.
+		`,
+		ru: `
+			Началась ли она внутри чего-то твёрдого.
+		`,
+	},
+	'TraceResult.allSolid': {
+		en: `
+			Whether it was inside something solid all the way.
+		`,
+		ru: `
+			Была ли она внутри чего-то твёрдого на всём пути.
+		`,
+	},
+	'TraceResult.inOpen': {
+		en: `
+			Whether it ended in the open air.
+		`,
+		ru: `
+			Закончилась ли она на открытом воздухе.
+		`,
+	},
+	'TraceResult.inWater': {
+		en: `
+			Whether it ended in water.
+		`,
+		ru: `
+			Закончилась ли она в воде.
+		`,
+	},
+	'TraceResult.hitGroup': {
+		en: `
+			The part of a player it hit, \`"generic"\` for anything else.
+		`,
+		ru: `
+			Часть тела игрока, в которую она попала; \`"generic"\` для всего остального.
+		`,
+	},
+	'TraceResult.hit': {
+		en: `
+			Whether something was in the way: \`fraction\` is less than \`1\`.
+		`,
+		ru: `
+			Мешало ли что-то: \`fraction\` меньше \`1\`.
+		`,
+	},
+	'trace': {
+		en: `
+			Traces through the world: a line, \`trace.line(start, end)\`, or a box,
+			\`trace.hull(start, end, "human")\` - what a bullet or a player moving there
+			would meet.
+		`,
+		ru: `
+			Трассировки сквозь мир: линия, \`trace.line(start, end)\`, или коробка,
+			\`trace.hull(start, end, "human")\`, — то, что встретила бы пуля или игрок,
+			движущийся туда.
+		`,
+	},
+	'trace.line': {
+		en: `
+			Traces a line from \`start\` to \`end\` and tells where it stopped and at
+			what: \`trace.line(eyes, eyes.add(forward.scale(8192)), { ignore: player
+			}).entity\`.
+
+			Pawn: \`trace_line\`, \`engfunc(EngFunc_TraceLine, ...)\`, \`get_tr2\`
+		`,
+		ru: `
+			Проводит линию от \`start\` до \`end\` и говорит, где и на чём она
+			остановилась: \`trace.line(eyes, eyes.add(forward.scale(8192)), { ignore:
+			player }).entity\`.
+
+			Pawn: \`trace_line\`, \`engfunc(EngFunc_TraceLine, ...)\`, \`get_tr2\`
+		`,
+	},
+	'trace.hull': {
+		en: `
+			Moves a box of a player's or a monster's size from \`start\` to \`end\`
+			and tells where it stopped: \`trace.hull(origin, origin, "human").startSolid\`
+			- a player put there would be stuck.
+
+			Pawn: \`trace_hull\`, \`engfunc(EngFunc_TraceHull, ...)\`
+		`,
+		ru: `
+			Двигает коробку размером с игрока или монстра от \`start\` до \`end\` и
+			говорит, где она остановилась: \`trace.hull(origin, origin, "human").startSolid\`
+			— игрок, поставленный туда, застрянет.
+
+			Pawn: \`trace_hull\`, \`engfunc(EngFunc_TraceHull, ...)\`
+		`,
+	},
+	'pointContents': {
+		en: `
+			The contents of a point of the world: \`pointContents(origin) == "water"\`. A
+			point inside a wall is \`"solid"\`; flowing water is one of the \`current\`
+			kinds.
+
+			Pawn: \`point_contents\`, \`engfunc(EngFunc_PointContents, ...)\`
+		`,
+		ru: `
+			Содержимое точки мира: \`pointContents(origin) == "water"\`. Точка внутри
+			стены — \`"solid"\`; текущая вода — один из видов \`current\`.
+
+			Pawn: \`point_contents\`, \`engfunc(EngFunc_PointContents, ...)\`
+		`,
+	},
+	'Server.game': {
+		en: `
+			The game's folder, e.g. \`"cstrike"\`, \`"czero"\`.
+
+			Pawn: \`get_modname\`
+		`,
+		ru: `
+			Папка игры, например \`"cstrike"\`, \`"czero"\`.
+
+			Pawn: \`get_modname\`
+		`,
+	},
+	'Server.versions': {
+		en: `
+			The versions of what the server runs: \`server.versions.reGameDll
+			!= null\` on ReGameDLL. ReHLDS's and ReGameDLL's are their API's,
+			\`null\` on a server without them.
+
+			Pawn: \`get_amxx_verstring\`, \`is_rehlds\`, \`is_regamedll\`
+		`,
+		ru: `
+			Версии того, что запущено на сервере: \`server.versions.reGameDll !=
+			null\` на ReGameDLL. У ReHLDS и ReGameDLL — версия их API, \`null\` на сервере
+			без них.
+
+			Pawn: \`get_amxx_verstring\`, \`is_rehlds\`, \`is_regamedll\`
+		`,
+	},
+	'Server.mapExists': {
+		en: `
+			Whether the server has the map: \`server.mapExists("de_dust2")\`.
+
+			Pawn: \`is_map_valid\`
+		`,
+		ru: `
+			Есть ли карта на сервере: \`server.mapExists("de_dust2")\`.
+
+			Pawn: \`is_map_valid\`
+		`,
+	},
+	'Server.changeLevel': {
+		en: `
+			Goes to the map now: \`false\`, staying, for a map the server does not
+			have.
+
+			Pawn: \`engine_changelevel\`, \`server_cmd("changelevel ...")\`
+		`,
+		ru: `
+			Переходит на карту сейчас: \`false\` — и остаётся, — если такой карты на
+			сервере нет.
+
+			Pawn: \`engine_changelevel\`, \`server_cmd("changelevel ...")\`
+		`,
+	},
+	'Server.lightStyle': {
+		en: `
+			The map's light, \`"a"\` the darkest to \`"z"\` the brightest, \`"m"\` the
+			map's own: \`server.lightStyle = "b"\`. It lasts until the map changes.
+
+			Pawn: \`set_lights\`, \`engfunc(EngFunc_LightStyle, 0, ...)\`
+		`,
+		ru: `
+			Свет карты, от \`"a"\`, самого тёмного, до \`"z"\`, самого яркого; \`"m"\` —
+			свет самой карты: \`server.lightStyle = "b"\`. Держится до смены карты.
+
+			Pawn: \`set_lights\`, \`engfunc(EngFunc_LightStyle, 0, ...)\`
+		`,
+	},
+	'Server.print': {
+		en: `
+			Sends every player a message: \`server.print("Round 3")\`, in the chat;
+			\`variant\` puts it in the middle of the screen (\`"center"\`) or the
+			console. Colour tags work as in \`print\`.
+
+			Pawn: \`client_print(0, ...)\`, \`client_print_color(0, ...)\`
+		`,
+		ru: `
+			Отправляет сообщение всем игрокам: \`server.print("Round 3")\` — в чат;
+			\`variant\` выводит его в середину экрана (\`"center"\`) или в консоль. Цветовые
+			теги работают как в \`print\`.
+
+			Pawn: \`client_print(0, ...)\`, \`client_print_color(0, ...)\`
+		`,
+	},
+	'ServerVersions': {
+		en: `
+			The versions of what a server runs: \`server.versions\`.
+		`,
+		ru: `
+			Версии того, что запущено на сервере: \`server.versions\`.
+		`,
+	},
+	'ServerVersions.amxts': {
+		en: `
+			amxts's version, e.g. \`"0.3.0"\`.
+		`,
+		ru: `
+			Версия amxts, например \`"0.3.0"\`.
+		`,
+	},
+	'ServerVersions.amxModX': {
+		en: `
+			AMX Mod X's version, e.g. \`"1.10.0.5467"\`.
+		`,
+		ru: `
+			Версия AMX Mod X, например \`"1.10.0.5467"\`.
+		`,
+	},
+	'ServerVersions.metamod': {
+		en: `
+			Metamod's version, e.g. \`"1.3.0.149"\`.
+		`,
+		ru: `
+			Версия Metamod, например \`"1.3.0.149"\`.
+		`,
+	},
+	'ServerVersions.reHlds': {
+		en: `
+			ReHLDS's API version, e.g. \`"3.14"\`; \`null\` on another engine.
+		`,
+		ru: `
+			Версия API ReHLDS, например \`"3.14"\`; \`null\` на другом движке.
+		`,
+	},
+	'ServerVersions.reGameDll': {
+		en: `
+			ReGameDLL's API version, e.g. \`"5.28"\`; \`null\` on the original game.
+		`,
+		ru: `
+			Версия API ReGameDLL, например \`"5.28"\`; \`null\` в оригинальной игре.
+		`,
+	},
+	'lang.languages': {
+		en: `
+			The languages the loaded dictionaries have, by their codes:
+			\`["en", "ru", "de"]\`.
+
+			Pawn: \`get_langsnum\`, \`get_lang\`
+		`,
+		ru: `
+			Языки, которые есть в загруженных словарях, по их кодам:
+			\`["en", "ru", "de"]\`.
+
+			Pawn: \`get_langsnum\`, \`get_lang\`
+		`,
+	},
+	'Menu.addText': {
+		en: `
+			Adds a line of text under the last item added - under the title when
+			there is none yet - with no number: a note, a price, a heading of the
+			next items. It is shown and hidden with that item.
+
+			Pawn: \`menu_addtext\`, \`menu_addtext2\`
+		`,
+		ru: `
+			Добавляет строку текста под последним добавленным пунктом — под заголовком,
+			если пунктов ещё нет, — без номера: пояснение, цена, заголовок следующих
+			пунктов. Она показывается и скрывается вместе с этим пунктом.
+
+			Pawn: \`menu_addtext\`, \`menu_addtext2\`
+		`,
+	},
+	'Menu.addBlank': {
+		en: `
+			Adds an empty line under the last item added: \`addText("")\`.
+
+			Pawn: \`menu_addblank\`, \`menu_addblank2\`
+		`,
+		ru: `
+			Добавляет пустую строку под последним добавленным пунктом: \`addText("")\`.
+
+			Pawn: \`menu_addblank\`, \`menu_addblank2\`
+		`,
+	},
+	'Player.view': {
+		en: `
+			The entity he sees the world through - a camera, another player -
+			or \`null\` for his own eyes: \`player.view = camera\`, \`player.view =
+			null\` back.
+
+			Pawn: \`attach_view\`, \`engset_view\`, \`engfunc(EngFunc_SetView, ...)\`
+		`,
+		ru: `
+			Сущность, через которую он видит мир, — камера, другой игрок, — или \`null\`
+			для его собственных глаз: \`player.view = camera\`, \`player.view = null\` —
+			обратно.
+
+			Pawn: \`attach_view\`, \`engset_view\`, \`engfunc(EngFunc_SetView, ...)\`
+		`,
+	},
+	'RemoveAllItemsOptions': {
+		en: `
+			The options of \`player.removeAllItems\`: what goes with the weapons.
+		`,
+		ru: `
+			Параметры \`player.removeAllItems\`: что уходит вместе с оружием.
+		`,
+	},
+	'RemoveAllItemsOptions.suit': {
+		en: `
+			The suit too - his armour and the HUD; \`false\` when left out.
+		`,
+		ru: `
+			И костюм — его броню и HUD; \`false\`, если не указано.
+		`,
+	},
+	'Player.loss': {
+		en: `
+			The share of his packets lost, in percent, as the scoreboard's ping
+			column has it.
+
+			Pawn: \`get_user_ping(id, ping, loss)\`
+		`,
+		ru: `
+			Доля его потерянных пакетов в процентах, как в столбце пинга таблицы
+			счёта.
+
+			Pawn: \`get_user_ping(id, ping, loss)\`
+		`,
+	},
 	'GameListenerOptions': {
 		en: `
 			The third argument of \`game.addEventListener\`: \`true\` stands for
@@ -2485,18 +3496,6 @@ export default {
 		en: `The place a message shows, as a string: one of \`"chat"\`, \`"center"\`, \`"console"\` or \`"notify"\`.`,
 		ru: `Место показа сообщения строкой, одно из \`"chat"\`, \`"center"\`, \`"console"\` или \`"notify"\`.`,
 	},
-	'Target': {
-		en: `A message's recipient together with its place: \`{ id: 0, variant: "center" }\`. \`id\` is a player's \`id\`, \`0\` for everyone.`,
-		ru: `Получатель сообщения вместе с местом показа: \`{ id: 0, variant: "center" }\`. \`id\` — \`id\` игрока, \`0\` — все.`,
-	},
-	'Target.id': {
-		en: `The recipient's player \`id\`; \`0\` for every player.`,
-		ru: `\`id\` игрока-получателя; \`0\` — все игроки.`,
-	},
-	'Target.variant': {
-		en: `The place the message shows, one of \`"chat"\` (the default), \`"center"\`, \`"console"\` or \`"notify"\`.`,
-		ru: `Место показа сообщения, одно из \`"chat"\` (по умолчанию), \`"center"\`, \`"console"\` или \`"notify"\`.`,
-	},
 	'paint': {
 		en: `Turns a chat line's colour tags (\`!g\`, \`!r\`, ...) into the colour codes the client reads, and records in \`swapTeam\` which team colour the line needs. \`print\` calls it; exported for tests.`,
 		ru: `Переводит цветовые метки строки чата (\`!g\`, \`!r\`, ...) в коды цвета для клиента и записывает в \`swapTeam\`, какой цвет команды нужен строке. Её вызывает \`print\`; экспортирована для тестов.`,
@@ -2523,17 +3522,16 @@ export default {
 	},
 	'print': {
 		en: `
-			Sends a message to a player, or to every player (\`0\`).
+			Sends a message to a player; to everyone, \`server.print\`.
 
 			\`\`\`ts
 			print(player, "Health restored!");                    // the player's chat
-			print(0, "Round starts in 5 seconds");                // everyone's chat
 			print(player, "Health restored!", "center");          // the middle of the player's screen
-			print({ id: 0, variant: "center" }, "Go!");           // the middle of everyone's screen
+			server.print("Round starts in 5 seconds");            // everyone's chat
 			\`\`\`
 
-			The first argument is a player, a player's \`id\`, or \`0\` for everyone. The third
-			is where the message shows, one of \`"chat"\` (the default), \`"center"\` - the middle of
+			The first argument is a player or a player's \`id\`. The third is where the
+			message shows, one of \`"chat"\` (the default), \`"center"\` - the middle of
 			the screen, \`"console"\` - the player's console, \`"notify"\` - the console too; CS
 			shows it on screen only with \`developer 1\`.
 
@@ -2547,16 +3545,15 @@ export default {
 			Pawn: \`client_print\`, \`client_print_color\`
 		`,
 		ru: `
-			Отправляет сообщение игроку или всем игрокам (\`0\`).
+			Отправляет сообщение игроку; всем — \`server.print\`.
 
 			\`\`\`ts
 			print(player, "Health restored!");                    // чат игрока
-			print(0, "Round starts in 5 seconds");                // чат всех игроков
 			print(player, "Health restored!", "center");          // посередине экрана игрока
-			print({ id: 0, variant: "center" }, "Go!");           // посередине экрана у всех
+			server.print("Round starts in 5 seconds");            // чат всех игроков
 			\`\`\`
 
-			Первый аргумент — игрок, \`id\` игрока или \`0\` — все. Третий — где показать
+			Первый аргумент — игрок или \`id\` игрока. Третий — где показать
 			сообщение, одно из \`"chat"\` (по умолчанию), \`"center"\` — посередине экрана, \`"console"\` —
 			в консоли игрока, \`"notify"\` — тоже в консоли; на экране CS показывает его
 			только при \`developer 1\`.
@@ -3326,61 +4323,131 @@ export default {
 	},
 	'Storage': {
 		en: `
-			A key-to-text store on disk: a Map that survives a map change and a server
-			restart.
+			A key-to-value store on disk: a Map that survives a map change and a
+			server restart.
 
 			\`\`\`ts
-			const demos = new Storage("core_demo_counters");
-			const last = demos.get(auth);      // string | null
-			demos.set(auth, "3");
-			if (demos.has(auth)) ...
-			demos.delete(auth);
+			const points = new Storage<number>("myplugin_points");
+			const mine = points.get(player.steamId) ?? 0;   // undefined when there is none
+			points.set(player.steamId, mine + 1);
+			points.delete(player.steamId);
 			\`\`\`
 
-			The file is named after the storage, kept in the \`vault\` folder of the AMX
-			Mod X data folder, and opened on first use. Values are text: a number goes
-			in with \`toString()\` and comes out with \`parseInt\`.
+			The type argument is what it holds - text by default, a number, a boolean,
+			an object of an interface - kept as JSON. The file is
+			\`amxts/storage/<name>.json\` in AMX Mod X's data folder, written within a
+			second of a change; a name with no file yet takes what AMX Mod X's \`nvault\`
+			kept under that name, once.
 
 			Pawn: \`nvault_open\`, \`nvault_get\`, \`nvault_set\`, \`nvault_remove\`
 		`,
 		ru: `
-			Хранилище текста по ключу на диске: Map, который переживает смену карты и
+			Хранилище значений по ключу на диске: Map, который переживает смену карты и
 			перезапуск сервера.
 
 			\`\`\`ts
-			const demos = new Storage("core_demo_counters");
-			const last = demos.get(auth);      // string | null
-			demos.set(auth, "3");
-			if (demos.has(auth)) ...
-			demos.delete(auth);
+			const points = new Storage<number>("myplugin_points");
+			const mine = points.get(player.steamId) ?? 0;   // undefined, если ничего нет
+			points.set(player.steamId, mine + 1);
+			points.delete(player.steamId);
 			\`\`\`
 
-			Файл называется по имени хранилища, лежит в папке \`vault\` в папке данных
-			AMX Mod X и открывается при первом обращении. Значения — текст: число
-			кладётся через \`toString()\`, а читается через \`parseInt\`.
+			Аргумент типа — то, что в нём лежит: текст по умолчанию, число, булево
+			значение, объект интерфейса; хранится как JSON. Файл —
+			\`amxts/storage/<name>.json\` в папке данных AMX Mod X, записывается не позже
+			чем через секунду после изменения; имя без файла один раз берёт то, что под
+			этим именем хранил \`nvault\` AMX Mod X.
 
 			Pawn: \`nvault_open\`, \`nvault_get\`, \`nvault_set\`, \`nvault_remove\`
 		`,
 	},
 	'Storage.name': {
-		en: `The storage's name, which is also its file's name.`,
-		ru: `Имя хранилища — оно же имя его файла.`,
+		en: `
+			The storage's name, which is also its file's name.
+		`,
+		ru: `
+			Имя хранилища — оно же имя его файла.
+		`,
 	},
 	'Storage.get': {
-		en: `The value under \`key\`, or \`null\` when there is none.`,
-		ru: `Значение по ключу \`key\` или \`null\`, если его нет.`,
+		en: `
+			The value under \`key\`, or \`undefined\` when there is none, as
+			\`Map.get\` gives: \`points.get(player.steamId) ?? 0\`.
+
+			Pawn: \`nvault_get\`, \`nvault_lookup\`
+		`,
+		ru: `
+			Значение по ключу \`key\` или \`undefined\`, если его нет, как у \`Map.get\`:
+			\`points.get(player.steamId) ?? 0\`.
+
+			Pawn: \`nvault_get\`, \`nvault_lookup\`
+		`,
 	},
 	'Storage.set': {
-		en: `Puts \`value\` under \`key\`, replacing what was there.`,
-		ru: `Записывает \`value\` по ключу \`key\`, заменяя прежнее значение.`,
+		en: `
+			Puts \`value\` under \`key\`, replacing what was there; it is on disk
+			within a second.
+
+			Pawn: \`nvault_set\`
+		`,
+		ru: `
+			Записывает \`value\` по ключу \`key\`, заменяя прежнее; на диске оно не позже
+			чем через секунду.
+
+			Pawn: \`nvault_set\`
+		`,
 	},
 	'Storage.has': {
-		en: `\`true\` when there is a value under \`key\`.`,
-		ru: `\`true\`, если по ключу \`key\` есть значение.`,
+		en: `
+			\`true\` when there is a value under \`key\`.
+		`,
+		ru: `
+			\`true\`, если по ключу \`key\` есть значение.
+		`,
 	},
 	'Storage.delete': {
-		en: `Removes \`key\` and its value; a key that is not there is ignored.`,
-		ru: `Удаляет ключ \`key\` вместе со значением; отсутствующий ключ игнорируется.`,
+		en: `
+			Removes \`key\` and its value: \`true\` when it was there.
+
+			Pawn: \`nvault_remove\`
+		`,
+		ru: `
+			Удаляет ключ \`key\` вместе со значением: \`true\`, если он был.
+
+			Pawn: \`nvault_remove\`
+		`,
+	},
+	'Storage.keys': {
+		en: `
+			Every key, in their order as text.
+		`,
+		ru: `
+			Все ключи в их порядке как текста.
+		`,
+	},
+	'Storage.size': {
+		en: `
+			The number of keys it holds.
+		`,
+		ru: `
+			Число ключей в нём.
+		`,
+	},
+	'Storage.prune': {
+		en: `
+			Removes what was last set before \`olderThan\`:
+			\`points.prune(new Date(Date.now() - 30 * 24 * 3600 * 1000))\` - a month
+			untouched. How many keys went.
+
+			Pawn: \`nvault_prune\`
+		`,
+		ru: `
+			Удаляет то, что последний раз записывали раньше \`olderThan\`:
+			\`points.prune(new Date(Date.now() - 30 * 24 * 3600 * 1000))\` — месяц без
+			изменений. Сколько ключей ушло.
+
+			Pawn: \`nvault_prune\`
+		`,
 	},
 	'PawnFunction': {
 		en: `

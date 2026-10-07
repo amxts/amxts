@@ -72,6 +72,23 @@ export const EVENTS: Record<string, EventDoc> = {
 			map: { en: `The map the server changes to, e.g. \`"de_dust2"\`.`, ru: `Карта, на которую переходит сервер, например \`"de_dust2"\`.` },
 		},
 	},
+	plugin_log: {
+		summary: {
+			en: `A line the game writes to its log - a round's end, a kill, a bomb planted: \`event.text\` whole, \`event.args\` its parts.`,
+			ru: `Строка, которую игра пишет в свой лог, — конец раунда, убийство, заложенная бомба: \`event.text\` целиком, \`event.args\` по частям.`,
+		},
+		fields: {
+			text: {
+				en: `The line as the game logs it, without the date: \`World triggered "Round_Start"\`.`,
+				ru: `Строка так, как её пишет игра, без даты: \`World triggered "Round_Start"\`.`,
+			},
+			args: {
+				en: `The line in parts, as AMX Mod X splits it: a quoted text, a text in parentheses and the words between, each one part - \`World triggered "Round_Draw"\` is \`["World triggered", "Round_Draw"]\`.`,
+				ru: `Строка по частям, как её делит AMX Mod X: текст в кавычках, текст в скобках и слова между ними — каждое отдельной частью; \`World triggered "Round_Draw"\` — это \`["World triggered", "Round_Draw"]\`.`,
+			},
+		},
+		example: `server.addEventListener("log", (event) => {\n\tif (event.text.startsWith("World triggered")) console.log(event.args[1]);\n});`,
+	},
 	client_connect: {
 		summary: {
 			en: `A player started connecting. The player is not in the game yet: show him anything after \`"putInServer"\`.`,

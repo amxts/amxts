@@ -17,9 +17,9 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IncludeParser } from '../src/parser/include-parser';
 import { docsLang, docText, pick, renderDoc } from './apply-docs';
-import { CLIENT_MESSAGES, MESSAGE_FIELDS, MESSAGE_GROUPS, MESSAGE_NAMES } from './client-messages';
+import { CLIENT_MESSAGES, MESSAGE_FIELDS, MESSAGE_GROUPS, MESSAGE_NAMES, MESSAGE_WRITES } from './client-messages';
 import { EVENTS, PLAYER_CHANGE } from './docs/events';
-import { ANY_MESSAGE, gameName, MESSAGES, missingField } from './docs/messages';
+import { ANY_MESSAGE, gameName, MESSAGES, missingField, sendFields } from './docs/messages';
 import { GAME_ENUMS, memberName } from './include-enums';
 import { includePath, listIncludes, parseOrder, readInclude, resolveTransitive } from './includes';
 
@@ -259,6 +259,12 @@ interface EventField {
 // Hungarian prefixes the includes put on argument names: iMode, szId, bActive.
 const EVENT_HUNGARIAN = /^(sz|fl|[bif])(?=[A-Z])/;
 
+/** The log event's fields: the line the game logs, whole and in its arguments, as AMX Mod X splits it. */
+const LOG_FIELDS: EventField[] = [
+	{ name: 'text', type: 'string', decode: '__logText()', pawn: 'read_logdata' },
+	{ name: 'args', type: 'string[]', decode: '__logArgs()', pawn: 'read_logargv' },
+];
+
 // Names that read better said out: `event.dropped`, `event.reason`, `event.command`.
 const EVENT_RENAMES: Record<string, string> = {
 	drop: 'dropped',
@@ -333,6 +339,8 @@ const serverEvents: ServerEvent[] = [
 		// His events hand a Client - what he is while connecting - which the
 		// Player made for him implements.
 		if (NOT_IN_GAME.has(f.name) && fields[0]?.type === 'Player') fields[0].type = 'Client';
+		// The log's line has no argument: the module keeps it while it is told.
+		if (f.name === 'plugin_log') fields.push(...LOG_FIELDS);
 		// Named after the whole forward - ClientPutinserverEvent - so none meets a
 		// hookchain's event of the same short name (reapi has its own changeLevel).
 		return { forward: f.name, short, listed, className: `${upperFirst(camelOf(f.name))}Event`, fields };
@@ -673,11 +681,115 @@ function messageKey(m: MessageName) {
 	return [`\t${renderDoc(messageSummary(m), '\t')}`, `\t${m.name}: ${m.fields ? messageClassName(m) : 'ClientMessage'};`].join('\n');
 }
 
+// ---------------------------------------------------------------- sending
+//
+// player.send(name, fields) and server.send: a name's fields are an interface
+// of their own (TeamInfoFields), every field optional; __sendMessage writes
+// them through the listeners' setters into a __MessageOut, then each argument
+// as MESSAGE_WRITES says, through emessage_* so every listener hears it. A
+// name sends the last of its messages, which carries the fields of them all
+// (progressBar is BarTime2).
+
+/** What a field left out is sent as: what its argument reads as at 0 or empty text. */
+const SEND_DEFAULTS: Record<MessageField['kind'], string> = {
+	number: '0',
+	boolean: 'false',
+	string: '""',
+	texts: '[]',
+	player: 'null',
+	weapon: '"none"',
+	team: '"UNASSIGNED"',
+	teamName: '"UNASSIGNED"',
+	vector: '[0, 0, 0]',
+	color: '[]',
+	fixed: '0',
+	bit: 'false',
+	fadeDirection: '"in"',
+	hideHud: '[]',
+	damage: '[]',
+	scoreStatus: '[]',
+	statusIcon: '"hide"',
+	destination: '"notify"',
+	vguiMenu: '"unknown"',
+};
+
+/** How each kind of argument is written: the native, and the value of argument `arg` it takes. */
+const SEND_WRITERS: Record<string, (arg: number) => string> = {
+	'byte': arg => `ewrite_byte(out.int(${arg}))`,
+	'char': arg => `ewrite_char(out.int(${arg}))`,
+	'short': arg => `ewrite_short(out.int(${arg}))`,
+	'long': arg => `ewrite_long(out.int(${arg}))`,
+	'coord': arg => `ewrite_coord_f(out.number(${arg}))`,
+	'angle': arg => `ewrite_angle_f(out.number(${arg}))`,
+	'string': arg => `ewrite_string(out.text(${arg}))`,
+	'string*': arg => `for (let at = ${arg}; at <= out.count; at++) ewrite_string(out.text(at))`,
+};
+
+/** A name a plugin can send: the message it sends, the name's fields, and the message's writes in order. */
+interface SendName {
+	name: string;
+	message: string;
+	fields: NameField[];
+	writes: string[];
+}
+
+function sendClass(m: SendName) {
+	const words = MESSAGES[MESSAGE_GROUPS.get(m.name)![0]];
+	const fields = m.fields.map((field) => {
+		const accessor = MESSAGE_ACCESSORS[field.kind];
+		const text = words.fields?.[field.name];
+		return [
+			...(text ? [`\t${renderDoc(docText(pick(text, DOCS_LANG)), '\t')}`] : []),
+			`\t${field.name}?: ${accessor.takes ?? accessor.type};`,
+		].join('\n');
+	});
+	return [renderDoc(docText(pick(sendFields(m.name, m.message), DOCS_LANG)), ''), `export interface ${m.message}Fields {`, ...fields, `}`].join('\n');
+}
+
+function sendBranch(m: SendName) {
+	const sets = m.fields.map((field) => {
+		const accessor = MESSAGE_ACCESSORS[field.kind];
+		return `\t\t{ const value: ${accessor.takes ?? accessor.type} = fields.${field.name} ?? ${SEND_DEFAULTS[field.kind]}; ${accessor.set(field).replace(/this\./g, 'out.')}; }`;
+	});
+	const writes = m.writes.map((write, i) => {
+		const [kind, constant] = write.split('=');
+		return `\t\t${constant !== undefined ? `ewrite_${kind}(${constant})` : SEND_WRITERS[kind](i + 1)};`;
+	});
+	return [
+		`\tif (idof<F>() == idof<${m.message}Fields>()) {`,
+		`\t\tconst fields = changetype<${m.message}Fields>(given);`,
+		`\t\tconst out = new __MessageOut();`,
+		...sets,
+		`\t\tif (!out.begin("${m.message}", dest, player, origin)) return;`,
+		...writes,
+		`\t\temessage_end();`,
+		`\t\treturn;`,
+		`\t}`,
+	].join('\n');
+}
+
 const strayMessages = [...Object.keys(MESSAGE_FIELDS), ...Object.keys(MESSAGE_NAMES)].filter(name => !CLIENT_MESSAGES.includes(name));
 if (strayMessages.length > 0) throw new Error(`MESSAGE_FIELDS or MESSAGE_NAMES names messages the game does not have: ${strayMessages.join(', ')}`);
 const unnamed = CLIENT_MESSAGES.filter(name => !MESSAGE_NAMES[name]);
 if (unnamed.length > 0) throw new Error(`messages without a name in MESSAGE_NAMES: ${unnamed.join(', ')}`);
 const messageNames = [...MESSAGE_GROUPS].map(messageName);
+
+/** The names a plugin can send, each with the last of its messages, which carries the fields of them all. */
+const sendNames: SendName[] = [];
+for (const m of messageNames) {
+	const message = m.messages.at(-1)!;
+	if (!m.fields || MESSAGE_WRITES[message] === undefined) continue;
+	const writes = MESSAGE_WRITES[message].split(' ').filter(Boolean);
+	const own = MESSAGE_FIELDS[message];
+	if (own.length < m.fields.length) throw new Error(`${m.name}: ${message} does not carry every field of the name, so send cannot send it`);
+	// Every argument is a field's, or a constant: what an author gives is the whole message.
+	const covered = new Set(own.flatMap(f => f.kind === 'vector' ? [f.arg, f.arg + 1, f.arg + 2] : f.kind === 'color' ? Array.from({ length: f.of! }, (_, i) => f.arg + i) : [f.arg]));
+	const loose = writes.map((write, i) => (covered.has(i + 1) || write.includes('=') ? 0 : i + 1)).filter(Boolean);
+	if (loose.length > 0) throw new Error(`MESSAGE_WRITES: no field of ${message} names its argument ${loose.join(', ')}`);
+	sendNames.push({ name: m.name, message, fields: m.fields, writes });
+}
+const unsendable = Object.keys(MESSAGE_WRITES).filter(message => !sendNames.some(m => m.message === message) && MESSAGE_GROUPS.get(MESSAGE_NAMES[message])?.at(-1) === message);
+if (unsendable.length > 0) throw new Error(`MESSAGE_WRITES has messages send cannot send: ${unsendable.join(', ')}`);
 const wordless = messageNames.map(m => m.messages[0]).filter(message => !MESSAGES[message]);
 if (wordless.length > 0) throw new Error(`messages without words in scripts/docs/messages.ts: ${wordless.join(', ')}`);
 
@@ -693,11 +805,12 @@ writeFileSync('./as/events.ts', `// GENERATED by scripts/generate-image.ts — d
 // a patch (runtime/patches: \`K extends keyof M\` and \`M[K]\`), so an untyped
 // \`(event) => ...\` gets the event's type. Underneath, each event keeps its
 // listeners in an array and listens to its forward while the array has any.
-import { Client, ClientMessage, FadeDirection, Player, PlayerChangeEvent, StatusIconState, Team, VariantName, __Listeners, __ServerEvent, __forwardNumbers, __nativeCell, __nativeString, __nativeVector, __off, __onDirect, __playerOf } from "./facade";
+import { Client, ClientMessage, FadeDirection, Player, PlayerChangeEvent, __MessageOut, StatusIconState, Team, VariantName, __Listeners, __ServerEvent, __forwardNumbers, __logArgs, __logText, __nativeCell, __nativeString, __nativeVector, __off, __onDirect, __playerOf } from "./facade";
 import { Vector } from "./vector";
 import { WeaponKind, weaponKindOf } from "./entities";
 import { DAMAGE, Damage, HIDE_HUD, HideHud, SCORE_STATUS, ScoreStatus } from "./flags";
 import { VguiMenu } from "./hooks";
+import { emessage_end, ewrite_angle_f, ewrite_byte, ewrite_char, ewrite_coord_f, ewrite_long, ewrite_short, ewrite_string } from "./natives";
 
 // @ts-ignore: decorator
 @external("env", "on")
@@ -756,6 +869,18 @@ ${serverEvents.filter(e => e.listed).flatMap((e) => {
 /** Every message the server sends its clients, by the name server.addMessageListener takes. */
 export interface ServerMessageMap {
 ${messageNames.map(messageKey).join('\n')}
+}
+
+${sendNames.map(sendClass).join('\n\n')}
+
+/** Every message a plugin can send, by the name player.send and server.send take. */
+export interface ServerSendMap {
+${sendNames.map(m => `\t${renderDoc(messageSummary(messageNames.find(n => n.name === m.name)!), '\t')}\n\t${m.name}: ${m.message}Fields;`).join('\n')}
+}
+
+/** Sends a message of the fields F - player.send's and server.send's hood. */
+export function __sendMessage<F>(given: F, dest: i32, player: i32, origin: Vector | null): void {
+${sendNames.map(sendBranch).join('\n')}
 }
 
 /** The game's names of the messages a name server.addMessageListener takes hears; a name it does not know as it is. */

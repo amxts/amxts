@@ -427,6 +427,7 @@ export const MESSAGES: Record<string, EventDoc> = {
 			slot: { en: `The slot the weapon is in, from \`0\`.`, ru: `Слот оружия, с \`0\`.` },
 			position: { en: `The weapon's place in the slot, from \`0\`.`, ru: `Место оружия в слоте, с \`0\`.` },
 			weapon: { en: `The weapon, by its kind, e.g. \`"ak47"\`.`, ru: `Оружие по его виду, например \`"ak47"\`.` },
+			flags: { en: `The weapon's ITEM_FLAG_* bits: \`8\` for one thrown when it is empty, \`16\` for one used only once.`, ru: `Биты ITEM_FLAG_* оружия: \`8\` — выбрасывается, когда пусто, \`16\` — используется один раз.` },
 		},
 	},
 	WeapPickup: {
@@ -460,3 +461,11 @@ export const ANY_MESSAGE: { args: Text; player: Text } = {
 	args: { en: `Its arguments are read by place, through \`event.args\`.`, ru: `Его аргументы читаются по месту, через \`event.args\`.` },
 	player: receiver,
 };
+
+/** The words of a message's fields for sending: what player.send and server.send take for a name. */
+export function sendFields(name: string, message: string): Text {
+	return {
+		en: `What \`player.send("${name}", ...)\` and \`server.send("${name}", ...)\` take: the game's \`${message}\` message, each field one of its arguments. A field left out goes as \`0\` or empty text.\n\nPawn: \`message_begin(..., get_user_msgid("${message}"))\`, \`write_*\`, \`message_end\``,
+		ru: `Что принимают \`player.send("${name}", ...)\` и \`server.send("${name}", ...)\`: сообщение игры \`${message}\`, каждое поле — один его аргумент. Пропущенное поле уходит как \`0\` или пустой текст.\n\nPawn: \`message_begin(..., get_user_msgid("${message}"))\`, \`write_*\`, \`message_end\``,
+	};
+}

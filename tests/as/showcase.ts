@@ -23,7 +23,7 @@ const tips: Tip[] = [
 ];
 
 /** How many times each player joined - survives a map change. */
-const visits = new Storage("showcase_visits");
+const visits = new Storage<number>("showcase_visits");
 
 /** Other plugins, in Pawn and in TypeScript, hear about every greeting. */
 const greeted = new Forward<string, number>("showcase_on_greeted");
@@ -35,9 +35,8 @@ server.addEventListener("putInServer", (event) => {
 	const player = event.player;
 	if (player.isBot) return;
 
-	const before = visits.get(player.steamId);
-	const count = before != null ? parseInt(before) + 1 : 1;
-	visits.set(player.steamId, count.toString());
+	const count = (visits.get(player.steamId) ?? 0) + 1;
+	visits.set(player.steamId, count);
 
 	print(player, `Welcome to ${server.map}, ${player.name}! Visit #${count}.`);
 	greeted.emit(player.name, count);
@@ -151,7 +150,7 @@ function showMoney(player: Player) {
 /** The server itself. */
 function showServer(player: Player) {
 	print(player, `${server.map}, ${server.maxPlayers} slots, reapi ${hasModule("reapi") ? "loaded" : "missing"}`);
-	print({ id: player.id, variant: "center" }, "Tour complete!");
+	print(player, "Tour complete!", "center");
 
 	// A timer cancelled before it fires.
 	const never = setTimeout(neverRuns, 60000);

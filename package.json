@@ -80,6 +80,7 @@
 		"scripts/typed-configs.ts",
 		"scripts/ui.ts",
 		"scripts/upgrade.ts",
+		"scripts/upgrade-calls.ts",
 		"scripts/upgrade-menus.ts",
 		"scripts/upgrade-names.ts",
 		"includes/*.inc",

@@ -449,10 +449,11 @@ const DISPLAY: Record<string, string> = {
 	'Game': 'game',
 	'lang': 'lang',
 	'effects': 'effects.beamPoints(...), effects.explosion(...), ...',
+	'trace': 'trace.line(...), trace.hull(...)',
 };
 
 /** The instance a class's member is reached through. */
-const INSTANCES: Record<string, string> = { Client: 'player', Screen: 'player.screen', HudLine: 'hudLine' };
+const INSTANCES: Record<string, string> = { Client: 'player', Screen: 'player.screen', HudLine: 'hudLine', ServerPlugin: 'plugin', TraceResult: 'hit', Stats: 'stats', ServerVersions: 'server.versions', Aim: 'player.aim' };
 
 export interface Native {
 	name: string;

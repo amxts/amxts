@@ -26,10 +26,10 @@ import {
 	LibraryExists, module_exists, get_speak, set_speak,
 	read_args, read_argv, set_hudmessage, show_hudmessage, create_cvar, get_cvar_pointer,
 	get_pcvar_float, get_pcvar_num, get_pcvar_string, set_pcvar_float, set_pcvar_num, set_pcvar_string,
-	get_localinfo, register_dictionary,
+	get_localinfo, register_dictionary, get_langsnum, get_lang,
 	set_dhudmessage, show_dhudmessage, CreateHudSyncObj, ShowSyncHudMsg, ClearSyncHud,
 	precache_model, precache_sound, precache_generic, get_user_userid,
-	emessage_begin, ewrite_byte, ewrite_short, ewrite_string, emessage_end, elog_message,
+	emessage_begin, emessage_begin_f, ewrite_byte, ewrite_short, ewrite_string, emessage_end, elog_message,
 	has_reunion, REU_GetAuthKey
 } from "./natives";
 // Promise, async/await and AbortSignal, as the globals they are in JavaScript.
@@ -70,8 +70,42 @@ import { Vector } from "./vector";
 // The game rules' RestartRound and CheckWinConditions, run by the module: 0 when the game has none.
 // @ts-ignore: decorator
 @external("env", "game_rules_run") declare function _gameRulesRun(action: i32): i32;
+// @ts-ignore: decorator
+@external("env", "player_switch_team") declare function _playerSwitchTeam(id: i32): void;
 const RULES_RESTART_ROUND: i32 = 1;
 const RULES_CHECK_WIN: i32 = 2;
+// A player's slots, as removeItems takes them: m_rgpPlayerItems from 1.
+const ITEM_SLOTS: ItemSlot[] = ["primary", "secondary", "knife", "grenades", "c4"];
+// @ts-ignore: decorator
+@external("env", "player_remove_slot") declare function _playerRemoveSlot(id: i32, slot: i32): i32;
+// @ts-ignore: decorator
+@external("env", "player_drop")    declare function _playerDrop(id: i32, name: string): void;
+// What player_stat tells: the user id, the ping, the seconds since he connected.
+// @ts-ignore: decorator
+@external("env", "player_stat")    declare function _playerStat(id: i32, what: i32): i32;
+const STAT_USER_ID: i32 = 1;
+const STAT_PING: i32 = 2;
+const STAT_LOSS: i32 = 3;
+const STAT_CONNECTED: i32 = 4;
+// @ts-ignore: decorator
+@external("env", "info_get")       declare function _userInfo(id: i32, key: string, out: usize, max: i32): i32;
+// @ts-ignore: decorator
+@external("env", "info_set")       declare function _setUserInfo(id: i32, key: string, value: string): void;
+// An address's country from the GeoIP database: its ISO code (1) or English name (2); -1 for none.
+// @ts-ignore: decorator
+@external("env", "geo_country")    declare function _geoCountry(ip: string, what: i32, out: usize, max: i32): i32;
+const GEO_CODE: i32 = 1;
+const GEO_NAME: i32 = 2;
+// The log's line being told: whole, and its arguments as AMX Mod X splits them.
+// @ts-ignore: decorator
+@external("env", "log_text")       declare function _logText(index: i32, out: usize, max: i32): i32;
+// @ts-ignore: decorator
+@external("env", "log_count")      declare function _logCount(): i32;
+// His steps silent (1) or not (0); -1 reads which.
+// @ts-ignore: decorator
+@external("env", "player_silent")  declare function _playerSilent(id: i32, on: i32): i32;
+// The sounds of a slap, the game's own pain sounds.
+const SLAP_SOUNDS = ["player/pl_pain2.wav", "player/pl_pain4.wav", "player/pl_pain5.wav", "player/pl_pain6.wav", "player/pl_pain7.wav"];
 // Reunion's answers about a client, through its API: -1 without Reunion.
 // @ts-ignore: decorator
 @external("env", "reunion")        declare function _reunion(what: i32, id: i32): i32;
@@ -1337,6 +1371,46 @@ export type ItemName =
 	| "weapon_sg552" | "weapon_ak47" | "weapon_knife" | "weapon_p90"
 	| "item_kevlar" | "item_assaultsuit" | "item_thighpack";
 
+/**
+ * A player's item slot, one of `"primary"` (a rifle, a shotgun, a sniper
+ * rifle, the shield), `"secondary"` (the pistol), `"knife"`, `"grenades"` or
+ * `"c4"`.
+ */
+export type ItemSlot = "primary" | "secondary" | "knife" | "grenades" | "c4";
+
+/** The longest userinfo value a player's game keeps. */
+const INFO_MAX: i32 = 256;
+const infoBuffer = new StaticArray<u8>(INFO_MAX);
+
+/**
+ * The settings a player's game tells the server, his userinfo: keys such as
+ * `"model"`, `"cl_righthand"`, `"_vgui_menus"`, each a text.
+ */
+export class UserInfo {
+	constructor(private readonly id: number) {}
+
+	/**
+	 * A key's value: `player.info.get("cl_righthand")` is `"1"`; `""` for a key
+	 * his game did not send.
+	 *
+	 * Pawn: `get_user_info`
+	 */
+	get(key: string): string {
+		const length = _userInfo(<i32>this.id, key, changetype<usize>(infoBuffer), INFO_MAX);
+		return String.UTF8.decodeUnsafe(changetype<usize>(infoBuffer), length);
+	}
+
+	/**
+	 * Writes a key: the server and his game take the new value, as when his
+	 * game changes it itself.
+	 *
+	 * Pawn: `set_user_info`
+	 */
+	set(key: string, value: string): void {
+		_setUserInfo(<i32>this.id, key, value);
+	}
+}
+
 const WEAPON_IDS = [
 	"", "weapon_p228", "", "weapon_scout", "weapon_hegrenade", "weapon_xm1014", "weapon_c4",
 	"weapon_mac10", "weapon_aug", "weapon_smokegrenade", "weapon_elite", "weapon_fiveseven",
@@ -1396,6 +1470,239 @@ export function __sayOnce(text: string): void {
 	if (saidOnce.has(text)) return;
 	saidOnce.add(text);
 	console.warn(text);
+}
+
+/** @hidden An address's country from the GeoIP database, for the hood's tests: its code, else its name; null for none. */
+export function __countryOf(ip: string, code: bool): string | null {
+	return countryOf(ip, code ? GEO_CODE : GEO_NAME);
+}
+
+/** The longest log line the game writes. */
+const LOG_MAX: i32 = 1024;
+const logBuffer = new StaticArray<u8>(LOG_MAX);
+
+/** @hidden The log line being told, whole ("" outside the log event). */
+export function __logText(): string {
+	const length = _logText(-1, changetype<usize>(logBuffer), LOG_MAX);
+	return String.UTF8.decodeUnsafe(changetype<usize>(logBuffer), length);
+}
+
+/** @hidden The log line's arguments, as AMX Mod X's read_logargv gives them. */
+export function __logArgs(): string[] {
+	const args: string[] = [];
+	for (let i = 0, n = _logCount(); i < n; i++) {
+		const length = _logText(i, changetype<usize>(logBuffer), LOG_MAX);
+		args.push(String.UTF8.decodeUnsafe(changetype<usize>(logBuffer), length));
+	}
+	return args;
+}
+
+/** The most of a message-of-the-day's text one MOTD message carries, in bytes. */
+const MOTD_CHUNK: i32 = 175;
+
+/** The server's name on one player's screen: the window titles read it. */
+function sendServerName(id: number, name: string): void {
+	emessage_begin(MSG_ONE, get_user_msgid("ServerName"), [0, 0, 0], <i32>id);
+	ewrite_string(name);
+	emessage_end();
+}
+
+// The server's game, versions, map and light (runtime/src/world.h).
+// @ts-ignore: decorator
+@external("env", "server_text")  declare function _serverText(what: i32, out: usize, max: i32): i32;
+// @ts-ignore: decorator
+@external("env", "map_valid")    declare function _mapValid(name: string): i32;
+// @ts-ignore: decorator
+@external("env", "change_level") declare function _changeLevel(name: string): i32;
+// @ts-ignore: decorator
+@external("env", "light_style")  declare function _lightStyle(text: string): void;
+// @ts-ignore: decorator
+@external("env", "player_view")  declare function _playerView(id: i32, target: i32): void;
+// @ts-ignore: decorator
+@external("env", "player_view_get") declare function _playerViewGet(id: i32): i32;
+const SERVER_GAME: i32 = 1;
+const SERVER_AMXTS: i32 = 2;
+const SERVER_REHLDS: i32 = 3;
+const SERVER_REGAMEDLL: i32 = 4;
+// The light this plugin set; the map's own until then.
+let lightStyle = "m";
+
+function serverText(what: i32): string {
+	const length = _serverText(what, changetype<usize>(infoBuffer), INFO_MAX);
+	return String.UTF8.decodeUnsafe(changetype<usize>(infoBuffer), length);
+}
+
+/** The versions of what a server runs: `server.versions`. */
+export class ServerVersions {
+	constructor(
+		/** amxts's version, e.g. `"0.3.0"`. */
+		readonly amxts: string,
+		/** AMX Mod X's version, e.g. `"1.10.0.5467"`. */
+		readonly amxModX: string,
+		/** Metamod's version, e.g. `"1.3.0.149"`. */
+		readonly metamod: string,
+		/** ReHLDS's API version, e.g. `"3.14"`; `null` on another engine. */
+		readonly reHlds: string | null,
+		/** ReGameDLL's API version, e.g. `"5.28"`; `null` on the original game. */
+		readonly reGameDll: string | null,
+	) {}
+}
+
+/** The options of `player.removeAllItems`: what goes with the weapons. */
+export interface RemoveAllItemsOptions {
+	/** The suit too - his armour and the HUD; `false` when left out. */
+	suit?: boolean;
+}
+
+// The names player.give was given that the game has no item of: each said once.
+const unknownItems = new Set<string>();
+
+// The plugins of the server: the module's list of TypeScript plugins, and AMX Mod X's of Pawn ones.
+// @ts-ignore: decorator
+@external("env", "plugins_count")  declare function _pluginsCount(): i32;
+// @ts-ignore: decorator
+@external("env", "plugin_text")    declare function _pluginText(index: i32, what: i32, out: usize, max: i32): i32;
+// @ts-ignore: decorator
+@external("env", "plugin_state")   declare function _pluginState(index: i32): i32;
+// @ts-ignore: decorator
+@external("env", "plugin_action")  declare function _pluginAction(name: string, action: i32): void;
+// @ts-ignore: decorator
+@external("env", "pawn_plugins_count") declare function _pawnPluginsCount(): i32;
+// @ts-ignore: decorator
+@external("env", "pawn_plugin_text")   declare function _pawnPluginText(index: i32, what: i32, out: usize, max: i32): i32;
+// @ts-ignore: decorator
+@external("env", "pawn_plugin_pause")  declare function _pawnPluginPause(file: string, on: i32): i32;
+const PLUGIN_FILE: i32 = 1;
+const PLUGIN_TITLE: i32 = 2;
+const PLUGIN_VERSION: i32 = 3;
+const PLUGIN_AUTHOR: i32 = 4;
+const PLUGIN_STOP: i32 = 1;
+const PLUGIN_START: i32 = 2;
+const PLUGIN_RELOAD: i32 = 3;
+// get_plugin's fields, in its order: the file, the title, the version, the author, the status.
+const PAWN_FILE: i32 = 1;
+const PAWN_TITLE: i32 = 2;
+const PAWN_VERSION: i32 = 3;
+const PAWN_AUTHOR: i32 = 4;
+const PAWN_STATUS: i32 = 5;
+
+function pluginText(index: i32, what: i32): string {
+	const length = _pluginText(index, what, changetype<usize>(infoBuffer), INFO_MAX);
+	return String.UTF8.decodeUnsafe(changetype<usize>(infoBuffer), length);
+}
+
+function pawnPluginText(index: i32, what: i32): string {
+	const length = _pawnPluginText(index, what, changetype<usize>(infoBuffer), INFO_MAX);
+	return String.UTF8.decodeUnsafe(changetype<usize>(infoBuffer), length);
+}
+
+/** The language a plugin is written in, one of `"typescript"` or `"pawn"`. */
+export type PluginLanguage = "typescript" | "pawn";
+
+/**
+ * A plugin on the server, TypeScript or Pawn, as `server.plugins` lists it:
+ * its file, what it says it is, whether it runs - and the means to stop it,
+ * start it again and reload it.
+ */
+export class ServerPlugin {
+	constructor(
+		private readonly index: i32,
+		/** `"typescript"` or `"pawn"`. */
+		readonly language: PluginLanguage,
+		/** The plugin's file, as the server's list names it, e.g. `"shop.aot"`, `"admin.amxx"`. */
+		readonly file: string,
+		/** The name it gives itself (`plugin()`, `register_plugin`). */
+		readonly name: string,
+		/** The version it gives. */
+		readonly version: string,
+		/** The author it names. */
+		readonly author: string,
+	) {}
+
+	/**
+	 * Whether it runs: not stopped, not refused, not paused.
+	 *
+	 * Pawn: `get_plugin(..., status)`
+	 */
+	get running(): boolean {
+		if (this.language == "typescript") return _pluginState(this.index) == 0;
+		return pawnPluginText(this.index, PAWN_STATUS) == "running";
+	}
+
+	/**
+	 * Stops it at the next frame. A TypeScript plugin is unloaded, and what
+	 * it registered with it, until `start()` or the map changes; a Pawn plugin
+	 * is paused, as AMX Mod X pauses one.
+	 *
+	 * Pawn: `pause`, `amxts_unload`
+	 */
+	stop(): void {
+		if (this.language == "typescript") _pluginAction(this.file, PLUGIN_STOP);
+		else _pawnPluginPause(this.file, 1);
+	}
+
+	/**
+	 * Starts it again: a TypeScript plugin loaded at the next frame, a Pawn
+	 * plugin let run again.
+	 *
+	 * Pawn: `unpause`, `amxts_load`
+	 */
+	start(): void {
+		if (this.language == "typescript") _pluginAction(this.file, PLUGIN_START);
+		else _pawnPluginPause(this.file, 0);
+	}
+
+	/**
+	 * Starts a TypeScript plugin over from its file at the next frame. A Pawn
+	 * plugin cannot be: AMX Mod X loads its plugins once a map - it throws.
+	 *
+	 * Pawn: `amxts_reload`
+	 */
+	reload(): void {
+		if (this.language == "pawn") throw new Error(`${this.file} is a Pawn plugin: AMX Mod X cannot reload it`);
+		_pluginAction(this.file, PLUGIN_RELOAD);
+	}
+
+	/**
+	 * Calls a public function of a Pawn plugin and gives what it returns:
+	 * `ranks.call("show_rank", player)`. A number, a boolean, text or a
+	 * player crosses as Pawn takes it. A TypeScript plugin is called through
+	 * its module instead: it throws.
+	 *
+	 * Pawn: `callfunc_begin`, `callfunc_push_*`, `callfunc_end`
+	 */
+	call<T1 = NoArgument, T2 = NoArgument, T3 = NoArgument, T4 = NoArgument, T5 = NoArgument, T6 = NoArgument>(
+		name: string, a1: T1 = zeroOf<T1>(), a2: T2 = zeroOf<T2>(), a3: T3 = zeroOf<T3>(), a4: T4 = zeroOf<T4>(), a5: T5 = zeroOf<T5>(), a6: T6 = zeroOf<T6>(),
+	): number {
+		if (this.language == "typescript") throw new Error(`${this.file} is a TypeScript plugin: call it through its module`);
+		const fn = PawnFunction.find(this.index, name);
+		if (fn == null) throw new Error(`${this.file} has no public ${name}`);
+		const call = fn.call();
+		pushPawn<T1>(call, a1);
+		pushPawn<T2>(call, a2);
+		pushPawn<T3>(call, a3);
+		pushPawn<T4>(call, a4);
+		pushPawn<T5>(call, a5);
+		pushPawn<T6>(call, a6);
+		return call.run();
+	}
+}
+
+/** An argument of a Pawn public, as its type says: a number, a boolean, text, a player's index; nothing for one left out. */
+function pushPawn<T>(call: PawnCall, value: T): void {
+	if (isString<T>()) call.text(changetype<string>(value));
+	else if (isBoolean<T>()) call.bool(<bool>value);
+	else if (!isReference<T>()) call.int(<f64>value);
+	// @ts-ignore: a Player's or an Entity's index, looked for at compile time
+	else if (isDefined(changetype<T>(0).id)) call.int(value ? <i32>changetype<T>(value).id : 0);
+	// An argument left out: known at compile time, as the type is.
+	else if (!(changetype<T>(0) instanceof NoArgument)) ERROR("a Pawn public takes a number, a boolean, text or a Player");
+}
+
+/** An address's country from the GeoIP database: its code or name; null for none. */
+function countryOf(ip: string, what: i32): string | null {
+	const length = _geoCountry(ip, what, changetype<usize>(infoBuffer), INFO_MAX);
+	return length < 0 ? null : String.UTF8.decodeUnsafe(changetype<usize>(infoBuffer), length);
 }
 
 /** A member of every player, by its gamedata name, its slot looked up the first time it is used. */
@@ -1506,6 +1813,11 @@ export interface Client {
 	readonly authKey: string;
 	/** `true` for a bot. */
 	readonly isBot: boolean;
+	/**
+	 * `true` for an HLTV proxy: a spectator's relay, which `server.players`
+	 * leaves out.
+	 */
+	readonly isHltv: boolean;
 	/** `true` while the player is on the server. */
 	readonly isConnected: boolean;
 	/** The player's admin rights, from the letters in `users.ini`: `client.access.includes("cvar")`. */
@@ -1825,6 +2137,13 @@ export class Player extends PlayerFields implements Client {
 	 * Pawn: `is_user_bot`
 	 */
 	get isBot(): boolean { return is_user_bot(this.id) != 0; }
+	/**
+	 * `true` for an HLTV proxy: a spectator's relay, which `server.players`
+	 * leaves out.
+	 *
+	 * Pawn: `is_user_hltv`
+	 */
+	get isHltv(): boolean { return this.flags.includes("proxy"); }
 
 	/**
 	 * A signal that aborts when the player leaves the server, with an Error named
@@ -1922,22 +2241,29 @@ export class Player extends PlayerFields implements Client {
 
 	/**
 	 * Gives the player a weapon or an item: `player.give("weapon_flashbang")`.
-	 * `false` if the game did not give it.
+	 * `false` if the game did not give it. A name read from a config goes
+	 * as it is; one the game has no item of is said once in the console.
 	 *
 	 * Pawn: `rg_give_item`, `give_item`
 	 */
-	give(item: ItemName): boolean {
-		return _playerGive(this.id, item) > 0;
+	give<T extends ItemName | (string & {})>(item: T): boolean {
+		const name = changetype<string>(item);
+		const given = _playerGive(this.id, name);
+		if (given < 0 && !unknownItems.has(name)) {
+			unknownItems.add(name);
+			console.error(`player.give("${name}"): the game has no item of that name`);
+		}
+		return given > 0;
 	}
 
 	/**
-	 * Takes all the player's weapons away. The suit (armour, HUD) stays unless
-	 * `removeSuit` is `true`.
+	 * Takes all the player's weapons away: `player.removeAllItems()`. The
+	 * suit - armour and the HUD - stays, unless `{ suit: true }`.
 	 *
 	 * Pawn: `rg_remove_all_items`, `strip_user_weapons`
 	 */
-	removeAllItems(removeSuit: boolean = false): void {
-		_playerStrip(this.id, removeSuit ? 1 : 0);
+	removeAllItems(options: RemoveAllItemsOptions = {}): void {
+		_playerStrip(this.id, options.suit ?? false ? 1 : 0);
 	}
 
 	/**
@@ -2010,6 +2336,234 @@ export class Player extends PlayerFields implements Client {
 	resetMaxSpeed(): void {
 		_playerSpeed(this.id);
 	}
+
+	/**
+	 * Takes every item of one of the player's slots, with its ammo:
+	 * `player.removeItems("primary")`. `false` when one stayed.
+	 *
+	 * Pawn: `rg_remove_items_by_slot`
+	 */
+	removeItems(slot: ItemSlot): boolean {
+		return _playerRemoveSlot(this.id, ITEM_SLOTS.indexOf(slot) + 1) != 0;
+	}
+
+	/**
+	 * Drops a weapon the player carries, as the game's `drop` does:
+	 * `player.dropItem("weapon_c4")`; with no name, the one in his hands. The
+	 * weapon, now in a box on the ground, or `null` when he has none or the
+	 * game kept it (a knife).
+	 *
+	 * Pawn: `rg_drop_item`, `engclient_cmd(id, "drop")`
+	 */
+	dropItem(weapon: WeaponName | null = null): Weapon | null {
+		const name = weapon ?? this.activeItem?.classname ?? "";
+		const item = this.items.find(each => each.classname == name);
+		if (!item) return null;
+
+		_playerDrop(this.id, name);
+		return this.items.some(each => each.id == item.id) ? null : item;
+	}
+
+	/**
+	 * The entity he sees the world through - a camera, another player -
+	 * or `null` for his own eyes: `player.view = camera`, `player.view =
+	 * null` back.
+	 *
+	 * Pawn: `attach_view`, `engset_view`, `engfunc(EngFunc_SetView, ...)`
+	 */
+	get view(): Entity | null {
+		const id = _playerViewGet(this.id);
+		return id <= 0 ? null : id <= get_maxplayers() ? __playerOf(id) : new Entity(id);
+	}
+
+	set view(entity: Entity | null) {
+		_playerView(this.id, entity == null ? 0 : changetype<Entity>(entity).id);
+	}
+
+	/**
+	 * The point he sees from: his origin and the view's height above it.
+	 *
+	 * Pawn: `get_user_origin(id, origin, 1)`
+	 */
+	get eyes(): Vector {
+		return this.origin.add(this.viewOffset);
+	}
+
+	/**
+	 * The player's aim: `player.aim.entity` is what his view meets first - a
+	 * player, an entity, the world - and `player.aim.point` the point.
+	 *
+	 * Pawn: `get_user_aiming`, `get_user_origin(id, origin, 3)`
+	 */
+	get aim(): Aim {
+		const eyes = this.eyes;
+		const hit = trace.line(eyes, eyes.add(Vector.fromAngles(this.viewAngle).scale(AIM_REACH)), { ignore: this });
+		return new Aim(hit.end, hit.fraction < 1 ? hit.entity : null, hit.hitGroup);
+	}
+
+	/**
+	 * Whether he sees an entity: it is inside his field of view and nothing
+	 * solid stands between his eyes and it - a player's eyes, an entity's
+	 * origin. `false` for one that is gone.
+	 *
+	 * Pawn: `is_visible`, `is_in_viewcone`, `fm_is_ent_visible`
+	 */
+	canSee(entity: Entity): boolean {
+		if (!entity.exists) return false;
+		const id = entity.id;
+		const point = id >= 1 && id <= get_maxplayers() ? __playerOf(id).eyes : entity.origin;
+		if (!this.facing(point)) return false;
+		const hit = trace.line(this.eyes, point, { ignore: this, monsters: false });
+		return hit.fraction == 1 || (hit.entity != null && hit.entity!.id == id);
+	}
+
+	/**
+	 * Whether he sees a point: it is inside his field of view and nothing
+	 * solid stands between his eyes and it.
+	 *
+	 * Pawn: `is_in_viewcone`, `trace_line`
+	 */
+	canSeePoint(point: number[]): boolean {
+		return this.facing(point) && trace.line(this.eyes, point, { ignore: this, monsters: false }).fraction == 1;
+	}
+
+	/** Whether a point is inside his field of view, flat as the engine's view cone is: half the fov to each side of where he looks. */
+	private facing(point: number[]): bool {
+		const eyes = this.eyes;
+		const look = Vector.fromAngles(this.viewAngle);
+		const toward = new Vector(point[0] - eyes.x, point[1] - eyes.y, 0).normalize();
+		const ahead = new Vector(look.x, look.y, 0).normalize();
+		const fov = this.fov > 0 ? this.fov : 90;
+		return toward.dot(ahead) >= Math.cos(fov * Math.PI / 360);
+	}
+
+	/**
+	 * Sends him a message of the game by its name, its fields typed as
+	 * `server.addMessageListener` hears them: `player.send("team", { target:
+	 * other, team: "CT" })`. A field left out goes as `0` or empty text;
+	 * every message listener hears it on its way.
+	 *
+	 * Pawn: `message_begin(MSG_ONE, ...)`, `write_*`, `message_end`, `get_user_msgid`
+	 */
+	send<K extends keyof ServerSendMap>(name: K, fields: ServerSendMap[K]): void {
+		__sendMessage<ServerSendMap[K]>(fields, MSG_ONE, this.id, null);
+	}
+
+	/**
+	 * Shows the message-of-the-day window: `player.showMotd("Rules: ...")`,
+	 * a page's address (`"https://my-server.com/rules"`) or HTML; `title` on
+	 * its top, the server's name when left out.
+	 *
+	 * Pawn: `show_motd`
+	 */
+	showMotd(text: string, title: string = ""): void {
+		const name = get_cvar_string("hostname");
+		if (title.length > 0) sendServerName(this.id, title);
+		const bytes = String.UTF8.encode(text);
+		const size = bytes.byteLength;
+		let at = 0;
+		do {
+			let end = min(at + MOTD_CHUNK, size);
+			// A chunk ends between whole characters: never inside a UTF-8 sequence.
+			while (end < size && (load<u8>(changetype<usize>(bytes) + end) & 0xC0) == 0x80) end--;
+			const chunk = String.UTF8.decodeUnsafe(changetype<usize>(bytes) + at, end - at);
+			emessage_begin(MSG_ONE, get_user_msgid("MOTD"), [0, 0, 0], this.id);
+			ewrite_byte(end >= size ? 1 : 0);
+			ewrite_string(chunk);
+			emessage_end();
+			at = end;
+		} while (at < size);
+		if (title.length > 0) sendServerName(this.id, name);
+	}
+
+	/**
+	 * Slaps the player as an admin's slap does: a push in a random direction,
+	 * his view jolted, a pain sound, and `damage` taken from his health - the
+	 * last of it kills him.
+	 *
+	 * Pawn: `user_slap`
+	 */
+	slap(damage: number = 0): void {
+		if (!this.isAlive) return;
+
+		if (damage >= this.health) {
+			this.kill();
+			return;
+		}
+		this.health -= damage;
+		const push = this.velocity;
+		push.x += (Math.random() < 0.5 ? -1 : 1) * (120 + Math.random() * 60);
+		push.y += (Math.random() < 0.5 ? -1 : 1) * (120 + Math.random() * 60);
+		push.z += 200 + Math.random() * 50;
+		this.velocity = push;
+		this.punchAngle = [Math.random() * 40 - 20, Math.random() * 40 - 20, 0];
+		this.emitSound(SLAP_SOUNDS[<i32>Math.floor(Math.random() * SLAP_SOUNDS.length)]);
+	}
+
+	/**
+	 * The country the player connects from, in English, e.g. `"Germany"`; `null`
+	 * when the GeoIP database does not know his address (a LAN, a bot) or the
+	 * server has none.
+	 *
+	 * Pawn: `geoip_country_ex`
+	 */
+	get country(): string | null { return countryOf(this.ip, GEO_NAME); }
+
+	/**
+	 * The two letters of the country the player connects from, e.g. `"DE"`;
+	 * `null` when the GeoIP database does not know his address or the server
+	 * has none.
+	 *
+	 * Pawn: `geoip_code2_ex`
+	 */
+	get countryCode(): string | null { return countryOf(this.ip, GEO_CODE); }
+
+	/**
+	 * The player's number for the server's commands, which stays while he is
+	 * on the server: `` server.command(`kick #${player.userId}`) ``.
+	 *
+	 * Pawn: `get_user_userid`
+	 */
+	get userId(): number { return _playerStat(this.id, STAT_USER_ID); }
+
+	/**
+	 * The player's ping, in milliseconds, as the scoreboard shows it.
+	 *
+	 * Pawn: `get_user_ping`
+	 */
+	get ping(): number { return _playerStat(this.id, STAT_PING); }
+
+	/**
+	 * The share of his packets lost, in percent, as the scoreboard's ping
+	 * column has it.
+	 *
+	 * Pawn: `get_user_ping(id, ping, loss)`
+	 */
+	get loss(): number { return _playerStat(this.id, STAT_LOSS); }
+
+	/**
+	 * The player's time on the server since he connected, in seconds.
+	 *
+	 * Pawn: `get_user_time`
+	 */
+	get connectedSeconds(): number { return _playerStat(this.id, STAT_CONNECTED); }
+
+	/**
+	 * The settings the player's game tells the server - his userinfo:
+	 * `player.info.get("cl_righthand")`, `player.info.set("_vgui_menus", "0")`.
+	 *
+	 * Pawn: `get_user_info`, `set_user_info`
+	 */
+	get info(): UserInfo { return new UserInfo(this.id); }
+
+	/**
+	 * Whether the player's steps make no sound: `player.silentSteps = true`.
+	 * It lasts until he respawns.
+	 *
+	 * Pawn: `set_user_footsteps`, `rg_set_user_footsteps`
+	 */
+	get silentSteps(): boolean { return _playerSilent(this.id, -1) != 0; }
+	set silentSteps(value: boolean) { _playerSilent(this.id, value ? 1 : 0); }
 
 	/**
 	 * Runs a command in the player's own console, as if he had typed it:
@@ -2645,6 +3199,16 @@ export class HudLine {
 		if (this.handle >= 0) ClearSyncHud(player.id, this.handle);
 	}
 
+	/**
+	 * Shows `text` to everyone on this line: `countdown.showAll(`${left}`)`.
+	 *
+	 * Pawn: `ShowSyncHudMsg(0, ...)`
+	 */
+	showAll(text: string, options: HudOptions = {}): void {
+		const players = server.players;
+		for (let i = 0; i < players.length; i++) this.show(players[i], text, options);
+	}
+
 	/** Removes the line's message from every screen. */
 	clearAll(): void {
 		if (this.handle >= 0) ClearSyncHud(0, this.handle);
@@ -2765,6 +3329,19 @@ export class Screen {
 		if (status != 0) {
 			for (let i = 0; i < 3; i++) ewrite_byte(i < color.length ? <i32>color[i] : 0);
 		}
+		emessage_end();
+	}
+
+	/**
+	 * Shows a hint in the box at the top of the player's screen, as the game
+	 * shows its own: `player.screen.hint("Plant the bomb")`.
+	 *
+	 * Pawn: `rg_hint_message`, `HudTextPro`
+	 */
+	hint(text: string): void {
+		this.begin("HudTextPro");
+		ewrite_string(text);
+		ewrite_byte(1);
 		emessage_end();
 	}
 
@@ -3159,6 +3736,85 @@ export class ClientMessage {
 	protected __setBit(arg: i32, bit: i32, on: bool): void {
 		const mask = <i32>this.__number(arg);
 		this.__setNumber(arg, on ? mask | bit : mask & ~bit);
+	}
+}
+
+/** The options of `server.send`: the players a message goes to. */
+export interface SendOptions {
+	/** Only to the players who can see this point, as effects go - not reliably. */
+	near?: Vector | null;
+}
+
+/**
+ * @hidden A message being sent by its fields (player.send): each argument's
+ * number or text by its place from 1, set as a heard message's fields set
+ * theirs, then written in the message's order.
+ */
+export class __MessageOut {
+	private numbers: f64[] = [];
+	private texts: string[] = [];
+
+	/** How many arguments it has: the last one set. */
+	get count(): i32 {
+		return this.numbers.length;
+	}
+
+	int(arg: i32): i32 {
+		return <i32>this.__number(arg);
+	}
+
+	number(arg: i32): f64 {
+		return this.__number(arg);
+	}
+
+	text(arg: i32): string {
+		return arg <= this.texts.length ? this.texts[arg - 1] : "";
+	}
+
+	/** Begins the message through the engine, so every listener hears it; false for a message the game does not have. */
+	begin(message: string, dest: i32, player: i32, origin: Vector | null): bool {
+		const type = get_user_msgid(message);
+		if (type <= 0) return false;
+		emessage_begin_f(dest, type, origin != null ? [origin.x, origin.y, origin.z] : [0, 0, 0], player);
+		return true;
+	}
+
+	__number(arg: i32): f64 {
+		return arg <= this.numbers.length ? this.numbers[arg - 1] : 0;
+	}
+
+	__setNumber(arg: i32, value: f64): void {
+		this.reach(arg);
+		this.numbers[arg - 1] = value;
+	}
+
+	__setText(arg: i32, value: string): void {
+		this.reach(arg);
+		this.texts[arg - 1] = value;
+	}
+
+	__setTexts(arg: i32, value: string[]): void {
+		for (let i = 0; i < value.length; i++) this.__setText(arg + i, value[i]);
+	}
+
+	__setVector(arg: i32, value: number[]): void {
+		for (let i = 0; i < 3; i++) this.__setNumber(arg + i, i < value.length ? value[i] : 0);
+	}
+
+	__setBytes(arg: i32, value: number[]): void {
+		for (let i = 0; i < value.length; i++) this.__setNumber(arg + i, value[i]);
+	}
+
+	__setBit(arg: i32, bit: i32, on: bool): void {
+		const mask = <i32>this.__number(arg);
+		this.__setNumber(arg, on ? mask | bit : mask & ~bit);
+	}
+
+	private reach(arg: i32): void {
+		while (this.numbers.length < arg) {
+			this.numbers.push(0);
+			this.texts.push("");
+		}
 	}
 }
 
@@ -3627,6 +4283,20 @@ export class Server {
 		for (let i = 0; i < messages.length; i++) listenToMessage<ServerMessageMap[K]>(messages[i], listener);
 	}
 
+	/**
+	 * Sends everyone a message of the game by its name, its fields typed as
+	 * `addMessageListener` hears them: `server.send("score", { target: player,
+	 * frags: 10, deaths: 2, team: "CT" })`; with `near`, only the players who
+	 * can see that point, as effects go. A field left out goes as `0` or empty
+	 * text; every message listener hears it on its way.
+	 *
+	 * Pawn: `message_begin(MSG_ALL, ...)`, `write_*`, `message_end`, `get_user_msgid`
+	 */
+	send<K extends keyof ServerSendMap>(name: K, fields: ServerSendMap[K], options: SendOptions = {}): void {
+		const near = options.near ?? null;
+		__sendMessage<ServerSendMap[K]>(fields, near != null ? MSG_PVS : MSG_ALL, 0, near);
+	}
+
 	/** Stops calling a listener added with `addMessageListener` - the same name and the same function. */
 	removeMessageListener<K extends keyof ServerMessageMap>(name: K, listener: (event: ServerMessageMap[K]) => void): void {
 		const messages = protocolMessageNames(name);
@@ -3734,6 +4404,76 @@ export class Server {
 	}
 
 	/**
+	 * The game's folder, e.g. `"cstrike"`, `"czero"`.
+	 *
+	 * Pawn: `get_modname`
+	 */
+	get game(): string {
+		return serverText(SERVER_GAME);
+	}
+
+	/**
+	 * The versions of what the server runs: `server.versions.reGameDll
+	 * != null` on ReGameDLL. ReHLDS's and ReGameDLL's are their API's,
+	 * `null` on a server without them.
+	 *
+	 * Pawn: `get_amxx_verstring`, `is_rehlds`, `is_regamedll`
+	 */
+	get versions(): ServerVersions {
+		const reHlds = serverText(SERVER_REHLDS);
+		const reGameDll = serverText(SERVER_REGAMEDLL);
+		return new ServerVersions(
+			serverText(SERVER_AMXTS), get_cvar_string("amxmodx_version"), get_cvar_string("metamod_version"),
+			reHlds.length > 0 ? reHlds : null, reGameDll.length > 0 ? reGameDll : null,
+		);
+	}
+
+	/**
+	 * Whether the server has the map: `server.mapExists("de_dust2")`.
+	 *
+	 * Pawn: `is_map_valid`
+	 */
+	mapExists(map: string): boolean {
+		return _mapValid(map) != 0;
+	}
+
+	/**
+	 * Goes to the map now: `false`, staying, for a map the server does not
+	 * have.
+	 *
+	 * Pawn: `engine_changelevel`, `server_cmd("changelevel ...")`
+	 */
+	changeLevel(map: string): boolean {
+		return _changeLevel(map) != 0;
+	}
+
+	/**
+	 * The map's light, `"a"` the darkest to `"z"` the brightest, `"m"` the
+	 * map's own: `server.lightStyle = "b"`. It lasts until the map changes.
+	 *
+	 * Pawn: `set_lights`, `engfunc(EngFunc_LightStyle, 0, ...)`
+	 */
+	get lightStyle(): string {
+		return lightStyle;
+	}
+
+	set lightStyle(value: string) {
+		lightStyle = value.length > 0 ? value : "m";
+		_lightStyle(lightStyle);
+	}
+
+	/**
+	 * Sends every player a message: `server.print("Round 3")`, in the chat;
+	 * `variant` puts it in the middle of the screen (`"center"`) or the
+	 * console. Colour tags work as in `print`.
+	 *
+	 * Pawn: `client_print(0, ...)`, `client_print_color(0, ...)`
+	 */
+	print(message: string, variant: VariantName = "chat"): void {
+		send(0, variantOf(variant), message);
+	}
+
+	/**
 	 * Runs a command in the server console, as if typed there:
 	 * `server.command("changelevel de_dust2")`. The text goes as it is: a `%` stays a `%`.
 	 *
@@ -3760,6 +4500,34 @@ export class Server {
 	 */
 	get commands(): CommandInfo[] {
 		return commandInfos.slice(0);
+	}
+
+	/**
+	 * Every plugin on the server, TypeScript and Pawn, read anew each time:
+	 * `server.plugins.find(plugin => plugin.file == "shop.aot")?.stop()`.
+	 *
+	 * Pawn: `get_plugin`, `get_pluginsnum`, `find_plugin_byfile`, `is_plugin_loaded`
+	 */
+	get plugins(): ServerPlugin[] {
+		const list: ServerPlugin[] = [];
+		for (let i = 0, n = _pluginsCount(); i < n; i++) {
+			list.push(new ServerPlugin(i, "typescript", pluginText(i, PLUGIN_FILE), pluginText(i, PLUGIN_TITLE), pluginText(i, PLUGIN_VERSION), pluginText(i, PLUGIN_AUTHOR)));
+		}
+		for (let i = 0, n = _pawnPluginsCount(); i < n; i++) {
+			list.push(new ServerPlugin(i, "pawn", pawnPluginText(i, PAWN_FILE), pawnPluginText(i, PAWN_TITLE), pawnPluginText(i, PAWN_VERSION), pawnPluginText(i, PAWN_AUTHOR)));
+		}
+		return list;
+	}
+
+	/**
+	 * Loads a TypeScript plugin of the server's `plugins` folder the list
+	 * does not name, at the next frame: `server.loadPlugin("event.aot")`. It
+	 * runs until the map changes.
+	 *
+	 * Pawn: `amxts_load`
+	 */
+	loadPlugin(file: string): void {
+		_pluginAction(file, PLUGIN_START);
 	}
 
 	/**
@@ -3963,6 +4731,54 @@ export class Game extends GameFields {
 	 */
 	checkWinConditions(): void {
 		if (_gameRulesRun(RULES_CHECK_WIN) == 0) __sayOnce("game.checkWinConditions(): the game has no rules to ask yet, or this game's CheckWinConditions is not where amxts looks for it");
+	}
+
+	/**
+	 * Swaps the sides: every terrorist a counter-terrorist and back, their
+	 * scores too, as the game swaps them halfway through a match.
+	 *
+	 * Pawn: `rg_swap_all_players`
+	 */
+	swapTeams(): void {
+		for (const player of server.players) {
+			if (player.team == "TERRORIST" || player.team == "CT") _playerSwitchTeam(player.id);
+		}
+		const ct = this.ctWins;
+		this.ctWins = this.terroristWins;
+		this.terroristWins = ct;
+	}
+
+	/**
+	 * Evens the sides as the game does at a round's start with
+	 * `mp_autoteambalance`: from the bigger side the players who came last,
+	 * four at most - on a map with a VIP, a little more counter-terrorists.
+	 *
+	 * Pawn: `rg_balance_teams`
+	 */
+	balanceTeams(): void {
+		const players = server.players;
+		const terrorists = players.filter(player => player.team == "TERRORIST");
+		const cts = players.filter(player => player.team == "CT");
+		const all = terrorists.length + cts.length;
+		let from = terrorists.length > cts.length ? terrorists : cts;
+		let count = (abs(terrorists.length - cts.length)) / 2;
+		if (this.mapHasVipSafetyZone == "yes") {
+			const wanted = all % 2 != 0 ? <i32>(all * 0.55) + 1 : all / 2;
+			from = cts.length < wanted ? terrorists : cts;
+			count = cts.length < wanted ? wanted - cts.length : (all - wanted) - terrorists.length;
+		}
+		const moving = from.filter(player => player.id != this.vip).sort((a, b) => <i32>(b.userId - a.userId));
+		for (let i = 0; i < min(count, 4) && i < moving.length; i++) _playerSwitchTeam(moving[i].id);
+	}
+
+	/**
+	 * Seconds until the map ends by its time limit; `Infinity` without one.
+	 *
+	 * Pawn: `get_timeleft`
+	 */
+	get timeLeft(): number {
+		const end = this.timeLimit;
+		return end > 0 ? max(end - this.time, 0) : Infinity;
 	}
 
 	private finishRound(status: i32, delay: f64, options: EndRoundOptions, dispatch: bool): void {
@@ -4171,9 +4987,9 @@ export * from "./events";
 // are used here: `Flag` for a command's default argument, the other two to
 // turn an event's short name into the forward the module raises.
 import { Flag, FlagName, flagOf, HookName, hookIdOf } from "./constants";
-import { Entity, GameFields, PlayerFields } from "./entities";
+import { Contents, Entity, GameFields, HitGroup, PlayerFields, Weapon, contentsName, hitGroupName } from "./entities";
 import {
-	MSG_ALL, MSG_ONE, MSG_ONE_UNRELIABLE, LibType_Library, SPEAK_MUTED, SPEAK_ALL, SPEAK_LISTENALL, ARG_STRING
+	MSG_ALL, MSG_ONE, MSG_ONE_UNRELIABLE, MSG_PVS, LibType_Library, SPEAK_MUTED, SPEAK_ALL, SPEAK_LISTENALL, ARG_STRING
 } from "./constants";
 export { Entity, Weapon, WeaponKind, weaponKindOf } from "./entities";
 // The names an enum field takes and gives: `entity.renderMode = "additive"`.
@@ -4183,25 +4999,17 @@ export {
 } from "./entities";
 import {
 	NATIVE_server_cmd, NATIVE_client_cmd, NATIVE_CreateMultiForward, NATIVE_ExecuteForward, get_gametime, get_mapname,
-	nvault_open, nvault_set, nvault_remove, rg_round_end, client_print
+	client_print
 } from "./natives";
 import { ET_IGNORE, ET_STOP, FP_ARRAY, FP_CELL, FP_FLOAT, FP_STRING } from "./constants";
 import { ROUND_NONE, ROUND_CTS_WIN, ROUND_TERRORISTS_WIN, ROUND_END_DRAW, RG_RoundEnd, print_center } from "./constants";
-import { PluginInitEvent, PluginPrecacheEvent, ServerEventMap, ServerMessageMap, addServerListener, protocolMessageNames, removeServerListener } from "./events";
+import { PluginInitEvent, PluginPrecacheEvent, ServerEventMap, ServerMessageMap, ServerSendMap, __sendMessage, addServerListener, protocolMessageNames, removeServerListener } from "./events";
 
 function variantOf(variant: VariantName): number {
 	if (variant == Variant.center) return 4;
 	if (variant == Variant.console) return 2;
 	if (variant == Variant.notify) return 1;
 	return 3;
-}
-
-/** A message's recipient together with its place: `{ id: 0, variant: "center" }`. `id` is a player's `id`, `0` for everyone. */
-export interface Target {
-	/** The recipient's player `id`; `0` for every player. */
-	id: number;
-	/** The place the message shows, one of `"chat"` (the default), `"center"`, `"console"` or `"notify"`. */
-	variant?: VariantName;
 }
 
 // One letter is one colour everywhere; a place draws the ones it can and
@@ -4270,17 +5078,16 @@ export let swapTeam: string = "";
 const SENDER_TEAM = "";
 
 /**
- * Sends a message to a player, or to every player (`0`).
+ * Sends a message to a player; to everyone, `server.print`.
  *
  * ```ts
  * print(player, "Health restored!");                    // the player's chat
- * print(0, "Round starts in 5 seconds");                // everyone's chat
  * print(player, "Health restored!", "center");          // the middle of the player's screen
- * print({ id: 0, variant: "center" }, "Go!");           // the middle of everyone's screen
+ * server.print("Round starts in 5 seconds");            // everyone's chat
  * ```
  *
- * The first argument is a player, a player's `id`, or `0` for everyone. The third
- * is where the message shows, one of `"chat"` (the default), `"center"` - the middle of
+ * The first argument is a player or a player's `id`. The third is where the
+ * message shows, one of `"chat"` (the default), `"center"` - the middle of
  * the screen, `"console"` - the player's console, `"notify"` - the console too; CS
  * shows it on screen only with `developer 1`.
  *
@@ -4293,20 +5100,170 @@ const SENDER_TEAM = "";
  *
  * Pawn: `client_print`, `client_print_color`
  */
-export function print<T extends Target | Client | number = Target>(to: T, message: string, variant: VariantName = "chat"): void {
+export function print<T extends Client | number = Client>(to: T, message: string, variant: VariantName = "chat"): void {
 	// A player id is a number - an f64, since number is JavaScript's.
 	if (isInteger<T>() || isFloat<T>()) {
-		send(<i32>to, variantOf(variant), message);
+		const id = <i32>to;
+		// 0 for everyone is Pawn's; a plugin says it as server.print.
+		if (id == 0) console.error(`print(0, "${message}"): to everyone is server.print("${message}")`);
+		else send(id, variantOf(variant), message);
 	} else if (isReference<T>() && idof<T>() == idof<Client>()) {
 		send(<i32>changetype<Client>(to).id, variantOf(variant), message);
 	} else if (isReference<T>() && idof<T>() == idof<Player>()) {
 		send(<i32>changetype<Player>(to).id, variantOf(variant), message);
-	} else if (isReference<T>() && idof<T>() == idof<Target>()) {
-		const target = changetype<Target>(to);
-		send(<i32>target.id, variantOf(target.variant ?? "chat"), message);
 	} else {
-		ERROR("print takes a player, a player id or a target object");
+		ERROR("print takes a player or a player id; everyone is server.print");
 	}
+}
+
+// =============================================================================
+// Traces through the world, and what is at a point: the engine's TraceLine,
+// TraceHull and PointContents, called by the module (runtime/src/traces.h).
+// =============================================================================
+
+// @ts-ignore: decorator
+@external("env", "world_trace_line") declare function _traceLine(points: usize, flags: i32, ignore: i32, out: usize): void;
+// @ts-ignore: decorator
+@external("env", "world_trace_hull") declare function _traceHull(points: usize, hull: i32, flags: i32, ignore: i32, out: usize): void;
+// @ts-ignore: decorator
+@external("env", "world_contents") declare function _worldContents(point: usize): i32;
+
+// What a trace goes from and to, the module reads it here; and what it writes of a trace: the
+// fraction, the end, the normal, the entity hit (-1 none), the flags, the hit group.
+const traceIn = new StaticArray<f64>(6);
+const traceOut = new StaticArray<f64>(10);
+
+/** The start and the end into traceIn, where the module reads them. */
+function tracePoints(start: number[], end: number[]): usize {
+	const points = traceIn;
+	for (let i = 0; i < 3; i++) {
+		unchecked(points[i] = start[i]);
+		unchecked(points[3 + i] = end[i]);
+	}
+	return changetype<usize>(points);
+}
+const TRACE_START_SOLID: i32 = 1;
+const TRACE_ALL_SOLID: i32 = 2;
+const TRACE_IN_OPEN: i32 = 4;
+const TRACE_IN_WATER: i32 = 8;
+const TRACE_MONSTERS: i32 = 1;
+// How far a player's aim is traced: the engine's own reach for get_user_aiming.
+const AIM_REACH: f64 = 8192;
+
+/** The options of `trace.line` and `trace.hull`: what a trace passes through. */
+export interface TraceOptions {
+	/** An entity the trace passes through: the one it starts from, as a rule. */
+	ignore?: Entity | null;
+	/** Whether it stops at players and monsters too, not only at the world and solid entities; `true` when left out. */
+	monsters?: boolean;
+}
+
+/** The size of what a hull trace moves: a point, a standing player, a large monster, a crouching player. */
+export type TraceHull = "point" | "human" | "large" | "head";
+
+/** A trace's result: where it stopped, at what, and how. */
+export class TraceResult {
+	constructor(
+		/** The share of the way it went, `0` to `1`: `1` reached the end. */
+		readonly fraction: number,
+		/** The point it stopped at: the end when nothing was in the way. */
+		readonly end: Vector,
+		/** The direction the surface it hit faces; zero when it hit nothing. */
+		readonly normal: Vector,
+		/** The entity it hit - the world is entity `0` - or `null` when nothing was in the way. */
+		readonly entity: Entity | null,
+		/** Whether it started inside something solid. */
+		readonly startSolid: boolean,
+		/** Whether it was inside something solid all the way. */
+		readonly allSolid: boolean,
+		/** Whether it ended in the open air. */
+		readonly inOpen: boolean,
+		/** Whether it ended in water. */
+		readonly inWater: boolean,
+		/** The part of a player it hit, `"generic"` for anything else. */
+		readonly hitGroup: HitGroup,
+	) {}
+
+	/** Whether something was in the way: `fraction` is less than `1`. */
+	get hit(): boolean {
+		return this.fraction < 1;
+	}
+}
+
+function traceResult(): TraceResult {
+	const out = traceOut;
+	const id = <i32>out[7];
+	const flags = <i32>out[8];
+	const entity: Entity | null = id < 0 ? null : id >= 1 && id <= get_maxplayers() ? __playerOf(id) : new Entity(id);
+	return new TraceResult(
+		out[0], new Vector(out[1], out[2], out[3]), new Vector(out[4], out[5], out[6]), entity,
+		(flags & TRACE_START_SOLID) != 0, (flags & TRACE_ALL_SOLID) != 0, (flags & TRACE_IN_OPEN) != 0, (flags & TRACE_IN_WATER) != 0,
+		hitGroupName(<i32>out[9]),
+	);
+}
+
+function traceFlags(options: TraceOptions): i32 {
+	return options.monsters ?? true ? TRACE_MONSTERS : 0;
+}
+
+function traceIgnored(options: TraceOptions): i32 {
+	const ignore = options.ignore;
+	return ignore != null ? ignore.id : 0;
+}
+
+/**
+ * Traces through the world: a line, `trace.line(start, end)`, or a box,
+ * `trace.hull(start, end, "human")` - what a bullet or a player moving there
+ * would meet.
+ */
+export namespace trace {
+	/**
+	 * Traces a line from `start` to `end` and tells where it stopped and at
+	 * what: `trace.line(eyes, eyes.add(forward.scale(8192)), { ignore: player
+	 * }).entity`.
+	 *
+	 * Pawn: `trace_line`, `engfunc(EngFunc_TraceLine, ...)`, `get_tr2`
+	 */
+	export function line(start: number[], end: number[], options: TraceOptions = {}): TraceResult {
+		_traceLine(tracePoints(start, end), traceFlags(options), traceIgnored(options), changetype<usize>(traceOut));
+		return traceResult();
+	}
+
+	/**
+	 * Moves a box of a player's or a monster's size from `start` to `end`
+	 * and tells where it stopped: `trace.hull(origin, origin, "human").startSolid`
+	 * - a player put there would be stuck.
+	 *
+	 * Pawn: `trace_hull`, `engfunc(EngFunc_TraceHull, ...)`
+	 */
+	export function hull(start: number[], end: number[], hull: TraceHull, options: TraceOptions = {}): TraceResult {
+		const size = hull == "human" ? 1 : hull == "large" ? 2 : hull == "head" ? 3 : 0;
+		_traceHull(tracePoints(start, end), size, traceFlags(options), traceIgnored(options), changetype<usize>(traceOut));
+		return traceResult();
+	}
+}
+
+/**
+ * The contents of a point of the world: `pointContents(origin) == "water"`. A
+ * point inside a wall is `"solid"`; flowing water is one of the `current`
+ * kinds.
+ *
+ * Pawn: `point_contents`, `engfunc(EngFunc_PointContents, ...)`
+ */
+export function pointContents(point: number[]): Contents {
+	return contentsName(_worldContents(tracePoints(point, point)));
+}
+
+/** A player's aim: the point his view reaches and what is there. */
+export class Aim {
+	constructor(
+		/** The point where his view first meets something, as far as 8192 units. */
+		readonly point: Vector,
+		/** The entity at that point: a player, an entity, the world (entity `0`), or `null` for nothing in reach. */
+		readonly entity: Entity | null,
+		/** The part of a player he aims at, `"generic"` for anything else. */
+		readonly hitGroup: HitGroup,
+	) {}
 }
 
 /**
@@ -4345,6 +5302,22 @@ export namespace lang {
 	export function translate(player: Client | null, key: string, args: string[] = []): string {
 		const found = lookupLang(key, player != null ? <i32>player.id : 0);
 		return found.length > 0 ? formatPawn(colorTags(found), new TextCursor(args)) : key;
+	}
+
+	/**
+	 * The languages the loaded dictionaries have, by their codes:
+	 * `["en", "ru", "de"]`.
+	 *
+	 * Pawn: `get_langsnum`, `get_lang`
+	 */
+	export function languages(): string[] {
+		const list: string[] = [];
+		const code: number[] = [0, 0, 0];
+		for (let i = 0, n = <i32>get_langsnum(); i < n; i++) {
+			get_lang(i, code);
+			list.push(String.fromCharCode(<i32>code[0]) + String.fromCharCode(<i32>code[1]));
+		}
+		return list;
 	}
 }
 
@@ -5291,9 +6264,6 @@ export function __pluginStopped(run: i32): void {
 // @ts-ignore: decorator
 @external("env", "emit_local") declare function _emitLocal(forward: string, mask: string, cells: i32, count: i32): void;
 
-// @ts-ignore: decorator
-@external("env", "nvault_lookup") declare function _nvaultLookup(vault: i32, key: string, value: i32, maxlen: i32, timestamp: i32): i32;
-
 /**
  * The forward's stopping rule, one of: `"never"` - every plugin hears it, whatever it
  * returns; `"handled"` - the first plugin that says it handled the forward
@@ -5768,70 +6738,143 @@ export class Forward<T1 = NoArgument, T2 = NoArgument, T3 = NoArgument, T4 = NoA
 // ---------------------------------------------------------------- storage
 
 /**
- * A key-to-text store on disk: a Map that survives a map change and a server
- * restart.
+ * A key-to-value store on disk: a Map that survives a map change and a
+ * server restart.
  *
  * ```ts
- * const demos = new Storage("core_demo_counters");
- * const last = demos.get(auth);      // string | null
- * demos.set(auth, "3");
- * if (demos.has(auth)) ...
- * demos.delete(auth);
+ * const points = new Storage<number>("myplugin_points");
+ * const mine = points.get(player.steamId) ?? 0;   // undefined when there is none
+ * points.set(player.steamId, mine + 1);
+ * points.delete(player.steamId);
  * ```
  *
- * The file is named after the storage, kept in the `vault` folder of the AMX
- * Mod X data folder, and opened on first use. Values are text: a number goes
- * in with `toString()` and comes out with `parseInt`.
+ * The type argument is what it holds - text by default, a number, a boolean,
+ * an object of an interface - kept as JSON. The file is
+ * `amxts/storage/<name>.json` in AMX Mod X's data folder, written within a
+ * second of a change; a name with no file yet takes what AMX Mod X's `nvault`
+ * kept under that name, once.
  *
  * Pawn: `nvault_open`, `nvault_get`, `nvault_set`, `nvault_remove`
  */
-export class Storage {
-	private vault: i32 = -1;
+export class Storage<T = string> {
+	private handle: i32 = -2;
 
 	constructor(
 		/** The storage's name, which is also its file's name. */
 		public name: string
 	) {}
 
-	/** The value under `key`, or `null` when there is none. */
-	get(key: string): string | null {
-		const vault = this.open();
-		if (vault < 0) return null;
-
-		// The module writes the value in as UTF-8 bytes, up to its end.
-		const value = __textRoom(TEXT_MAX + 1);
-		const stamp = new CellBuffer(1);
-
-		// nvault_lookup rather than nvault_get: the length of nvault_get's
-		// buffer rides in its `...` tail by address, which the dispatcher's
-		// buffer argument cannot say; nvault_lookup takes it as a plain
-		// argument, and answers whether the key exists besides.
-		const found = _nvaultLookup(vault, key, __textInto(value), TEXT_MAX, stamp.address);
-		return found != 0 ? __textFrom(value) : null;
+	/**
+	 * The value under `key`, or `undefined` when there is none, as
+	 * `Map.get` gives: `points.get(player.steamId) ?? 0`.
+	 *
+	 * Pawn: `nvault_get`, `nvault_lookup`
+	 */
+	get(key: string): T | undefined {
+		const text = this.text(key);
+		if (text == null) return undefined;
+		if (isString<T>()) return changetype<T>(text);
+		return JSON.parse<T>(text);
 	}
 
-	/** Puts `value` under `key`, replacing what was there. */
-	set(key: string, value: string): void {
-		const vault = this.open();
-		if (vault >= 0) nvault_set(vault, key, value);
+	/**
+	 * Puts `value` under `key`, replacing what was there; it is on disk
+	 * within a second.
+	 *
+	 * Pawn: `nvault_set`
+	 */
+	set(key: string, value: T): void {
+		const handle = this.open();
+		if (handle < 0) return;
+		if (isString<T>()) _storeSet(handle, key, changetype<string>(value));
+		else _storeSet(handle, key, JSON.stringify(value));
 	}
 
 	/** `true` when there is a value under `key`. */
 	has(key: string): boolean {
-		return this.get(key) != null;
+		return this.text(key) != null;
 	}
 
-	/** Removes `key` and its value; a key that is not there is ignored. */
-	delete(key: string): void {
-		const vault = this.open();
-		if (vault >= 0) nvault_remove(vault, key);
+	/**
+	 * Removes `key` and its value: `true` when it was there.
+	 *
+	 * Pawn: `nvault_remove`
+	 */
+	delete(key: string): boolean {
+		const handle = this.open();
+		return handle >= 0 && _storeDelete(handle, key) != 0;
+	}
+
+	/** Every key, in their order as text. */
+	keys(): string[] {
+		const handle = this.open();
+		if (handle < 0) return [];
+		let room = new StaticArray<u8>(4096);
+		let length = _storeKeys(handle, changetype<usize>(room), room.length);
+		if (length > room.length) {
+			room = new StaticArray<u8>(length);
+			length = _storeKeys(handle, changetype<usize>(room), room.length);
+		}
+		if (length == 0) return [];
+		const keys = String.UTF8.decodeUnsafe(changetype<usize>(room), length - 1).split("\0");
+		return keys;
+	}
+
+	/** The number of keys it holds. */
+	get size(): number {
+		const handle = this.open();
+		return handle < 0 ? 0 : _storeCount(handle);
+	}
+
+	/**
+	 * Removes what was last set before `olderThan`:
+	 * `points.prune(new Date(Date.now() - 30 * 24 * 3600 * 1000))` - a month
+	 * untouched. How many keys went.
+	 *
+	 * Pawn: `nvault_prune`
+	 */
+	prune(olderThan: Date): number {
+		const handle = this.open();
+		return handle < 0 ? 0 : _storePrune(handle, <f64>olderThan.getTime() / 1000);
+	}
+
+	private text(key: string): string | null {
+		const handle = this.open();
+		if (handle < 0) return null;
+		let room = storeRoom;
+		let length = _storeGet(handle, key, changetype<usize>(room), room.length);
+		if (length > room.length) {
+			room = new StaticArray<u8>(length);
+			length = _storeGet(handle, key, changetype<usize>(room), room.length);
+		}
+		return length < 0 ? null : String.UTF8.decodeUnsafe(changetype<usize>(room), length);
 	}
 
 	private open(): i32 {
-		if (this.vault < 0) this.vault = nvault_open(this.name);
-		return this.vault;
+		if (this.handle == -2) {
+			this.handle = _storeOpen(this.name);
+			if (this.handle < 0) console.error(`new Storage("${this.name}"): a storage's name is a file's name - no / \\ : * ? " < > |`);
+		}
+		return this.handle;
 	}
 }
+
+// The module's stores (runtime/src/storage.h): a handle a name.
+// @ts-ignore: decorator
+@external("env", "store_open")   declare function _storeOpen(name: string): i32;
+// @ts-ignore: decorator
+@external("env", "store_get")    declare function _storeGet(handle: i32, key: string, out: usize, max: i32): i32;
+// @ts-ignore: decorator
+@external("env", "store_set")    declare function _storeSet(handle: i32, key: string, value: string): void;
+// @ts-ignore: decorator
+@external("env", "store_delete") declare function _storeDelete(handle: i32, key: string): i32;
+// @ts-ignore: decorator
+@external("env", "store_count")  declare function _storeCount(handle: i32): i32;
+// @ts-ignore: decorator
+@external("env", "store_keys")   declare function _storeKeys(handle: i32, out: usize, max: i32): i32;
+// @ts-ignore: decorator
+@external("env", "store_prune")  declare function _storePrune(handle: i32, before: f64): i32;
+const storeRoom = new StaticArray<u8>(1024);
 
 // Flag enums and the array that stands for a mask - generated, see scripts/generate-flags.ts.
 export * from "./flags";
@@ -6296,6 +7339,10 @@ export class Menu<Data extends object = object> {
 	// The page drawn last, whose text the next show of the same page - the
 	// same title, items and keys - sends again rather than drawing it anew.
 	private drawn: DrawnPage | null = null;
+	// Lines of text under an item (addText), each a line of the menu's text;
+	// the ones added before the first item go under the title.
+	private readonly lines: Map<MenuItemOptions<Data>, string> = new Map<MenuItemOptions<Data>, string>();
+	private head: string = "";
 
 	constructor(
 		private readonly title: string | ((context: MenuContext<Data>) => string),
@@ -6325,6 +7372,33 @@ export class Menu<Data extends object = object> {
 	}
 
 	/**
+	 * Adds a line of text under the last item added - under the title when
+	 * there is none yet - with no number: a note, a price, a heading of the
+	 * next items. It is shown and hidden with that item.
+	 *
+	 * Pawn: `menu_addtext`, `menu_addtext2`
+	 */
+	addText(text: string): void {
+		const line = `\n\\w${text}`;
+		const count = this.items.length;
+		if (count == 0) {
+			this.head += line;
+			return;
+		}
+		const last = this.items[count - 1];
+		this.lines.set(last, this.lines.has(last) ? this.lines.get(last) + line : line);
+	}
+
+	/**
+	 * Adds an empty line under the last item added: `addText("")`.
+	 *
+	 * Pawn: `menu_addblank`, `menu_addblank2`
+	 */
+	addBlank(): void {
+		this.addText("");
+	}
+
+	/**
 	 * Shows the menu to a player, with the data its functions get; it closes
 	 * when he chooses an item or leaves it.
 	 *
@@ -6345,7 +7419,7 @@ export class Menu<Data extends object = object> {
 		const given = options.perPage;
 		const perPage: i32 = given !== undefined ? <i32>Math.min(Math.max(given, 0), 7) : 7;
 		const pages = perPage == 0 ? 1 : (count + perPage - 1) / perPage;
-		const title = menuText(this.title, context);
+		const title = menuText(this.title, context) + this.head;
 
 		// What each key does: an item's index, MENU_BACK, MENU_MORE or
 		// MENU_EXIT; a key `keys` leaves out does not come.
@@ -6358,7 +7432,7 @@ export class Menu<Data extends object = object> {
 		const names = new StaticArray<string>(last - first);
 		for (let i = first; i < last; i++, option++) {
 			const item = shown[i];
-			names[option] = menuText(item.title, context);
+			names[option] = this.lines.has(item) ? menuText(item.title, context) + this.lines.get(item) : menuText(item.title, context);
 			if (menuTest(item.enabled, context)) {
 				keys |= 1 << option;
 				actions[option] = i;

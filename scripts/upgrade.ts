@@ -37,6 +37,7 @@ import { MESSAGE_NAMES } from './client-messages';
 import { CORE_ENTRIES, CORE_PLUGINS, loadProject, SERVER_FOLDER, serverDir, staleCopies } from './project';
 import { apiFiles } from './system';
 import { c, log } from './ui';
+import { upgradeCalls } from './upgrade-calls';
 import { upgradeMenus } from './upgrade-menus';
 import { COMMON, EVENTS, FLAG_NAMES, GAME_EVENT_FIELDS, HIDDEN, HIDDEN_EVENTS, JOIN_OPTIONS, RENAMED, SERVER_EVENT_CLASSES, SERVER_EVENT_FIELDS, SERVER_EVENTS, SERVER_EVENTS_BY_HAND, SERVER_FIELD_CLASSES, SERVER_GAME_EVENTS } from './upgrade-names';
 
@@ -823,10 +824,11 @@ export function upgradeProject(dir: string, { write = true } = {}): { changes: C
 		const events = upgradeEvents(name, names.text);
 		const messages = upgradeMessages(name, events.text);
 		const flags = upgradeFlags(name, messages.text);
-		left.push(...http.left, ...handlers.left, ...menus.left, ...names.left, ...events.left, ...messages.left, ...flags.left);
-		if (flags.text === text) continue;
-		if (write) writeFileSync(file, flags.text);
-		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...menus.changes, ...names.changes, ...events.changes, ...messages.changes, ...flags.changes);
+		const calls = upgradeCalls(name, flags.text);
+		left.push(...http.left, ...handlers.left, ...menus.left, ...names.left, ...events.left, ...messages.left, ...flags.left, ...calls.left);
+		if (calls.text === text) continue;
+		if (write) writeFileSync(file, calls.text);
+		changes.push(...http.changes, ...imports.changes, ...handlers.changes, ...menus.changes, ...names.changes, ...events.changes, ...messages.changes, ...flags.changes, ...calls.changes);
 	}
 	if (write) {
 		for (const file of stale) rmSync(file);

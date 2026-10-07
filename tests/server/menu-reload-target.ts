@@ -33,7 +33,7 @@ function healTitle(player: Player) {
 
 function wave(player: Player) {
 	calls.number += 1;
-	print(0, `${player.name} waves`);
+	server.print(`${player.name} waves`);
 }
 
 function heal(player: Player) {

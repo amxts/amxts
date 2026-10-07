@@ -83,4 +83,66 @@ export class Vector extends Array<number> {
 		const size = this.magnitude();
 		return size > 0 ? this.scale(1 / size) : new Vector();
 	}
+
+	/**
+	 * The direction angles look in, one unit long:
+	 * `Vector.fromAngles(player.viewAngle).scale(500)` is a push the way the
+	 * player looks.
+	 *
+	 * Pawn: `angle_vector(..., ANGLEVECTOR_FORWARD, ...)`, `velocity_by_aim`
+	 */
+	static fromAngles(angles: number[]): Vector {
+		const pitch = angles[0] * DEGREES;
+		const yaw = angles[1] * DEGREES;
+		const across = Math.cos(pitch);
+		return new Vector(across * Math.cos(yaw), across * Math.sin(yaw), -Math.sin(pitch));
+	}
+
+	/**
+	 * The three directions of angles, one unit long each: where they look,
+	 * to their right and above them - `const { forward, right } =
+	 * Vector.directions(player.viewAngle)`.
+	 *
+	 * Pawn: `angle_vector`, `engfunc(EngFunc_MakeVectors, ...)`
+	 */
+	static directions(angles: number[]): Directions {
+		const pitch = angles[0] * DEGREES;
+		const yaw = angles[1] * DEGREES;
+		const roll = angles[2] * DEGREES;
+		const sp = Math.sin(pitch), cp = Math.cos(pitch);
+		const sy = Math.sin(yaw), cy = Math.cos(yaw);
+		const sr = Math.sin(roll), cr = Math.cos(roll);
+		return {
+			forward: new Vector(cp * cy, cp * sy, -sp),
+			right: new Vector(-sr * sp * cy + cr * sy, -sr * sp * sy - cr * cy, -sr * cp),
+			up: new Vector(cr * sp * cy + sr * sy, cr * sp * sy - sr * cy, cr * cp),
+		};
+	}
+
+	/**
+	 * The angles that look along this vector, as a player's view holds them -
+	 * a pitch below the horizon positive: `player.viewAngle =
+	 * target.subtract(player.eyes).toAngles()`. `Vector.fromAngles` turns
+	 * them back.
+	 *
+	 * Pawn: `vector_to_angle`, `engfunc(EngFunc_VecToAngles, ...)`
+	 */
+	toAngles(): Vector {
+		const x = this[0], y = this[1], z = this[2];
+		if (x == 0 && y == 0) return new Vector(z > 0 ? -90 : 90, 0, 0);
+		const yaw = Math.atan2(y, x) / DEGREES;
+		return new Vector(-Math.atan2(z, Math.sqrt(x * x + y * y)) / DEGREES, yaw < 0 ? yaw + 360 : yaw, 0);
+	}
+}
+
+const DEGREES: f64 = Math.PI / 180;
+
+/** The three directions of angles: ahead, to the right and up - `Vector.directions`. */
+export interface Directions {
+	/** The direction they look in. */
+	forward: Vector;
+	/** To their right. */
+	right: Vector;
+	/** Above them. */
+	up: Vector;
 }

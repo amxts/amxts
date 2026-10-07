@@ -511,6 +511,20 @@ static cell AMX_NATIVE_CALL n_readLogargc(AMX *amx, cell *params)
 	return g_log ? g_log->argc : 0;
 }
 
+/** log_text(index, out, max) - the line heard (index -1) or one of its arguments, as UTF-8; its length. */
+static int32_t w_logText(wasm_exec_env_t env, int32_t index, int32_t out, int32_t max)
+{
+	const char *text = !g_log ? "" : index < 0 ? g_log->text.c_str() : index < g_log->argc ? g_log->args[index].c_str() : "";
+	return WriteBytes(Inst(env), out, max, text);
+}
+
+/** log_count() - how many arguments the line heard has. */
+static int32_t w_logCount(wasm_exec_env_t env)
+{
+	(void)env;
+	return g_log ? g_log->argc : 0;
+}
+
 /** read_logargv(id, output[], len) - one of them. */
 static cell AMX_NATIVE_CALL n_readLogargv(AMX *amx, cell *params)
 {
@@ -957,6 +971,8 @@ static void ForgetOtherPoints()
 	{ "msg_set_number", (void *)w_msg_set_number, "(iF)",    NULL }, \
 	{ "msg_set_text",   (void *)w_msg_set_text,   "(ii)",    NULL }, \
 	{ "log_hook",       (void *)w_log_hook,       "(iii)i",  NULL }, \
+	{ "log_text",       (void *)w_logText,        "(iii)i",  NULL }, \
+	{ "log_count",      (void *)w_logCount,       "()i",     NULL }, \
 	{ "cvar_hook",      (void *)w_cvar_hook,      "(ii)i",   NULL }, \
 	{ "cvar_exact",     (void *)w_cvar_exact,     "()i",     NULL }, \
 	{ "touch_hook",     (void *)w_touch_hook,     "(iii)i",  NULL }, \

@@ -45,6 +45,16 @@ import { __textFrom, __textInto, __textRoom } from "./natives";
 @external("env", "close_dir")    declare function _closeDir(handle: i32): i32;
 // @ts-ignore: decorator
 @external("env", "mkdir")        declare function _mkdir(name: string, mode: i32, valve: i32, pathId: string): i32;
+// @ts-ignore: decorator
+@external("env", "delete_file")  declare function _deleteFile(name: string, valve: i32, pathId: string): i32;
+// @ts-ignore: decorator
+@external("env", "rename_file")  declare function _renameFile(from: string, to: string, relative: i32): i32;
+// @ts-ignore: decorator
+@external("env", "rmdir")        declare function _rmdir(name: string): i32;
+// @ts-ignore: decorator
+@external("env", "file_size")    declare function _fileSize(name: string, flag: i32, valve: i32, pathId: string): i32;
+// @ts-ignore: decorator
+@external("env", "GetFileTime")  declare function _fileTime(name: string, flag: i32): i32;
 
 // fread_blocks' mode for one byte per cell.
 const BLOCK_CHAR: i32 = 1;
@@ -58,6 +68,10 @@ const WRITE_UNITS: i32 = 4096;
 const NAME_BYTES: i32 = 256;
 // mkdir's FPERM_DIR_DEFAULT: rwxrwxr-x, where the system has permissions.
 const DIR_MODE: i32 = 0o775;
+// rename_file's flag for names relative to the game folder, as every other path here is.
+const GAME_RELATIVE: i32 = 1;
+// GetFileTime's FileTime_LastChange.
+const LAST_CHANGE: i32 = 2;
 
 function open(path: string, mode: string): i32 {
 	return _fopen(path, mode, 0, 0);
@@ -239,12 +253,12 @@ export function readFile(path: string): Promise<string> {
 
 /** `writeFileSync` as a promise, rejected when the file cannot be opened. */
 export function writeFile(path: string, data: string): Promise<void> {
-	return settled(writeFileSync(path, data), path);
+	return done(writeFileSync(path, data), path, "open");
 }
 
 /** `appendFileSync` as a promise, rejected when the file cannot be opened. */
 export function appendFile(path: string, data: string): Promise<void> {
-	return settled(appendFileSync(path, data), path);
+	return done(appendFileSync(path, data), path, "open");
 }
 
 /** `existsSync` as a promise. */
@@ -259,9 +273,94 @@ export function readdir(path: string): Promise<string[]> {
 	return Promise.resolve<string[]>(names);
 }
 
-function settled(ok: bool, path: string): Promise<void> {
+/**
+ * Deletes a file; `false` when there is none or it cannot be deleted.
+ *
+ * Pawn: `delete_file`, `unlink`
+ */
+export function unlinkSync(path: string): boolean {
+	return _deleteFile(path, 0, "GAMECONFIG") != 0;
+}
+
+/**
+ * Moves or renames a file: `fs.renameSync("addons/amxmodx/data/top.txt",
+ * "addons/amxmodx/data/top.old")`; `false` when it cannot.
+ *
+ * Pawn: `rename_file`
+ */
+export function renameSync(from: string, to: string): boolean {
+	return _renameFile(from, to, GAME_RELATIVE) != 0;
+}
+
+/**
+ * Deletes an empty folder; `false` when there is none, it holds something or
+ * it cannot be deleted.
+ *
+ * Pawn: `rmdir`
+ */
+export function rmdirSync(path: string): boolean {
+	return _rmdir(path) != 0;
+}
+
+/** A file's or a folder's facts from `statSync`, as Node's `fs.Stats`. */
+export class Stats {
+	constructor(
+		/** The size in bytes; `0` for a folder. */
+		readonly size: number,
+		/** The moment it last changed. */
+		readonly mtime: Date,
+		private readonly folder: bool,
+	) {}
+
+	/** Whether it is a file. */
+	isFile(): boolean {
+		return !this.folder;
+	}
+
+	/** Whether it is a folder. */
+	isDirectory(): boolean {
+		return this.folder;
+	}
+}
+
+/**
+ * A file's or a folder's size and the moment it last changed; `null` when
+ * there is none: `fs.statSync("addons/amxmodx/logs/error.log")?.size`.
+ *
+ * Pawn: `file_size`, `GetFileTime`
+ */
+export function statSync(path: string): Stats | null {
+	const folder = _dirExists(path, 0) != 0;
+	if (!folder && _fileExists(path, 0) == 0) return null;
+	const size = folder ? 0 : _fileSize(path, 0, 0, "*");
+	return new Stats(size, new Date(<i64>_fileTime(path, LAST_CHANGE) * 1000), folder);
+}
+
+/** `unlinkSync` as a promise, rejected when the file cannot be deleted. */
+export function unlink(path: string): Promise<void> {
+	return done(unlinkSync(path), path, "unlink");
+}
+
+/** `renameSync` as a promise, rejected when the file cannot be moved. */
+export function rename(from: string, to: string): Promise<void> {
+	return done(renameSync(from, to), from, "rename");
+}
+
+/** `rmdirSync` as a promise, rejected when the folder cannot be deleted. */
+export function rmdir(path: string): Promise<void> {
+	return done(rmdirSync(path), path, "rmdir");
+}
+
+/** `statSync` as a promise, rejected when there is no such file or folder. */
+export function stat(path: string): Promise<Stats> {
+	const stats = statSync(path);
+	if (stats == null) return Promise.reject<Stats>(missing(path, "stat"));
+	return Promise.resolve<Stats>(stats);
+}
+
+function done(ok: bool, path: string, call: string): Promise<void> {
 	const promise = __co_promise<void>();
 	if (ok) promise.__fulfillVoid();
-	else promise.__reject(missing(path, "open"));
+	else promise.__reject(missing(path, call));
 	return promise;
 }

@@ -16,7 +16,7 @@ hello.addItem({
 });
 
 function wave(player: Player) {
-	print(0, `${player.name} waves`);
+	server.print(`${player.name} waves`);
 }
 
 function heal(player: Player) {

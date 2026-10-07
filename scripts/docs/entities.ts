@@ -1984,6 +1984,14 @@ Pawn: \`is_valid_ent\`, \`is_entity\``,
 
 Pawn: \`is_valid_ent\`, \`is_entity\``,
 	},
+	'Entity.dropToFloor': {
+		en: `Drops the entity straight down onto what is under it, as the game puts an item on the floor when a map starts: \`true\` when it landed, \`false\` when there is nothing under it within 256 units or it is stuck in something.
+
+Pawn: \`drop_to_floor\`, \`engfunc(EngFunc_DropToFloor, ...)\``,
+		ru: `Опускает сущность вертикально вниз на то, что под ней, как игра кладёт предмет на пол при старте карты: \`true\`, если она опустилась, \`false\`, если под ней ничего нет в пределах 256 единиц или она во что-то застряла.
+
+Pawn: \`drop_to_floor\`, \`engfunc(EngFunc_DropToFloor, ...)\``,
+	},
 	'Entity.emitSound': {
 		en: `Plays a sound from the entity, heard by everyone near and fading with distance: \`player.emitSound("myplugin/hit.wav")\`. The path is under \`sound/\`, as \`server.precache\` takes it; \`options\` set the channel, the volume, the attenuation and the pitch.
 

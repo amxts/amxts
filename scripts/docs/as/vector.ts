@@ -45,4 +45,85 @@ export default {
 		en: `A new vector in the same direction, one unit long; a zero vector stays zero.`,
 		ru: `Новый вектор того же направления, длиной в единицу; нулевой вектор так и остаётся нулевым.`,
 	},
+	'Vector.fromAngles': {
+		en: `
+			The direction angles look in, one unit long:
+			\`Vector.fromAngles(player.viewAngle).scale(500)\` is a push the way the
+			player looks.
+
+			Pawn: \`angle_vector(..., ANGLEVECTOR_FORWARD, ...)\`, \`velocity_by_aim\`
+		`,
+		ru: `
+			Направление, куда смотрят углы, длиной в единицу:
+			\`Vector.fromAngles(player.viewAngle).scale(500)\` — толчок туда, куда смотрит
+			игрок.
+
+			Pawn: \`angle_vector(..., ANGLEVECTOR_FORWARD, ...)\`, \`velocity_by_aim\`
+		`,
+	},
+	'Vector.directions': {
+		en: `
+			The three directions of angles, one unit long each: where they look,
+			to their right and above them - \`const { forward, right } =
+			Vector.directions(player.viewAngle)\`.
+
+			Pawn: \`angle_vector\`, \`engfunc(EngFunc_MakeVectors, ...)\`
+		`,
+		ru: `
+			Три направления углов, каждое длиной в единицу: куда они смотрят, вправо от
+			них и вверх — \`const { forward, right } = Vector.directions(player.viewAngle)\`.
+
+			Pawn: \`angle_vector\`, \`engfunc(EngFunc_MakeVectors, ...)\`
+		`,
+	},
+	'Vector.toAngles': {
+		en: `
+			The angles that look along this vector, as a player's view holds them -
+			a pitch below the horizon positive: \`player.viewAngle =
+			target.subtract(player.eyes).toAngles()\`. \`Vector.fromAngles\` turns
+			them back.
+
+			Pawn: \`vector_to_angle\`, \`engfunc(EngFunc_VecToAngles, ...)\`
+		`,
+		ru: `
+			Углы, которые смотрят вдоль этого вектора, как их держит взгляд игрока, —
+			наклон ниже горизонта положительный: \`player.viewAngle =
+			target.subtract(player.eyes).toAngles()\`. \`Vector.fromAngles\` превращает их
+			обратно.
+
+			Pawn: \`vector_to_angle\`, \`engfunc(EngFunc_VecToAngles, ...)\`
+		`,
+	},
+	'Directions': {
+		en: `
+			The three directions of angles: ahead, to the right and up - \`Vector.directions\`.
+		`,
+		ru: `
+			Три направления углов: вперёд, вправо и вверх — \`Vector.directions\`.
+		`,
+	},
+	'Directions.forward': {
+		en: `
+			The direction they look in.
+		`,
+		ru: `
+			Направление, куда они смотрят.
+		`,
+	},
+	'Directions.right': {
+		en: `
+			To their right.
+		`,
+		ru: `
+			Вправо от них.
+		`,
+	},
+	'Directions.up': {
+		en: `
+			Above them.
+		`,
+		ru: `
+			Вверх от них.
+		`,
+	},
 };

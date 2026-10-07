@@ -77,9 +77,28 @@ export function quick_shop(id: number, category: string) {
 	shop.show(new Player(id), { category });
 }
 
+// Lines of text with no number: under the title, under an item, an empty one.
+const store = new Menu("Shop", { perPage: 0, exit: false });
+store.addText("Money: $800");
+store.addItem({
+	title: "Armor",
+	onSelect: ({ player }) => {
+		chosen = `${player.name}: armor`;
+	},
+});
+store.addText("Helmet included");
+store.addBlank();
+store.addItem({
+	title: "Grenade",
+	onSelect: ({ player }) => {
+		chosen = `${player.name}: grenade`;
+	},
+});
+
 export function quick_show(id: number, name: string) {
 	if (name == "maps") maps.show(new Player(id));
 	else if (name == "greet") greet.show(new Player(id));
+	else if (name == "store") store.show(new Player(id));
 	else vote.show(new Player(id));
 }
 

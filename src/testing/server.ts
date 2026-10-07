@@ -408,6 +408,10 @@ export class FakePlayer extends FakeEntity {
 	readonly messages: Message[] = [];
 	/** What was run in his console: client_cmd, engclient_cmd. */
 	readonly commands: string[] = [];
+	/** Whether his steps make no sound (player_silent). */
+	silentSteps = false;
+	/** When he connected, by the server's clock (`server.time`, milliseconds). */
+	readonly connectedAt: number;
 	/** His userinfo keys - `lang` says his language. */
 	readonly info = new Map<string, string>();
 	/** The menu of AMX Mod X's own on his screen (menu_display), or null; `menuselect <key>` answers it. */
@@ -440,6 +444,7 @@ export class FakePlayer extends FakeEntity {
 		this.authKey = options.authKey ?? '';
 		this.flags = flagBits(options.flags ?? 'z');
 		this.userid = server.nextUserid();
+		this.connectedAt = server.time;
 		this.team = options.team ?? 'CT';
 		this.health = options.health ?? 100;
 		this.armor = options.armor ?? 0;
@@ -531,6 +536,21 @@ export class FakePlayer extends FakeEntity {
 			last.set('m_pNext', weapon.id);
 		}
 		return weapon;
+	}
+
+	/** Takes a weapon out of his slots, as the game's RemovePlayerItem does: it is no longer his. */
+	takeWeapon(weapon: FakeEntity): void {
+		const slot = slotOf(weapon.classname);
+		const first = Number(this.get('m_rgpPlayerItems', slot));
+		if (first === weapon.id) {
+			this.set('m_rgpPlayerItems', Number(weapon.get('m_pNext')), slot);
+		} else {
+			for (let at = this.server.entities.get(first); at; at = this.server.entities.get(Number(at.get('m_pNext')))) {
+				if (Number(at.get('m_pNext')) === weapon.id) at.set('m_pNext', Number(weapon.get('m_pNext')));
+			}
+		}
+		weapon.set('m_pNext', 0);
+		if (Number(this.get('m_pActiveItem')) === weapon.id) this.set('m_pActiveItem', 0);
 	}
 
 	/** Takes every weapon away. */
@@ -634,6 +654,12 @@ export function splitLog(line: string): string[] {
 /** The runs handed out so far: each plugin loaded is a new one. */
 let runs = 0;
 
+/** A trace's start and end, six numbers (f64) where the plugin's facade put them. */
+function tracePoints(plugin: PluginInstance, at: number): number[][] {
+	const numbers = Array.from({ length: 6 }, (_, i) => plugin.memory.number(at + i * 8));
+	return [numbers.slice(0, 3), numbers.slice(3)];
+}
+
 export class PluginInstance {
 	instance: any;
 	memory!: Memory;
@@ -709,6 +735,20 @@ export class FakeServer {
 	readonly map: string;
 	readonly maxPlayers: number;
 	readonly modules: Set<string>;
+	/** The GeoIP database, by address: `server.countries.set("1.2.3.4", { code: "DE", name: "Germany" })`. */
+	readonly countries = new Map<string, { code: string; name: string }>();
+	/** The entity each player sees through (player.view), by his id; 0 or none for his own eyes. */
+	readonly views = new Map<number, number>();
+	/** The maps the fake server has: map_valid and change_level know these. */
+	readonly maps: string[] = ['de_dust2', 'de_inferno', 'cs_office'];
+	/**
+	 * Walls of the fake world a trace stops at: a plane at `x`, with the
+	 * entity a trace that meets it hits (0, the world, when left out) and the
+	 * hit group.
+	 */
+	readonly walls: { x: number; entity?: number; hitGroup?: number }[] = [];
+	/** What plugins asked of plugins (server.plugins), in order: "stop shop.aot", "reload shop.aot". */
+	readonly pluginActions: string[] = [];
 	/** What the game rules were asked to run, in order: "restartRound", "checkWinConditions". */
 	readonly rulesRuns: string[] = [];
 	/** Whether reapi finds Reunion (has_reunion). */
@@ -770,6 +810,10 @@ export class FakeServer {
 	readonly exported = new Map<string, Handler>();
 	readonly cvars = new Map<string, Cvar>();
 	readonly vaultHandles: string[] = [];
+	/** The Storages plugins opened, by handle: their names. */
+	readonly storeNames: string[] = [];
+	/** When each Storage key was last set, by "name\0key": the fake's clock, in seconds. */
+	readonly storeTimes = new Map<string, number>();
 	readonly forwardHandles: { name: string; types: number[] }[] = [];
 	hud = { color: [200, 100, 0], x: -1, y: 0.35, hold: 12, channel: -1 };
 
@@ -1100,11 +1144,28 @@ export class FakeServer {
 		return array.items.map(item => array.cellSize === 1 ? item[0] : [...item]);
 	}
 
-	/** A storage's nVault, as a Map a test can fill before the plugin reads it. */
-	vault(name: string): Map<string, string> {
-		let vault = this.vaults.get(name);
-		if (!vault) this.vaults.set(name, vault = new Map());
-		return vault;
+	/** A trace from `start` to `end` through the fake world, written as the module writes it: stopped at the first wall across it. @internal */
+	writeTrace(plugin: PluginInstance, out: number, start: number[], end: number[]): void {
+		let fraction = 1;
+		let wall: { x: number; entity?: number; hitGroup?: number } | null = null;
+		for (const each of this.walls) {
+			const at = end[0] === start[0] ? -1 : (each.x - start[0]) / (end[0] - start[0]);
+			if (at >= 0 && at < fraction) {
+				fraction = at;
+				wall = each;
+			}
+		}
+		const stop = start.map((v, i) => v + (end[i] - v) * fraction);
+		const normal = wall ? [Math.sign(start[0] - end[0]), 0, 0] : [0, 0, 0];
+		const values = [fraction, ...stop, ...normal, wall ? (wall.entity ?? 0) : -1, 4, wall?.hitGroup ?? 0];
+		values.forEach((value, i) => plugin.memory.setNumber(out + i * 8, value));
+	}
+
+	/** A Storage's values by key, as a Map a test can fill before the plugin reads it - a Pawn plugin's nVault of that name too. */
+	storage(name: string): Map<string, string> {
+		let storage = this.vaults.get(name);
+		if (!storage) this.vaults.set(name, storage = new Map());
+		return storage;
 	}
 
 	/** A bot's move, through engfunc or the module's own call: written to engineCalls, and the bot carried along its yaw. @internal */
@@ -1958,6 +2019,9 @@ export class FakeServer {
 			return match[2] === '=' ? value === match[3] : match[2] === '&' ? value.includes(match[3]) : value !== match[3];
 		};
 		try {
+			// The log event hears every line, as the module raises it.
+			[this.logLine, this.logArgs] = [line, args];
+			this.fire('plugin_log');
 			for (const event of [...this.logEvents]) {
 				if (event.argc !== args.length || !event.filters.every(passes)) continue;
 				[this.logLine, this.logArgs] = [line, args];
@@ -2404,8 +2468,10 @@ export class FakeServer {
 		},
 
 		// What a player is given and does, as the module does it on ReGameDLL.
+		// -1 for a name the game has no class of: the fake's game has its weapons and every item_ and ammo_ class.
 		player_give(this: FakeServer, plugin: PluginInstance, id: number, name: number) {
-			return giveWeapon(this.player(id), plugin.memory.string(name));
+			const item = plugin.memory.string(name);
+			return WEAPON_NAMES.includes(item) || /^(?:item|ammo)_\w+$/.test(item) ? giveWeapon(this.player(id), item) : -1;
 		},
 		player_strip(this: FakeServer, plugin: PluginInstance, id: number) {
 			this.player(id)?.stripWeapons();
@@ -2432,6 +2498,180 @@ export class FakeServer {
 		game_rules_run(this: FakeServer, plugin: PluginInstance, action: number) {
 			this.rulesRuns.push(action === 1 ? 'restartRound' : 'checkWinConditions');
 			return 1;
+		},
+		// A slot's items taken with their ammo, as ReGameDLL's RemovePlayerItemEx takes each.
+		player_remove_slot(this: FakeServer, plugin: PluginInstance, id: number, slot: number) {
+			const target = this.player(id);
+			if (!target) return 0;
+			for (const weapon of target.items.filter(w => slotOf(w.kind) === slot)) {
+				target.ammo.set(weapon.kind, 0);
+				target.takeWeapon(weapon);
+				this.entities.delete(weapon.id);
+			}
+			return 1;
+		},
+		// A weapon dropped: no longer his, left in the world.
+		player_drop(this: FakeServer, plugin: PluginInstance, id: number, name: number) {
+			const target = this.player(id);
+			const weapon = target?.items.find(w => w.kind === plugin.memory.string(name));
+			if (!target || !weapon || weapon.kind === 'weapon_knife') return;
+			target.takeWeapon(weapon);
+			weapon.set('var_owner', 0);
+			weapon.set('m_pPlayer', 0);
+		},
+		// The user id (1), the ping (2), the seconds since he came (4).
+		player_stat(this: FakeServer, plugin: PluginInstance, id: number, what: number) {
+			const target = this.player(id);
+			if (!target) return 0;
+			return what === 1 ? target.userid : what === 4 ? Math.floor((this.time - target.connectedAt) / 1000) : 0;
+		},
+		info_get(this: FakeServer, plugin: PluginInstance, id: number, key: number, out: number, max: number) {
+			return plugin.memory.setUtf8(out, max, this.player(id)?.info.get(plugin.memory.string(key)) ?? '');
+		},
+		info_set(this: FakeServer, plugin: PluginInstance, id: number, key: number, value: number) {
+			this.player(id)?.info.set(plugin.memory.string(key), plugin.memory.string(value));
+		},
+		player_silent(this: FakeServer, plugin: PluginInstance, id: number, on: number) {
+			const target = this.player(id);
+			if (!target) return 0;
+			if (on < 0) return target.silentSteps ? 1 : 0;
+			target.silentSteps = on !== 0;
+			return 1;
+		},
+		// An address's country (code 1, name 2) from `server.countries`; -1 for one it has not.
+		geo_country(this: FakeServer, plugin: PluginInstance, ip: number, what: number, out: number, max: number) {
+			const country = this.countries.get(plugin.memory.string(ip));
+			return country ? plugin.memory.setUtf8(out, max, what === 1 ? country.code : country.name) : -1;
+		},
+		// The player to the other side, as the game swaps sides; a spectator stays.
+		player_switch_team(this: FakeServer, plugin: PluginInstance, id: number) {
+			const target = this.player(id);
+			if (target?.team === 'TERRORIST') target.team = 'CT';
+			else if (target?.team === 'CT') target.team = 'TERRORIST';
+		},
+		// The plugins: the TypeScript ones loaded here, by their source's file; no Pawn plugin.
+		plugins_count(this: FakeServer) {
+			return this.plugins.length;
+		},
+		plugin_text(this: FakeServer, plugin: PluginInstance, index: number, what: number, out: number, max: number) {
+			const target = this.plugins[index];
+			const text = !target ? '' : what === 1 ? target.source.split(/[\\/]/).pop()! : what === 2 ? target.info.name : what === 3 ? target.info.version : what === 4 ? target.info.author : '';
+			return plugin.memory.setUtf8(out, max, text);
+		},
+		plugin_state(this: FakeServer, plugin: PluginInstance, index: number) {
+			const target = this.plugins[index];
+			return !target ? -1 : target.unloaded ? 1 : 0;
+		},
+		// What was asked of a plugin, done at the next frame on the server: recorded here.
+		plugin_action(this: FakeServer, plugin: PluginInstance, name: number, action: number) {
+			this.pluginActions.push(`${['', 'stop', 'start', 'reload'][action]} ${plugin.memory.string(name)}`);
+		},
+		pawn_plugins_count() {
+			return 0;
+		},
+		pawn_plugin_text(this: FakeServer, plugin: PluginInstance, index: number, what: number, out: number, max: number) {
+			return plugin.memory.setUtf8(out, max, '');
+		},
+		pawn_plugin_pause() {
+			return 0;
+		},
+		// A Storage: the map storage(name) gives, by a handle a name.
+		store_open(this: FakeServer, plugin: PluginInstance, name: number) {
+			const wanted = plugin.memory.string(name);
+			if (!wanted || /[/\\:*?"<>|]/.test(wanted)) return -1;
+			this.storage(wanted);
+			const at = this.storeNames.indexOf(wanted);
+			return at >= 0 ? at : this.storeNames.push(wanted) - 1;
+		},
+		store_get(this: FakeServer, plugin: PluginInstance, handle: number, key: number, out: number, max: number) {
+			const value = this.storage(this.storeNames[handle]).get(plugin.memory.string(key));
+			if (value === undefined) return -1;
+			const length = Buffer.byteLength(value);
+			return length > max ? length : plugin.memory.setUtf8(out, max, value);
+		},
+		store_set(this: FakeServer, plugin: PluginInstance, handle: number, key: number, value: number) {
+			const name = this.storeNames[handle];
+			this.storage(name).set(plugin.memory.string(key), plugin.memory.string(value));
+			this.storeTimes.set(`${name}\0${plugin.memory.string(key)}`, (this.startedAt + this.time) / 1000);
+		},
+		store_delete(this: FakeServer, plugin: PluginInstance, handle: number, key: number) {
+			return +this.storage(this.storeNames[handle]).delete(plugin.memory.string(key));
+		},
+		store_count(this: FakeServer, plugin: PluginInstance, handle: number) {
+			return this.storage(this.storeNames[handle]).size;
+		},
+		store_keys(this: FakeServer, plugin: PluginInstance, handle: number, out: number, max: number) {
+			const keys = [...this.storage(this.storeNames[handle]).keys()].sort().map(key => `${key}\0`).join('');
+			const length = Buffer.byteLength(keys);
+			if (length > max || length === 0) return length;
+			plugin.memory.setUtf8(out, max, keys);
+			return length;
+		},
+		// What was set before `before` (seconds since 1970, on the fake clock) goes; a value a test put in has no time and stays.
+		store_prune(this: FakeServer, plugin: PluginInstance, handle: number, before: number) {
+			const name = this.storeNames[handle];
+			let removed = 0;
+			for (const key of [...this.storage(name).keys()]) {
+				const time = this.storeTimes.get(`${name}\0${key}`);
+				if (time !== undefined && time < before) {
+					this.storage(name).delete(key);
+					removed++;
+				}
+			}
+			return removed;
+		},
+		// The server's game and versions: ReHLDS's and ReGameDLL's APIs where the hookchains are.
+		server_text(this: FakeServer, plugin: PluginInstance, what: number, out: number, max: number) {
+			const text = ['', 'cstrike', '0.3.0', this.chains ? '3.14' : '', this.chains ? '5.28' : ''][what] ?? '';
+			return plugin.memory.setUtf8(out, max, text);
+		},
+		map_valid(this: FakeServer, plugin: PluginInstance, name: number) {
+			return +this.maps.includes(plugin.memory.string(name));
+		},
+		change_level(this: FakeServer, plugin: PluginInstance, name: number) {
+			const map = plugin.memory.string(name);
+			if (!this.maps.includes(map)) return 0;
+			this.engineCalls.push(`ChangeLevel ${map}`);
+			return 1;
+		},
+		light_style(this: FakeServer, plugin: PluginInstance, text: number) {
+			this.engineCalls.push(`LightStyle 0 ${plugin.memory.string(text)}`);
+		},
+		// What each player sees through, by his id: 0 his own eyes.
+		player_view(this: FakeServer, plugin: PluginInstance, id: number, target: number) {
+			this.engineCalls.push(`SetView ${id} ${target || id}`);
+			this.views.set(id, target === id ? 0 : target);
+		},
+		player_view_get(this: FakeServer, plugin: PluginInstance, id: number) {
+			return this.views.get(id) ?? 0;
+		},
+		// Traces: the fake world is empty, unless a test puts a wall (server.walls)
+		// across the way; each trace is written to engineCalls.
+		world_trace_line(this: FakeServer, plugin: PluginInstance, points: number, flags: number, ignore: number, out: number) {
+			const [start, end] = tracePoints(plugin, points);
+			this.engineCalls.push(`TraceLine ${start.join(',')} ${end.join(',')} ${flags} ${ignore}`);
+			this.writeTrace(plugin, out, start, end);
+		},
+		world_trace_hull(this: FakeServer, plugin: PluginInstance, points: number, hull: number, flags: number, ignore: number, out: number) {
+			const [start, end] = tracePoints(plugin, points);
+			this.engineCalls.push(`TraceHull ${start.join(',')} ${end.join(',')} ${hull} ${flags} ${ignore}`);
+			this.writeTrace(plugin, out, start, end);
+		},
+		// Inside a wall is solid; the walls are planes across x.
+		world_contents(this: FakeServer, plugin: PluginInstance, point: number) {
+			const x = tracePoints(plugin, point)[0][0];
+			return this.walls.some(wall => wall.x === x) ? -2 : -1;
+		},
+		entity_drop(this: FakeServer, plugin: PluginInstance, id: number) {
+			this.engineCalls.push(`DropToFloor ${id}`);
+			return 1;
+		},
+		// The log line being told (-1) or one of its arguments, and how many it has.
+		log_text(this: FakeServer, plugin: PluginInstance, index: number, out: number, max: number) {
+			return plugin.memory.setUtf8(out, max, index < 0 ? this.logLine : this.logArgs[index] ?? '');
+		},
+		log_count(this: FakeServer) {
+			return this.logArgs.length;
 		},
 		// Reunion's answers: -1 without it.
 		reunion(this: FakeServer, plugin: PluginInstance, what: number, id: number) {

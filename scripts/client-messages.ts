@@ -129,8 +129,80 @@ export const MESSAGE_FIELDS: Record<string, MessageField[]> = {
 		f('slot', 6, 'number'),
 		f('position', 7, 'number'),
 		f('weapon', 8, 'weapon'),
+		f('flags', 9, 'number'),
 	],
 	WeapPickup: [f('weapon', 1, 'weapon')],
+};
+
+/** How a message's argument is written: `write_byte`, `write_short` and the rest; `string*` every text from there on. */
+export type MessageWrite = 'byte' | 'char' | 'short' | 'long' | 'coord' | 'angle' | 'string' | 'string*';
+
+/**
+ * The messages a plugin can send by name (player.send, server.send): each
+ * argument as the game writes it, in order - ReGameDLL's MESSAGE_BEGIN
+ * sites. A message is here only when its fields name every argument, so
+ * what an author gives is the whole message; `=n` is an argument the game
+ * always writes as `n` (ScoreInfo's class).
+ */
+export const MESSAGE_WRITES: Record<string, string> = {
+	ADStop: '',
+	AllowSpec: 'byte',
+	AmmoPickup: 'byte byte',
+	AmmoX: 'byte byte',
+	ArmorType: 'byte',
+	BarTime: 'short',
+	BarTime2: 'short short',
+	Battery: 'short',
+	BlinkAcct: 'byte',
+	BombDrop: 'coord coord coord byte',
+	BombPickup: '',
+	BotVoice: 'byte byte',
+	BuyClose: '',
+	Crosshair: 'byte',
+	CurWeapon: 'byte byte byte',
+	Damage: 'byte byte long coord coord coord',
+	DeathMsg: 'byte byte byte string',
+	Flashlight: 'byte byte',
+	FlashBat: 'byte',
+	Geiger: 'byte',
+	Health: 'byte',
+	HideWeapon: 'byte',
+	HostageK: 'byte',
+	InitHUD: '',
+	ItemPickup: 'string',
+	ItemStatus: 'byte',
+	Location: 'byte string',
+	Money: 'long byte',
+	MOTD: 'byte string',
+	NVGToggle: 'byte',
+	Radar: 'byte coord coord coord',
+	ResetHUD: '',
+	RoundTime: 'short',
+	SayText: 'byte string string*',
+	Scenario: 'byte string byte',
+	ScoreAttrib: 'byte byte',
+	ScoreInfo: 'byte short short short=0 short',
+	ScreenFade: 'short short short byte byte byte byte',
+	ScreenShake: 'short short short',
+	SendAudio: 'byte string short',
+	ServerName: 'string',
+	SetFOV: 'byte',
+	ShowTimer: '',
+	SpecHealth: 'byte',
+	SpecHealth2: 'byte byte',
+	Spectator: 'byte byte',
+	StatusIcon: 'byte string byte byte byte',
+	StatusText: 'byte string',
+	StatusValue: 'byte short',
+	TaskTime: 'short byte byte',
+	TeamInfo: 'byte string',
+	TeamScore: 'string short',
+	TextMsg: 'byte string string*',
+	Train: 'byte',
+	TutorClose: '',
+	ViewMode: '',
+	WeaponList: 'string byte byte byte byte byte byte byte byte',
+	WeapPickup: 'byte',
 };
 
 /** Every message Counter-Strike 1.6 registers, by the name get_user_msgid takes. */

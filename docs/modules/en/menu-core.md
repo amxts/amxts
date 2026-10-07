@@ -136,7 +136,7 @@ const vote = menus.create("LIST_MAPS", { title: "Next map" });
 vote.setListSource(() => maps.map((map, index) => menus.listRow(index, map)));
 vote.addItem({
 	title: ({ row }) => maps[row],
-	onSelect: ({ player, row }) => print(0, `${player.name} votes for ${maps[row]}`),
+	onSelect: ({ player, row }) => server.print(`${player.name} votes for ${maps[row]}`),
 });
 ```
 

@@ -91,7 +91,7 @@ plugin({ name: "Hello", version: "1.0.0", author: "you", description: "An exampl
 
 server.addCommand("/hp", ({ player }) => sayHp(player));
 server.addEventListener("putInServer", (event) => {
-	print(0, `${event.player.name} joined`);
+	server.print(`${event.player.name} joined`);
 });
 
 function sayHp(player: Player) {

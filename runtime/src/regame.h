@@ -231,15 +231,43 @@ static void HideStatusIcon(int32_t id, const char *icon)
 #define SPAWN_NO_RESPAWN (1 << 30)
 
 /**
+ * Whether the game has entities of the class: the game's library exports a
+ * function by every class name it can make, which CREATE_NAMED_ENTITY finds.
+ * True when the library cannot be asked.
+ */
+static bool GameHasClass(const char *classname)
+{
+	void *inGame = gpGamedllFuncs && gpGamedllFuncs->dllapi_table ? (void *)gpGamedllFuncs->dllapi_table->pfnSpawn : NULL;
+	if (!inGame)
+		return true;
+#ifdef _WIN32
+	HMODULE game = NULL;
+	if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)inGame, &game))
+		return true;
+	return GetProcAddress(game, classname) != NULL;
+#else
+	Dl_info info;
+	void *game = dladdr(inGame, &info) && info.dli_fname ? dlopen(info.dli_fname, RTLD_NOW | RTLD_NOLOAD) : NULL;
+	if (!game)
+		return true;
+	bool has = dlsym(game, classname) != NULL;
+	dlclose(game);
+	return has;
+#endif
+}
+
+/**
  * player_give(id, classname) - gives the player a weapon or an item, as the
  * game does: ReGameDLL's GiveNamedItemEx, else what the original
  * GiveNamedItem does - the entity made where he stands, spawned and touched
  * by him. The entity's index, 0 when he did not take it (one left behind is
- * removed).
+ * removed), -1 for a name the game has no class of.
  */
 static int32_t w_playerGive(wasm_exec_env_t env, int32_t id, int32_t name)
 {
 	std::string classname = AsString(Inst(env), name);
+	if (!GameHasClass(classname.c_str()))
+		return -1;
 	if (!InGame(id))
 		return 0;
 
@@ -456,6 +484,204 @@ static void w_playerTeam(wasm_exec_env_t env, int32_t id, int32_t team)
 	MF_SetPlayerTeamInfo(id, team, name);
 	if (player && team == 3 && e->v.deadflag != DEAD_NO)
 		player->StartDeathCam();
+}
+
+// ---------------------------------------------------------------- what a player carries
+
+#ifdef _WIN32
+typedef int (__fastcall *ItemMethod)(void *self, int, void *item);
+#define CALL_ITEM(fn, self, item) ((ItemMethod)(fn))(self, 0, item)
+#else
+typedef int (*ItemMethod)(void *self, void *item);
+#define CALL_ITEM(fn, self, item) ((ItemMethod)(fn))(self, item)
+#endif
+
+/**
+ * Takes an item from the player as the original game does when it replaces
+ * one, with the ammo it takes: his bit of it off pev->weapons, the game's
+ * RemovePlayerItem, the item killed; the bomb's mark and icon with the bomb.
+ */
+static bool RemoveItemHere(int32_t id, char *player, char *item)
+{
+	int remove = 0;
+	int idOffset = MemberOffset("CBasePlayerItem", "m_iId");
+	int ammoOffset = MemberOffset("CBasePlayerWeapon", "m_iPrimaryAmmoType");
+	if (!HamOffset("removeplayeritem", &remove) || idOffset < 0)
+		return false;
+	edict_t *e = INDEXENT(id);
+	edict_t *itemEdict = (*(entvars_t **)(item + g_pevOffset))->pContainingEntity;
+	int *ammo = PlayerMember<int>(player, "m_rgAmmo");
+	int type = ammoOffset >= 0 ? *(int *)(item + ammoOffset) : -1;
+	if (ammo && type > 0 && type < 32)
+		ammo[type] = 0;
+	if (!strcmp(STRING(itemEdict->v.classname), "weapon_c4")) {
+		bool *hasC4 = PlayerMember<bool>(player, "m_bHasC4");
+		if (hasC4)
+			*hasC4 = false;
+		e->v.body = 0;
+		HideStatusIcon(id, "c4");
+	}
+	e->v.weapons &= ~(1u << *(int *)(item + idOffset));
+	bool removed = CALL_ITEM(VtableOfObject(player)[remove], player, item) != 0;
+	RunVirtual(item, "item_kill");
+	return removed;
+}
+
+/**
+ * player_remove_slot(id, slot) - takes every item of one of the player's
+ * slots (1 primary ... 5 the bomb), with its ammo: ReGameDLL's
+ * RemovePlayerItemEx for each, else the original game's steps. 1 when every
+ * one went.
+ */
+static int32_t w_playerRemoveSlot(wasm_exec_env_t env, int32_t id, int32_t slot)
+{
+	(void)env;
+	char *player = InGame(id) ? ObjectOf(id) : NULL;
+	char **items = PlayerMember<char *>(player, "m_rgpPlayerItems");
+	int next = MemberOffset("CBasePlayerItem", "m_pNext");
+	if (!items || next < 0 || slot < 1 || slot >= ITEM_SLOTS)
+		return 0;
+
+	// The slot's items first: removing one unlinks it from the list walked.
+	std::vector<char *> list;
+	for (char *item = items[slot]; item && list.size() < 32; item = *(char **)(item + next))
+		list.push_back(item);
+
+	re::CSPlayer *cs = CSPlayerOf(id);
+	bool all = true;
+	for (char *item : list) {
+		edict_t *itemEdict = (*(entvars_t **)(item + g_pevOffset))->pContainingEntity;
+		bool removed = cs ? cs->RemovePlayerItemEx(STRING(itemEdict->v.classname), true) : RemoveItemHere(id, player, item);
+		all = removed && all;
+	}
+	return all ? 1 : 0;
+}
+
+/** player_drop(id, classname) - the player drops a weapon he carries, as the game's drop does. */
+static void w_playerDrop(wasm_exec_env_t env, int32_t id, int32_t name)
+{
+	std::string classname = AsString(Inst(env), name);
+	if (!InGame(id))
+		return;
+	re::CSPlayer *player = CSPlayerOf(id);
+	if (player)
+		player->DropPlayerItem(classname.c_str());
+	else
+		ClientCommandLine(id, "drop " + classname);
+}
+
+// ---------------------------------------------------------------- what the server knows of a player
+
+#define STAT_USER_ID   1
+#define STAT_PING      2
+#define STAT_LOSS      3
+#define STAT_CONNECTED 4
+
+/** When each client connected, by the server's clock: what player.connectedSeconds counts from. */
+static float g_connectedAt[CLIENT_SLOTS];
+
+/**
+ * player_stat(id, what) - the player's user id, ping or packet loss as the
+ * engine tells them, or the seconds since he connected; 0 for a slot nobody
+ * is in.
+ */
+static int32_t w_playerStat(wasm_exec_env_t env, int32_t id, int32_t what)
+{
+	(void)env;
+	if (id < 1 || id >= CLIENT_SLOTS || !g_connected[id])
+		return 0;
+	edict_t *e = INDEXENT(id);
+	int ping = 0, loss = 0;
+	switch (what) {
+		case STAT_USER_ID:   return GETPLAYERUSERID(e);
+		case STAT_PING:      g_engfuncs.pfnGetPlayerStats(e, &ping, &loss); return ping;
+		case STAT_LOSS:      g_engfuncs.pfnGetPlayerStats(e, &ping, &loss); return loss;
+		case STAT_CONNECTED: return (int32_t)(gpGlobals->time - g_connectedAt[id]);
+		default:             return 0;
+	}
+}
+
+/** info_get(id, key, out, max) - a key of the player's userinfo, as UTF-8 text; its length. */
+static int32_t w_userInfo(wasm_exec_env_t env, int32_t id, int32_t key, int32_t out, int32_t max)
+{
+	std::string name = AsString(Inst(env), key);
+	const char *value = id >= 1 && id < CLIENT_SLOTS && g_connected[id] ? INFOKEY_VALUE(GET_INFOKEYBUFFER(INDEXENT(id)), name.c_str()) : "";
+	return WriteBytes(Inst(env), out, max, value ? value : "");
+}
+
+/** info_set(id, key, value) - writes a key of the player's userinfo, which his game and the game hear. */
+static void w_setUserInfo(wasm_exec_env_t env, int32_t id, int32_t key, int32_t value)
+{
+	if (id < 1 || id >= CLIENT_SLOTS || !g_connected[id])
+		return;
+	std::string name = AsString(Inst(env), key);
+	std::string text = AsString(Inst(env), value);
+	edict_t *e = INDEXENT(id);
+	SET_CLIENT_KEYVALUE(id, GET_INFOKEYBUFFER(e), (char *)name.c_str(), (char *)text.c_str());
+}
+
+// Players whose steps make no sound, kept so by the module each frame on a
+// server without ReGameDLL, which keeps its own member so itself.
+static bool g_silentSteps[CLIENT_SLOTS];
+static int  g_silentCount = 0;
+
+// How long the engine waits before a step's next sound, pev->flTimeStepSound: never, in practice.
+#define SILENT_STEP_TIME 999
+
+/** player_silent(id, on) - his steps silent or not; -1 reads which. */
+static int32_t w_playerSilent(wasm_exec_env_t env, int32_t id, int32_t on)
+{
+	(void)env;
+	if (id < 1 || id >= CLIENT_SLOTS || !InGame(id))
+		return 0;
+	if (on < 0)
+		return g_silentSteps[id] ? 1 : 0;
+	if (g_silentSteps[id] != (on != 0))
+		g_silentCount += on ? 1 : -1;
+	g_silentSteps[id] = on != 0;
+	edict_t *e = INDEXENT(id);
+	e->v.flTimeStepSound = on ? SILENT_STEP_TIME : 400;
+	float *time = RegameHere() ? PlayerMember<float>(ObjectOf(id), "m_flTimeStepSound") : NULL;
+	if (time)
+		*time = on ? SILENT_STEP_TIME : 0;
+	return 1;
+}
+
+/** Each frame: the silent players' next step put off again, where the game does not keep it so. */
+static void KeepStepsSilent()
+{
+	if (!g_silentCount || RegameHere())
+		return;
+	for (int id = 1; id < CLIENT_SLOTS && id <= gpGlobals->maxClients; id++)
+		if (g_silentSteps[id] && InGame(id))
+			INDEXENT(id)->v.flTimeStepSound = SILENT_STEP_TIME;
+}
+
+/** A player's slot let go or taken anew: nothing of the last one's stays. */
+static void PlayerSlotReset(int id)
+{
+	if (id < 1 || id >= CLIENT_SLOTS)
+		return;
+	if (g_silentSteps[id])
+		g_silentCount--;
+	g_silentSteps[id] = false;
+	g_connectedAt[id] = gpGlobals->time;
+}
+
+/**
+ * player_switch_team(id) - the player to the other side, as the game swaps
+ * sides: ReGameDLL's SwitchTeam, else player_team's steps. A spectator stays.
+ */
+static void w_playerSwitchTeam(wasm_exec_env_t env, int32_t id)
+{
+	re::CSPlayer *player = CSPlayerOf(id);
+	if (player) {
+		player->SwitchTeam();
+		return;
+	}
+	int *team = PlayerMember<int>(InGame(id) ? ObjectOf(id) : NULL, "m_iTeam");
+	if (team && (*team == TEAM_T || *team == TEAM_CT))
+		w_playerTeam(env, id, *team == TEAM_T ? TEAM_CT : TEAM_T);
 }
 
 // ---------------------------------------------------------------- the game rules' actions

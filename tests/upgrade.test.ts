@@ -9,6 +9,7 @@ import { setup } from '@amxts/core/test-utils';
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { CORE_PLUGINS, setProjectDir } from '../scripts/project';
 import { dropHttpImports, renamesFor, upgradeEvents, upgradeFlags, upgradeHandlers, upgradeMessages, upgradeNames, upgradeProject, upgradeText } from '../scripts/upgrade';
+import { upgradeCalls } from '../scripts/upgrade-calls';
 import { upgradeMenus } from '../scripts/upgrade-menus';
 
 setDefaultTimeout(240_000);
@@ -731,4 +732,51 @@ test('a death message\'s flags are lowerCamelCase too', () => {
 	const { text } = upgradeFlags('plugins/a.ts', source);
 	expect(text).toBe('game.addEventListener("sendDeathMessage", (event) => {\n\tif (event.rarity.includes("headshot") && !event.rarity.includes("throughSmoke")) event.flags = ["position", "killRarity"];\n});\n');
 	expect(upgradeFlags('plugins/a.ts', text).changes).toEqual([]);
+});
+
+test('calls of a changed shape: print to everyone, removeAllItems\'s suit, a Storage\'s missing value, give\'s cast', () => {
+	const source = [
+		'const points = new Storage("myplugin_points");',
+		'print(0, `Round ${round}`);',
+		'print(0, "Go!", "center");',
+		'print({ id: 0, variant: "center" }, "Go!");',
+		'print({ id: player.id, variant: "center" }, "Done");',
+		'print({ id: player.id, color: "red" }, "Odd");',
+		'print(player, "Hi");',
+		'player.removeAllItems(true);',
+		'player.removeAllItems(false);',
+		'player.removeAllItems(keepSuit);',
+		'player.removeAllItems();',
+		'const saved: string | null = points.get(player.steamId);',
+		'if (saved == null) print(0, points.get("x") === null ? "none" : "some");',
+		'player.give(<ItemName>name);',
+		'player.give(name as WeaponName);',
+		'server.vault("myplugin_points").set("STEAM_0:0:1", "6");',
+		'',
+	].join('\n');
+
+	const { text, left } = upgradeCalls('plugins/a.ts', source);
+
+	expect(text.split('\n')).toEqual([
+		'const points = new Storage("myplugin_points");',
+		'server.print(`Round ${round}`);',
+		'server.print("Go!", "center");',
+		'server.print("Go!", "center");',
+		'print(player.id, "Done", "center");',
+		'print({ id: player.id, color: "red" }, "Odd");',
+		'print(player, "Hi");',
+		'player.removeAllItems({ suit: true });',
+		'player.removeAllItems();',
+		'player.removeAllItems({ suit: keepSuit });',
+		'player.removeAllItems();',
+		'const saved: string | undefined = points.get(player.steamId);',
+		'if (saved == undefined) server.print(points.get("x") === undefined ? "none" : "some");',
+		'player.give(name);',
+		'player.give(name);',
+		'server.storage("myplugin_points").set("STEAM_0:0:1", "6");',
+		'',
+	]);
+	expect(left.map(each => each.line)).toEqual([6]);
+	// A second run changes nothing.
+	expect(upgradeCalls('plugins/a.ts', text).text).toBe(text);
 });

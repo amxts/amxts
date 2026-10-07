@@ -42,6 +42,39 @@ test('restartRound and checkWinConditions run the game rules\' own functions, at
 	expect(server.rulesRuns).toEqual(['restartRound', 'checkWinConditions']);
 });
 
+test('the log event hears every line, whole and in its parts', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	server.gameLog('World triggered "Round_Draw" (CT "3")');
+	alice.command('game_logged');
+
+	expect(alice.console).toBe('World triggered "Round_Draw" (CT "3") | World triggered,Round_Draw,CT "3"');
+});
+
+test('swapTeams swaps the sides and their scores; balanceTeams moves the last to come from the bigger side', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const players = ['A', 'B', 'C', 'D'].map(name => server.join(name));
+	players[0].team = 'TERRORIST';
+	for (const each of players.slice(1)) each.team = 'CT';
+
+	players[0].command('game_sides');
+
+	expect(players[0].console).toBe('1 3 Infinity');
+	// After the swap: A a counter-terrorist, B, C and D terrorists; one of them, the last to come, back.
+	expect(players.map(each => each.team)).toEqual(['CT', 'TERRORIST', 'TERRORIST', 'CT']);
+});
+
+test('server.plugins lists this plugin, running; stop, reload and loadPlugin are asked for the next frame', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	alice.command('game_plugins');
+
+	expect(alice.console).toBe('typescript true');
+	expect(server.pluginActions).toEqual(['reload game-api.ts', 'stop game-api.ts', 'start other.aot']);
+});
+
 test('touch: only the classes a listener asked for reach it, toucher and touched in their places', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
@@ -65,4 +98,28 @@ test('a post listener is still added with true', async () => {
 
 	expect(server.hookchains.get('take_damage')?.post.length).toBe(1);
 	expect(server.hookchains.get('take_damage')?.pre.length ?? 0).toBe(0);
+});
+
+test('the server tells its game and versions, goes to a map it has, sets the light and prints to everyone', async () => {
+	const server = await loadPlugin(PLUGIN);
+	server.createCvar('amxmodx_version', '1.10.0.5467');
+	const alice = server.join('Alice');
+	const bob = server.join('Bob');
+
+	alice.command('game_server');
+
+	expect(alice.console).toBe('cstrike 0.3.0 1.10.0.5467 3.14 5.28 true false false true m b');
+	expect(server.engineCalls).toContain('ChangeLevel cs_office');
+	expect(server.engineCalls).toContain('LightStyle 0 b');
+	expect(bob.chat).toContain('Round 3');
+	expect(bob.center).toContain('Go!');
+});
+
+test('lang.languages lists the languages of the loaded dictionaries', async () => {
+	const server = await loadPlugin(PLUGIN, { files: { 'addons/amxmodx/data/lang/myplugin.txt': '[en]\nHELLO = Hello\n\n[de]\nHELLO = Hallo\n' } });
+	const alice = server.join('Alice');
+
+	alice.command('game_languages');
+
+	expect(alice.console).toBe('en,de');
 });

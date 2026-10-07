@@ -170,4 +170,130 @@ export default {
 		en: `\`readdirSync\` as a promise, rejected when there is no such folder.`,
 		ru: `\`readdirSync\` в виде промиса; отклоняется, если такой папки нет.`,
 	},
+	'unlinkSync': {
+		en: `
+			Deletes a file; \`false\` when there is none or it cannot be deleted.
+
+			Pawn: \`delete_file\`, \`unlink\`
+		`,
+		ru: `
+			Удаляет файл; \`false\`, если его нет или его не удалось удалить.
+
+			Pawn: \`delete_file\`, \`unlink\`
+		`,
+	},
+	'renameSync': {
+		en: `
+			Moves or renames a file: \`fs.renameSync("addons/amxmodx/data/top.txt",
+			"addons/amxmodx/data/top.old")\`; \`false\` when it cannot.
+
+			Pawn: \`rename_file\`
+		`,
+		ru: `
+			Перемещает или переименовывает файл: \`fs.renameSync("addons/amxmodx/data/top.txt",
+			"addons/amxmodx/data/top.old")\`; \`false\`, если не удалось.
+
+			Pawn: \`rename_file\`
+		`,
+	},
+	'rmdirSync': {
+		en: `
+			Deletes an empty folder; \`false\` when there is none, it holds something or
+			it cannot be deleted.
+
+			Pawn: \`rmdir\`
+		`,
+		ru: `
+			Удаляет пустую папку; \`false\`, если её нет, в ней что-то есть или её не
+			удалось удалить.
+
+			Pawn: \`rmdir\`
+		`,
+	},
+	'Stats': {
+		en: `
+			A file's or a folder's facts from \`statSync\`, as Node's \`fs.Stats\`.
+		`,
+		ru: `
+			Сведения о файле или папке из \`statSync\`, как \`fs.Stats\` в Node.
+		`,
+	},
+	'Stats.size': {
+		en: `
+			The size in bytes; \`0\` for a folder.
+		`,
+		ru: `
+			Размер в байтах; \`0\` для папки.
+		`,
+	},
+	'Stats.mtime': {
+		en: `
+			The moment it last changed.
+		`,
+		ru: `
+			Момент его последнего изменения.
+		`,
+	},
+	'Stats.isFile': {
+		en: `
+			Whether it is a file.
+		`,
+		ru: `
+			Файл ли это.
+		`,
+	},
+	'Stats.isDirectory': {
+		en: `
+			Whether it is a folder.
+		`,
+		ru: `
+			Папка ли это.
+		`,
+	},
+	'statSync': {
+		en: `
+			A file's or a folder's size and the moment it last changed; \`null\` when
+			there is none: \`fs.statSync("addons/amxmodx/logs/error.log")?.size\`.
+
+			Pawn: \`file_size\`, \`GetFileTime\`
+		`,
+		ru: `
+			Размер файла или папки и момент последнего изменения; \`null\`, если их нет:
+			\`fs.statSync("addons/amxmodx/logs/error.log")?.size\`.
+
+			Pawn: \`file_size\`, \`GetFileTime\`
+		`,
+	},
+	'unlink': {
+		en: `
+			\`unlinkSync\` as a promise, rejected when the file cannot be deleted.
+		`,
+		ru: `
+			\`unlinkSync\` в виде промиса; отклоняется, если файл не удалось удалить.
+		`,
+	},
+	'rename': {
+		en: `
+			\`renameSync\` as a promise, rejected when the file cannot be moved.
+		`,
+		ru: `
+			\`renameSync\` в виде промиса; отклоняется, если файл не удалось переместить.
+		`,
+	},
+	'rmdir': {
+		en: `
+			\`rmdirSync\` as a promise, rejected when the folder cannot be deleted.
+		`,
+		ru: `
+			\`rmdirSync\` в виде промиса; отклоняется, если папку не удалось удалить.
+		`,
+	},
+	'stat': {
+		en: `
+			\`statSync\` as a promise, rejected when there is no such file or folder.
+		`,
+		ru: `
+			\`statSync\` в виде промиса; отклоняется, если такого файла или папки нет.
+		`,
+	},
 };

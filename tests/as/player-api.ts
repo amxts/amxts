@@ -2,6 +2,15 @@
 // command each.
 
 server.addCommand("pl_ammo", ({ player }) => ammo(player));
+server.addCommand("pl_slots", ({ player }) => slots(player));
+server.addCommand("pl_info", ({ player }) => info(player));
+const everyone = new HudLine();
+server.addCommand("pl_screen", ({ player }) => {
+	everyone.showAll("for all");
+	player.screen.hint("Plant the bomb");
+	player.showMotd("x".repeat(200), "Rules");
+});
+server.addCommand("pl_country", ({ player }) => print(player, `${player.country ?? "none"} ${player.countryCode ?? "none"}`, "console"));
 server.addCommand("pl_lang", ({ player }) => language(player));
 server.addCommand("pl_auth", ({ player }) => print(player, `${player.authType} ${player.protocol} ${player.authKey}`, "console"));
 server.addCommand("pl_voice [routes]", ({ player, routes }) => voice(player, (routes ?? "").split(" ")));
@@ -82,3 +91,29 @@ function equip(player: Player) {
 	player.hasDefuser = true;
 	player.hasDefuser = false;
 }
+
+function slots(player: Player) {
+	player.give("weapon_ak47");
+	player.give("weapon_deagle");
+	player.give("weapon_hegrenade");
+	player.setAmmo("weapon_ak47", 90);
+	const removed = player.removeItems("primary");
+	const dropped = player.dropItem("weapon_deagle");
+	const none = player.dropItem("weapon_awp");
+	const left = player.items.map<string>(item => item.classname).join(",");
+	print(player, `${removed} ${dropped != null ? dropped.classname : "none"} ${none == null} ${left}`, "console");
+}
+
+function info(player: Player) {
+	const hand = player.info.get("cl_righthand");
+	player.info.set("_vgui_menus", "0");
+	player.silentSteps = true;
+	print(player, `${hand} ${player.info.get("_vgui_menus")} ${player.userId > 0} ${player.isHltv} ${player.silentSteps} ${player.connectedSeconds}`, "console");
+}
+
+server.addCommand("pl_breaking", ({ player }) => {
+	print(0, "nobody");
+	const name: string = "weapon_ak74";
+	print(player, `${player.give(name)} ${player.give(name)} ${player.give("weapon_ak47")}`, "console");
+	player.removeAllItems({ suit: true });
+});
