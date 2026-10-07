@@ -1072,6 +1072,15 @@ test('36: an explicit import of what is auto-imported is found', () => {
 	]);
 });
 
+/**
+ * The test plugins: tests/as and tests/server, without the probes another
+ * test file writes there for a moment (`.tdz-probe-...`) while the files run
+ * side by side.
+ */
+function testPlugins(): string[] {
+	return ['tests/as', 'tests/server'].flatMap(dir => readdirSync(dir).filter(name => name.endsWith('.ts') && !name.startsWith('.')).map(name => `${dir}/${name}`));
+}
+
 /** The files that prove an explicit import works as it always has. */
 const EXPLICIT_IMPORTS = new Set(['tests/as/menu-by-name.ts', 'tests/server/cvar.ts']);
 
@@ -1079,7 +1088,7 @@ test('36: plugin code does not import what is auto-imported', () => {
 	const project = loadProject();
 	const table = new Map(project.autoImports.map(entry => [entry.name, entry]));
 	const plugins = [
-		...['tests/as', 'tests/server'].flatMap(dir => readdirSync(dir).filter(name => name.endsWith('.ts')).map(name => `${dir}/${name}`)),
+		...testPlugins(),
 		'runtime/host/hello.ts',
 		...project.modules.map(pkg => join(pkg.dir, 'playground', 'plugins')).filter(existsSync).flatMap(dir => readdirSync(dir).filter(name => name.endsWith('.ts')).map(name => join(dir, name))),
 	].filter(file => !EXPLICIT_IMPORTS.has(file));
@@ -1176,7 +1185,7 @@ test('38: plugin and module code imports the core\'s API by the package\'s name'
 	const project = loadProject();
 	const renames = renamesFor(project.modules);
 	const plugins = [
-		...['tests/as', 'tests/server'].flatMap(dir => readdirSync(dir).filter(name => name.endsWith('.ts')).map(name => `${dir}/${name}`)),
+		...testPlugins(),
 		'runtime/host/hello.ts',
 		...project.modules.flatMap(pkg => [join(pkg.dir, 'src'), join(pkg.dir, 'playground', 'plugins')]).filter(existsSync).flatMap(dir => pluginFiles(dir)),
 	];
@@ -1211,7 +1220,7 @@ test('37: a type literal as a type argument is found', () => {
 test('37: plugin and module code passes a generic its type by name', () => {
 	const project = loadProject();
 	const plugins = [
-		...['tests/as', 'tests/server'].flatMap(dir => readdirSync(dir).filter(name => name.endsWith('.ts')).map(name => `${dir}/${name}`)),
+		...testPlugins(),
 		'runtime/host/hello.ts',
 		...project.modules.flatMap(pkg => [join(pkg.dir, 'src'), join(pkg.dir, 'playground', 'plugins')]).filter(existsSync).flatMap(dir => pluginFiles(dir)),
 	];
