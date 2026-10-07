@@ -107,6 +107,27 @@ describe('a command\'s arguments, read as their types say', () => {
 		expect(server.log).toContain('Usage: cmd_reset [what]');
 	});
 
+	test('a handler declared by name, in the console and in chat: its words and its access', async () => {
+		const { admin, alice, heard } = await boot();
+
+		alice.command('ping');
+		expect(heard()).toBe('pong');
+		alice.say('/ping');
+		expect(heard()).toBe('pong');
+		alice.command('ping now');
+		expect(heard()).toBe('');
+		expect(alice.chat).toBe('Usage: ping');
+
+		expect(alice.command('team ct')).toBe(false);
+		expect(heard()).toBe('');
+		expect(admin.command('team ct')).toBe(true);
+		expect(heard()).toBe('joins ct');
+		admin.clearMessages();
+		admin.command('team spec');
+		expect(heard()).toBe('');
+		expect(admin.chat).toBe('Usage: team <team>');
+	});
+
 	test('a bot\'s command reaches the commands as a player\'s does', async () => {
 		const { server, heard } = await boot();
 		server.join('Robot', { bot: true });
@@ -126,7 +147,7 @@ describe('a command\'s arguments, read as their types say', () => {
 		const { admin, alice } = await boot();
 
 		alice.say('/help');
-		expect(alice.chat).toBe(['give <amount> [what]', '/me <text>', '/hp', 'say rules', 'cmd_reset [what]', 'cmd_login <url> <user>', '/help', 'cmd_bot_hp'].join('\n'));
+		expect(alice.chat).toBe(['give <amount> [what]', '/me <text>', '/hp', 'say rules', 'cmd_reset [what]', 'cmd_login <url> <user>', '/help', 'ping', '/ping', 'cmd_bot_hp'].join('\n'));
 		admin.say('/help');
 		expect(admin.chat.split('\n')[0]).toBe('/kick <target> [reason]');
 	});
@@ -171,6 +192,20 @@ describe('what does not build', () => {
 		expect(parseUsage('/x [a] <b>')).toBe('<b> - a required argument cannot follow an optional one');
 		expect(parseUsage('/x target')).toContain('"target" - an argument is one word, <name> or [name]');
 		expect(parseUsage('/x <a> <a>')).toBe('a - the usage names it twice');
+	});
+
+	test('a handler declared by name at the top level is called by its name; any other through the closure', () => {
+		const direct = built('function onHp() {}\nserver.addCommand("/hp", onHp);\n').text;
+		expect(direct).toContain('\tonHp();\n');
+		expect(direct).toContain('__amxtsCommandConsole0.index');
+		expect(built(`${KICK}function onKick({ target }: KickArgs) {}\nserver.addCommand<KickArgs>("/kick <target> [reason]", onKick);\n`).text)
+			.toContain('handler: (args: KickArgs) => void');
+		for (const body of [
+			'server.addCommand("/hp", () => {});\n',
+			'async function onHp() {}\nserver.addCommand("/hp", onHp);\n',
+			'function onHp() {}\nfunction init() {\n\tserver.addCommand("/hp", onHp);\n}\n',
+			'function onHp() {}\nserver.addServerCommand("hp", onHp);\n',
+		]) expect({ body, direct: built(body).text.includes('Console0') }).toEqual({ body, direct: false });
 	});
 
 	test('the call becomes the generated function in its place, and every line keeps its number', () => {

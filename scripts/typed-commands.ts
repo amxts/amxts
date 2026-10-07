@@ -32,6 +32,12 @@
 // - the call's `server.addCommand<KickArgs>` becomes that function's name,
 //   padded, so the rest of the line keeps its columns.
 //
+// A player's command added at the top level of the file with a function
+// declared there by name, `server.addCommand("/hp", onHp)`, gets no closure:
+// its parser is a function of its own that calls the handler by its name, and
+// the module calls another for the command typed in the console - in the
+// facade's place, the words taken from __commandWords.
+//
 // The interface is read from the source text - a syntax tree, no type checker
 // - in this file or imported, as the typed configs read theirs.
 import type { ImportReader } from './typed-configs';
@@ -166,11 +172,22 @@ function readOf(arg: Argument, at: number, last: boolean, tabs: string): string[
 }
 
 /**
+ * A handler declared by name that the parser calls directly: its name, and the
+ * type its parameter is declared with - the interface, which the generated
+ * class implements - or null when it takes none.
+ */
+interface Direct {
+	name: string;
+	takes: string | null;
+}
+
+/**
  * The generated code for one call: the class of its handler's argument - an
  * implementation of `shape`, the interface the call names - and the function
- * that registers it.
+ * that registers it; with `direct`, the parser and the console's function
+ * besides, which call the handler by its name.
  */
-function commandCode(index: number, method: 'addCommand' | 'addServerCommand', args: Argument[], shape: string | undefined, kept: boolean): string {
+function commandCode(index: number, method: 'addCommand' | 'addServerCommand', args: Argument[], shape: string | undefined, kept: boolean, direct: Direct | null): string {
 	const player = method === 'addCommand';
 	const type = `__AmxtsCommandArgs${index}`;
 	const required = args.filter(arg => !arg.optional).length;
@@ -179,24 +196,86 @@ function commandCode(index: number, method: 'addCommand' | 'addServerCommand', a
 		const lines = readOf(arg, at, at === args.length - 1, arg.optional ? '\t\t\t' : '\t\t');
 		return arg.optional ? [`\t\tif (words.count > ${at}) {`, ...lines, '\t\t}'] : lines;
 	});
-	return [
-		`class ${type}${shape ? ` implements ${shape}` : ''} {`,
-		...(player ? ['\tplayer!: __AmxtsPlayer;'] : []),
-		...args.map(arg => `\t${arg.name}${arg.optional ? '?' : '!'}: ${typeOf(arg)};`),
-		'}',
-		...(kept ? [`const __amxtsArgs${index} = new ${type}();`] : []),
-		`function __amxtsCommand${index}(usage: string, handler: (args: ${type}) => void${player ? ', options: __AmxtsCommandOptions = {}' : ''}): void {`,
-		`\t__amxtsServer.__${method}(usage, (words: __AmxtsCommandWords): void => {`,
+	// The words read into the handler's argument, inside the closure; one tab less in a function of its own.
+	const parse = [
 		`\t\tconst args = ${kept ? `__amxtsArgs${index}` : `new ${type}()`};`,
 		...(player ? ['\t\targs.player = words.player!;'] : []),
 		...(required > 0 ? [`\t\tif (!words.need(${required})) return;`] : []),
 		...reads,
 		...(lastIsText ? [] : [`\t\tif (!words.done(${args.length})) return;`]),
 		'\t\tif (words.failed) return;',
+	];
+	const closure = [
+		`function __amxtsCommand${index}(usage: string, handler: (args: ${type}) => void${player ? ', options: __AmxtsCommandOptions = {}' : ''}): void {`,
+		`\t__amxtsServer.__${method}(usage, (words: __AmxtsCommandWords): void => {`,
+		...parse,
 		'\t\thandler(args);',
 		`\t}${player ? ', options' : ''});`,
 		'}',
+	];
+	return [
+		`class ${type}${shape ? ` implements ${shape}` : ''} {`,
+		...(player ? ['\tplayer!: __AmxtsPlayer;'] : []),
+		...args.map(arg => `\t${arg.name}${arg.optional ? '?' : '!'}: ${typeOf(arg)};`),
+		'}',
+		...(kept ? [`const __amxtsArgs${index} = new ${type}();`] : []),
+		...(direct ? directCode(index, direct, args.length > 0, parse) : closure),
 	].join('\n');
+}
+
+/**
+ * A command's functions for a handler the parser calls by its name: the
+ * parser, the one the module calls for the command typed in the console - a
+ * command of no words for a handler of none reads only a word too many - and
+ * the one that registers them.
+ */
+function directCode(index: number, direct: Direct, words: boolean, parse: string[]): string[] {
+	const run = `__amxtsCommandRun${index}`;
+	const entry = direct.takes == null && !words
+		? [
+				'\tif (argc > 1) {',
+				'\t\t__amxtsCommandUsage(tag, id);',
+				'\t\treturn;',
+				'\t}',
+				'\tconst ambient = __co_ambient_player;',
+				'\t__co_ambient_player = id;',
+				`\t${direct.name}();`,
+				'\t__co_ambient_player = ambient;',
+			]
+		: [
+				'\tconst words = __amxtsCommandWords(tag, id, argc);',
+				`\t${run}(words);`,
+				'\t__amxtsCommandDone(words);',
+			];
+	return [
+		`function ${run}(words: __AmxtsCommandWords): void {`,
+		...parse.map(line => line.slice(1)),
+		`\t${direct.name}(${direct.takes != null ? 'args' : ''});`,
+		'}',
+		`function __amxtsCommandConsole${index}(tag: i32, id: i32, access: i32, unused: i32, argc: i32): void {`,
+		...entry,
+		'}',
+		`function __amxtsCommand${index}(usage: string, handler: (args: ${direct.takes ?? `__AmxtsCommandArgs${index}`}) => void, options: __AmxtsCommandOptions = {}): void {`,
+		`\t__amxtsServer.__addCommand(usage, ${run}, options, __amxtsCommandConsole${index}.index);`,
+		'}',
+	];
+}
+
+/**
+ * The handler the parser can call by its name: a function declared by name at
+ * the top level of the file, not async, not generic, given to a player's
+ * command added at the top level too - where no other declaration can take
+ * its name.
+ */
+function directOf(call: ts.CallExpression, method: string, file: ts.SourceFile): Direct | null {
+	const handler = call.arguments[1];
+	if (method !== 'addCommand' || !handler || !ts.isIdentifier(handler)) return null;
+	if (!ts.isExpressionStatement(call.parent) || call.parent.parent !== file) return null;
+	const fn = file.statements.find((each): each is ts.FunctionDeclaration => ts.isFunctionDeclaration(each) && each.name?.text === handler.text);
+	if (!fn || fn.typeParameters || fn.modifiers?.some(each => each.kind === ts.SyntaxKind.AsyncKeyword)) return null;
+	const parameter = fn.parameters[0];
+	if (parameter && !parameter.type) return null;
+	return { name: handler.text, takes: parameter ? parameter.type!.getText(file) : null };
 }
 
 /**
@@ -260,7 +339,7 @@ export function typedCommands(path: string, display: string, text: string, impor
 			const shape = node.typeArguments?.[0]?.getText(file);
 			const args = argumentsOf(node, usage, shapes, at, method === 'addCommand');
 			const kept = !args.some(arg => arg.optional) && keepsNothing(node.arguments[1], file);
-			functions.push(commandCode(functions.length, method, args, shape, kept));
+			functions.push(commandCode(functions.length, method, args, shape, kept, directOf(node, method, file)));
 			const start = node.expression.getStart(file);
 			const end = node.arguments.pos - 1;
 			edits.push({ start, end, with: name.padEnd(end - start) });
@@ -279,6 +358,6 @@ export function typedCommands(path: string, display: string, text: string, impor
 	for (const edit of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, edit.start) + edit.with + out.slice(edit.end);
 
 	const code = ['// GENERATED by scripts/typed-commands.ts: the commands this file adds, each word read as its type says.', ...functions].join('\n');
-	const facade = `import { server as __amxtsServer, Player as __AmxtsPlayer, CommandOptions as __AmxtsCommandOptions, __CommandWords as __AmxtsCommandWords } from "${FACADE}";`;
+	const facade = `import { server as __amxtsServer, Player as __AmxtsPlayer, CommandOptions as __AmxtsCommandOptions, __CommandWords as __AmxtsCommandWords, __commandWords as __amxtsCommandWords, __commandDone as __amxtsCommandDone, __commandUsage as __amxtsCommandUsage } from "${FACADE}";`;
 	return { text: withGenerated(path, out, code, facade), problems };
 }

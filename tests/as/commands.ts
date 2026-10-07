@@ -65,6 +65,23 @@ server.addCommand("kick_all", ({ player }) => {
 	heard = `${player.name} kicks everyone`;
 }, { access: "kick" });
 
+interface TeamArgs {
+	team: "t" | "ct";
+}
+
+// Declared by name at the top level, as most handlers are: the build's code calls them directly.
+function ping() {
+	heard = "pong";
+}
+
+function chooseTeam({ team }: TeamArgs) {
+	heard = `joins ${team}`;
+}
+
+server.addCommand("ping", ping);
+server.addCommand("/ping", ping);
+server.addCommand<TeamArgs>("team <team>", chooseTeam, { access: "kick" });
+
 // A bot's command, as one it sent.
 server.addServerCommand("cmd_bot_hp", () => {
 	server.players.find(player => player.isBot)?.command("say /hp");

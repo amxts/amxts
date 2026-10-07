@@ -2239,6 +2239,8 @@ export class __CommandWords {
 	failed: bool = false;
 	/** How many words were typed. */
 	count: i32;
+	/** The player an async handler started before this command ran under, given back once it is done (__commandDone). */
+	ambient: i32 = 0;
 	private read: string[] | null;
 
 	constructor(
@@ -2442,16 +2444,51 @@ function chatCommand(player: number, level: number, cid: number, unused: number)
  * words the engine split it into, its name counted.
  */
 function consoleCommand(tag: i32, id: i32, access: i32, unused: i32, argc: i32): void {
-	const at = tag - 1;
-	const words = consoleWords(__playerOf(id), playerCommandInfos[at].usage, argc);
-	runCommand(at, id, words);
+	const words = __commandWords(tag, id, argc);
+	commandRuns[tag - 1](words);
+	__commandDone(words);
+}
+
+/**
+ * @hidden The words of the player's console command at `tag` - its tag, as
+ * consoleCommand takes it - with the player made the one an async handler
+ * runs under (see __co_ambient_player). The build's own function for a
+ * command whose handler is a function declared by name
+ * (scripts/typed-commands.ts) is called by the module in consoleCommand's
+ * place: it takes them, calls the handler directly, and gives them back with
+ * __commandDone.
+ */
+// @ts-ignore: decorator
+@inline export function __commandWords(tag: i32, id: i32, argc: i32): __CommandWords {
+	const words = consoleWords(__playerOf(id), playerCommandInfos[tag - 1].usage, argc);
+	words.ambient = __co_ambient_player;
+	__co_ambient_player = id;
+	return words;
+}
+
+/**
+ * @hidden Tells the player who typed the command at `tag` with words it does
+ * not take its usage: the build's own function for a command of no words
+ * makes none to run it.
+ */
+export function __commandUsage(tag: i32, id: i32): void {
+	const words = consoleWords(__playerOf(id), playerCommandInfos[tag - 1].usage, 2);
+	words.done(0);
+	doneWith(words);
+}
+
+/** @hidden Gives back the words __commandWords took, once the command is done. */
+// @ts-ignore: decorator
+@inline export function __commandDone(words: __CommandWords): void {
+	__co_ambient_player = words.ambient;
 	doneWith(words);
 }
 
 /**
- * Runs a player's command. An async handler runs under the player's signal
- * (see __co_ambient_player); the command is handled, so a chat command is not
- * repeated in chat, as a Pawn command's PLUGIN_HANDLED does.
+ * Runs a player's chat command, under the player's signal as a console
+ * command (__commandWords). A command a handler of the module's runs is
+ * handled unless it says otherwise, so a chat command is not repeated in
+ * chat, as a Pawn command's PLUGIN_HANDLED does.
  */
 // @ts-ignore: decorator
 @inline function runCommand(at: i32, id: i32, words: __CommandWords): void {
@@ -2459,7 +2496,6 @@ function consoleCommand(tag: i32, id: i32, access: i32, unused: i32, argc: i32):
 	__co_ambient_player = id;
 	commandRuns[at](words);
 	__co_ambient_player = ambient;
-	handled();
 }
 
 // The server commands of this plugin; the module finds each by its name.
@@ -2510,7 +2546,6 @@ function serverCommand(tag: i32, id: i32, access: i32, unused: i32, argc: i32): 
 	const words = consoleWords(null, serverCommandUsages[at], argc);
 	serverCommandRuns[at](words);
 	doneWith(words);
-	handled();
 }
 
 // ---------------------------------------------------------------- HUD
@@ -3730,8 +3765,10 @@ export class Server {
 	/**
 	 * @hidden A player's command, its words read by `run` - the parser the
 	 * build writes for each `addCommand` call (scripts/typed-commands.ts).
+	 * `console`: the build's function the module calls for the command typed
+	 * in the console, in consoleCommand's place; 0 for consoleCommand.
 	 */
-	__addCommand(usage: string, run: (words: __CommandWords) => void, options: CommandOptions = {}): void {
+	__addCommand(usage: string, run: (words: __CommandWords) => void, options: CommandOptions = {}, console: i32 = 0): void {
 		const name = commandName(usage);
 		const chat = name.startsWith("/") || name.startsWith("say ");
 		const access = options.access;
@@ -3746,7 +3783,7 @@ export class Server {
 			// The module finds the command by its name and checks the right.
 			const flags = access != null ? ACCESS.bitOf(access) : 0;
 			_tag(commandRuns.length);
-			_clcmd(name, consoleCommand.index, flags, SHAPE_WIDE);
+			_clcmd(name, console != 0 ? console : consoleCommand.index, flags, SHAPE_WIDE);
 			return;
 		}
 
