@@ -51,8 +51,8 @@ test('a server event hands its listener every argument, all twelve of pfn_playba
 	expect(server.log).toContain('played 26 at 1,2,3 delay 0.5 last 1');
 });
 
-test('the image has no public but its module filter, and its heap holds long text', () => {
-	expect([...image.matchAll(/^public (\w+)/gm)].map(m => m[1])).toEqual(['plugin_natives', 'amxts_module_filter', '__pull_natives']);
+test('the image has no public but its module filter and the room for kept literals, and its heap holds long text', () => {
+	expect([...image.matchAll(/^public (\w+)/gm)].map(m => m[1])).toEqual(['__amxts_kept', 'plugin_natives', 'amxts_module_filter', '__pull_natives']);
 	// 16384 cells a string and more than one of them at a time.
 	expect(Number(image.match(/^#pragma dynamic (\d+)$/m)?.[1])).toBeGreaterThanOrEqual(4 * 16384);
 });
