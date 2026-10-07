@@ -4176,7 +4176,7 @@ static void MenuMessage(int type, edict_t *ed)
 #include "enginehooks.h"
 
 static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line);
-static int32_t w_runPlayerMove(wasm_exec_env_t env, int32_t id, double pitch, double yaw, double roll, double forward, double side, double up, int32_t buttons, int32_t impulse, int32_t msec);
+static int32_t w_runPlayerMove(wasm_exec_env_t env, int32_t id, cell pitch, cell yaw, cell roll, cell forward, cell side, cell up, int32_t buttons, int32_t impulse, int32_t msec);
 
 static NativeSymbol g_wasmNatives[] = {
 	{ "abort",        (void *)w_abort,        "(iiii)", NULL },
@@ -4226,7 +4226,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "clcmd",        (void *)w_clcmd,        "(iiii)", NULL },
 	{ "srvcmd",       (void *)w_srvcmd,       "(iii)", NULL },
 	{ "bot_cmd",      (void *)w_botCmd,       "(ii)", NULL },
-	{ "run_player_move", (void *)w_runPlayerMove, "(iFFFFFFiii)i", NULL },
+	{ "run_player_move", (void *)w_runPlayerMove, "(iiiiiiiiii)i", NULL },
 	{ "task",         (void *)w_task,         "(iii)i",  NULL },
 	{ "stop_task",    (void *)w_stopTask,     "(i)i", NULL },
 	{ "tag",          (void *)w_tag,          "(i)",  NULL },
@@ -7078,17 +7078,19 @@ static const char *StackLow()
 /**
  * run_player_move(id, pitch, yaw, roll, forward, side, up, buttons, impulse,
  * msec) - engfunc(EngFunc_RunPlayerMove, ...) as fakemeta makes it, with no
- * call built: 1; 0 for an entity fakemeta refuses, which the plugin then
- * hands to engfunc for its error.
+ * call built, the angles and the speeds Floats' cells: 1; 0 for an entity
+ * fakemeta refuses, which the plugin then hands to engfunc for its error.
  */
-static int32_t w_runPlayerMove(wasm_exec_env_t env, int32_t id, double pitch, double yaw, double roll, double forward, double side, double up, int32_t buttons, int32_t impulse, int32_t msec)
+static int32_t w_runPlayerMove(wasm_exec_env_t env, int32_t id, cell pitch, cell yaw, cell roll, cell forward, cell side, cell up, int32_t buttons, int32_t impulse, int32_t msec)
 {
 	(void)env;
 	edict_t *e = id > 0 && id <= gpGlobals->maxEntities ? INDEXENT(id) : NULL;
 	if (FNullEnt(e))
 		return 0;
-	float angles[3] = { (float)pitch, (float)yaw, (float)roll };
-	g_engfuncs.pfnRunPlayerMove(e, angles, (float)forward, (float)side, (float)up, (unsigned short)buttons, (byte)impulse, (byte)msec);
+	cell cells[6] = { pitch, yaw, roll, forward, side, up };
+	float f[6];
+	memcpy(f, cells, sizeof(f));
+	g_engfuncs.pfnRunPlayerMove(e, f, f[3], f[4], f[5], (unsigned short)buttons, (byte)impulse, (byte)msec);
 	return 1;
 }
 

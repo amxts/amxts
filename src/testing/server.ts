@@ -2355,10 +2355,10 @@ export class FakeServer {
 			this.players.find(each => each.id === id)?.command(plugin.memory.string(line));
 		},
 
-		// engfunc(EngFunc_RunPlayerMove, ...) made by the module itself; 0 for no player there, which engfunc then takes.
+		// engfunc(EngFunc_RunPlayerMove, ...) made by the module itself, the angles and the speeds Floats' bits; 0 for no player there, which engfunc then takes.
 		run_player_move(this: FakeServer, plugin: PluginInstance, id: number, pitch: number, yaw: number, roll: number, forward: number, side: number, up: number, buttons: number, impulse: number, msec: number) {
 			if (!this.players.some(each => each.id === id)) return 0;
-			this.runPlayerMove(id, [pitch, yaw, roll], forward, side, up, buttons, impulse, msec);
+			this.runPlayerMove(id, [bitsFloat(pitch), bitsFloat(yaw), bitsFloat(roll)], bitsFloat(forward), bitsFloat(side), bitsFloat(up), buttons, impulse, msec);
 			return 1;
 		},
 

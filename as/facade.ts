@@ -1390,11 +1390,10 @@ import { __textFrom, __textInto, __textRoom, dllfunc, engfunc, global_get, set_p
 import { DLLFunc_ClientConnect, DLLFunc_ClientPutInServer, EngFunc_CreateFakeClient, EngFunc_RunPlayerMove, glb_frametime, MAX_PLAYERS, pev_health } from "./constants";
 import { BUTTON, Button } from "./flags";
 
-// What a bot's move reads into, made once: a move is made every frame.
-const frameTimeRead = new Ref<f64>(0.0);
+// What a bot's move reads its angles into, made once: a move is made every frame.
 const moveAngles = new Vector();
 
-/** How long the server's current frame lasts, in seconds. */
+/** How long the server's current frame lasts, in seconds (frameTimeRead). */
 function frameTime(): f64 {
 	global_get(glb_frametime, frameTimeRead);
 	return frameTimeRead.value;
@@ -4735,6 +4734,9 @@ export class Ref<T> {
 	}
 }
 
+// What frameTime reads the frame's time into, made once: a bot's move asks every frame.
+const frameTimeRead = new Ref<f64>(0.0);
+
 /**
  * One argument of a native's `...` tail, by its type: a number or a boolean
  * by address (a number as a Float where `float` says), text as it is, a
@@ -4784,12 +4786,18 @@ function tailBack<T>(call: Call, value: T, at: i32, float: bool): void {
 }
 
 // @ts-ignore: decorator
-@external("env", "run_player_move") declare function _runPlayerMove(id: i32, pitch: f64, yaw: f64, roll: f64, forward: f64, side: f64, up: f64, buttons: i32, impulse: i32, msec: i32): i32;
+@external("env", "run_player_move") declare function _runPlayerMove(id: i32, pitch: i32, yaw: i32, roll: i32, forward: i32, side: i32, up: i32, buttons: i32, impulse: i32, msec: i32): i32;
 
 /** Whether a tail's argument of type T is a number the module takes as it is: a number or a boolean. */
 // @ts-ignore: decorator
 @inline function plainTail<T>(): bool {
 	return isBoolean<T>() || isFloat<T>() || isInteger<T>();
+}
+
+/** A number as a Float's cell, for an import that takes one. */
+// @ts-ignore: decorator
+@inline function floatBits(value: f64): i32 {
+	return reinterpret<i32>(<f32>value);
 }
 
 /** A number or a boolean of a tail as a number (plainTail). */
@@ -4809,7 +4817,8 @@ export function __runPlayerMove<A, B, C, D, E, F, G, H>(id: A, angles: B, forwar
 	if (!plainTail<A>() || !isArray<B>() || !plainTail<C>() || !plainTail<D>() || !plainTail<E>() || !plainTail<F>() || !plainTail<G>() || !plainTail<H>()) return false;
 	const view = changetype<number[]>(angles);
 	if (view.length < 3) return false;
-	return _runPlayerMove(<i32>tailNumber<A>(id), unchecked(view[0]), unchecked(view[1]), unchecked(view[2]), tailNumber<C>(forward), tailNumber<D>(side), tailNumber<E>(up),
+	return _runPlayerMove(<i32>tailNumber<A>(id), floatBits(unchecked(view[0])), floatBits(unchecked(view[1])), floatBits(unchecked(view[2])),
+		floatBits(tailNumber<C>(forward)), floatBits(tailNumber<D>(side)), floatBits(tailNumber<E>(up)),
 		<i32>tailNumber<F>(buttons), <i32>tailNumber<G>(impulse), <i32>tailNumber<H>(msec)) != 0;
 }
 
