@@ -116,6 +116,7 @@ import { includeDirs } from './includes';
 import { pluginCache } from './plugin-cache';
 import { CORE_DIR, CORE_PLUGINS, loadProject, PROJECT_GAME_FOLDERS, projectPlugins, sourcesFor } from './project';
 import { amxxpcPath, MODULE_FILE, moduleAbiOf, modulePath, serverFolder, wamrcPath } from './system';
+import { testProgress } from './test-progress';
 
 // See build-wasm.ts: asc brings a console without error().
 function fail(message: string): void {
@@ -1024,6 +1025,8 @@ async function main(): Promise<number> {
 		fail(`--only: no suite ${unknown.join(', ')} in ${suitesDir}`);
 		return 1;
 	}
+	const progress = testProgress('test-server', suites.map(suite => suite.name));
+	progress.phase(prebuilt ? 'taking the built suites' : 'building the suites');
 	const built = await build(plugins, pawn);
 	if (!built) return 1;
 	console.log(`${prebuilt ? 'took' : 'built'} ${built.length} plugins and ${pawn.length} Pawn suite(s) (${((performance.now() - started) / 1000).toFixed(1)}s)`);
@@ -1063,6 +1066,7 @@ async function main(): Promise<number> {
 		MAP,
 	];
 
+	progress.phase('starting the server');
 	const pid = linux ? startContainer(argv) : startHidden(argv);
 	if (!linux) writeFileSync(pidFile, `${pid}\n`);
 	console.log(`test server: ${linux ? `container ${CONTAINER} (${IMAGE})` : `hlds pid ${pid}`} on 127.0.0.1:${PORT}, ${MAP}`);
@@ -1117,6 +1121,7 @@ async function main(): Promise<number> {
 		}
 
 		// A player for the suites that need one: YaPB's.
+		progress.phase('waiting for a bot');
 		let bots = await botCount(password);
 		if (bots === 0) await rcon(password, 'yb add');
 		bots = await until(BOT_TIMEOUT, async () => ((await botCount(password)) > 0 ? 1 : null), alive) ?? 0;
@@ -1124,8 +1129,13 @@ async function main(): Promise<number> {
 
 		for (const suite of suites) {
 			if (!alive()) break;
-			results.push(await runSuite(suite, password, alive));
+			progress.start(suite.name);
+			const result = await runSuite(suite, password, alive);
+			results.push(result);
+			for (const line of [...result.lines.filter(one => one.includes(' FAIL ')), ...(result.problem ? [`[${suite.name}] ${result.problem}`] : [])]) progress.fail(line);
+			progress.end(suite.name, result.failed === 0, `${result.passed} ok${result.failed ? `, ${result.failed} failed` : ''}`);
 		}
+		progress.finish();
 
 		if (!alive()) problems.push('the server exited during the run (a crash? see the log below)');
 		return report(results, problems);
