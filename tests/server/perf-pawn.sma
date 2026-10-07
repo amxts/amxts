@@ -40,6 +40,8 @@ enum
 	ORIGIN_READ,
 	RESET,
 	REMAINDER,
+	DIVISORS,
+	POWERS,
 	FRACTIONS,
 	HOT_PATH,
 	STRING_IN,
@@ -202,6 +204,40 @@ count_primes(below)
 	return count;
 }
 
+// The greatest common divisors of every pair of numbers below `below`, by Euclid's remainders, summed.
+sum_divisors(below)
+{
+	new total = 0;
+	for (new a = 1; a < below; a++)
+	{
+		for (new b = 1; b < below; b++)
+		{
+			new x = a, y = b;
+			while (y != 0)
+			{
+				new rest = x % y;
+				x = y;
+				y = rest;
+			}
+			total += x;
+		}
+	}
+	return total;
+}
+
+// Every number below `below` to the power `power`, modulo 10007 a step at a time, summed.
+sum_powers(below, power)
+{
+	new total = 0;
+	for (new base = 1; base < below; base++)
+	{
+		new value = 1;
+		for (new i = 0; i < power; i++) value = value * base % 10007;
+		total += value;
+	}
+	return total;
+}
+
 Float:sum_distances(count)
 {
 	new Float:total = 0.0;
@@ -300,6 +336,8 @@ run(what, id, count)
 		}
 		case RESET: for (new i = 0; i < count; i++) rg_reset_maxspeed(id);
 		case REMAINDER: g_sink += count_primes(200000);
+		case DIVISORS: g_sink += sum_divisors(700);
+		case POWERS: g_sink += sum_powers(2000, 2000);
 		case FRACTIONS: g_fsink += sum_distances(MANY);
 		case HOT_PATH: g_writes = hot_path();
 		case STRING_IN: for (new i = 0; i < count; i++) g_sink += strlen("hello, world");
@@ -387,7 +425,9 @@ public measure()
 	perf_report("raw hook", (heard - before) * 1000000.0 / float(FEW));
 	perf_report("event", (heard - before) * 1000000.0 / float(FEW));
 
-	perf_report("remainder", best(REMAINDER, id, 1));
+	perf_report("remainder: primes", best(REMAINDER, id, 1));
+	perf_report("remainder: divisors", best(DIVISORS, id, 1));
+	perf_report("remainder: powers", best(POWERS, id, 1));
 	perf_report("fractions", best(FRACTIONS, id, 1));
 	perf_report("hot path", best(HOT_PATH, id, 1));
 	perf_report("hot path writes", float(g_writes));

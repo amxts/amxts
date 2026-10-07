@@ -52,9 +52,9 @@ const LIMITS: Record<string, number> = {
 	"timer armed": 1,
 	"timer firing": 1.5,
 	"variadic native": 1.5,
-	"command": 2,
+	"command": 1.5,
 	"menu choice": 2.5,
-	"remainder": 2.5,
+	"remainder": 2,
 	"fractions": 0.5,
 	"hot path": 1.5,
 };
@@ -126,6 +126,35 @@ function countPrimes(below: number) {
 		if (prime) count++;
 	}
 	return count;
+}
+
+/** The greatest common divisors of every pair of numbers below `below`, by Euclid's remainders, summed. */
+function sumDivisors(below: number) {
+	let total = 0;
+	for (let a = 1; a < below; a++) {
+		for (let b = 1; b < below; b++) {
+			let x = a;
+			let y = b;
+			while (y != 0) {
+				const rest = x % y;
+				x = y;
+				y = rest;
+			}
+			total += x;
+		}
+	}
+	return total;
+}
+
+/** Every number below `below` to the power `power`, modulo 10007 a step at a time, summed. */
+function sumPowers(below: number, power: number) {
+	let total = 0;
+	for (let base = 1; base < below; base++) {
+		let value = 1;
+		for (let i = 0; i < power; i++) value = value * base % 10007;
+		total += value;
+	}
+	return total;
 }
 
 function sumDistances(count: number) {
@@ -301,8 +330,14 @@ function measure(player: Player) {
 	ours.set("timer armed", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) clearTimeout(setTimeout(idle, 1000));
 	}));
-	ours.set("remainder", msBest(() => {
+	ours.set("remainder: primes", msBest(() => {
 		sink += countPrimes(200_000);
+	}));
+	ours.set("remainder: divisors", msBest(() => {
+		sink += sumDivisors(700);
+	}));
+	ours.set("remainder: powers", msBest(() => {
+		sink += sumPowers(2000, 2000);
 	}));
 	ours.set("fractions", msBest(() => {
 		sink += sumDistances(MANY);
@@ -339,6 +374,38 @@ async function timeFiring() {
 	ours.set("timer firing", firing);
 }
 
+/**
+ * `remainder`: the loop of the three whose ratio is the middle one. A loop of
+ * pure arithmetic runs a tenth faster or slower as the code before it moves,
+ * on both sides; three loops, each at a place of its own, keep one loop's
+ * luck from being the measure.
+ */
+function medianRemainder(check: Checks) {
+	const loops = ["remainder: primes", "remainder: divisors", "remainder: powers"].sort((a, b) => ratioOf(a) - ratioOf(b));
+	for (const name of loops) check.expect(ratioOf(name) > 0, said(name)).toBe(true);
+	ours.set("remainder", timeOf(loops[1]));
+	pawn.set("remainder", pawnTimeOf(loops[1]));
+}
+
+// A measure one side did not make fails, not passes as nothing.
+function timeOf(what: string) {
+	return ours.get(what) ?? Number.POSITIVE_INFINITY;
+}
+
+function pawnTimeOf(what: string) {
+	return pawn.get(what) ?? 0;
+}
+
+function ratioOf(what: string) {
+	return timeOf(what) / pawnTimeOf(what);
+}
+
+/** A measure's ratio, and both times. */
+function said(what: string) {
+	const rounded = Math.round(ratioOf(what) * 100) / 100;
+	return `${what}: ${rounded} times Pawn's (TypeScript ${Math.round(timeOf(what) * 10) / 10}, Pawn ${Math.round(pawnTimeOf(what) * 10) / 10})`;
+}
+
 function compare(check: Checks, writes: number) {
 	const heard = FEW * TRIES;
 	check.expect(resets, "the listener heard every reset").toBe(heard);
@@ -349,15 +416,8 @@ function compare(check: Checks, writes: number) {
 	check.expect(choices, "the menu got every choice").toBe(heard);
 	check.expect(pawn.get("choices") ?? -1, "Pawn's menu got every choice").toBe(heard);
 	check.expect(writes, "the hot path wrote as often as Pawn's").toBe(pawn.get("hot path writes") ?? -1);
-	for (const [what, limit] of Object.entries(LIMITS)) {
-		// A measure one side did not make fails, not passes as nothing.
-		const time = ours.get(what) ?? Number.POSITIVE_INFINITY;
-		const pawnTime = pawn.get(what) ?? 0;
-		const ratio = time / pawnTime;
-		const rounded = Math.round(ratio * 100) / 100;
-		const times = `TypeScript ${Math.round(time * 10) / 10}, Pawn ${Math.round(pawnTime * 10) / 10}`;
-		check.expect(ratio <= limit, `${what}: ${rounded} times Pawn's (${times}), at most ${limit}`).toBe(true);
-	}
+	medianRemainder(check);
+	for (const [what, limit] of Object.entries(LIMITS)) check.expect(ratioOf(what) <= limit, `${said(what)}, at most ${limit}`).toBe(true);
 	check.expect(sink != 0, "the loops are counted").toBe(true);
 }
 
