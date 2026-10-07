@@ -46,6 +46,8 @@ struct GameHandler : Handler {
  */
 struct HookList {
 	std::vector<GameHandler> handlers;
+	// How many of them are switched on: a phase with none is not walked.
+	int  on = 0;
 	int  depth = 0;
 	bool holes = false;
 };
@@ -135,26 +137,22 @@ struct ChainCall {
 	// Run with { hooks: false }: no listener hears it (HamQuiet).
 	bool                 quiet = false;
 
-	cell          *savedArgs;
-	int            savedArgc;
-	AMX           *savedAmx;
-	int            savedCaller;
-	const int32_t *savedLengths;
-	ChainCall     *savedChain;
+	CallContext    context;
+	CallContext   *saved;
 
-	ChainCall(HookPoint &p, const unsigned char *r, int n)
-		: point(p), roles(r), argc(n), savedArgs(g_callArgs), savedArgc(g_callArgc), savedAmx(g_callAmx),
-		  savedCaller(g_caller), savedLengths(g_callLengths), savedChain(g_chain)
+	ALWAYS_INLINE ChainCall(HookPoint &p, const unsigned char *r, int n)
+		: point(p), roles(r), argc(n), saved(g_call)
 	{
-		g_callArgs = cells; g_callArgc = n; g_callAmx = NULL; g_caller = -1; g_callLengths = NULL; g_chain = this;
+		context.args = cells; context.argc = n; context.chain = this;
+		g_call = &context;
 		point.calls++;
 	}
 
-	~ChainCall()
+	ALWAYS_INLINE ~ChainCall()
 	{
-		g_callArgs = savedArgs; g_callArgc = savedArgc; g_callAmx = savedAmx; g_caller = savedCaller;
-		g_callLengths = savedLengths; g_chain = savedChain;
-		delete[] texts;
+		g_call = saved;
+		if (texts)
+			delete[] texts;
 		if (--point.calls == 0 && point.dirty)
 			SettleHook(point);
 	}
@@ -207,7 +205,7 @@ struct ChainCall {
 	void *PointerAt(int i, void *came) const { return Written(i) ? (void *)(intptr_t)CellAt(i) : came; }
 
 	/** The listeners of one phase; a pre listener's outcome blocks the function, a break stops the rest. */
-	void Walk(HookList &list, bool pre)
+	NO_STACK_COOKIE void Walk(HookList &list, bool pre)
 	{
 		list.depth++;
 		uint32_t argv[MAX_EVENT_ARGS] = { 0 };
@@ -235,7 +233,7 @@ struct ChainCall {
 	{
 		if (quiet)
 			return true;
-		if (!point.phase[0].handlers.empty())
+		if (point.phase[0].on)
 			Walk(point.phase[0], true);
 		return !superceded && !broken;
 	}
@@ -243,7 +241,7 @@ struct ChainCall {
 	/** The listeners after it, unless one stopped the event. */
 	void Post()
 	{
-		if (!quiet && !broken && !point.phase[1].handlers.empty())
+		if (!quiet && !broken && point.phase[1].on)
 			Walk(point.phase[1], false);
 	}
 
@@ -575,6 +573,7 @@ static int32_t AddHook(HookPoint &point, int32_t fn, int32_t post)
 	g_hookRegs.push_back(reg);
 	h.reg = (int)g_hookRegs.size();
 	point.phase[reg.post].handlers.push_back(h);
+	point.phase[reg.post].on++;
 	point.on++;
 	SettleHook(point);
 	return h.reg;
@@ -650,9 +649,26 @@ static void w_hook_on(wasm_exec_env_t env, int32_t handle, int32_t on)
 		if (h.reg != handle || h.off == !on)
 			continue;
 		h.off = !on;
+		reg.point->phase[reg.post].on += on ? 1 : -1;
 		reg.point->on += on ? 1 : -1;
 		SettleHook(*reg.point);
 	}
+}
+
+/**
+ * hook_direct(handle, listener, env, event object) - a registration's
+ * handler calls its one listener itself, with the event's object
+ * (Handler.via); listener 0 has the handler called again.
+ */
+static void w_hook_direct(wasm_exec_env_t env, int32_t handle, int32_t target, int32_t closure, int32_t arg)
+{
+	(void)env;
+	if (handle <= 0 || handle > (int32_t)g_hookRegs.size() || g_hookRegs[handle - 1].plugin != g_currentPlugin)
+		return;
+	HookReg &reg = g_hookRegs[handle - 1];
+	for (GameHandler &h : reg.point->phase[reg.post].handlers)
+		if (h.reg == handle)
+			Direct(h, target, closure, arg, false);
 }
 
 /**
@@ -663,7 +679,7 @@ static void w_hook_on(wasm_exec_env_t env, int32_t handle, int32_t on)
 static void w_chain_set(wasm_exec_env_t env, int32_t index, int32_t value)
 {
 	(void)env;
-	ChainCall *call = g_chain;
+	ChainCall *call = g_call->chain;
 	if (!call || index < -1 || index >= call->argc)
 		return;
 	if (index < 0) {
@@ -680,7 +696,7 @@ static void w_chain_set(wasm_exec_env_t env, int32_t index, int32_t value)
 /** chain_set_text(index, text) - a text argument written, or the text answered (-1). */
 static void w_chain_set_text(wasm_exec_env_t env, int32_t index, int32_t text)
 {
-	ChainCall *call = g_chain;
+	ChainCall *call = g_call->chain;
 	if (!call || index < -1 || index >= call->argc)
 		return;
 	call->TextSlot(index < 0 ? MAX_CHAIN_ARGS - 1 : index) = AsString(Inst(env), text);
@@ -732,19 +748,19 @@ static int32_t w_game_api(wasm_exec_env_t env)
 /** The running hooked call's answer as a cell (arg(-1)). */
 static cell ChainResult()
 {
-	return g_chain->result;
+	return g_call->chain->result;
 }
 
 /** A listener answered the running hooked call with a vector (set_arg_array(-1)). */
 static void ChainAnswered()
 {
-	g_chain->answered = true;
+	g_call->chain->answered = true;
 }
 
 /** A hooked call's text argument, or the text it answers (-1); NULL for none. */
 static const char *ChainText(int32_t index)
 {
-	ChainCall *call = g_chain;
+	ChainCall *call = g_call->chain;
 	if (index < 0)
 		return call->answered && call->texts ? call->texts[MAX_CHAIN_ARGS - 1].c_str() : call->returnedText;
 	if (index >= call->argc || call->roles[index] != ROLE_TEXT)
@@ -755,7 +771,7 @@ static const char *ChainText(int32_t index)
 /** A hooked call's vector argument, or the vector it answers (-1); NULL for none. */
 static float *ChainVector(int32_t index)
 {
-	ChainCall *call = g_chain;
+	ChainCall *call = g_call->chain;
 	if (index < 0)
 		return call->vector;
 	if (index >= call->argc || call->roles[index] != ROLE_VECTOR)
@@ -791,8 +807,10 @@ static void DropGameHooks(int plugin)
 			for (GameHandler &h : list.handlers) {
 				if (h.plugin != plugin)
 					continue;
-				if (!h.off)
+				if (!h.off) {
+					list.on--;
 					point.on--;
+				}
 				h.off = true;
 				h.plugin = HANDLER_GONE;
 				list.holes = true;
@@ -837,6 +855,7 @@ static void TeardownGameHooks()
 	auto clear = [](HookPoint &point) {
 		point.phase[0].handlers.clear();
 		point.phase[1].handlers.clear();
+		point.phase[0].on = point.phase[1].on = 0;
 		point.on = 0;
 		SettleHook(point);
 	};

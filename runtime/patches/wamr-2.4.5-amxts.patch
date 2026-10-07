@@ -163,7 +163,7 @@ index 771ef87..7bdb74d 100644
                  }
              }
 diff --git a/core/iwasm/aot/aot_runtime.c b/core/iwasm/aot/aot_runtime.c
-index d2621fb..5d1f9a9 100644
+index d2621fb..d8f2db7 100644
 --- a/core/iwasm/aot/aot_runtime.c
 +++ b/core/iwasm/aot/aot_runtime.c
 @@ -2682,9 +2682,9 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
@@ -192,10 +192,15 @@ index d2621fb..5d1f9a9 100644
  #endif
          }
  
-@@ -2773,6 +2773,54 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
+@@ -2773,6 +2773,109 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
      }
  }
  
++#if WASM_ENABLE_AOT_STACK_FRAME != 0
++static bool
++aot_alloc_standard_frame(WASMExecEnv *exec_env, uint32 func_index);
++#endif
++
 +/* amxts: a direct call, see wasm_runtime_direct_entry in wasm_export.h */
 +void *
 +wasm_runtime_direct_entry(WASMFunctionInstanceCommon *function)
@@ -205,29 +210,74 @@ index d2621fb..5d1f9a9 100644
 +    return func->is_import_func ? NULL : func->u.func.func_ptr;
 +}
 +
++uint32_t
++wasm_runtime_direct_frames(WASMModuleInstanceCommon *module_inst)
++{
++#if WASM_ENABLE_AOT_STACK_FRAME != 0
++    return (uint32_t)(((AOTModule *)((AOTModuleInstance *)module_inst)->module)
++                          ->feature_flags
++                      & (WASM_FEATURE_TINY_STACK_FRAME
++                         | WASM_FEATURE_FRAME_PER_FUNCTION));
++#else
++    (void)module_inst;
++    return 0;
++#endif
++}
++
++/* written into the host's call where the compiler can (MSVC's link-time
++   code generation): it runs before every direct call */
++#ifdef _MSC_VER
++__forceinline
++#endif
 +bool
 +wasm_runtime_direct_begin(WASMExecEnv *exec_env,
-+                          WASMFunctionInstanceCommon *function, void **mark)
++                          WASMFunctionInstanceCommon *function, uint32_t frames,
++                          void **mark)
 +{
 +    AOTModuleInstance *module_inst = (AOTModuleInstance *)exec_env->module_inst;
 +
-+    *mark = NULL;
 +    /* the thread is the one the exec env first ran on, its stack the same */
 +    if (!exec_env->native_stack_boundary)
 +        wasm_exec_env_set_thread_info(exec_env);
 +#if WASM_ENABLE_AOT_STACK_FRAME != 0
-+    *mark = get_top_frame(exec_env);
-+    if (!is_frame_per_function(exec_env)
-+        && !aot_alloc_frame(exec_env,
-+                            ((AOTFunctionInstance *)function)->func_index))
-+        return false;
++    {
++        /* the frames as aot_alloc_frame keeps them; the mark is where they
++           stand, a tiny frame's top or a standard frame, for
++           wasm_runtime_direct_end to put them back */
++        uint32 flags = frames;
++        uint32 func_index = ((AOTFunctionInstance *)function)->func_index;
++
++        if (flags & WASM_FEATURE_TINY_STACK_FRAME) {
++            AOTTinyFrame *frame = (AOTTinyFrame *)exec_env->wasm_stack.top;
++
++            *mark = frame;
++            if (!(flags & WASM_FEATURE_FRAME_PER_FUNCTION)) {
++                if ((uint8 *)frame > exec_env->wasm_stack.top_boundary) {
++                    aot_set_exception(module_inst,
++                                      "wasm operand stack overflow");
++                    return false;
++                }
++                frame->func_index = func_index;
++                exec_env->wasm_stack.top += sizeof(AOTTinyFrame);
++            }
++        }
++        else {
++            *mark = exec_env->cur_frame;
++            if (!(flags & WASM_FEATURE_FRAME_PER_FUNCTION)
++                && !aot_alloc_standard_frame(exec_env, func_index))
++                return false;
++        }
++    }
++#else
++    (void)frames;
++    *mark = NULL;
 +#endif
 +    module_inst->cur_exec_env = exec_env;
 +    return true;
 +}
 +
 +bool
-+wasm_runtime_direct_end(WASMExecEnv *exec_env, void *mark)
++wasm_runtime_direct_end(WASMExecEnv *exec_env, uint32_t frames, void *mark)
 +{
 +    AOTModuleInstance *module_inst = (AOTModuleInstance *)exec_env->module_inst;
 +    bool ret = module_inst->cur_exception[0] == '\0';
@@ -237,9 +287,14 @@ index d2621fb..5d1f9a9 100644
 +        aot_create_call_stack(exec_env);
 +#endif
 +#if WASM_ENABLE_AOT_STACK_FRAME != 0
-+    while (get_top_frame(exec_env) != mark)
-+        aot_free_frame(exec_env);
++    /* the frames the call left taken off, down to the mark at once: what
++       aot_free_frame does one at a time */
++    if (frames & WASM_FEATURE_TINY_STACK_FRAME)
++        exec_env->wasm_stack.top = (uint8 *)mark;
++    else
++        exec_env->cur_frame = (struct WASMInterpFrame *)mark;
 +#endif
++    (void)frames;
 +    (void)mark;
 +    return ret;
 +}
@@ -247,7 +302,7 @@ index d2621fb..5d1f9a9 100644
  void
  aot_set_exception(AOTModuleInstance *module_inst, const char *exception)
  {
-@@ -3414,6 +3462,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
+@@ -3414,6 +3517,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
  #endif
          ret = invoke_native_internal(exec_env, func_ptr, func_type, signature,
                                       attachment, argv1, argc, argv);
@@ -259,7 +314,7 @@ index d2621fb..5d1f9a9 100644
  #if WASM_ENABLE_AOT_STACK_FRAME != 0
          /* Free all frames allocated, note that some frames
             may be allocated in AOT code and haven't been
-@@ -3474,6 +3527,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
+@@ -3474,6 +3582,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
  #endif
          ret = invoke_native_internal(exec_env, func_ptr, func_type, signature,
                                       attachment, argv, argc, argv);
@@ -476,10 +531,10 @@ index fa5c2ab..a70adde 100644
              if (sign) {
                  res = LLVMBuildFPToSI(comp_ctx->builder, operand, dest_type,
 diff --git a/core/iwasm/include/wasm_export.h b/core/iwasm/include/wasm_export.h
-index 81efb8f..8f20f1a 100644
+index 81efb8f..2398e2a 100644
 --- a/core/iwasm/include/wasm_export.h
 +++ b/core/iwasm/include/wasm_export.h
-@@ -2075,6 +2075,63 @@ WASM_RUNTIME_API_EXTERN uint32_t
+@@ -2075,6 +2075,78 @@ WASM_RUNTIME_API_EXTERN uint32_t
  wasm_runtime_dump_call_stack_to_buf(wasm_exec_env_t exec_env, char *buf,
                                      uint32_t len);
  
@@ -514,18 +569,32 @@ index 81efb8f..8f20f1a 100644
 +wasm_runtime_direct_entry(wasm_function_inst_t function);
 +
 +/**
++ * amxts: how an instance's AOT code keeps its frames, for
++ * wasm_runtime_direct_begin and wasm_runtime_direct_end: read once, as the
++ * module was compiled.
++ *
++ * @param module_inst the instance
++ *
++ * @return its frames' kind
++ */
++WASM_RUNTIME_API_EXTERN uint32_t
++wasm_runtime_direct_frames(wasm_module_inst_t module_inst);
++
++/**
 + * amxts: before a direct call (wasm_runtime_direct_entry): the frame the
 + * call's stack starts with, and the instance's exec env.
 + *
 + * @param exec_env the exec env the call runs in
 + * @param function the function called
++ * @param frames what wasm_runtime_direct_frames gave for its instance
 + * @param mark where the frames stand, for wasm_runtime_direct_end
 + *
 + * @return false, with an exception set, when the call has no room
 + */
 +WASM_RUNTIME_API_EXTERN bool
 +wasm_runtime_direct_begin(wasm_exec_env_t exec_env,
-+                          wasm_function_inst_t function, void **mark);
++                          wasm_function_inst_t function, uint32_t frames,
++                          void **mark);
 +
 +/**
 + * amxts: after a direct call: whether it ended without an exception - a
@@ -533,12 +602,13 @@ index 81efb8f..8f20f1a 100644
 + * frames it left taken off.
 + *
 + * @param exec_env the exec env the call ran in
++ * @param frames what wasm_runtime_direct_frames gave for its instance
 + * @param mark what wasm_runtime_direct_begin gave
 + *
 + * @return true when the call succeeded
 + */
 +WASM_RUNTIME_API_EXTERN bool
-+wasm_runtime_direct_end(wasm_exec_env_t exec_env, void *mark);
++wasm_runtime_direct_end(wasm_exec_env_t exec_env, uint32_t frames, void *mark);
 +
  /**
   * Get the size required to store the LLVM PGO profile data

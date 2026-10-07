@@ -191,6 +191,16 @@ static void w_on(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t shape)
 	g_events[Text(Inst(env), name)].push_back((uint32_t)fn);
 }
 
+// The module calls an event's one listener itself (on_direct, hook_direct);
+// here the handler is called and walks its listeners, as with several.
+static void w_onDirect(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t target, int32_t closure, int32_t arg, int32_t player)
+{
+}
+
+static void w_hookDirect(wasm_exec_env_t env, int32_t handle, int32_t target, int32_t closure, int32_t arg)
+{
+}
+
 // A hookchain handler, and what it tells the game: handled() is outcome(1),
 // the answer chain_set(-1, cell).
 static int32_t w_hook(wasm_exec_env_t env, int32_t id, int32_t fn, int32_t post)
@@ -240,7 +250,9 @@ static NativeSymbol g_natives[] = {
 	{ "task",          (void *)w_task,       "(iii)i",   NULL },
 	{ "stop_task",     (void *)w_stopTask,   "(i)i",     NULL },
 	{ "on",            (void *)w_on,         "(iii)",    NULL },
+	{ "on_direct",     (void *)w_onDirect,   "(iiiiii)", NULL },
 	{ "hook",          (void *)w_hook,       "(iii)i",   NULL },
+	{ "hook_direct",   (void *)w_hookDirect, "(iiii)",   NULL },
 	{ "outcome",       (void *)w_outcome,    "(i)",      NULL },
 	{ "chain_set",     (void *)w_chainSet,   "(ii)",     NULL },
 	{ "game_api",      (void *)w_gameApi,    "()i",      NULL },

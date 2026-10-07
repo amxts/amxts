@@ -78,6 +78,26 @@ struct FuncStub   { ucell address; char name[20]; };  // sEXPMAX + 1
 struct FuncStubNT { ucell address; ucell nameofs; };
 #pragma pack(pop)
 
+// ---------------------------------------------------------------- hot path
+
+// What runs on every call between the plugin and the game - a native's
+// thunk, a hook's way into a handler - written into each caller: left to the
+// compiler, which sees a thousand callers, it stays a call.
+#ifdef _MSC_VER
+#define ALWAYS_INLINE __forceinline
+#else
+#define ALWAYS_INLINE inline __attribute__((always_inline))
+#endif
+
+// The same paths without Visual C++'s stack cookie (/GS), which a function
+// with an array on its stack checks on every return: their arrays are of a
+// fixed size and filled by a count that cannot pass it.
+#ifdef _MSC_VER
+#define NO_STACK_COOKIE __declspec(safebuffers)
+#else
+#define NO_STACK_COOKIE
+#endif
+
 // ---------------------------------------------------------------- state
 
 // The natives' image's AMX while a map runs, NULL between maps (LoadImage).
@@ -101,6 +121,21 @@ static bool g_imageComplete = false;
 #define PLUGIN_LOADING  4
 
 struct Plugin {
+	// What a call into the plugin reads (Fire), at the start: in one cache
+	// line, where the game's own work between two calls leaves less of it.
+	wasm_module_inst_t   inst = NULL;
+	wasm_exec_env_t      env = NULL;
+	// How its code keeps its frames, for a direct call (wasm_runtime_direct_frames).
+	uint32_t             frames = 0;
+	int                  depth = 0;          // this plugin's wasm calls on the native stack
+	bool                 wake = false;       // it has jobs, to run once depth is 0
+	// What the plugin's own call of a function value sets, which the module
+	// sets too when it calls a listener itself (Handler.via): the closure's
+	// variables, how many arguments the call passes, and the player an async
+	// function started there runs under. NULL for one the plugin has not got.
+	int32_t             *closureEnv = NULL;
+	int32_t             *argumentsLength = NULL;
+	int32_t             *ambientPlayer = NULL;
 	// The plugins.ini line - "shop.ts" - or what amxts_load was given.
 	std::string          name;
 	// The .aot: the line's file, or for a .ts the build beside the list.
@@ -118,8 +153,6 @@ struct Plugin {
 	std::string          reason;
 	unsigned char       *file = NULL;
 	wasm_module_t        module = NULL;
-	wasm_module_inst_t   inst = NULL;
-	wasm_exec_env_t      env = NULL;
 	// The function table the plugin exports (asc --exportTable), for reading
 	// a handler's parameter types before calling it. See Fire.
 	wasm_table_inst_t    table;
@@ -142,9 +175,8 @@ struct Plugin {
 	// It called a function of a run that has ended, and was told so: once a run.
 	bool                 toldGone = false;
 	// Coroutines - async functions parked at an await; see "coroutines" below.
-	// A plugin that never makes a Promise has none of this in use.
-	int                  depth = 0;          // this plugin's wasm calls on the native stack
-	bool                 wake = false;       // it has jobs, to run once depth is 0
+	// A plugin that never makes a Promise has none of this in use (depth and
+	// wake are at the start).
 	bool                 entering = false;   // co_spawn is calling an async function's body
 	uint32_t             stackTop = 0;       // __stack_pointer with nothing running; 0 without async
 	std::map<int32_t, Coroutine> coroutines;
@@ -224,6 +256,7 @@ static bool g_outcomeSaid = false;
 // amxmodx/CForward.h).
 #define MAX_FORWARD_ARGS 32
 
+// What Fire reads of it first: the fields of one call, ahead of the rest.
 struct Handler {
 	int      plugin;
 	uint32_t fn;
@@ -244,10 +277,18 @@ struct Handler {
 	int      whereArg = -1;
 	cell     whereValue = 0;
 	/**
-	 * A command's admin flags (get_user_flags' bits): a player with none of
-	 * them does not reach the handler. 0 for everyone.
+	 * The plugin's one listener of the event, called by Fire in place of the
+	 * handler - the plugin's walk of its listeners, which would call it alone
+	 * (hook_direct, on_direct): its function and machine code, its closure's
+	 * variables and the one cell it takes, the event's object; and whether
+	 * the handler's first cell is the player an async function started there
+	 * runs under. NULL while the plugin has the walk called.
 	 */
-	int      access = 0;
+	void                *via = NULL;
+	wasm_function_inst_t viaFunc = NULL;
+	int32_t              viaEnv = 0;
+	int32_t              viaArg = 0;
+	bool                 viaPlayer = false;
 	/**
 	 * What Fire calls, looked up once, when the handler is registered (Bind):
 	 * the function and the kinds of its parameters. NULL when the plugin
@@ -264,6 +305,11 @@ struct Handler {
 	 */
 	void          *entry = NULL;
 	bool           doubles = false;
+	/**
+	 * A command's admin flags (get_user_flags' bits): a player with none of
+	 * them does not reach the handler. 0 for everyone.
+	 */
+	int      access = 0;
 };
 
 /** Looks up what Fire calls for `h` (Handler.func): once, as its plugin registers it. */
@@ -271,6 +317,7 @@ static void Bind(Handler &h)
 {
 	h.func = NULL;
 	h.entry = NULL;
+	h.via = NULL;
 	if (h.plugin < 0 || (size_t)h.plugin >= g_plugins.size())
 		return;
 	Plugin &p = g_plugins[h.plugin];
@@ -321,11 +368,12 @@ static void Bind(Handler &h)
  * parameters take them: the call WAMR's wasm_runtime_call_wasm makes, less
  * what it asks of a function it has not seen. Whether it ended without a trap.
  */
-static bool CallDirect(const Handler &h, wasm_exec_env_t env, const uint32_t *call)
+static ALWAYS_INLINE bool CallDirect(const Handler &h, const Plugin &p, const uint32_t *call)
 {
+	wasm_exec_env_t env = p.env;
 	void *mark;
-	if (!wasm_runtime_direct_begin(env, h.func, &mark))
-		return wasm_runtime_direct_end(env, mark);
+	if (!wasm_runtime_direct_begin(env, h.func, p.frames, &mark))
+		return wasm_runtime_direct_end(env, p.frames, mark);
 
 	typedef wasm_exec_env_t E;
 	const int32_t *c = (const int32_t *)call;
@@ -348,7 +396,58 @@ static bool CallDirect(const Handler &h, wasm_exec_env_t env, const uint32_t *ca
 			default: ((void (*)(E, int32_t, int32_t, int32_t, int32_t, int32_t))fn)(env, c[0], c[1], c[2], c[3], c[4]); break;
 		}
 	}
-	return wasm_runtime_direct_end(env, mark);
+	return wasm_runtime_direct_end(env, p.frames, mark);
+}
+
+/**
+ * Sets `h` to call `target` - a function of its plugin's table that takes
+ * one i32 and answers no fraction - with `env` and `arg` in place of itself
+ * (Handler.via), for a player's event when `player`; target 0 has the
+ * handler called again.
+ */
+static void Direct(Handler &h, int32_t target, int32_t env, int32_t arg, bool player)
+{
+	h.via = NULL;
+	if (!target)
+		return;
+	Handler call;
+	call.plugin = h.plugin;
+	call.fn = (uint32_t)target;
+	call.shape = SHAPE_NARROW;
+	Bind(call);
+	if (!call.entry || call.doubles || call.count != 1 || call.kinds[0] != WASM_I32)
+		return;
+	h.viaFunc = call.func;
+	h.viaEnv = env;
+	h.viaArg = arg;
+	h.viaPlayer = player;
+	h.via = call.entry;
+}
+
+/**
+ * Calls the one listener `h` stands for (Handler.via) with what the
+ * plugin's own call of it would set first; `first` is the handler's first
+ * cell, a player's id for a player's event. Whether it ended without a trap.
+ */
+static ALWAYS_INLINE bool CallVia(const Handler &h, Plugin &p, uint32_t first)
+{
+	if (p.closureEnv)
+		*p.closureEnv = h.viaEnv;
+	if (p.argumentsLength)
+		*p.argumentsLength = 1;
+	bool player = h.viaPlayer && p.ambientPlayer;
+	int32_t ambient = player ? *p.ambientPlayer : 0;
+	if (player)
+		*p.ambientPlayer = (int32_t)first;
+
+	void *mark;
+	if (wasm_runtime_direct_begin(p.env, h.viaFunc, p.frames, &mark))
+		((void (*)(wasm_exec_env_t, int32_t))h.via)(p.env, h.viaArg);
+	bool called = wasm_runtime_direct_end(p.env, p.frames, mark);
+
+	if (player)
+		*p.ambientPlayer = ambient;
+	return called;
 }
 
 /**
@@ -673,14 +772,6 @@ static Resolved FindNative(const char *name)
 	return none;
 }
 
-// What every thunk does on its way to a native, written into each thunk:
-// left to the compiler, which sees a thousand callers, it stays a call.
-#ifdef _MSC_VER
-#define ALWAYS_INLINE __forceinline
-#else
-#define ALWAYS_INLINE inline __attribute__((always_inline))
-#endif
-
 // amxmodx/amx.h: the usertags slot that holds the native being run.
 #define UT_NATIVE 3
 
@@ -955,6 +1046,12 @@ static ALWAYS_INLINE cell CallResolved(const Cached &cached, cell *params)
 	([](cell *p) { static Cached cached = { { NULL, 0, NULL }, 0 }; return CallCached(cached, "" name, p); }(params))
 
 
+// Whether the call is an exported native's (CALLER_OF_AMX), whose caller()
+// is the plugin of the call's AMX, or -1 for anything else.
+#define CALLER_OF_AMX (-2)
+
+struct ChainCall;
+
 /**
  * The arguments of the callback that is running, for arg() and argText().
  *
@@ -962,23 +1059,24 @@ static ALWAYS_INLINE cell CallResolved(const Cached &cached, cell *params)
  * and four covers nearly everything. The rest are not lost, only not pushed:
  * they are still here, and so is the AMX whose memory a string among them
  * lives in - the natives' image for a forward or a publicFor name, the
- * calling plugin for an exported native. Whoever fires a handler sets these and puts
- * back what was there, because one handler can start another.
+ * calling plugin for an exported native. Whoever fires a handler points
+ * g_call at its own and puts back what was there, because one handler can
+ * start another.
  */
-static cell *g_callArgs = NULL;
-static int   g_callArgc = 0;
-static AMX  *g_callAmx = NULL;
-// Whether the call is an exported native's (CALLER_OF_AMX), whose caller()
-// is the plugin of g_callAmx, or -1 for anything else.
-#define CALLER_OF_AMX (-2)
-static int   g_caller = -1;
-// How many cells each array argument has, -1 where nobody said: a forward's,
-// for arg_length(). NULL for a call that carries no sizes.
-static const int32_t *g_callLengths = NULL;
-// A hooked game function's call (gamehooks.h), when that is the context:
-// its cells are g_callArgs, and its texts, vectors and answer are its own.
-struct ChainCall;
-static ChainCall *g_chain = NULL;
+struct CallContext {
+	cell          *args = NULL;
+	int            argc = 0;
+	AMX           *amx = NULL;
+	int            caller = -1;
+	// How many cells each array argument has, -1 where nobody said: a
+	// forward's, for arg_length(). NULL for a call that carries no sizes.
+	const int32_t *lengths = NULL;
+	// A hooked game function's call (gamehooks.h), when that is the context:
+	// its cells are `args`, and its texts, vectors and answer are its own.
+	ChainCall     *chain = NULL;
+};
+static CallContext  g_noCall;
+static CallContext *g_call = &g_noCall;
 static cell ChainResult();
 static const char *ChainText(int32_t index);
 static float *ChainVector(int32_t index);
@@ -989,18 +1087,20 @@ static void ChainAnswered();
 static int g_hamQuiet = -1;
 static int g_hamQuietId = 0;
 
+/** A forward's or a native's call, the context while it lasts (CallContext). */
 struct CallArgs {
-	cell *args; int argc; AMX *amx; int caller; const int32_t *lengths; ChainCall *chain;
+	CallContext  context;
+	CallContext *saved;
 
-	CallArgs(cell *a, int n, AMX *x, int from = -1, const int32_t *sizes = NULL)
-		: args(g_callArgs), argc(g_callArgc), amx(g_callAmx), caller(g_caller), lengths(g_callLengths), chain(g_chain)
+	ALWAYS_INLINE CallArgs(cell *a, int n, AMX *x, int from = -1, const int32_t *sizes = NULL) : saved(g_call)
 	{
-		g_callArgs = a; g_callArgc = n; g_callAmx = x; g_caller = from; g_callLengths = sizes; g_chain = NULL;
+		context.args = a; context.argc = n; context.amx = x; context.caller = from; context.lengths = sizes;
+		g_call = &context;
 	}
 
-	~CallArgs()
+	ALWAYS_INLINE ~CallArgs()
 	{
-		g_callArgs = args; g_callArgc = argc; g_callAmx = amx; g_caller = caller; g_callLengths = lengths; g_chain = chain;
+		g_call = saved;
 	}
 };
 
@@ -1812,6 +1912,21 @@ static void w_off(wasm_exec_env_t env, int32_t name, int32_t fn)
 	DropFrom(f, f.handlers, [plugin, fn](const Handler &h) { return h.plugin == plugin && h.fn == (uint32_t)fn; });
 }
 
+/**
+ * on_direct(event, handler, listener, env, event object, player) - the
+ * plugin's handler of a forward calls its one listener itself, with the
+ * event's object (Handler.via); listener 0 has the handler called again.
+ */
+static void w_on_direct(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t target, int32_t closure, int32_t arg, int32_t player)
+{
+	int forward = ForwardIndex(AsString(Inst(env), name));
+	if (forward < 0)
+		return;
+	for (Handler &h : g_forwards[forward].handlers)
+		if (h.plugin == g_currentPlugin && h.fn == (uint32_t)fn)
+			Direct(h, target, closure, arg, player != 0);
+}
+
 // subscribe(forward, trampoline, tag) - see Subscription.
 static void w_subscribe(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t tag)
 {
@@ -1833,7 +1948,7 @@ static void w_subscribe(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t t
 	(index >= 0 ? g_forwards[index].subscribers : g_subscriptions[forward]).push_back(s);
 }
 
-static cell Fire(Handler h, uint32_t *argv, int argc, cell fallback);
+static cell Fire(const Handler &h, const uint32_t *argv, int argc, cell fallback);
 
 /** A dispatch of `f` has returned: the outermost takes out what was marked during it (Forward). */
 static void EndDispatch(Forward &f)
@@ -2137,12 +2252,12 @@ static void w_srvcmd(wasm_exec_env_t env, int32_t name, int32_t fn, int32_t shap
 static int32_t w_arg(wasm_exec_env_t env, int32_t index)
 {
 	(void)env;
-	if (index == -1 && g_chain)
+	if (index == -1 && g_call->chain)
 		return (int32_t)ChainResult();
-	if (!g_callArgs || index < 0 || index >= g_callArgc)
+	if (!g_call->args || index < 0 || index >= g_call->argc)
 		return 0;
 
-	return (int32_t)g_callArgs[index];
+	return (int32_t)g_call->args[index];
 }
 
 /**
@@ -2155,15 +2270,15 @@ static int32_t w_arg(wasm_exec_env_t env, int32_t index)
  */
 static int32_t w_argText(wasm_exec_env_t env, int32_t index, int32_t out, int32_t max)
 {
-	if (g_chain) {
+	if (g_call->chain) {
 		const char *text = ChainText(index);
 		return WriteBytes(Inst(env), out, max, text ? text : "");
 	}
-	if (!g_callArgs || !g_callAmx || index < 0 || index >= g_callArgc)
+	if (!g_call->args || !g_call->amx || index < 0 || index >= g_call->argc)
 		return WriteBytes(Inst(env), out, max, "");
 
 	int len = 0;
-	const char *text = MF_GetAmxString(g_callAmx, g_callArgs[index], 0, &len);
+	const char *text = MF_GetAmxString(g_call->amx, g_call->args[index], 0, &len);
 	return WriteBytes(Inst(env), out, max, text ? text : "");
 }
 
@@ -2177,7 +2292,7 @@ static int32_t w_argText(wasm_exec_env_t env, int32_t index, int32_t out, int32_
 static int32_t w_argc(wasm_exec_env_t env)
 {
 	(void)env;
-	return g_callArgc;
+	return g_call->argc;
 }
 
 /**
@@ -2189,21 +2304,21 @@ static int32_t w_argc(wasm_exec_env_t env)
 static int32_t w_caller(wasm_exec_env_t env)
 {
 	(void)env;
-	if (g_caller != CALLER_OF_AMX)
+	if (g_call->caller != CALLER_OF_AMX)
 		return -1;
 	Resolved getPlugin = FindNative("get_plugin");
-	cell mark = g_callAmx->hea;
+	cell mark = g_call->amx->hea;
 	cell addr = 0;
 	cell *phys = NULL;
-	if (!getPlugin.fn || MF_AmxAllot(g_callAmx, 1, &addr, &phys) != AMX_ERR_NONE)
+	if (!getPlugin.fn || MF_AmxAllot(g_call->amx, 1, &addr, &phys) != AMX_ERR_NONE)
 		return -1;
 
 	// get_plugin(-1, name, 0, title, 0, version, 0, author, 0, status, 0)
 	cell params[12] = { 11 * sizeof(cell), -1 };
 	for (int i = 2; i < 12; i += 2)
 		params[i] = addr;
-	cell id = getPlugin.fn(g_callAmx, params);
-	g_callAmx->hea = mark;
+	cell id = getPlugin.fn(g_call->amx, params);
+	g_call->amx->hea = mark;
 	return id;
 }
 
@@ -2216,10 +2331,10 @@ static int32_t w_caller(wasm_exec_env_t env)
 static int32_t w_setArg(wasm_exec_env_t env, int32_t index, int32_t value)
 {
 	(void)env;
-	if (!g_callArgs || !g_callAmx || index < 0 || index >= g_callArgc)
+	if (!g_call->args || !g_call->amx || index < 0 || index >= g_call->argc)
 		return 0;
 
-	cell *slot = MF_GetAmxAddr(g_callAmx, g_callArgs[index]);
+	cell *slot = MF_GetAmxAddr(g_call->amx, g_call->args[index]);
 	if (!slot)
 		return 0;
 
@@ -2237,7 +2352,7 @@ static int32_t w_setArg(wasm_exec_env_t env, int32_t index, int32_t value)
  */
 static int32_t w_setArgText(wasm_exec_env_t env, int32_t index, int32_t text, int32_t max)
 {
-	if (!g_callArgs || !g_callAmx || index < 0 || index >= g_callArgc)
+	if (!g_call->args || !g_call->amx || index < 0 || index >= g_call->argc)
 		return 0;
 
 	if (max <= 0)
@@ -2252,7 +2367,7 @@ static int32_t w_setArgText(wasm_exec_env_t env, int32_t index, int32_t text, in
 			cut--;
 		value.resize(cut);
 	}
-	return MF_SetAmxString(g_callAmx, g_callArgs[index], value.c_str(), max);
+	return MF_SetAmxString(g_call->amx, g_call->args[index], value.c_str(), max);
 }
 
 /**
@@ -2262,22 +2377,22 @@ static int32_t w_setArgText(wasm_exec_env_t env, int32_t index, int32_t text, in
 static cell *CallerCells(int32_t index, int32_t *room)
 {
 	*room = 0;
-	if (g_chain) {
+	if (g_call->chain) {
 		// A hooked call's vector, where the game keeps it: three floats, as cells.
 		cell *vector = (cell *)ChainVector(index);
 		*room = vector ? 3 : 0;
 		return vector;
 	}
-	if (!g_callArgs || !g_callAmx || index < 0 || index >= g_callArgc)
+	if (!g_call->args || !g_call->amx || index < 0 || index >= g_call->argc)
 		return NULL;
 
-	cell addr = g_callArgs[index];
-	if (addr < 0 || addr >= g_callAmx->stp)
+	cell addr = g_call->args[index];
+	if (addr < 0 || addr >= g_call->amx->stp)
 		return NULL;
 
-	cell *cells = MF_GetAmxAddr(g_callAmx, addr);
+	cell *cells = MF_GetAmxAddr(g_call->amx, addr);
 	if (cells)
-		*room = (int32_t)((g_callAmx->stp - addr) / (cell)sizeof(cell));
+		*room = (int32_t)((g_call->amx->stp - addr) / (cell)sizeof(cell));
 	return cells;
 }
 
@@ -2347,9 +2462,9 @@ static int32_t w_argArray(wasm_exec_env_t env, int32_t index, int32_t out, int32
 static int32_t w_argLength(wasm_exec_env_t env, int32_t index)
 {
 	(void)env;
-	if (!g_callLengths || index < 0 || index >= g_callArgc)
+	if (!g_call->lengths || index < 0 || index >= g_call->argc)
 		return -1;
-	return g_callLengths[index];
+	return g_call->lengths[index];
 }
 
 /**
@@ -2374,7 +2489,7 @@ static int32_t w_setArgArray(wasm_exec_env_t env, int32_t index, int32_t src, in
 	int32_t *from = (int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)src);
 	for (int32_t i = 0; i < count; i++)
 		cells[i] = (cell)from[i];
-	if (g_chain && index == -1)
+	if (g_call->chain && index == -1)
 		ChainAnswered();
 	return count;
 }
@@ -3072,7 +3187,7 @@ static bool FieldMatches(const std::vector<std::string> &fields, const std::stri
 	return false;
 }
 
-static cell Fire(Handler h, uint32_t *argv, int argc, cell fallback);
+static cell Fire(const Handler &h, const uint32_t *argv, int argc, cell fallback);
 
 /**
  * A write changed player `id`'s `key`: every plugin listening for it hears
@@ -3857,6 +3972,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "on",           (void *)w_on,           "(iii)",  NULL },
 	{ "on_cell",      (void *)w_on_cell,      "(iiiii)", NULL },
 	{ "off",          (void *)w_off,          "(ii)",   NULL },
+	{ "on_direct",    (void *)w_on_direct,    "(iiiiii)", NULL },
 	{ "subscribe",    (void *)w_subscribe,    "(iii)",  NULL },
 	{ "emit_local",   (void *)w_emit_local,   "(iiii)", NULL },
 	{ "clcmd",        (void *)w_clcmd,        "(iiii)", NULL },
@@ -3869,6 +3985,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "hook",         (void *)w_hook,         "(iii)i", NULL },
 	{ "ham",          (void *)w_ham,          "(iiii)i", NULL },
 	{ "hook_on",      (void *)w_hook_on,      "(ii)",   NULL },
+	{ "hook_direct",  (void *)w_hook_direct,  "(iiii)", NULL },
 	{ "chain_set",    (void *)w_chain_set,    "(ii)",   NULL },
 	{ "chain_set_text", (void *)w_chain_set_text, "(ii)", NULL },
 	{ "game_api",     (void *)w_game_api,     "()i",    NULL },
@@ -3914,6 +4031,33 @@ static NativeSymbol g_wasmNatives[] = {
 // ---------------------------------------------------------------- pawn -> wasm
 
 /**
+ * Fire's call of a handler it has no machine code of (Handler.entry): through
+ * WAMR, its cells converted to the types its parameters take, or by its table
+ * index when the plugin exports no table.
+ */
+static bool FireSlow(const Handler &h, Plugin &p, const uint32_t *call, int n)
+{
+	if (h.func) {
+		// Laid out in cells as WAMR reads them.
+		uint32_t cells[2 * (MAX_EVENT_ARGS + 1)];
+		uint32_t used = 0;
+		for (uint32_t i = 0; i < h.count; i++) {
+			int32_t cellValue = (int32_t)call[i];
+			switch (h.kinds[i]) {
+				case WASM_F64: { double v = cellValue; memcpy(&cells[used], &v, 8); used += 2; break; }
+				case WASM_I64: { int64_t v = cellValue; memcpy(&cells[used], &v, 8); used += 2; break; }
+				case WASM_F32: { float v = (float)cellValue; memcpy(&cells[used], &v, 4); used++; break; }
+				default:       cells[used++] = (uint32_t)cellValue; break;
+			}
+		}
+		return wasm_runtime_call_wasm(p.env, h.func, used, cells);
+	}
+	uint32_t copy[MAX_EVENT_ARGS + 1];
+	memcpy(copy, call, sizeof(uint32_t) * n);
+	return wasm_runtime_call_indirect(p.env, h.fn, n, copy);
+}
+
+/**
  * Calls one handler by its function table index.
  *
  * A narrow handler takes the first cell and returns nothing, which is what a
@@ -3921,27 +4065,35 @@ static NativeSymbol g_wasmNatives[] = {
  * PLUGIN_HANDLED or PLUGIN_CONTINUE. call_indirect checks the type, so the
  * shape recorded at registration is what decides.
  */
-static cell Fire(Handler h, uint32_t *argv, int argc, cell fallback)
+NO_STACK_COOKIE static cell Fire(const Handler &h, const uint32_t *argv, int argc, cell fallback)
 {
 	// An orphaned slot, one belonging to the module rather than a plugin, or a
-	// plugin that is not running.
-	if (h.plugin < 0 || (size_t)h.plugin >= g_plugins.size() || !g_plugins[h.plugin].inst)
+	// plugin that is not running. `h` may lie in a list the call changes, so
+	// what is needed of it after the call is kept here.
+	int index = h.plugin;
+	if (index < 0 || (size_t)index >= g_plugins.size() || !g_plugins[index].inst)
 		return fallback;
 
-	Plugin &p = g_plugins[h.plugin];
+	Plugin &p = g_plugins[index];
 
-	// A closure's dispatcher takes its tag before the cells (Handler.tag).
+	// A closure's dispatcher takes its tag before the cells (Handler.tag);
+	// cells a handler takes past the ones given are 0. Otherwise the cells go
+	// as they came.
 	int first = h.tag ? 1 : 0;
-	uint32_t call[MAX_EVENT_ARGS + 1] = { 0 };
 	int n = ((h.shape == SHAPE_WIDE) ? MAX_EVENT_ARGS : 1) + first;
-
-	if (first)
-		call[0] = (uint32_t)h.tag;
-	for (int i = first; i < n && i - first < argc; i++)
-		call[i] = argv[i - first];
+	uint32_t made[MAX_EVENT_ARGS + 1];
+	const uint32_t *call = argv;
+	if (first || argc < n || argc < (int)h.count) {
+		memset(made, 0, sizeof(made));
+		if (first)
+			made[0] = (uint32_t)h.tag;
+		for (int i = first; i < n && i - first < argc; i++)
+			made[i] = argv[i - first];
+		call = made;
+	}
 
 	int prev = g_currentPlugin;
-	g_currentPlugin = h.plugin;
+	g_currentPlugin = index;
 
 	// Whatever the last handler said is not this one's business.
 	bool saidBefore = g_outcomeSaid;
@@ -3950,7 +4102,7 @@ static cell Fire(Handler h, uint32_t *argv, int argc, cell fallback)
 
 	cell result = fallback;
 
-	if (g_trace) MF_PrintSrvConsole("[amxts] TRACE fire plugin=%d fn=%u n=%d a0=%d\n", h.plugin, h.fn, n, (int)call[0]);
+	if (g_trace) MF_PrintSrvConsole("[amxts] TRACE fire plugin=%d fn=%u n=%d a0=%d\n", index, h.fn, n, (int)call[0]);
 
 	bool called;
 
@@ -3965,32 +4117,17 @@ static cell Fire(Handler h, uint32_t *argv, int argc, cell fallback)
 	// countdown ran on into the negatives. So the handler's own parameter
 	// types decide how each cell goes in: as it is to an i32, converted by
 	// value to an f64 (or f32, i64) where that is what the function takes.
-	if (h.entry) {
-		called = CallDirect(h, p.env, call);
-	}
-	else if (h.func) {
-		// Laid out in cells as WAMR reads them.
-		uint32_t cells[2 * (MAX_EVENT_ARGS + 1)];
-		uint32_t used = 0;
-		for (uint32_t i = 0; i < h.count; i++) {
-			int32_t cellValue = (int32_t)call[i];
-			switch (h.kinds[i]) {
-				case WASM_F64: { double v = cellValue; memcpy(&cells[used], &v, 8); used += 2; break; }
-				case WASM_I64: { int64_t v = cellValue; memcpy(&cells[used], &v, 8); used += 2; break; }
-				case WASM_F32: { float v = (float)cellValue; memcpy(&cells[used], &v, 4); used++; break; }
-				default:       cells[used++] = (uint32_t)cellValue; break;
-			}
-		}
-		called = wasm_runtime_call_wasm(p.env, h.func, used, cells);
-	}
-	else {
-		called = wasm_runtime_call_indirect(p.env, h.fn, n, call);
-	}
+	if (h.via)
+		called = CallVia(h, p, argc > 0 ? argv[0] : 0);
+	else if (h.entry)
+		called = CallDirect(h, p, call);
+	else
+		called = FireSlow(h, p, call, n);
 
 	p.depth--;
 
 	if (!called) {
-		Failed(h.plugin, p.inst);
+		Failed(index, p.inst);
 	}
 	else if (g_outcomeSaid) {
 		result = g_outcome;
@@ -4005,7 +4142,7 @@ static cell Fire(Handler h, uint32_t *argv, int argc, cell fallback)
 	// What this event settled - a timer, a response, a player leaving - may
 	// resume a coroutine; the answer to the game has already been given.
 	if (p.depth == 0 && p.wake)
-		DrainJobs(h.plugin);
+		DrainJobs(index);
 	return result;
 }
 
@@ -4276,6 +4413,7 @@ static void ReleasePlugin(int index)
 	p.inst = NULL;
 	p.env = NULL;
 	p.hasTable = false;
+	p.closureEnv = p.argumentsLength = p.ambientPlayer = NULL;
 	p.playerSlots = 0;
 	p.playerNames = 0;
 	p.title = p.version = p.author = p.description = "";
@@ -4801,6 +4939,15 @@ static bool OfThisAbi(const char *name, const unsigned char *data, size_t size)
  * Binds what plugin `index` registered at its top level (Bind): it ran
  * before the plugin had its instance and its table to look them up in.
  */
+/** A mutable i32 global the plugin exports, where it lies; NULL when it exports none of that name. */
+static int32_t *ExportedGlobal(wasm_module_inst_t inst, const char *name)
+{
+	wasm_global_inst_t global;
+	if (!wasm_runtime_get_export_global_inst(inst, name, &global) || global.kind != WASM_I32 || !global.is_mutable)
+		return NULL;
+	return (int32_t *)global.global_data;
+}
+
 static void BindAll(int index)
 {
 	for (Forward &f : g_forwards) {
@@ -4916,6 +5063,10 @@ static bool LoadPlugin(int index)
 	p.inst = inst;
 	// The exported function table, for Fire to read handler signatures from.
 	p.hasTable = wasm_runtime_get_export_table_inst(inst, "table", &p.table);
+	p.frames = wasm_runtime_direct_frames(inst);
+	p.closureEnv = ExportedGlobal(inst, "__env");
+	p.argumentsLength = ExportedGlobal(inst, "__argumentsLength");
+	p.ambientPlayer = ExportedGlobal(inst, "__co_ambient_player");
 	BindAll(index);
 
 	p.env = wasm_runtime_create_exec_env(inst, 64 * 1024);
@@ -6324,6 +6475,7 @@ void ClientKill_Post(edict_t *e)
  * client_cmdStart. The game takes the command's impulse and moves the player
  * after CmdStart, so a listener still changes them.
  */
+
 void CmdStart_Post(const edict_t *player, const struct usercmd_s *cmd, unsigned int seed)
 {
 	// Every player's every frame: what nobody listens to costs these checks.

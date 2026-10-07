@@ -278,7 +278,7 @@ chains.forEach((chain, index) => {
 	chainBlocks.push([
 		`// ${chain.constant}`,
 		`typedef ${registryType} ChainRegistry_${index};`,
-		`static ${ret.decl === 'void' ? 'void ' : ret.decl.endsWith('*') ? ret.decl : `${ret.decl} `}Chain_${index}(${[`${chainType} *chain`, ...declared].join(', ')})`,
+		`NO_STACK_COOKIE static ${ret.decl === 'void' ? 'void ' : ret.decl.endsWith('*') ? ret.decl : `${ret.decl} `}Chain_${index}(${[`${chainType} *chain`, ...declared].join(', ')})`,
 		`{`,
 		`\tstatic const unsigned char roles[] = { ${roles || '0'} };`,
 		`\tChainCall call(g_chainPoints[${index}], roles, ${cells.length});`,
@@ -360,9 +360,9 @@ HAM_FUNCTIONS.forEach((f, index) => {
 		// the declared Vector does it.
 		signature = [
 			`#ifdef _WIN32`,
-			`static Vector *__fastcall Ham_${index}(${['void *self, int, Vector *out', ...declared].join(', ')})`,
+			`NO_STACK_COOKIE static Vector *__fastcall Ham_${index}(${['void *self, int, Vector *out', ...declared].join(', ')})`,
 			`#else`,
-			`static Vector Ham_${index}(${['void *self', ...declared].join(', ')})`,
+			`NO_STACK_COOKIE static Vector Ham_${index}(${['void *self', ...declared].join(', ')})`,
 			`#endif`,
 		].join('\n');
 		callOriginal = [
@@ -385,7 +385,7 @@ HAM_FUNCTIONS.forEach((f, index) => {
 		];
 	} else {
 		const retDecl = ret.decl === 'void' ? 'void ' : ret.decl.endsWith('*') ? ret.decl : `${ret.decl} `;
-		signature = `static ${retDecl}HAM_CC Ham_${index}(${['HAM_SELF', ...declared].join(', ')})`;
+		signature = `NO_STACK_COOKIE static ${retDecl}HAM_CC Ham_${index}(${['HAM_SELF', ...declared].join(', ')})`;
 		const fn = `((${ret.decl} (HAM_CC *)(${['HAM_SELF', ...types].join(', ')}))${original})(${['HAM_PASS', ...next].join(', ')})`;
 		const masked = ret.role === 'bool' ? `(${fn} & 0xFF)` : fn;
 		callOriginal = ret.decl === 'void' ? `\t\t${fn};` : `\t\t${kept(ret.role === 'bool' ? { decl: 'int', role: 'int' } : ret, masked)}`;
