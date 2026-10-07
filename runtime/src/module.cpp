@@ -1132,15 +1132,17 @@ struct CallArgs {
  *
  * A leaf native (scripts/leaf-natives.ts) runs no plugin code. A literal it
  * takes - a string of the plugin's static data, which never changes - is
- * made into cells once a map, in an area of the image's heap no call gives
- * back, and kept by the plugin and the string's address (KeptText): the next
- * call hands the native those cells, and reads nothing of the plugin's.
+ * made into cells once a map, in an array of the image's data
+ * (`__amxts_kept`, which neither its heap nor its stack reaches), and kept by
+ * the plugin and the string's address (KeptText): the next call hands the
+ * native those cells, and reads nothing of the plugin's.
  */
 // The bytes before a text a native fills (Frame::backText): its count and its hash.
 #define TEXT_HEAD 8
 
-// The area of the image's heap the kept literals are in, taken as the image
-// loads, in cells; and how many literals are kept, a power of two.
+// The image's array the kept literals are in (`__amxts_kept`, KEPT_CELLS in
+// scripts/generate-image.ts), in cells; and how many literals are kept, a
+// power of two.
 #define KEPT_CELLS 16384
 #define KEPT_TEXTS 2048
 
@@ -1175,15 +1177,27 @@ static KeptText *KeptFind(wasm_exec_env_t env, int32_t ptr)
 	return NULL;
 }
 
-/** Takes the area from a newly loaded image's heap, every literal forgotten; with no image, there is none. */
+/**
+ * Every literal forgotten, and the area a newly loaded image's
+ * `__amxts_kept`, found in its table of public variables; with no image, or
+ * an image without it, there is none.
+ */
 static void KeptReset(AMX *image)
 {
 	memset(g_kept, 0, sizeof(g_kept));
 	g_keptAt = g_keptEnd = 0;
-	cell addr;
-	if (image && HeapCells(image, KEPT_CELLS, &addr)) {
-		g_keptAt = addr;
-		g_keptEnd = addr + KEPT_CELLS * (cell)sizeof(cell);
+	if (!image)
+		return;
+	AmxHeader *hdr = (AmxHeader *)image->base;
+	for (int32_t at = hdr->pubvars; at < hdr->tags; at += hdr->defsize) {
+		unsigned char *e = image->base + at;
+		const char *name = hdr->defsize == sizeof(FuncStubNT)
+			? (const char *)(image->base + ((FuncStubNT *)e)->nameofs)
+			: ((FuncStub *)e)->name;
+		if (strcmp(name, "__amxts_kept"))
+			continue;
+		g_keptAt = (cell)((FuncStubNT *)e)->address;
+		g_keptEnd = g_keptAt + KEPT_CELLS * (cell)sizeof(cell);
 	}
 }
 
