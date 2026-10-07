@@ -44,6 +44,7 @@ const progress = testProgress('test', files.map(file => file.slice('tests/'.leng
 const queue = progress.longestFirst();
 const failed: string[] = [];
 let pass = 0;
+let skip = 0;
 const begun = Date.now();
 
 function runFile(item: string): Promise<void> {
@@ -65,11 +66,12 @@ function runFile(item: string): Promise<void> {
 		child.on('close', (code) => {
 			const count = (word: string) => Number(new RegExp(`^\\s*(\\d+) ${word}$`, 'm').exec(output)?.[1] ?? 0);
 			pass += count('pass');
+			skip += count('skip');
 			if (code !== 0) {
 				failed.push(file);
 				if (!count('fail')) progress.fail(`${file} > exit ${code}`);
 			}
-			progress.end(item, code === 0, `${count('pass')} pass${count('fail') ? `, ${count('fail')} fail` : ''}`);
+			progress.end(item, code === 0, ['pass', 'skip', 'fail'].filter(word => count(word)).map(word => `${count(word)} ${word}`).join(', '));
 			if (code !== 0) console.log(output.trimEnd().replace(/^/gm, '    '));
 			finish();
 		});
@@ -82,9 +84,10 @@ await Promise.all(Array.from({ length: parallel }, async () => {
 }));
 
 progress.finish();
+const skipped = skip ? `, ${skip} skipped` : '';
 console.log(failed.length
-	? `FAIL: ${failed.length} of ${files.length} files failed, ${pass} tests passed (${clock(Date.now() - begun)})\n${progress.failures.map(line => `  ${line}`).join('\n')}`
-	: `${pass} tests passed in ${files.length} files (${clock(Date.now() - begun)})`);
+	? `FAIL: ${failed.length} of ${files.length} files failed, ${pass} tests passed${skipped} (${clock(Date.now() - begun)})\n${progress.failures.map(line => `  ${line}`).join('\n')}`
+	: `${pass} tests passed${skipped} in ${files.length} files (${clock(Date.now() - begun)})`);
 process.exit(failed.length ? 1 : 0);
 
 /**
