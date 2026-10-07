@@ -2202,19 +2202,39 @@ static bool g_amxxReady = false;
  * Metamod's ClientCommand, the server's through the engine's
  * AddServerCommand - so there is no slot and no AMX Mod X timing to wait for.
  */
-static std::map<std::string, Forward> g_clientCommands;
-static std::map<std::string, Forward> g_serverCommands;
+typedef std::unordered_map<std::string, Forward> Commands;
+static Commands g_clientCommands;
+static Commands g_serverCommands;
+
+// A command's name in lower case, ASCII's letters only: the CRT's tolower
+// asks the locale for each byte, a measurable part of a player's command.
+static char LowerByte(char c)
+{
+	return c >= 'A' && c <= 'Z' ? (char)(c + ('a' - 'A')) : c;
+}
 
 static std::string Lower(const char *text)
 {
 	std::string lower = text ? text : "";
 	for (size_t i = 0; i < lower.size(); i++)
-		lower[i] = (char)tolower((unsigned char)lower[i]);
+		lower[i] = LowerByte(lower[i]);
 	return lower;
 }
 
+/** The commands' handlers of `name`, in any case; end() when none. */
+static Commands::iterator FindCommand(Commands &commands, const char *name)
+{
+	// Lowered into a string kept for it, which has the room after the first
+	// few: a player's command makes nothing.
+	static std::string lower;
+	lower.clear();
+	for (const char *c = name ? name : ""; *c; c++)
+		lower += LowerByte(*c);
+	return commands.find(lower);
+}
+
 /** A plugin's handler of the command `lower`, its name in lower case. */
-static void AddCommand(std::map<std::string, Forward> &commands, const std::string &lower, int32_t fn, int32_t shape, int access)
+static void AddCommand(Commands &commands, const std::string &lower, int32_t fn, int32_t shape, int access)
 {
 	Handler h;
 	h.plugin = g_currentPlugin;
@@ -4477,8 +4497,8 @@ static void ReleasePlugin(int index)
 	for (std::map<std::string, std::vector<Subscription> >::iterator it = g_subscriptions.begin(); it != g_subscriptions.end(); ++it)
 		DropFrom(it->second, [index](const Subscription &s) { return s.handler.plugin == index; });
 	DropFrom(g_fieldListeners, [index](const FieldListener &l) { return l.plugin == index; });
-	for (std::map<std::string, Forward> *commands : { &g_clientCommands, &g_serverCommands })
-		for (std::map<std::string, Forward>::iterator it = commands->begin(); it != commands->end(); ++it)
+	for (Commands *commands : { &g_clientCommands, &g_serverCommands })
+		for (Commands::iterator it = commands->begin(); it != commands->end(); ++it)
 			DropFrom(it->second, it->second.handlers, [index](const Handler &h) { return h.plugin == index; });
 
 	for (size_t i = 0; i < g_services.size(); i++)
@@ -5013,8 +5033,8 @@ static void BindAll(int index)
 		if (l.plugin == index) Bind(l);
 	for (Timer &t : g_timerSlots)
 		if (t.armed && t.handler.plugin == index) Bind(t.handler);
-	for (std::map<std::string, Forward> *commands : { &g_clientCommands, &g_serverCommands })
-		for (std::map<std::string, Forward>::iterator it = commands->begin(); it != commands->end(); ++it)
+	for (Commands *commands : { &g_clientCommands, &g_serverCommands })
+		for (Commands::iterator it = commands->begin(); it != commands->end(); ++it)
 			for (Handler &h : it->second.handlers)
 				if (h.plugin == index) Bind(h);
 	BindGameHooks(index);
@@ -5862,7 +5882,7 @@ static void ServerCommand()
 		g_trace = !g_trace;
 		MF_PrintSrvConsole("[amxts] tracing %s\n", g_trace ? "on" : "off");
 	} else {
-		std::map<std::string, Forward>::iterator it = g_serverCommands.find(name);
+		Commands::iterator it = g_serverCommands.find(name);
 		if (it != g_serverCommands.end())
 			RunCommand(it->second, 0);
 	}
@@ -6710,7 +6730,7 @@ void ClientCommand(edict_t *e)
 		RETURN_META(MRES_SUPERCEDE);
 
 	if (!g_clientCommands.empty()) {
-		std::map<std::string, Forward>::iterator it = g_clientCommands.find(Lower(CMD_ARGV(0)));
+		Commands::iterator it = FindCommand(g_clientCommands, CMD_ARGV(0));
 		if (it != g_clientCommands.end() && RunCommand(it->second, id))
 			RETURN_META(MRES_SUPERCEDE);
 	}

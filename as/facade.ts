@@ -2157,30 +2157,54 @@ function commonText(player: Player | null, key: string): string {
 export class __CommandWords {
 	/** Set once a word is wrong: the one who typed it has been told. */
 	failed: bool = false;
+	/** How many words were typed. */
+	count: i32;
+	private read: string[] | null;
 
 	constructor(
 		/** The player who typed it; `null` for the server's console. */
-		readonly player: Player | null,
-		readonly usage: string,
-		readonly words: string[],
+		public player: Player | null,
+		public usage: string,
+		/** The words; `null` for the engine's command that runs, read the first time they are asked. */
+		words: string[] | null,
 		/** The line from each word on, as typed: what the last text argument takes; `null` for the words joined by a space. */
 		readonly rests: string[] | null = null
-	) {}
+	) {
+		this.read = words;
+		this.count = words != null ? words.length : read_argc() - 1;
+	}
 
-	get count(): i32 {
-		return this.words.length;
+	/** The same object for the engine's command that runs now, as a new one would be (consoleWords). */
+	again(player: Player | null, usage: string): __CommandWords {
+		this.failed = false;
+		this.player = player;
+		this.usage = usage;
+		this.read = null;
+		this.count = read_argc() - 1;
+		return this;
+	}
+
+	/** The words, read from the engine's command while it runs: a command that takes none makes nothing. */
+	private get words(): string[] {
+		let words = this.read;
+		if (words == null) {
+			words = [];
+			for (let i = 1; i <= this.count; i++) words.push(read_argv(i));
+			this.read = words;
+		}
+		return words;
 	}
 
 	/** The word at `at`; `""` when it was not typed. */
 	text(at: i32): string {
-		return at < this.words.length ? this.words[at] : "";
+		return at < this.count ? this.words[at] : "";
 	}
 
 	/** The rest of the line from the word at `at`. */
 	rest(at: i32): string {
 		const rests = this.rests;
 		if (rests != null) return at < rests.length ? rests[at] : "";
-		return at < this.words.length ? this.words.slice(at).join(" ") : "";
+		return at < this.count ? this.words.slice(at).join(" ") : "";
 	}
 
 	/** The word at `at` as a number; a word that is not one fails. */
@@ -2210,13 +2234,13 @@ export class __CommandWords {
 
 	/** Whether at least `count` words were typed; fewer fails. */
 	need(count: i32): bool {
-		if (this.words.length < count) this.fail("");
+		if (this.count < count) this.fail("");
 		return !this.failed;
 	}
 
 	/** Whether no word is left over after the first `count`; one more fails. */
 	done(count: i32): bool {
-		if (this.words.length > count) this.fail("");
+		if (this.count > count) this.fail("");
 		return !this.failed;
 	}
 
@@ -2258,10 +2282,21 @@ function chatWords(player: Player, usage: string, line: string): __CommandWords 
 
 /** A console command's words, as the engine split them. */
 function consoleWords(player: Player | null, usage: string): __CommandWords {
-	const words: string[] = [];
-	const count = read_argc();
-	for (let i = 1; i < count; i++) words.push(read_argv(i));
-	return new __CommandWords(player, usage, words);
+	const spare = spareWords;
+	if (spare == null) return new __CommandWords(player, usage, null);
+	spareWords = null;
+	return spare.again(player, usage);
+}
+
+// A console command's words are read by the build's code for the command
+// before its handler is called, and kept by nothing: the next command takes
+// the same object again once this one is done with it (doneWith). A command
+// that runs while another is handled makes its own.
+let spareWords: __CommandWords | null = null;
+
+function doneWith(words: __CommandWords): void {
+	words.player = null;
+	spareWords = words;
 }
 
 // The players' commands of this plugin, by name, each with its info; the
@@ -2321,7 +2356,9 @@ function chatCommand(player: number, level: number, cid: number, unused: number)
 
 /** name a b - the console command at `at`, its arguments as the engine split them. */
 function consoleCommand(at: i32, id: i32): void {
-	runCommand(at, id, consoleWords(__playerOf(id), playerCommandInfos[at].usage));
+	const words = consoleWords(__playerOf(id), playerCommandInfos[at].usage);
+	runCommand(at, id, words);
+	doneWith(words);
 }
 
 /**
@@ -2381,7 +2418,9 @@ export function __ham(fn: i32, classname: string, handler: WideHandler, post: bo
 
 /** name a b - the server command at `at`, typed in the server console or sent over rcon. */
 function serverCommand(at: i32): void {
-	serverCommandRuns[at](consoleWords(null, serverCommandUsages[at]));
+	const words = consoleWords(null, serverCommandUsages[at]);
+	serverCommandRuns[at](words);
+	doneWith(words);
 	handled();
 }
 
