@@ -33,6 +33,15 @@ test('a team score written is on the scoreboard at once, the other side kept', a
 	expect(scores).toEqual(['CT 3', 'TERRORIST 4', 'CT 3', 'TERRORIST 2']);
 });
 
+test('restartRound and checkWinConditions run the game rules\' own functions, at once', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	alice.command('game_restart');
+
+	expect(server.rulesRuns).toEqual(['restartRound', 'checkWinConditions']);
+});
+
 test('touch: only the classes a listener asked for reach it, toucher and touched in their places', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');

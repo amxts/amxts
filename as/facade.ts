@@ -67,6 +67,11 @@ import { Vector } from "./vector";
 @external("env", "player_join")    declare function _playerJoin(id: i32, team: i32): i32;
 // @ts-ignore: decorator
 @external("env", "player_team")    declare function _playerTeam(id: i32, team: i32): void;
+// The game rules' RestartRound and CheckWinConditions, run by the module: 0 when the game has none.
+// @ts-ignore: decorator
+@external("env", "game_rules_run") declare function _gameRulesRun(action: i32): i32;
+const RULES_RESTART_ROUND: i32 = 1;
+const RULES_CHECK_WIN: i32 = 2;
 // Reunion's answers about a client, through its API: -1 without Reunion.
 // @ts-ignore: decorator
 @external("env", "reunion")        declare function _reunion(what: i32, id: i32): i32;
@@ -3870,11 +3875,12 @@ export class Game extends GameFields {
 	 * ```ts
 	 * game.endRound({ winner: "TERRORIST" });                 // terrorists win, next round in 5 s
 	 * game.endRound({ winner: "draw", delay: 3 });            // a draw, next round in 3 s
-	 * game.endRound({ winner: "none", message: "" });         // a quiet restart: no message
+	 * game.endRound({ winner: "none", message: "" });         // nobody scores, no message
 	 * ```
 	 *
 	 * The winner sets the score, the message and the sound (`"Terrorists Win!"`);
-	 * `message` and `sound` replace them, `""` turns them off.
+	 * `message` and `sound` replace them, `""` turns them off. The next
+	 * round starts after `delay`; to start it over at once, `game.restartRound()`.
 	 *
 	 * Pawn: `rg_round_end`
 	 */
@@ -3896,6 +3902,30 @@ export class Game extends GameFields {
 			return;
 		}
 		this.finishRound(status, delay, options, dispatch);
+	}
+
+	/**
+	 * Starts the round over at once, as the game does when it restarts one:
+	 * everyone back at a spawn point with the round's money and weapons, the
+	 * map cleaned up. The score stays; with `game.completeReset = true` first
+	 * it starts from zero, as after `sv_restart`. Every plugin's `newRound`
+	 * listeners hear it.
+	 *
+	 * Pawn: `rg_restart_round`
+	 */
+	restartRound(): void {
+		if (_gameRulesRun(RULES_RESTART_ROUND) == 0) __sayOnce("game.restartRound(): the game has no rules to restart yet, or this game's RestartRound is not where amxts looks for it");
+	}
+
+	/**
+	 * Has the game check now whether the round is won - after players were
+	 * moved between sides or killed by a plugin - and end it if it is, as it
+	 * checks after a death.
+	 *
+	 * Pawn: `rg_check_win_conditions`
+	 */
+	checkWinConditions(): void {
+		if (_gameRulesRun(RULES_CHECK_WIN) == 0) __sayOnce("game.checkWinConditions(): the game has no rules to ask yet, or this game's CheckWinConditions is not where amxts looks for it");
 	}
 
 	private finishRound(status: i32, delay: f64, options: EndRoundOptions, dispatch: bool): void {

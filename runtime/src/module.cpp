@@ -7019,10 +7019,10 @@ static DLL_FUNCTIONS *g_entityApi = NULL;
  * them. The file is the one the engine's functions were loaded from, the
  * address its load base plus the symbol's value. NULL when it is not there.
  */
-static void *EngineSymbol(const char *name)
+static void *LibrarySymbol(const void *inLibrary, const char *name)
 {
 	Dl_info info;
-	if (!dladdr((void *)g_engfuncs.pfnPrecacheModel, &info) || !info.dli_fname)
+	if (!dladdr(inLibrary, &info) || !info.dli_fname)
 		return NULL;
 	FILE *f = fopen(info.dli_fname, "rb");
 	if (!f)
@@ -7053,6 +7053,12 @@ static void *EngineSymbol(const char *name)
 				return (char *)info.dli_fbase + symbols[k].st_value;
 	}
 	return NULL;
+}
+
+/** A symbol of the engine's library, local ones too (EngineSymbol's caller says why). */
+static void *EngineSymbol(const char *name)
+{
+	return LibrarySymbol((void *)g_engfuncs.pfnPrecacheModel, name);
 }
 #endif
 

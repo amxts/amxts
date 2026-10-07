@@ -2251,11 +2251,12 @@ export default {
 			\`\`\`ts
 			game.endRound({ winner: "TERRORIST" });                 // terrorists win, next round in 5 s
 			game.endRound({ winner: "draw", delay: 3 });            // a draw, next round in 3 s
-			game.endRound({ winner: "none", message: "" });         // a quiet restart: no message
+			game.endRound({ winner: "none", message: "" });         // nobody scores, no message
 			\`\`\`
 
 			The winner sets the score, the message and the sound (\`"Terrorists Win!"\`);
-			\`message\` and \`sound\` replace them, \`""\` turns them off.
+			\`message\` and \`sound\` replace them, \`""\` turns them off. The next
+			round starts after \`delay\`; to start it over at once, \`game.restartRound()\`.
 
 			Pawn: \`rg_round_end\`
 		`,
@@ -2265,13 +2266,50 @@ export default {
 			\`\`\`ts
 			game.endRound({ winner: "TERRORIST" });                 // победа террористов, следующий раунд через 5 с
 			game.endRound({ winner: "draw", delay: 3 });            // ничья, следующий раунд через 3 с
-			game.endRound({ winner: "none", message: "" });         // тихий рестарт: без сообщения
+			game.endRound({ winner: "none", message: "" });         // никто не получает очко, без сообщения
 			\`\`\`
 
 			Победитель определяет счёт, сообщение и звук (\`"Terrorists Win!"\`);
-			\`message\` и \`sound\` заменяют их, \`""\` — выключает.
+			\`message\` и \`sound\` заменяют их, \`""\` — выключает. Следующий раунд
+			начинается через \`delay\`; начать раунд заново сразу — \`game.restartRound()\`.
 
 			Pawn: \`rg_round_end\`
+		`,
+	},
+	'Game.restartRound': {
+		en: `
+			Starts the round over at once, as the game does when it restarts one:
+			everyone back at a spawn point with the round's money and weapons, the
+			map cleaned up. The score stays; with \`game.completeReset = true\` first
+			it starts from zero, as after \`sv_restart\`. Every plugin's \`newRound\`
+			listeners hear it.
+
+			Pawn: \`rg_restart_round\`
+		`,
+		ru: `
+			Начинает раунд заново сразу, как это делает игра при перезапуске раунда:
+			все на точках появления с деньгами и оружием раунда, карта очищена. Счёт
+			остаётся; если сначала поставить \`game.completeReset = true\`, он
+			начинается с нуля, как после \`sv_restart\`. Это слышат обработчики
+			\`newRound\` всех плагинов.
+
+			Pawn: \`rg_restart_round\`
+		`,
+	},
+	'Game.checkWinConditions': {
+		en: `
+			Has the game check now whether the round is won - after players were
+			moved between sides or killed by a plugin - and end it if it is, as it
+			checks after a death.
+
+			Pawn: \`rg_check_win_conditions\`
+		`,
+		ru: `
+			Просит игру сейчас проверить, не выигран ли раунд, - после того как
+			плагин перевёл игроков между сторонами или убил их, - и завершить его,
+			если выигран, как игра проверяет после смерти.
+
+			Pawn: \`rg_check_win_conditions\`
 		`,
 	},
 	'GameListenerOptions': {

@@ -2,6 +2,10 @@
 // and touches filtered by class.
 
 server.addCommand("game_rules", ({ player }) => rules(player));
+server.addCommand("game_restart", () => {
+	game.restartRound();
+	game.checkWinConditions();
+});
 
 game.addEventListener("touch", onPlayers, { toucher: "player", touched: "player" });
 game.addEventListener("touch", onBox, { touched: "myplugin_box" });

@@ -80,29 +80,41 @@ public:
 	virtual bool RemovePlayerItemEx(const char *name, bool removeAmmo) = 0;
 };
 
-// The game rules' virtual functions: CGameRules' 63 after its destructor
-// (regamedll/dlls/gamerules.h), then those CHalfLifeMultiplay adds, in the
-// order of the original game's table, which ReGameDLL keeps.
-class Rules {
-public:
-	virtual ~Rules() = 0;
-#define BASE(n) virtual void base##n() = 0;
-	BASE(1) BASE(2) BASE(3) BASE(4) BASE(5) BASE(6) BASE(7) BASE(8) BASE(9) BASE(10)
-	BASE(11) BASE(12) BASE(13) BASE(14) BASE(15) BASE(16) BASE(17) BASE(18) BASE(19) BASE(20)
-	BASE(21) BASE(22) BASE(23) BASE(24) BASE(25) BASE(26) BASE(27) BASE(28) BASE(29) BASE(30)
-	BASE(31) BASE(32) BASE(33) BASE(34) BASE(35) BASE(36) BASE(37) BASE(38) BASE(39) BASE(40)
-	BASE(41) BASE(42) BASE(43) BASE(44) BASE(45) BASE(46) BASE(47) BASE(48) BASE(49) BASE(50)
-	BASE(51) BASE(52) BASE(53) BASE(54) BASE(55) BASE(56) BASE(57) BASE(58) BASE(59) BASE(60)
-	BASE(61) BASE(62) BASE(63)
-#undef BASE
-	virtual void CleanUpMap() = 0;
-	virtual void RestartRound() = 0;
-	virtual void CheckWinConditions() = 0;
-	virtual void RemoveGuns() = 0;
-	virtual void *GiveC4() = 0;
-	virtual void ChangeLevel() = 0;
+// The game rules' virtual functions: CGameRules' 63 (regamedll/dlls/gamerules.h),
+// then those CHalfLifeMultiplay adds, in the order of the original game's
+// table. ReGameDLL's CGameRules has a virtual destructor first, which the
+// original game's has not: its table starts with RefreshSkillData.
+#define RULES_BASE(n) virtual void base##n() = 0;
+#define RULES_FUNCTIONS \
+	RULES_BASE(1) RULES_BASE(2) RULES_BASE(3) RULES_BASE(4) RULES_BASE(5) RULES_BASE(6) RULES_BASE(7) RULES_BASE(8) RULES_BASE(9) \
+	RULES_BASE(10) RULES_BASE(11) RULES_BASE(12) RULES_BASE(13) RULES_BASE(14) RULES_BASE(15) RULES_BASE(16) RULES_BASE(17) \
+	RULES_BASE(18) RULES_BASE(19) RULES_BASE(20) RULES_BASE(21) RULES_BASE(22) RULES_BASE(23) RULES_BASE(24) RULES_BASE(25) \
+	RULES_BASE(26) RULES_BASE(27) RULES_BASE(28) RULES_BASE(29) RULES_BASE(30) RULES_BASE(31) RULES_BASE(32) RULES_BASE(33) \
+	RULES_BASE(34) RULES_BASE(35) RULES_BASE(36) RULES_BASE(37) RULES_BASE(38) RULES_BASE(39) RULES_BASE(40) RULES_BASE(41) \
+	RULES_BASE(42) RULES_BASE(43) RULES_BASE(44) RULES_BASE(45) RULES_BASE(46) RULES_BASE(47) RULES_BASE(48) RULES_BASE(49) \
+	RULES_BASE(50) RULES_BASE(51) RULES_BASE(52) RULES_BASE(53) RULES_BASE(54) RULES_BASE(55) RULES_BASE(56) RULES_BASE(57) \
+	RULES_BASE(58) RULES_BASE(59) RULES_BASE(60) RULES_BASE(61) RULES_BASE(62) RULES_BASE(63) \
+	virtual void CleanUpMap() = 0; \
+	virtual void RestartRound() = 0; \
+	virtual void CheckWinConditions() = 0; \
+	virtual void RemoveGuns() = 0; \
+	virtual void *GiveC4() = 0; \
+	virtual void ChangeLevel() = 0; \
 	virtual void GoToIntermission() = 0;
+
+class RegameRules {
+public:
+	virtual ~RegameRules() = 0;
+	RULES_FUNCTIONS
 };
+
+class OriginalRules {
+public:
+	RULES_FUNCTIONS
+};
+
+#undef RULES_FUNCTIONS
+#undef RULES_BASE
 
 }  // namespace re
 
@@ -131,12 +143,16 @@ static re::CSPlayer *CSPlayerOf(int32_t id)
 	return object ? *(re::CSPlayer **)(object + offset) : NULL;
 }
 
-/** The game rules, as the virtual functions see them; NULL before a map has them. */
-static re::Rules *RulesObject()
+/** ReGameDLL's game rules; NULL on another server, or before a map has them. */
+static re::RegameRules *RegameRulesObject()
 {
-	if (g_regame && g_regame->BGetIGameRules("GAMERULES_API_INTERFACE_VERSION001"))
-		return (re::Rules *)g_regame->GetGameRules();
-	return g_rulesAddress ? (re::Rules *)*g_rulesAddress : NULL;
+	return g_regame && g_regame->BGetIGameRules("GAMERULES_API_INTERFACE_VERSION001") ? (re::RegameRules *)g_regame->GetGameRules() : NULL;
+}
+
+/** The original game's rules, where the gamedata finds them; NULL on ReGameDLL, or before a map has them. */
+static re::OriginalRules *OriginalRulesObject()
+{
+	return !g_regame && g_rulesAddress ? (re::OriginalRules *)*g_rulesAddress : NULL;
 }
 
 // ---------------------------------------------------------------- the game's virtual functions
@@ -396,7 +412,7 @@ static void w_playerTeam(wasm_exec_env_t env, int32_t id, int32_t team)
 	// round's start; with no terrorist left, or while the round restarts, he
 	// drops it if he can.
 	re::CSPlayer *player = CSPlayerOf(id);
-	re::Rules *rules = RulesObject();
+	re::RegameRules *rules = RegameRulesObject();
 	bool *hasC4 = PlayerMember<bool>(object, "m_bHasC4");
 	bool *defuser = PlayerMember<bool>(object, "m_bHasDefuser");
 	float *restarting = (float *)RulesMember("m_flRestartRoundTime");
@@ -456,13 +472,13 @@ static int VirtualIndex(Method method)
 #endif
 
 /**
- * Whether the game rules' function `method` is where Rules has it. On plain
- * HLDS on Linux, whose game library names its functions, the place is
- * checked against the name, once; a function found elsewhere is not called.
- * ReGameDLL keeps the place by its API, and a Windows game has no names.
+ * Whether the original game's rules have `method` where OriginalRules does.
+ * On Linux, whose game library names its functions (in its symbol table,
+ * not the dynamic one), the place is checked against the name once, and a
+ * function found elsewhere is not called; a Windows game has no names.
  */
 template <typename Method>
-static bool RulesSlotChecked(re::Rules *rules, Method method, const char *symbol)
+static bool OriginalSlotChecked(re::OriginalRules *rules, Method method, const char *symbol)
 {
 #ifdef _WIN32
 	(void)rules;
@@ -470,14 +486,13 @@ static bool RulesSlotChecked(re::Rules *rules, Method method, const char *symbol
 	(void)symbol;
 	return true;
 #else
-	if (g_regame)
-		return true;
 	static std::map<std::string, bool> checked;
 	std::map<std::string, bool>::iterator it = checked.find(symbol);
 	if (it != checked.end())
 		return it->second;
-	void *named = dlsym(LoadedLibrary(GET_GAME_INFO(PLID, GINFO_REALDLL_FULLPATH)), symbol);
-	bool same = !named || (*(void ***)rules)[VirtualIndex(method)] == named;
+	void **table = *(void ***)rules;
+	void *named = LibrarySymbol(table, symbol);
+	bool same = !named || table[VirtualIndex(method)] == named;
 	checked[symbol] = same;
 	if (!same)
 		MF_PrintSrvConsole("[amxts] the game rules' %s is not where amxts expects it in this game: it is not called\n", symbol);
@@ -492,28 +507,34 @@ static bool RulesSlotChecked(re::Rules *rules, Method method, const char *symbol
  * game_rules_run(action) - the game rules' RestartRound or
  * CheckWinConditions, at once: ReGameDLL's through its API, so its
  * hookchains hear it, the original game's through its own table. 0 when
- * the game has no rules yet.
+ * the game has no rules yet, or its function is not where it is expected.
  */
 static int32_t w_gameRulesRun(wasm_exec_env_t env, int32_t action)
 {
 	(void)env;
-	re::Rules *rules = RulesObject();
+	if (action != RULES_RESTART_ROUND && action != RULES_CHECK_WIN)
+		return 0;
+	if (re::RegameRules *rules = RegameRulesObject()) {
+		if (action == RULES_RESTART_ROUND)
+			rules->RestartRound();
+		else
+			rules->CheckWinConditions();
+		return 1;
+	}
+
+	re::OriginalRules *rules = OriginalRulesObject();
 	if (!rules)
 		return 0;
-	switch (action) {
-		case RULES_RESTART_ROUND:
-			if (!RulesSlotChecked(rules, &re::Rules::RestartRound, "_ZN18CHalfLifeMultiplay12RestartRoundEv"))
-				return 0;
-			rules->RestartRound();
-			return 1;
-		case RULES_CHECK_WIN:
-			if (!RulesSlotChecked(rules, &re::Rules::CheckWinConditions, "_ZN18CHalfLifeMultiplay18CheckWinConditionsEv"))
-				return 0;
-			rules->CheckWinConditions();
-			return 1;
-		default:
+	if (action == RULES_RESTART_ROUND) {
+		if (!OriginalSlotChecked(rules, &re::OriginalRules::RestartRound, "_ZN18CHalfLifeMultiplay12RestartRoundEv"))
 			return 0;
+		rules->RestartRound();
+		return 1;
 	}
+	if (!OriginalSlotChecked(rules, &re::OriginalRules::CheckWinConditions, "_ZN18CHalfLifeMultiplay18CheckWinConditionsEv"))
+		return 0;
+	rules->CheckWinConditions();
+	return 1;
 }
 
 // ---------------------------------------------------------------- Reunion
