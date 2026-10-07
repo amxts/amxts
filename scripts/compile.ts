@@ -108,6 +108,13 @@ export const SUSPEND_IMPORT = 'env.co_suspend';
 const WAKE_IMPORT = 'env.co_wake';
 
 /**
+ * The imports that use the plugin's memory they are given only while they
+ * run, and keep no address of it: an object whose address goes only to them
+ * can be made in its function's frame (makeStackObjects).
+ */
+const BORROWING_IMPORTS = new Set(['env.ent_vector']);
+
+/**
  * What wamrc keeps for a failed call's stack (scripts/source-map.ts): each
  * function's frame with its index and the offset of the call it is in, or of
  * the trap - a store at each call, a push and a pop at each function. No
@@ -268,12 +275,17 @@ export async function compileToWasm(
 export function finishing(hoodExports: string, level: number | null, done: (first: number, names: string[]) => void = () => {}) {
 	return {
 		afterCompile(module: any) {
+			// Read before asc's optimiser, which folds the global away.
+			const dataEnd = (binaryen.getExpressionInfo(binaryen.getGlobalInfo(module.getGlobal(DATA_END)).init) as binaryen.ConstInfo).value as number;
 			const emit = module.emitBinary.bind(module);
 			module.emitBinary = (url?: string) => {
 				const imports = new Set(functionsOf(module).map(each => each.imported));
 				if (hoodExports === ASYNC_EXPORTS || !imports.has(WAKE_IMPORT)) {
 					exportCallGlobals(module);
-					if (level === null) inlineSmall(module);
+					if (level === null) {
+						inlineSmall(module);
+						makeStackObjects(module, dataEnd);
+					}
 					if (imports.has(SUSPEND_IMPORT)) asyncify(module, level ?? OPTIMIZE.full);
 					else if (level !== null) optimize(module, level);
 				}
@@ -310,6 +322,21 @@ function inlineSmall(module: any) {
 	binaryen.setAlwaysInlineMaxSize(INLINE_SIZE);
 	module.runPasses(['inlining-optimizing']);
 	binaryen.setAlwaysInlineMaxSize(always);
+}
+
+/** Where the plugin's static data ends, and its shadow stack's bottom. */
+const DATA_END = '~lib/memory/__data_end';
+
+/**
+ * A full build's objects that never leave the function that makes them,
+ * made in its frame rather than on the heap - `player.origin.x` allocates
+ * nothing - by the compiler's pass over the inlined code. A function an
+ * async function's coroutine may park in keeps its objects on the heap.
+ */
+function makeStackObjects(module: any, dataEnd: number) {
+	const functions = functionsOf(module);
+	const named = (imports: Set<string>) => functions.filter(each => each.imported && imports.has(each.imported)).map(each => each.name);
+	assemblyscript.makeStackObjects(module.ptr, named(BORROWING_IMPORTS), named(new Set([SUSPEND_IMPORT])), dataEnd);
 }
 
 /**

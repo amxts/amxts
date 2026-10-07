@@ -60,6 +60,19 @@ for (const optimize of [false, true]) {
 			}
 		});
 
+		test('n % d compared with 0 is JavaScript\'s, either way round', async () => {
+			const source = [
+				'export function zero(x: number, y: number): bool { return x % y == 0; }',
+				'export function notZero(x: number, y: number): bool { return 0 != x % y; }',
+			].join('\n');
+			const { error, exports } = await probe({ 'probe.ts': source }, optimize ? ['-O3'] : []);
+			expect(error).toBe('');
+			for (const [x, y] of PAIRS) {
+				if (Boolean(exports.zero(x, y)) !== (x % y === 0)) throw new Error(`${x} % ${y} == 0: ${exports.zero(x, y)}`);
+				if (Boolean(exports.notZero(x, y)) !== (x % y !== 0)) throw new Error(`0 != ${x} % ${y}: ${exports.notZero(x, y)}`);
+			}
+		});
+
 		test('n % d at the top level is the same', async () => {
 			const { error, exports } = await probe({ 'probe.ts': 'let x: number = -4;\nconst atTop = x % 2;\nexport function top(): number { return atTop; }' }, optimize ? ['-O3'] : []);
 			expect(error).toBe('');

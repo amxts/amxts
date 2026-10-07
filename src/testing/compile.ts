@@ -188,10 +188,11 @@ export interface SourcesCompiled {
 /**
  * asc - the patched one, as the build runs it - on `sources` alone, a test's
  * snippet of the compiler at work, with the disk cache in front. Nothing is
- * read from disk, so the sources and `args` are the whole key.
+ * read from disk, so the sources and `args` are the whole key. `finished`
+ * adds what a full build does after asc's optimiser (finishing).
  */
-export async function compileSources(args: string[], sources: Record<string, string>): Promise<SourcesCompiled> {
-	return cached<SourcesCompiled>(['sources', args, sources], async () => {
+export async function compileSources(args: string[], sources: Record<string, string>, finished = false): Promise<SourcesCompiled> {
+	return cached<SourcesCompiled>(['sources', args, sources, finished], async () => {
 		let binary: Uint8Array | null = null;
 		const text: Record<string, string> = {};
 		const { error, stderr } = await ascMain(args, {
@@ -201,6 +202,7 @@ export async function compileSources(args: string[], sources: Record<string, str
 				else binary = contents;
 			},
 			listFiles: () => [],
+			transforms: finished ? [finishing(BASE_EXPORTS, null)] : [],
 		});
 		return error ? { error: stderr.toString(), binary: null, text } : { error: null, binary, text };
 	});

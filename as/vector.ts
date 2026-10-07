@@ -8,13 +8,29 @@
 
 /** Three numbers, x y z, with the math a plugin needs on them. */
 export class Vector extends Array<number> {
+	// The three numbers live in the object itself, after the array's fields:
+	// a new Vector is one allocation, not an array and its buffer. Grown past
+	// three, they move out to a buffer of their own, as any array's do.
+	private room0: f64 = 0;
+	private room1: f64 = 0;
+	private room2: f64 = 0;
+
 	// x, y and z are loads and stores at the array's data: a Vector is made
 	// with room for three, which a shorter length leaves in place. An index,
 	// even unchecked, was a call - and a write a checked one, which may grow.
 	// The getters are inlined; a setter is small enough for a full build to
-	// inline it (an accessor pair takes one decorator in the editor).
-	constructor(x: number = 0.0, y: number = 0.0, z: number = 0.0) {
-		super(3);
+	// inline it (an accessor pair takes one decorator in the editor). The
+	// constructor is inlined too, so a Vector that never leaves the function
+	// that makes it - `player.origin.x` - is made in that function's frame.
+	// @ts-ignore: decorator
+	@inline constructor(x: number = 0.0, y: number = 0.0, z: number = 0.0) {
+		// @ts-ignore: the compiler's own form of Array's constructor, which the editor's typings leave out
+		super(3, true);
+		// The array's buffer is the object itself, its data the room.
+		const self = changetype<usize>(this);
+		store<usize>(self, self, offsetof<ArrayBufferView>("buffer"));
+		store<usize>(self, self + offsetof<Vector>("room0"), offsetof<ArrayBufferView>("dataStart"));
+		store<i32>(self, 3 << alignof<f64>(), offsetof<ArrayBufferView>("byteLength"));
 		store<f64>(this.dataStart, x);
 		store<f64>(this.dataStart, y, 8);
 		store<f64>(this.dataStart, z, 16);

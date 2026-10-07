@@ -15,12 +15,15 @@ export interface Probe {
 	string: (pointer: number) => string;
 }
 
-/** Compiles `probe.ts`, with the other files it imports, and instantiates it. */
-export async function probe(files: Record<string, string>, flags: string[] = []): Promise<Probe> {
-	const { error, binary } = await compileSources(['probe.ts', '--outFile', 'probe.wasm', ...flags], files);
+/**
+ * Compiles `probe.ts`, with the other files it imports, and instantiates it
+ * with `env`'s functions besides abort; `finished` as a full build finishes it.
+ */
+export async function probe(files: Record<string, string>, flags: string[] = [], env: Record<string, (...args: number[]) => unknown> = {}, finished = false): Promise<Probe> {
+	const { error, binary } = await compileSources(['probe.ts', '--outFile', 'probe.wasm', ...flags], files, finished);
 	if (error) return { error, exports: null, string: () => '' };
 
-	const exports = new WebAssembly.Instance(new WebAssembly.Module(binary!), { env: { abort() {} } }).exports;
+	const exports = new WebAssembly.Instance(new WebAssembly.Module(binary!), { env: { abort() {}, ...env } }).exports;
 	const string = (pointer: number) => {
 		const bytes = new Uint32Array(exports.memory.buffer, pointer - 4, 1)[0];
 		return String.fromCharCode(...new Uint16Array(exports.memory.buffer, pointer, bytes >>> 1));

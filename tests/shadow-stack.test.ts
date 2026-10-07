@@ -29,6 +29,21 @@ class Holder {
 	}
 }
 
+// An array whose elements are in its own object, as a Vector's are.
+class Three extends Array<f64> {
+	private room0: f64;
+	private room1: f64;
+	private room2: f64;
+	constructor(x: f64) {
+		super(3, true);
+		const self = changetype<usize>(this);
+		store<usize>(self, self, offsetof<ArrayBufferView>("buffer"));
+		store<usize>(self, self + offsetof<Three>("room0"), offsetof<ArrayBufferView>("dataStart"));
+		store<i32>(self, 24, offsetof<ArrayBufferView>("byteLength"));
+		store<f64>(this.dataStart, x);
+	}
+}
+
 let kept: Holder | null = null;
 
 /** Allocates nodes nobody keeps, then collects all there is to collect. */
@@ -129,6 +144,13 @@ export function run(): i32 {
 	}
 	garbage(1000);
 	if (caught != 1 || before.value != 11) failed |= 32;
+
+	// An array in its own object, across collections and grown out of it.
+	const three = new Three(5);
+	garbage(1000);
+	three.push(6);
+	garbage(1000);
+	if (three[0] != 5 || three[2] != 0 || three[3] != 6 || three.length != 4) failed |= 256;
 
 	return failed;
 }

@@ -54,6 +54,25 @@ And it makes a plugin's many small calls cheaper:
 - a variable a closure captured is read and written in place, not through
   a call.
 
+And it allocates less:
+
+- an array subclass can keep its elements in its own object (`new
+  Array(length, true)` leaves it without a buffer for the subclass to point
+  at room of its own, as `Vector` does): one allocation, its own buffer
+  until it grows past that room;
+- an object that never leaves the function that makes it - its fields read
+  and written there, its address given only to an import that keeps none -
+  is made in that function's part of the shadow stack, with the header of a
+  static object the collector neither frees nor looks into
+  (`src/passes/stackobjects.ts`, run by the build on the optimized module,
+  `makeStackObjects`); a function an async function's coroutine may park
+  in is left alone;
+- null stored into a reference field is a plain store, without the
+  collector's barrier, and a field that starts at zero is not written again
+  in a constructor: the incremental runtime's allocation is zeroed;
+- a constructor inlined as a super call does not check again whether
+  `this` was allocated.
+
 After changing `src/` or `std/` in `runtime/deps/assemblyscript`, rebuild it
 and write the patch back from there:
 
