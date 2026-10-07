@@ -71,9 +71,11 @@ function line(comment: string, label: string) {
 
 /** The type the Get params line says, or null for a shape this does not read. */
 function shapeOf(get: string, memberType: string): Shape | null {
-	// A char array is text; an element index means an array member, and
-	// TraceResult: and the rest are handles - this does not model those yet.
-	if (/^get_\w+\(index, [^,()]+, dest\[\], const lenght\);$/.test(get)) return 'string';
+	// A char array is text, and so is a string_t - the include's Get line
+	// for viewmodel and weaponmodel reads one as a number; an element index
+	// means an array member, and TraceResult: and the rest are handles - this
+	// does not model those yet.
+	if (/^get_\w+\(index, [^,()]+, dest\[\], const lenght\);$/.test(get) || memberType.trim() === 'string_t') return 'string';
 	if (/\belement\b/.test(get) || /\[\d+\]/.test(memberType)) return null;
 	if (/^Float:get_\w+\(index, [^,()]+\);$/.test(get)) return 'float';
 	if (/^get_\w+\(index, [^,()]+, Float:output\[3\]\);$/.test(get)) return 'vector';
