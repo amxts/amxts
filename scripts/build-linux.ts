@@ -23,7 +23,10 @@ import { fileURLToPath } from 'node:url';
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SANITIZE = process.argv.includes('--sanitize');
 const OUT = join(CORE, SANITIZE ? 'runtime/build/linux-sanitize' : 'runtime/build/linux');
-const IMAGE = process.env.AMXTS_BUILD_IMAGE ?? 'amxts-build';
+// An image named by AMXTS_BUILD_IMAGE is the caller's, built already (CI
+// builds it from its layer cache): used as it is, not built again.
+const GIVEN = process.env.AMXTS_BUILD_IMAGE;
+const IMAGE = GIVEN ?? 'amxts-build';
 const VOLUME = process.env.AMXTS_BUILD_VOLUME ?? 'amxts-linux-work';
 
 function fail(message: string): never {
@@ -46,7 +49,7 @@ mkdirSync(OUT, { recursive: true });
 // Cached after the first time: a rebuild only when the Dockerfile changed.
 // --load puts it where `docker run` finds it also when the builder is a
 // container of its own (CI's, set up by docker/setup-buildx-action).
-docker(['build', '--load', '--quiet', '-t', IMAGE, join(CORE, 'docker/build')]);
+if (!GIVEN) docker(['build', '--load', '--quiet', '-t', IMAGE, join(CORE, 'docker/build')]);
 
 docker([
 	'run',

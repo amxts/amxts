@@ -74,7 +74,9 @@ cmake -B build -S . -DWAMR_BUILD_WITH_CUSTOM_LLVM=1 -DLLVM_DIR=<llvm>/lib/cmake/
 cmake --build build --config Release
 ```
 
-`bun run build:linux` builds a Linux `wamrc` too, in Docker.
+`bun run build:linux` builds a Linux `wamrc` too, in Docker. It builds the
+toolchain image `amxts-build` first; an image named by `AMXTS_BUILD_IMAGE` is
+taken as it is, which is how CI gives it the image built from its cache.
 
 **4. The SDKs**: AMX Mod X's, and the Half-Life SDK and Metamod's headers the
 module needs as a Metamod plugin, each at the commit its file in

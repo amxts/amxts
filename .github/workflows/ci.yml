@@ -94,6 +94,10 @@ jobs:
     name: linux (build)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    # build:linux takes the toolchain image the first step builds from the
+    # layer cache, rather than building it again without that cache.
+    env:
+      AMXTS_BUILD_IMAGE: amxts-build
     steps:
       - uses: actions/checkout@v7
         with:
