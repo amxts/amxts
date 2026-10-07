@@ -16,8 +16,8 @@ const FEW = 100_000;
 const FRAMES = 10_000;
 const TIMERS = 300;
 // The turns impulseListenerNs takes, and the moves of each.
-const IMPULSE_ROUNDS = 31;
-const IMPULSE_RUN = 10_000;
+const IMPULSE_ROUNDS = 1001;
+const IMPULSE_RUN = 200;
 
 /** What Pawn measured, by name: nanoseconds an operation, or milliseconds a whole run. */
 const pawn = new Map<string, number>();
@@ -215,32 +215,34 @@ menu.addItem({
 });
 
 /**
- * Milliseconds `count` moves of the bot with an impulse take: the game's
- * CmdStart, which the module hears the impulse in. The impulse is one the
- * game ignores.
+ * Milliseconds `count` moves of the bot with `impulse` take: the game's
+ * CmdStart, which the module hears an impulse in. The impulse is one the
+ * game ignores, and not perf-pawn.sma's.
  */
-function impulseMs(id: number, count: number) {
+function impulseMs(id: number, impulse: number, count: number) {
 	const angles = [0, 0, 0];
 	const start = performance.now();
-	for (let i = 0; i < count; i++) engfunc(EngFunc_RunPlayerMove, id, angles, 0, 0, 0, 0, 1, 0);
+	for (let i = 0; i < count; i++) engfunc(EngFunc_RunPlayerMove, id, angles, 0, 0, 0, 0, impulse, 0);
 	return performance.now() - start;
 }
 
 /**
- * Nanoseconds an impulse listener adds to a move of the bot. A move is many
- * times the listener's cost, and it drifts with the bot's state: so the moves
- * without the listener and with it are run in turns, a short run each, and
- * the median of the differences is taken.
+ * Nanoseconds an impulse listener adds to a move of the bot, as
+ * perf-pawn.sma times its handler of one: a move is many times the
+ * listener's cost, and it drifts with the bot's state, so the moves without
+ * an impulse and with one are run in turns, a short run each, and the median
+ * of the differences is taken. Between two moves the game's own work leaves
+ * the listener's path cold, on either side.
  */
 function impulseListenerNs(id: number) {
 	const differences: number[] = [];
+	server.addEventListener("impulse", onImpulse);
 	for (let round = 0; round < IMPULSE_ROUNDS; round++) {
-		const without = impulseMs(id, IMPULSE_RUN);
-		server.addEventListener("impulse", onImpulse);
-		const heard = impulseMs(id, IMPULSE_RUN);
-		server.removeEventListener("impulse", onImpulse);
+		const without = impulseMs(id, 0, IMPULSE_RUN);
+		const heard = impulseMs(id, 1, IMPULSE_RUN);
 		differences.push((heard - without) * 1_000_000 / IMPULSE_RUN);
 	}
+	server.removeEventListener("impulse", onImpulse);
 	differences.sort((a, b) => a - b);
 	return differences[Math.floor(IMPULSE_ROUNDS / 2)];
 }

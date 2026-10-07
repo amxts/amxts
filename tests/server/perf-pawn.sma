@@ -7,6 +7,8 @@
 // only Pawn can time on perf.ts's side - a forward reaching it, a call of its
 // native - is timed here too and handed back with perf_ours.
 #include <amxmodx>
+#include <engine>
+#include <fakemeta>
 #include <fun>
 #include <reapi>
 #include <perf>
@@ -17,6 +19,11 @@
 #define FRAMES 10000
 #define TIMERS 300
 #define TASK_ID 7300
+// The turns impulse_listener_ns takes, and the moves of each, as perf.ts's.
+#define IMPULSE_ROUNDS 1001
+#define IMPULSE_RUN 200
+// The impulse this plugin's handler hears: perf.ts's listener hears another.
+#define PAWN_IMPULSE 2
 
 // The native perf-lib.sma registers.
 native perf_lib_echo(value);
@@ -37,7 +44,6 @@ enum
 	STRING_OUT,
 	TIMER_ARMED,
 	FORWARD_RELAYED,
-	FORWARD_PAWN,
 	FORWARD_NOBODY,
 	ECHO_OURS,
 	ECHO_PAWN
@@ -53,11 +59,10 @@ new g_choices;
 // The menu perf.ts's bot chooses from: its handler shows it again.
 new g_menu;
 
-// Three forwards: client_impulse, which no plugin has a public for - the
+// Two forwards: client_impulse, which no plugin has a public for - the
 // module hears a player's impulse in the game's CmdStart itself, so a
-// forward of that name costs what one nobody hears does; one to a public of
-// this plugin's; one nobody hears.
-new g_impulse, g_heard, g_nobody;
+// forward of that name costs what one nobody hears does; and one nobody hears.
+new g_impulse, g_nobody;
 
 // The timers armed at once: how many have fired this round, when the first
 // did, and the best round, in milliseconds from the first to the last.
@@ -79,8 +84,8 @@ public plugin_init()
 	g_menu = menu_create("Perf", "on_menu");
 	menu_additem(g_menu, "choose");
 	g_impulse = CreateMultiForward("client_impulse", ET_IGNORE, FP_CELL, FP_CELL);
-	g_heard = CreateMultiForward("perf_heard", ET_IGNORE, FP_CELL, FP_CELL);
 	g_nobody = CreateMultiForward("perf_nobody", ET_IGNORE, FP_CELL, FP_CELL);
+	register_impulse(PAWN_IMPULSE, "on_impulse");
 	if (!LibraryExists("reapi", LibType_Library)) return;
 	g_hook = RegisterHookChain(RG_CBasePlayer_ResetMaxSpeed, "on_reset", false);
 	DisableHookChain(g_hook);
@@ -111,9 +116,10 @@ public on_reset(id)
 	return HC_CONTINUE;
 }
 
-public perf_heard(id, impulse)
+public on_impulse(id)
 {
 	g_sink++;
+	return PLUGIN_CONTINUE;
 }
 
 public on_command(id)
@@ -231,6 +237,33 @@ hot_path()
 	return writes;
 }
 
+// Milliseconds `count` moves of the bot with `impulse` take: the game's
+// CmdStart, which the engine module hears an impulse in.
+Float:moves_ms(id, impulse, count)
+{
+	new Float:angles[3];
+	new Float:start = perf_now();
+	for (new i = 0; i < count; i++) engfunc(EngFunc_RunPlayerMove, id, angles, 0.0, 0.0, 0.0, 0, impulse, 0);
+	return perf_now() - start;
+}
+
+// Nanoseconds the handler of an impulse adds to a move of the bot, as
+// perf.ts times its listener: moves without an impulse and with the one it
+// hears, a short run each in turns, the median of the differences.
+new Float:g_differences[IMPULSE_ROUNDS];
+
+Float:impulse_listener_ns(id)
+{
+	for (new round = 0; round < IMPULSE_ROUNDS; round++)
+	{
+		new Float:without = moves_ms(id, 0, IMPULSE_RUN);
+		new Float:heard = moves_ms(id, PAWN_IMPULSE, IMPULSE_RUN);
+		g_differences[round] = (heard - without) * 1000000.0 / float(IMPULSE_RUN);
+	}
+	SortFloats(g_differences, IMPULSE_ROUNDS);
+	return g_differences[IMPULSE_ROUNDS / 2];
+}
+
 // One run of a measure: `count` operations, or the whole of one.
 run(what, id, count)
 {
@@ -265,7 +298,6 @@ run(what, id, count)
 			}
 		}
 		case FORWARD_RELAYED: for (new i = 0; i < count; i++) ExecuteForward(g_impulse, ret, id, 0);
-		case FORWARD_PAWN: for (new i = 0; i < count; i++) ExecuteForward(g_heard, ret, id, 0);
 		case FORWARD_NOBODY: for (new i = 0; i < count; i++) ExecuteForward(g_nobody, ret, id, 0);
 		case ECHO_OURS: for (new i = 0; i < count; i++) g_sink += perf_echo(i);
 		case ECHO_PAWN: for (new i = 0; i < count; i++) g_sink += perf_lib_echo(i);
@@ -318,8 +350,8 @@ public measure()
 
 	report_each("relay with no listener", FORWARD_NOBODY, id, FEW);
 	report_ours("relay with no listener", FORWARD_RELAYED, id, FEW);
-	// perf.ts times its own listener, on a bot's impulse.
-	report_each("forward to a listener", FORWARD_PAWN, id, FEW);
+	// A handler of the bot's impulse, as perf.ts times its listener.
+	perf_report("forward to a listener", impulse_listener_ns(id));
 
 	report_each("Pawn calls a plugin", ECHO_PAWN, id, FEW);
 	report_ours("Pawn calls a plugin", ECHO_OURS, id, FEW);
