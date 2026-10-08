@@ -73,13 +73,16 @@ else()
 	# _FILE_OFFSET_BITS=64: an i386 stat() fails with EOVERFLOW on a file
 	# whose inode number needs 64 bits - XFS, btrfs, a Docker bind mount -
 	# and the watcher would never see a plugin change there.
+	# -fno-ipa-icf: GCC 7 takes two functions that differ only in a regparm
+	# call for the same one, and folds them - the cdecl hook of the engine's
+	# Cvar_DirectSet then called it with regparm, once optimised across files.
 	set_target_properties(amxts_amxx PROPERTIES OUTPUT_NAME "amxts_amxx_i386")
-	target_compile_options(amxts_amxx PRIVATE -m32 -fvisibility=hidden -fno-strict-aliasing -Wno-unused-parameter)
+	target_compile_options(amxts_amxx PRIVATE -m32 -fvisibility=hidden -fno-strict-aliasing -fno-ipa-icf -Wno-unused-parameter)
 	target_compile_definitions(amxts_amxx PRIVATE HAVE_STDINT_H _FILE_OFFSET_BITS=64 LINUX _LINUX POSIX)
 	# The network libraries are built in sections, so what the module does not
 	# call stays out (--gc-sections); src/glibc-compat.c keeps them off glibc 2.25.
 	target_sources(amxts_amxx PRIVATE src/glibc-compat.c)
-	target_link_options(amxts_amxx PRIVATE -m32 -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/exports.map -Wl,--no-undefined -Wl,--gc-sections)
+	target_link_options(amxts_amxx PRIVATE -m32 -fno-ipa-icf -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/exports.map -Wl,--no-undefined -Wl,--gc-sections)
 	target_link_libraries(amxts_amxx PRIVATE pthread dl m)
 endif()
 
@@ -90,9 +93,8 @@ if(MSVC)
 	# constructor the older runtimes have.
 	target_compile_definitions(amxts_amxx PRIVATE _CRT_SECURE_NO_WARNINGS HAVE_STDINT_H _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
 	target_compile_options(amxts_amxx PRIVATE /wd4996)
-	# The module and WAMR optimised as one: what a plugin calls on every
-	# native, field and event - WAMR's calls, its intrinsics - inlined across
-	# files. Not on Linux: built so with GCC 7's LTO, plain HLDS stopped on
-	# start (Z_Free: NULL pointer).
-	set_property(TARGET amxts_amxx PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()
+
+# The module and WAMR optimised as one: what a plugin calls on every native,
+# field and event - WAMR's calls, its intrinsics - inlined across files.
+set_property(TARGET amxts_amxx PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)

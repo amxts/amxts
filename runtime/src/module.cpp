@@ -54,6 +54,7 @@
 #include <string>
 #include <vector>
 #include <deque>
+#include <memory>
 #include <map>
 #include <set>
 #include <unordered_map>
@@ -197,6 +198,24 @@ struct Plugin {
 };
 
 /**
+ * The plugins' entries, each where it was made for as long as it is kept:
+ * what a deque promises, with an index that is two loads in its caller -
+ * GCC calls a deque's index out of line, and Fire takes one per event.
+ */
+class PluginList {
+public:
+	size_t size() const { return entries.size(); }
+	Plugin &operator[](size_t i) { return *entries[i]; }
+	const Plugin &operator[](size_t i) const { return *entries[i]; }
+	void push_back(const Plugin &p) { entries.emplace_back(new Plugin(p)); }
+	void clear() { entries.clear(); }
+	void swap(PluginList &other) { entries.swap(other.entries); }
+
+private:
+	std::vector<std::unique_ptr<Plugin>> entries;
+};
+
+/**
  * Every plugin of the list, and every one loaded by hand, whatever its state:
  * an index into it is how a handler, a slot or a native names its plugin, so
  * an entry stays where it is for as long as the plugins are not all reloaded
@@ -205,7 +224,7 @@ struct Plugin {
  * the editor would do nothing at all until the next map change, which is the
  * moment an author is most likely to be watching for something to happen.
  *
- * A deque, so that an entry stays where it is in memory as well: Fire, w_rpc
+ * Each entry stays where it is in memory as well (PluginList): Fire, w_rpc
  * and InitPlugin hold their plugin's entry across its call, and the call can
  * add an entry - amxts_load of a plugin the list does not name, run with
  * server_exec. A vector would move every entry then, and the `depth--` after
@@ -214,7 +233,7 @@ struct Plugin {
  * replaces them all, and it is refused while any of them has a call on the
  * stack (ReloadPlugins).
  */
-static std::deque<Plugin> g_plugins;
+static PluginList g_plugins;
 
 // LoadScripts is loading every plugin: one that amxts_load starts meanwhile
 // hears plugin_init with the rest, not on its own (StartPlugins).
@@ -4841,12 +4860,12 @@ static void ReleasePlugin(int index)
  * for a reload of them all. The entries let go, for LoadScripts to keep what
  * the commands said.
  */
-static std::deque<Plugin> UnloadPlugins()
+static PluginList UnloadPlugins()
 {
 	for (size_t i = 0; i < g_plugins.size(); i++)
 		ReleasePlugin((int)i);
 
-	std::deque<Plugin> before;
+	PluginList before;
 	before.swap(g_plugins);
 	for (Forward &f : g_forwards)
 		f = Forward();
@@ -5540,7 +5559,7 @@ static std::string Stem(const std::string &name)
 }
 
 /** The entry of `list` whose line is `name`; -1 for none. */
-static int Named(const std::deque<Plugin> &list, const std::string &name)
+static int Named(const PluginList &list, const std::string &name)
 {
 	for (size_t i = 0; i < list.size(); i++)
 		if (list[i].name == name)
@@ -5618,7 +5637,7 @@ static std::vector<std::string> ReadList()
  * adds lies past the end it took. plugin_init comes to every plugin together
  * once they are all loaded (g_loadingAll).
  */
-static void LoadScripts(const std::deque<Plugin> &before = std::deque<Plugin>())
+static void LoadScripts(const PluginList &before = PluginList())
 {
 	std::vector<std::string> lines = ReadList();
 	for (size_t i = 0; i < lines.size(); i++)

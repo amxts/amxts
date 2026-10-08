@@ -176,12 +176,9 @@ static void FieldsDetach()
 	g_entityData = g_rulesData = NULL;
 }
 
-/** The engine's edict array, found once per map. */
-static bool FindEdicts()
+/** FindEdicts' first look of a map. */
+static bool LookForEdicts()
 {
-	if (g_edicts)
-		return true;
-
 	// Without Metamod's engine functions - a module AMX Mod X could not load
 	// into Metamod - there is no way to it.
 	edict_t *world = gpGlobals && g_engfuncs.pfnPEntityOfEntIndex ? INDEXENT(0) : NULL;
@@ -198,6 +195,12 @@ static bool FindEdicts()
 	return true;
 }
 
+/** The engine's edict array, found once per map: every field's read asks, so the answer is in its caller. */
+static ALWAYS_INLINE bool FindEdicts()
+{
+	return g_edicts || LookForEdicts();
+}
+
 /** A new map: the engine makes its edicts anew. */
 static void ForgetEdicts()
 {
@@ -206,7 +209,7 @@ static void ForgetEdicts()
 	g_edictsSaid = false;
 }
 
-static char *EdictOf(int id)
+static ALWAYS_INLINE char *EdictOf(int id)
 {
 	if (id < 0 || !FindEdicts() || id >= g_maxEdicts)
 		return NULL;
@@ -215,7 +218,7 @@ static char *EdictOf(int id)
 }
 
 /** An edict's index, 0 for none or for a pointer that is no edict. */
-static int IndexOf(const void *edict)
+static ALWAYS_INLINE int IndexOf(const void *edict)
 {
 	if (!edict || !g_edicts)
 		return 0;

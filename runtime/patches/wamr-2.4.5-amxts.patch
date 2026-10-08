@@ -163,7 +163,7 @@ index 771ef87..7bdb74d 100644
                  }
              }
 diff --git a/core/iwasm/aot/aot_runtime.c b/core/iwasm/aot/aot_runtime.c
-index d2621fb..eca720d 100644
+index d2621fb..1538532 100644
 --- a/core/iwasm/aot/aot_runtime.c
 +++ b/core/iwasm/aot/aot_runtime.c
 @@ -2682,9 +2682,9 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
@@ -192,7 +192,7 @@ index d2621fb..eca720d 100644
  #endif
          }
  
-@@ -2773,6 +2773,124 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
+@@ -2773,6 +2773,126 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
      }
  }
  
@@ -239,10 +239,12 @@ index d2621fb..eca720d 100644
 +#endif
 +}
 +
-+/* written into the host's call where the compiler can (MSVC's link-time
-+   code generation): it runs before every direct call */
-+#ifdef _MSC_VER
++/* written into the host's call where the compiler can (link-time code
++   generation, MSVC's and GCC's): it runs before every direct call */
++#if defined(_MSC_VER)
 +__forceinline
++#elif defined(__GNUC__)
++__attribute__((always_inline))
 +#endif
 +bool
 +wasm_runtime_direct_begin(WASMExecEnv *exec_env,
@@ -317,7 +319,7 @@ index d2621fb..eca720d 100644
  void
  aot_set_exception(AOTModuleInstance *module_inst, const char *exception)
  {
-@@ -3414,6 +3532,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
+@@ -3414,6 +3534,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
  #endif
          ret = invoke_native_internal(exec_env, func_ptr, func_type, signature,
                                       attachment, argv1, argc, argv);
@@ -329,7 +331,7 @@ index d2621fb..eca720d 100644
  #if WASM_ENABLE_AOT_STACK_FRAME != 0
          /* Free all frames allocated, note that some frames
             may be allocated in AOT code and haven't been
-@@ -3474,6 +3597,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
+@@ -3474,6 +3599,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
  #endif
          ret = invoke_native_internal(exec_env, func_ptr, func_type, signature,
                                       attachment, argv, argc, argv);

@@ -79,7 +79,7 @@ struct HookPoint {
 static void SettleHook(HookPoint &point);
 
 /** A cell for an entity, as reapi gives it: its index, -1 for none. */
-static cell CellOfEdict(const edict_t *e)
+static ALWAYS_INLINE cell CellOfEdict(const edict_t *e)
 {
 	if (!e)
 		return -1;
@@ -87,12 +87,12 @@ static cell CellOfEdict(const edict_t *e)
 	return IndexOf(e);
 }
 
-static cell CellOfPev(const entvars_t *pev)
+static ALWAYS_INLINE cell CellOfPev(const entvars_t *pev)
 {
 	return pev ? CellOfEdict(pev->pContainingEntity) : -1;
 }
 
-static cell CellOfCbase(const void *object)
+static ALWAYS_INLINE cell CellOfCbase(const void *object)
 {
 	return object ? CellOfPev(*(entvars_t **)((const char *)object + g_pevOffset)) : -1;
 }

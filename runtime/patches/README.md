@@ -118,7 +118,9 @@ version`.
   code of an AOT function, which the module calls itself with the C types of
   its parameters - what `wasm_runtime_call_wasm` does on every call, less
   what it asks of a function it has not seen; the frame and the trap are
-  handled as that call handles them;
+  handled as that call handles them. `_begin` is written into the module's
+  call by the link-time optimisation of either compiler (`__forceinline`,
+  `always_inline`);
 - two build fixes for building `wamrc` against a prebuilt LLVM: a stub
   `LibXml2::LibXml2` target, and repointing `LLVMDebugInfoPDB`, whose
   exported target carries the DIA SDK path of the machine that built the
