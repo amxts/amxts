@@ -7510,20 +7510,27 @@ export interface MenuItemOptions<Data extends object = object> {
 // (register_menuid), so AMX Mod X gives none of its keys to a Pawn plugin.
 const MENU_TITLE = "#amxts";
 
-// What a key of the page each player sees from this plugin does, by his id:
-// set when the page is shown, taken when he presses a key of it.
-const shownPages = new Map<i32, (key: i32) => void>();
+/** A menu whose page a player is shown: what his keys do on it. */
+abstract class ShownMenu {
+	/** @hidden For the hood: the player `id` pressed `key` on the page this menu shows him, 0 for 1 and 9 for 0. */
+	abstract __press(id: i32, key: i32): void;
+}
+
+// The menu whose page each player sees from this plugin, by his id: set when
+// the page is shown, taken when he presses a key of it.
+const shownMenus = new StaticArray<ShownMenu | null>(MAX_PLAYERS + 1);
 
 /** A player pressed a key of the page this plugin shows him: `key` is 0 for 1 and 9 for 0. */
 function menuKey(player: number, key: number, unused: number, unused2: number): void {
 	const id = <i32>player;
-	if (!shownPages.has(id)) return;
-	const press = shownPages.get(id);
-	shownPages.delete(id);
+	if (<u32>(id - 1) >= <u32>MAX_PLAYERS) return;
+	const menu = shownMenus[id];
+	if (menu == null) return;
+	shownMenus[id] = null;
 
 	const ambient = __co_ambient_player;
 	__co_ambient_player = id;
-	press(<i32>key);
+	menu.__press(id, <i32>key);
 	__co_ambient_player = ambient;
 }
 
@@ -7542,13 +7549,59 @@ function pageItem(color: string, option: i32, text: string, enabled: bool): stri
 /** A text given as `string | ((context) => string)`: the compiler holds it as the function, a string as one that returns it. */
 function menuText<C>(text: string | ((context: C) => string), context: C): string {
 	// @ts-ignore: a function here - the editor sees the union
-	return menuColors(text(context));
+	return text(context);
 }
 
 /** A test given as `boolean | ((context) => boolean)`, held as the function as a text is; left out, it says yes. */
 function menuTest<C>(test: boolean | ((context: C) => boolean) | undefined, context: C): boolean {
 	// @ts-ignore: a function or null here - the editor sees the union
 	return test == null || test(context);
+}
+
+/** A text of a menu as it is drawn: coloured, with the lines under it, made again only when its source changes. */
+class MenuLine {
+	// The lines of text under it (addText).
+	lines: string = "";
+	private source: string | null = null;
+	private text: string = "";
+
+	/** The text drawn for `source`. */
+	of(source: string): string {
+		if (source != this.source) {
+			this.source = source;
+			this.text = menuColors(source) + this.lines;
+		}
+		return this.text;
+	}
+
+	/** Adds a line under it. */
+	add(line: string): void {
+		this.lines += line;
+		this.source = null;
+	}
+}
+
+/** An item of a Menu, with its text as drawn. */
+class MenuEntry<Data extends object> extends MenuLine {
+	constructor(readonly item: MenuItemOptions<Data>) {
+		super();
+	}
+}
+
+/** What a player is shown of a Menu: the context its functions get, the items, the page, and what each key does. */
+class MenuView<Data extends object> {
+	page: i32 = 0;
+	// The items shown: the menu's own, or `visible`, the ones their `visible` lets through.
+	shown: MenuEntry<Data>[];
+	readonly visible: MenuEntry<Data>[] = [];
+	// What each key does: an item's index in `shown`, MENU_BACK, MENU_MORE or
+	// MENU_EXIT; and the page's names, as they are drawn now.
+	readonly actions: StaticArray<i32> = new StaticArray<i32>(10);
+	readonly names: StaticArray<string> = new StaticArray<string>(10);
+
+	constructor(public context: MenuContext<Data>, items: MenuEntry<Data>[]) {
+		this.shown = items;
+	}
 }
 
 /** A page of a Menu as it was drawn: what it showed, and its text. */
@@ -7562,10 +7615,10 @@ class DrawnPage {
 		readonly text: string
 	) {}
 
-	/** Whether it is the page these draw. */
-	shows(page: i32, pages: i32, title: string, names: StaticArray<string>, keys: i32): bool {
-		if (page != this.page || pages != this.pages || keys != this.keys || title != this.title || names.length != this.names.length) return false;
-		for (let i = 0; i < names.length; i++) {
+	/** Whether it is the page these draw: `count` names of `names`. */
+	shows(page: i32, pages: i32, title: string, names: StaticArray<string>, count: i32, keys: i32): bool {
+		if (page != this.page || pages != this.pages || keys != this.keys || title != this.title || count != this.names.length) return false;
+		for (let i = 0; i < count; i++) {
 			if (names[i] != this.names[i]) return false;
 		}
 		return true;
@@ -7599,23 +7652,25 @@ class DrawnPage {
  *
  * Pawn: `menu_create`, `menu_setprop`
  */
-export class Menu<Data extends object = object> {
-	private readonly items: MenuItemOptions<Data>[] = [];
+export class Menu<Data extends object = object> extends ShownMenu {
+	private readonly items: MenuEntry<Data>[] = [];
 	// Whether an item can be hidden: without one, every item is shown and
 	// no list of the shown ones is made.
 	private hides: bool = false;
 	// The page drawn last, whose text the next show of the same page - the
 	// same title, items and keys - sends again rather than drawing it anew.
 	private drawn: DrawnPage | null = null;
-	// Lines of text under an item (addText), each a line of the menu's text;
-	// the ones added before the first item go under the title.
-	private readonly lines: Map<MenuItemOptions<Data>, string> = new Map<MenuItemOptions<Data>, string>();
-	private head: string = "";
+	// The title as drawn, with the lines added before the first item under it.
+	private readonly head: MenuLine = new MenuLine();
+	// What each player is shown, by his id: kept from show to show.
+	private readonly views: StaticArray<MenuView<Data> | null> = new StaticArray<MenuView<Data> | null>(MAX_PLAYERS + 1);
 
 	constructor(
 		private readonly title: string | ((context: MenuContext<Data>) => string),
 		private readonly options: MenuOptions = {}
-	) {}
+	) {
+		super();
+	}
 
 	/**
 	 * Adds an item: its title, when it is shown and can be chosen, and what
@@ -7635,7 +7690,7 @@ export class Menu<Data extends object = object> {
 	 * Pawn: `menu_additem`
 	 */
 	addItem(item: MenuItemOptions<Data>): void {
-		this.items.push(item);
+		this.items.push(new MenuEntry<Data>(item));
 		if (item.visible != null) this.hides = true;
 	}
 
@@ -7649,12 +7704,8 @@ export class Menu<Data extends object = object> {
 	addText(text: string): void {
 		const line = `\n\\w${text}`;
 		const count = this.items.length;
-		if (count == 0) {
-			this.head += line;
-			return;
-		}
-		const last = this.items[count - 1];
-		this.lines.set(last, this.lines.has(last) ? this.lines.get(last) + line : line);
+		if (count == 0) this.head.add(line);
+		else this.items[count - 1].add(line);
 	}
 
 	/**
@@ -7673,39 +7724,71 @@ export class Menu<Data extends object = object> {
 	 * Pawn: `menu_display`
 	 */
 	show(player: Player, data: Data | null = null): void {
-		const context: MenuContext<Data> = { player, menu: this, data: changetype<Data>(data) };
-		const shown = this.hides ? this.items.filter((item: MenuItemOptions<Data>) => menuTest(item.visible, context)) : this.items;
-		this.showPage(context, shown, 0);
+		const id = <i32>player.id;
+		if (<u32>(id - 1) >= <u32>MAX_PLAYERS) return;
+		const given = changetype<Data>(data);
+		let view = this.views[id];
+		if (view == null) {
+			view = new MenuView<Data>({ player, menu: this, data: given }, this.items);
+			this.views[id] = view;
+		} else if (view.context.player !== player || changetype<usize>(view.context.data) != changetype<usize>(given)) {
+			// A new context for another player or other data: one a function kept stays as it was.
+			view.context = { player, menu: this, data: given };
+		}
+
+		let shown = this.items;
+		if (this.hides) {
+			shown = view.visible;
+			shown.length = 0;
+			for (let i = 0; i < this.items.length; i++) {
+				const entry = this.items[i];
+				if (menuTest(entry.item.visible, view.context)) shown.push(entry);
+			}
+		}
+		view.shown = shown;
+		this.showPage(id, view, 0);
 	}
 
-	/** Shows page `page` of the items `shown`, and keeps what each of its keys does. */
-	private showPage(context: MenuContext<Data>, shown: MenuItemOptions<Data>[], page: i32): void {
+	/** @hidden For the hood: the player `id` pressed `key` on the page this menu shows him, 0 for 1 and 9 for 0. */
+	__press(id: i32, key: i32): void {
+		const view = this.views[id];
+		if (view == null) return;
+		const action = view.actions[key];
+		if (action >= 0) view.shown[action].item.onSelect(view.context);
+		else if (action == MENU_BACK) this.showPage(id, view, view.page - 1);
+		else if (action == MENU_MORE) this.showPage(id, view, view.page + 1);
+	}
+
+	/** Shows page `page` of the items `view` shows, and keeps what each of its keys does. */
+	private showPage(id: i32, view: MenuView<Data>, page: i32): void {
+		const shown = view.shown;
 		const count = shown.length;
 		if (count == 0) return;
 
+		const context = view.context;
 		const options = this.options;
 		const given = options.perPage;
 		const perPage: i32 = given !== undefined ? <i32>Math.min(Math.max(given, 0), 7) : 7;
 		const pages = perPage == 0 ? 1 : (count + perPage - 1) / perPage;
-		const title = menuText(this.title, context) + this.head;
+		const title = this.head.of(menuText(this.title, context));
 
-		// What each key does: an item's index, MENU_BACK, MENU_MORE or
-		// MENU_EXIT; a key `keys` leaves out does not come.
-		const actions = new StaticArray<i32>(10);
+		// What each key does; a key `keys` leaves out does not come.
+		const actions = view.actions;
+		const names = view.names;
 		for (let i = 0; i < 10; i++) actions[i] = MENU_EXIT;
 		let keys = 0;
 		let option = 0;
 		const first = page * perPage;
 		const last = perPage > 0 ? min(first + perPage, count) : min(count, 10);
-		const names = new StaticArray<string>(last - first);
 		for (let i = first; i < last; i++, option++) {
-			const item = shown[i];
-			names[option] = this.lines.has(item) ? menuText(item.title, context) + this.lines.get(item) : menuText(item.title, context);
-			if (menuTest(item.enabled, context)) {
+			const entry = shown[i];
+			names[option] = entry.of(menuText(entry.item.title, context));
+			if (menuTest(entry.item.enabled, context)) {
 				keys |= 1 << option;
 				actions[option] = i;
 			}
 		}
+		const named = option;
 
 		if (perPage > 0) {
 			option = perPage;
@@ -7722,20 +7805,16 @@ export class Menu<Data extends object = object> {
 
 		// Drawn again only when something on it is not what it was.
 		let drawn = this.drawn;
-		if (drawn == null || !drawn.shows(page, pages, title, names, keys)) {
-			drawn = new DrawnPage(page, pages, title, names, keys, this.pageText(page, pages, perPage, title, names, keys));
+		if (drawn == null || !drawn.shows(page, pages, title, names, named, keys)) {
+			const drawnNames = new StaticArray<string>(named);
+			for (let i = 0; i < named; i++) drawnNames[i] = names[i];
+			drawn = new DrawnPage(page, pages, title, drawnNames, keys, this.pageText(page, pages, perPage, title, drawnNames, keys));
 			this.drawn = drawn;
 		}
 
-		const id = <i32>context.player.id;
+		view.page = page;
 		show_menu(id, keys, drawn.text, -1, MENU_TITLE);
-		const menu = this;
-		shownPages.set(id, (key: i32) => {
-			const action = actions[key];
-			if (action >= 0) shown[action].onSelect(context);
-			else if (action == MENU_BACK) menu.showPage(context, shown, page - 1);
-			else if (action == MENU_MORE) menu.showPage(context, shown, page + 1);
-		});
+		shownMenus[id] = this;
 		_menuOpen(id, keys, hostIndex(menuKey, true));
 	}
 
