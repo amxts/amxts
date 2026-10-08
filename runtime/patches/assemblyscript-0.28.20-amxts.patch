@@ -6983,20 +6983,21 @@ index ddc7941..5f51d17 100644
 +  return both;
 +}
 diff --git a/src/index-wasm.ts b/src/index-wasm.ts
-index b448aa0..eb8cda3 100644
+index b448aa0..aacf21b 100644
 --- a/src/index-wasm.ts
 +++ b/src/index-wasm.ts
-@@ -39,7 +39,8 @@ import {
+@@ -39,7 +39,9 @@ import {
    formatDiagnosticMessage
  } from "./diagnostics";
  
 -import { Module } from "./module";
 +import { Module, ModuleRef, TypeRef } from "./module";
 +import { StackObjects } from "./passes/stackobjects";
++import { keepWholeNumbers as keepWholeNumbersOf } from "./passes/wholenumbers";
  import { Program } from "./program";
  import { Source } from "./ast";
  
-@@ -390,3 +391,16 @@ export function optimize(
+@@ -390,3 +392,25 @@ export function optimize(
  ): void {
    module.optimize(optimizeLevel, shrinkLevel, debugInfo, zeroFilledMemory);
  }
@@ -7012,6 +7013,15 @@ index b448aa0..eb8cda3 100644
 +export function makeStackObjects(moduleRef: ModuleRef, borrowers: string[], suspends: string[], dataEnd: i32, quiet: string[] = []): i32 {
 +  let module = new Module(moduleRef, true, TypeRef.I32);
 +  return new StackObjects(module, new Set(borrowers), new Set(suspends), dataEnd, new Set(quiet)).run();
++}
++
++/**
++ * amxts: keeps the f64 locals that only ever hold whole numbers within i32
++ * in i32 locals, and the arithmetic and comparisons over them in i32
++ * (passes/wholenumbers.ts), in an optimized module; returns how many locals.
++ */
++export function keepWholeNumbers(moduleRef: ModuleRef): i32 {
++  return keepWholeNumbersOf(new Module(moduleRef, true, TypeRef.I32));
 +}
 diff --git a/src/module.ts b/src/module.ts
 index def4e78..d2cec11 100644
@@ -11521,6 +11531,1274 @@ index 0000000..dcb8e23
 +    _BinaryenFunctionSetBody(func, module.block(null, stmts, results));
 +    return saved;
 +  }
++}
+diff --git a/src/passes/wholenumbers.ts b/src/passes/wholenumbers.ts
+new file mode 100644
+index 0000000..7161c1d
+--- /dev/null
++++ b/src/passes/wholenumbers.ts
+@@ -0,0 +1,1262 @@
++/**
++ * @fileoverview amxts: a plugin's whole numbers kept in i32.
++ *
++ * A `number` is an f64, and so is every local that holds one. A local that
++ * can only ever hold a whole number within i32 - a loop's counter, an index,
++ * a remainder, a product or a sum of such - gets an i32 local in its place,
++ * and the arithmetic and the comparisons over such values are done in i32.
++ * What is not proven stays f64: `7 / 2` is 3.5, a sum past 2^31 is exact,
++ * and -0 and NaN stay what they are.
++ *
++ * Proven by an interval analysis of each function, run on the optimized
++ * module, where a caller's constants have reached the loops they bound: a
++ * value is a whole number within a range - never NaN, an infinity or -0 -
++ * or anything. A loop is solved to a fixpoint (widened after two passes,
++ * then narrowed), and a comparison narrows the locals it compares in the
++ * branch it guards. A value keeps a number of its own across copies and
++ * conversions, so the compiler's check that a number is whole (it is the
++ * same after i32.trunc_sat and back) is seen to hold, and its other branch
++ * is dropped.
++ *
++ * @license Apache-2.0
++ */
++
++import {
++  BinaryOp,
++  ExpressionId,
++  ExpressionRef,
++  FunctionRef,
++  Index,
++  Module,
++  TypeRef,
++  UnaryOp,
++  expandType,
++  getFunctionVars
++} from "../module";
++
++import {
++  _BinaryenBinaryGetLeft,
++  _BinaryenBinaryGetOp,
++  _BinaryenBinaryGetRight,
++  _BinaryenBinarySetLeft,
++  _BinaryenBinarySetRight,
++  _BinaryenBlockGetChildAt,
++  _BinaryenBlockGetName,
++  _BinaryenBlockGetNumChildren,
++  _BinaryenBlockSetChildAt,
++  _BinaryenBreakGetCondition,
++  _BinaryenBreakGetName,
++  _BinaryenBreakGetValue,
++  _BinaryenBreakSetCondition,
++  _BinaryenBreakSetValue,
++  _BinaryenCallGetNumOperands,
++  _BinaryenCallGetOperandAt,
++  _BinaryenCallIndirectGetNumOperands,
++  _BinaryenCallIndirectGetOperandAt,
++  _BinaryenCallIndirectGetTarget,
++  _BinaryenCallIndirectSetOperandAt,
++  _BinaryenCallIndirectSetTarget,
++  _BinaryenCallSetOperandAt,
++  _BinaryenConstGetValueF64,
++  _BinaryenConstGetValueI32,
++  _BinaryenDropGetValue,
++  _BinaryenDropSetValue,
++  _BinaryenExpressionGetId,
++  _BinaryenExpressionGetType,
++  _BinaryenFunctionAddVar,
++  _BinaryenFunctionGetBody,
++  _BinaryenFunctionGetParams,
++  _BinaryenFunctionSetBody,
++  _BinaryenGetFunctionByIndex,
++  _BinaryenGetNumFunctions,
++  _BinaryenGlobalSetGetValue,
++  _BinaryenGlobalSetSetValue,
++  _BinaryenIfGetCondition,
++  _BinaryenIfGetIfFalse,
++  _BinaryenIfGetIfTrue,
++  _BinaryenIfSetCondition,
++  _BinaryenIfSetIfFalse,
++  _BinaryenIfSetIfTrue,
++  _BinaryenLoadGetBytes,
++  _BinaryenLoadGetPtr,
++  _BinaryenLoadIsSigned,
++  _BinaryenLoadSetPtr,
++  _BinaryenLocalGetGetIndex,
++  _BinaryenLocalSetGetIndex,
++  _BinaryenLocalSetGetValue,
++  _BinaryenLocalSetIsTee,
++  _BinaryenLocalSetSetValue,
++  _BinaryenLoopGetBody,
++  _BinaryenLoopGetName,
++  _BinaryenLoopSetBody,
++  _BinaryenMemoryCopyGetDest,
++  _BinaryenMemoryCopyGetSize,
++  _BinaryenMemoryCopyGetSource,
++  _BinaryenMemoryCopySetDest,
++  _BinaryenMemoryCopySetSize,
++  _BinaryenMemoryCopySetSource,
++  _BinaryenMemoryFillGetDest,
++  _BinaryenMemoryFillGetSize,
++  _BinaryenMemoryFillGetValue,
++  _BinaryenMemoryFillSetDest,
++  _BinaryenMemoryFillSetSize,
++  _BinaryenMemoryFillSetValue,
++  _BinaryenMemoryGrowGetDelta,
++  _BinaryenMemoryGrowSetDelta,
++  _BinaryenReturnGetValue,
++  _BinaryenReturnSetValue,
++  _BinaryenSelectGetCondition,
++  _BinaryenSelectGetIfFalse,
++  _BinaryenSelectGetIfTrue,
++  _BinaryenSelectSetCondition,
++  _BinaryenSelectSetIfFalse,
++  _BinaryenSelectSetIfTrue,
++  _BinaryenStoreGetPtr,
++  _BinaryenStoreGetValue,
++  _BinaryenStoreSetPtr,
++  _BinaryenStoreSetValue,
++  _BinaryenSwitchGetCondition,
++  _BinaryenSwitchGetDefaultName,
++  _BinaryenSwitchGetNameAt,
++  _BinaryenSwitchGetNumNames,
++  _BinaryenSwitchGetValue,
++  _BinaryenSwitchSetCondition,
++  _BinaryenSwitchSetValue,
++  _BinaryenUnaryGetOp,
++  _BinaryenUnaryGetValue,
++  _BinaryenUnarySetValue,
++  _BinaryenCallIndirectGetTable
++} from "../glue/binaryen";
++
++const I32_MIN: f64 = -2147483648;
++const I32_MAX: f64 = 2147483647;
++/** Past this an f64 does not hold every whole number: a range is unbounded there. */
++const EXACT: f64 = 9007199254740992;
++/** A block's type taken from its last child (BinaryenTypeAuto). */
++const AUTO: TypeRef = -1;
++/** The most expressions a function's analysis may look at before it gives up on the function. */
++const BUDGET = 1000000;
++/** What tidies a function after its whole numbers are in i32. */
++const CLEAN_UP = [
++  "precompute-propagate",
++  "optimize-instructions",
++  "simplify-locals",
++  "vacuum",
++  "merge-blocks",
++  "remove-unused-brs",
++  "coalesce-locals",
++  "reorder-locals",
++  "vacuum"
++];
++
++/**
++ * What a value may be: a whole number within [lo, hi] - never NaN, an
++ * infinity or -0 - or, not `whole`, anything. An i32 is always whole. `id`
++ * is a number the same value keeps wherever it is copied: two values of one
++ * id are equal. `square`, for a product of a value with itself, is that
++ * value's id.
++ */
++class Value {
++  constructor(
++    public lo: f64,
++    public hi: f64,
++    public whole: bool,
++    public id: i32 = 0,
++    public square: i32 = 0
++  ) {}
++}
++
++const ANY = new Value(-Infinity, Infinity, false);
++const ANY_I32 = new Value(I32_MIN, I32_MAX, true);
++const BOOL = new Value(0, 1, true);
++const TRUE = new Value(1, 1, true);
++const FALSE = new Value(0, 0, true);
++/** The value of an expression no path reaches. */
++const DEAD = new Value(-Infinity, Infinity, false);
++
++/**
++ * A whole number within [lo, hi] - anything past where an f64 stops being
++ * exact, where a sum may round up to an infinity and an infinity less one is
++ * NaN. Only a loop's widening leaves a whole number unbounded: its values
++ * are each one a step made.
++ */
++function whole(lo: f64, hi: f64): Value {
++  return lo >= -EXACT && hi <= EXACT ? new Value(lo, hi, true) : ANY;
++}
++
++/** An i32 within [lo, hi]: any i32 when that is past i32's range (it wraps). */
++function int(lo: f64, hi: f64): Value {
++  return lo >= I32_MIN && hi <= I32_MAX ? new Value(lo, hi, true) : ANY_I32;
++}
++
++/** Whether a value is a whole number within i32. */
++function isInt32(value: Value): bool {
++  return value != DEAD && value.whole && value.lo >= I32_MIN && value.hi <= I32_MAX;
++}
++
++function withId(value: Value, id: i32): Value {
++  return new Value(value.lo, value.hi, value.whole, id);
++}
++
++function join(a: Value, b: Value): Value {
++  if (a == DEAD) return b;
++  if (b == DEAD) return a;
++  if (!a.whole || !b.whole) return ANY;
++  return new Value(min(a.lo, b.lo), max(a.hi, b.hi), true, a.id == b.id ? a.id : 0);
++}
++
++/** Whether `a` says no more than `b`. */
++function within(a: Value, b: Value): bool {
++  if (!b.whole) return true;
++  return a.whole && a.lo >= b.lo && a.hi <= b.hi;
++}
++
++function isTrue(value: Value): bool {
++  return value.whole && (value.lo > 0 || value.hi < 0);
++}
++
++function isFalse(value: Value): bool {
++  return value.whole && value.lo == 0 && value.hi == 0;
++}
++
++function product(a: f64, b: f64): f64 {
++  return a == 0 || b == 0 ? 0 : a * b;
++}
++
++/** The value each local holds, by index; null where no path reaches. */
++type State = Value[] | null;
++
++function copyState(state: State): State {
++  return state ? state.slice(0) : null;
++}
++
++function joinStates(a: State, b: State): State {
++  if (!a) return copyState(b);
++  if (!b) return copyState(a);
++  let out = new Array<Value>(a.length);
++  for (let i = 0, k = a.length; i < k; ++i) out[i] = join(a[i], b[i]);
++  return out;
++}
++
++function withinState(a: State, b: State): bool {
++  if (!a) return true;
++  if (!b) return false;
++  for (let i = 0, k = a.length; i < k; ++i) {
++    if (!within(a[i], b[i])) return false;
++  }
++  return true;
++}
++
++/** Where a branch goes: the state and the value that reach the label. */
++class Target {
++  state: State = null;
++  value: Value = DEAD;
++}
++
++/** The comparison `op` seen from its right side, and its opposite. */
++function swapped(op: BinaryOp): BinaryOp {
++  switch (op) {
++    case BinaryOp.LtF64: return BinaryOp.GtF64;
++    case BinaryOp.LeF64: return BinaryOp.GeF64;
++    case BinaryOp.GtF64: return BinaryOp.LtF64;
++    case BinaryOp.GeF64: return BinaryOp.LeF64;
++    case BinaryOp.LtI32: return BinaryOp.GtI32;
++    case BinaryOp.LeI32: return BinaryOp.GeI32;
++    case BinaryOp.GtI32: return BinaryOp.LtI32;
++    case BinaryOp.GeI32: return BinaryOp.LeI32;
++    case BinaryOp.LtU32: return BinaryOp.GtU32;
++    case BinaryOp.LeU32: return BinaryOp.GeU32;
++    case BinaryOp.GtU32: return BinaryOp.LtU32;
++    case BinaryOp.GeU32: return BinaryOp.LeU32;
++  }
++  return op;
++}
++
++function negated(op: BinaryOp): BinaryOp {
++  switch (op) {
++    case BinaryOp.EqF64: return BinaryOp.NeF64;
++    case BinaryOp.NeF64: return BinaryOp.EqF64;
++    case BinaryOp.LtF64: return BinaryOp.GeF64;
++    case BinaryOp.LeF64: return BinaryOp.GtF64;
++    case BinaryOp.GtF64: return BinaryOp.LeF64;
++    case BinaryOp.GeF64: return BinaryOp.LtF64;
++    case BinaryOp.EqI32: return BinaryOp.NeI32;
++    case BinaryOp.NeI32: return BinaryOp.EqI32;
++    case BinaryOp.LtI32: return BinaryOp.GeI32;
++    case BinaryOp.LeI32: return BinaryOp.GtI32;
++    case BinaryOp.GtI32: return BinaryOp.LeI32;
++    case BinaryOp.GeI32: return BinaryOp.LtI32;
++    case BinaryOp.LtU32: return BinaryOp.GeU32;
++    case BinaryOp.LeU32: return BinaryOp.GtU32;
++    case BinaryOp.GtU32: return BinaryOp.LeU32;
++    case BinaryOp.GeU32: return BinaryOp.LtU32;
++  }
++  return op;
++}
++
++/** The comparison `op` as signed i32's: f64's and unsigned ones map to it. */
++function comparison(op: BinaryOp): i32 {
++  switch (op) {
++    case BinaryOp.EqF64: return BinaryOp.EqI32;
++    case BinaryOp.NeF64: return BinaryOp.NeI32;
++    case BinaryOp.LtF64: case BinaryOp.LtU32: return BinaryOp.LtI32;
++    case BinaryOp.LeF64: case BinaryOp.LeU32: return BinaryOp.LeI32;
++    case BinaryOp.GtF64: case BinaryOp.GtU32: return BinaryOp.GtI32;
++    case BinaryOp.GeF64: case BinaryOp.GeU32: return BinaryOp.GeI32;
++    case BinaryOp.EqI32: case BinaryOp.NeI32: case BinaryOp.LtI32:
++    case BinaryOp.LeI32: case BinaryOp.GtI32: case BinaryOp.GeI32: return op;
++  }
++  return -1;
++}
++
++function isUnsigned(op: BinaryOp): bool {
++  return op == BinaryOp.LtU32 || op == BinaryOp.LeU32 || op == BinaryOp.GtU32 || op == BinaryOp.GeU32;
++}
++
++/** Whether `a op b` holds always (TRUE), never (FALSE), or either way. */
++function compare(op: BinaryOp, a: Value, b: Value): Value {
++  if (!a.whole || !b.whole) return BOOL;
++  let same = a.id != 0 && a.id == b.id;
++  switch (op) {
++    case BinaryOp.EqI32: {
++      if (same || (a.lo == a.hi && b.lo == b.hi && a.lo == b.lo)) return TRUE;
++      if (a.hi < b.lo || b.hi < a.lo) return FALSE;
++      return BOOL;
++    }
++    case BinaryOp.NeI32: return not(compare(BinaryOp.EqI32, a, b));
++    case BinaryOp.LtI32: {
++      if (a.hi < b.lo) return TRUE;
++      if (same || a.lo >= b.hi) return FALSE;
++      return BOOL;
++    }
++    case BinaryOp.LeI32: {
++      if (same || a.hi <= b.lo) return TRUE;
++      if (a.lo > b.hi) return FALSE;
++      return BOOL;
++    }
++    case BinaryOp.GtI32: return compare(BinaryOp.LtI32, b, a);
++    case BinaryOp.GeI32: return compare(BinaryOp.LeI32, b, a);
++  }
++  return BOOL;
++}
++
++function not(value: Value): Value {
++  return value == TRUE ? FALSE : value == FALSE ? TRUE : BOOL;
++}
++
++/** `value` known to stand in `op` to `bound`; null when it cannot. */
++function constrain(value: Value, op: BinaryOp, bound: Value): Value | null {
++  if (!value.whole || !bound.whole) return value;
++  let lo = value.lo;
++  let hi = value.hi;
++  switch (op) {
++    case BinaryOp.EqI32: lo = max(lo, bound.lo); hi = min(hi, bound.hi); break;
++    case BinaryOp.NeI32: {
++      if (bound.lo == bound.hi) {
++        if (lo == bound.lo) lo += 1;
++        if (hi == bound.lo) hi -= 1;
++      }
++      break;
++    }
++    case BinaryOp.LtI32: hi = min(hi, bound.hi - 1); break;
++    case BinaryOp.LeI32: hi = min(hi, bound.hi); break;
++    case BinaryOp.GtI32: lo = max(lo, bound.lo + 1); break;
++    case BinaryOp.GeI32: lo = max(lo, bound.lo); break;
++  }
++  if (lo > hi) return null;
++  return new Value(lo, hi, true, value.id);
++}
++
++/** Whether a unary operation keeps an f64 whole and the same: floor and its kin. */
++function isRounding(op: UnaryOp): bool {
++  return op == UnaryOp.FloorF64 || op == UnaryOp.CeilF64 || op == UnaryOp.TruncF64 || op == UnaryOp.NearestF64;
++}
++
++/** Keeps every f64 local of a function that only holds whole numbers within i32 in an i32 local. */
++class WholeNumbers {
++  constructor(private module: Module, private func: FunctionRef) {
++    let types = expandType(_BinaryenFunctionGetParams(func));
++    this.params = types.length;
++    for (let i = 0, k = types.length; i < k; ++i) types[i] = types[i];
++    let vars = getFunctionVars(func);
++    for (let i = 0, k = vars.length; i < k; ++i) types.push(vars[i]);
++    this.types = types;
++  }
++
++  private params: i32;
++  private types: TypeRef[];
++  /** The state where the analysis is; null where no path reaches. */
++  private state: State = null;
++  private targets: Map<string, Target> = new Map();
++  /** Each expression's value where it was last looked at; DEAD where it gives none. */
++  private values: Map<ExpressionRef, Value> = new Map();
++  /** The expressions a path reaches. */
++  private reached: Set<ExpressionRef> = new Set();
++  private nextId: i32 = 1;
++  private budget: i32 = BUDGET;
++  private failed: bool = false;
++  /** Each f64 local kept in i32, and its i32 local. */
++  private kept: Map<Index, Index> = new Map();
++  private cheapness: Map<ExpressionRef, bool> = new Map();
++
++  /** Keeps the function's whole numbers in i32; returns how many locals were. */
++  run(): i32 {
++    let func = this.func;
++    let body = _BinaryenFunctionGetBody(func);
++    let types = this.types;
++    let state = new Array<Value>(types.length);
++    for (let i = 0, k = types.length; i < k; ++i) {
++      let type = types[i];
++      state[i] = i < this.params
++        ? (type == TypeRef.I32 ? ANY_I32 : ANY)
++        : (type == TypeRef.I32 || type == TypeRef.F64 ? whole(0, 0) : ANY);
++    }
++    this.state = state;
++    this.eval(body);
++    if (this.failed) return 0;
++
++    // A local is kept in i32 when every value set to it, where a path
++    // reaches, is a whole number within i32 - and it starts at 0.
++    let fits = new Map<Index, bool>();
++    this.forEach(body, (expr: ExpressionRef): bool => {
++      let value = assert(this.values.get(expr));
++      if (!this.reached.has(expr)) return false;
++      if (value != DEAD && _BinaryenExpressionGetId(expr) == ExpressionId.LocalSet) {
++        let index = _BinaryenLocalSetGetIndex(expr);
++        if (index >= <Index>this.params && types[index] == TypeRef.F64) {
++          fits.set(index, (fits.has(index) ? fits.get(index)! : true) && isInt32(value));
++        }
++      }
++      return true;
++    });
++    for (let _keys = Map_keys(fits), i = 0, k = _keys.length; i < k; ++i) {
++      let index = _keys[i];
++      if (fits.get(index)!) this.kept.set(index, _BinaryenFunctionAddVar(func, TypeRef.I32));
++    }
++    if (this.kept.size == 0) return 0;
++    _BinaryenFunctionSetBody(func, this.rewrite(body));
++    this.module.runPasses(CLEAN_UP, func);
++    return this.kept.size;
++  }
++
++  // The analysis
++
++  private eval(expr: ExpressionRef): Value {
++    if (!this.state || this.failed) {
++      this.values.set(expr, DEAD);
++      this.reached.delete(expr);
++      return DEAD;
++    }
++    if (--this.budget < 0) this.failed = true;
++    this.reached.add(expr);
++    let value = this.compute(expr);
++    let type = _BinaryenExpressionGetType(expr);
++    if (!this.state) value = DEAD;
++    else if (type == TypeRef.I32) { if (!value.whole) value = ANY_I32; }
++    else if (type != TypeRef.F64 && _BinaryenExpressionGetId(expr) != ExpressionId.LocalSet) value = ANY;
++    this.values.set(expr, value);
++    return value;
++  }
++
++  private compute(expr: ExpressionRef): Value {
++    switch (_BinaryenExpressionGetId(expr)) {
++      case ExpressionId.Block: return this.block(expr);
++      case ExpressionId.Loop: return this.loop(expr);
++      case ExpressionId.If: return this.branch(expr);
++      case ExpressionId.Break: {
++        let value = _BinaryenBreakGetValue(expr);
++        let result = value ? this.eval(value) : DEAD;
++        let name = this.module.readStringCached(_BinaryenBreakGetName(expr))!;
++        let condition = _BinaryenBreakGetCondition(expr);
++        if (!condition) {
++          this.send(name, this.state, result);
++          this.state = null;
++          return DEAD;
++        }
++        let test = this.eval(condition);
++        if (!this.state) return DEAD;
++        if (!isFalse(test)) this.send(name, this.refine(condition, copyState(this.state), true), result);
++        this.state = isTrue(test) ? null : this.refine(condition, this.state, false);
++        return result;
++      }
++      case ExpressionId.Switch: {
++        let value = _BinaryenSwitchGetValue(expr);
++        let result = value ? this.eval(value) : DEAD;
++        this.eval(_BinaryenSwitchGetCondition(expr));
++        let module = this.module;
++        for (let i: Index = 0, k = _BinaryenSwitchGetNumNames(expr); i < k; ++i) {
++          this.send(module.readStringCached(_BinaryenSwitchGetNameAt(expr, i))!, this.state, result);
++        }
++        this.send(module.readStringCached(_BinaryenSwitchGetDefaultName(expr))!, this.state, result);
++        this.state = null;
++        return DEAD;
++      }
++      case ExpressionId.Call: {
++        for (let i: Index = 0, k = _BinaryenCallGetNumOperands(expr); i < k; ++i) this.eval(_BinaryenCallGetOperandAt(expr, i));
++        return ANY;
++      }
++      case ExpressionId.CallIndirect: {
++        for (let i: Index = 0, k = _BinaryenCallIndirectGetNumOperands(expr); i < k; ++i) this.eval(_BinaryenCallIndirectGetOperandAt(expr, i));
++        this.eval(_BinaryenCallIndirectGetTarget(expr));
++        return ANY;
++      }
++      case ExpressionId.LocalGet: {
++        let index = _BinaryenLocalGetGetIndex(expr);
++        let state = this.state!;
++        let value = state[index];
++        if (value.id == 0) state[index] = value = withId(value, this.nextId++);
++        return value;
++      }
++      case ExpressionId.LocalSet: {
++        let value = this.eval(_BinaryenLocalSetGetValue(expr));
++        if (!this.state) return DEAD;
++        let index = _BinaryenLocalSetGetIndex(expr);
++        let type = this.types[index];
++        if (type != TypeRef.I32 && type != TypeRef.F64) value = ANY;
++        value = withId(value, value.id ? value.id : this.nextId++);
++        this.state![index] = value;
++        return value;
++      }
++      case ExpressionId.GlobalGet: return ANY;
++      case ExpressionId.GlobalSet: {
++        this.eval(_BinaryenGlobalSetGetValue(expr));
++        return ANY;
++      }
++      case ExpressionId.Load: {
++        this.eval(_BinaryenLoadGetPtr(expr));
++        let signed = _BinaryenLoadIsSigned(expr);
++        switch (_BinaryenLoadGetBytes(expr)) {
++          case 1: return signed ? new Value(-128, 127, true) : new Value(0, 255, true);
++          case 2: return signed ? new Value(-32768, 32767, true) : new Value(0, 65535, true);
++        }
++        return ANY;
++      }
++      case ExpressionId.Store: {
++        this.eval(_BinaryenStoreGetPtr(expr));
++        this.eval(_BinaryenStoreGetValue(expr));
++        return ANY;
++      }
++      case ExpressionId.Const: {
++        let type = _BinaryenExpressionGetType(expr);
++        if (type == TypeRef.I32) {
++          let value = <f64>_BinaryenConstGetValueI32(expr);
++          return new Value(value, value, true);
++        }
++        if (type == TypeRef.F64) {
++          let value = _BinaryenConstGetValueF64(expr);
++          if (isFinite(value) && Math.floor(value) == value && !(value == 0 && 1 / value < 0)) return whole(value, value);
++        }
++        return ANY;
++      }
++      case ExpressionId.Unary: return this.unary(expr, this.eval(_BinaryenUnaryGetValue(expr)));
++      case ExpressionId.Binary: {
++        let left = this.eval(_BinaryenBinaryGetLeft(expr));
++        let right = this.eval(_BinaryenBinaryGetRight(expr));
++        return this.binary(_BinaryenBinaryGetOp(expr), left, right);
++      }
++      case ExpressionId.Select: {
++        let a = this.eval(_BinaryenSelectGetIfTrue(expr));
++        let b = this.eval(_BinaryenSelectGetIfFalse(expr));
++        let test = this.eval(_BinaryenSelectGetCondition(expr));
++        return isTrue(test) ? a : isFalse(test) ? b : join(a, b);
++      }
++      case ExpressionId.Drop: {
++        this.eval(_BinaryenDropGetValue(expr));
++        return ANY;
++      }
++      case ExpressionId.Return: {
++        let value = _BinaryenReturnGetValue(expr);
++        if (value) this.eval(value);
++        this.state = null;
++        return DEAD;
++      }
++      case ExpressionId.Unreachable: {
++        this.state = null;
++        return DEAD;
++      }
++      case ExpressionId.Nop:
++      case ExpressionId.MemorySize: return ANY;
++      case ExpressionId.MemoryGrow: {
++        this.eval(_BinaryenMemoryGrowGetDelta(expr));
++        return ANY;
++      }
++      case ExpressionId.MemoryFill: {
++        this.eval(_BinaryenMemoryFillGetDest(expr));
++        this.eval(_BinaryenMemoryFillGetValue(expr));
++        this.eval(_BinaryenMemoryFillGetSize(expr));
++        return ANY;
++      }
++      case ExpressionId.MemoryCopy: {
++        this.eval(_BinaryenMemoryCopyGetDest(expr));
++        this.eval(_BinaryenMemoryCopyGetSource(expr));
++        this.eval(_BinaryenMemoryCopyGetSize(expr));
++        return ANY;
++      }
++    }
++    // Anything else - a try, a throw - is not followed: the function stays as it is.
++    this.failed = true;
++    return ANY;
++  }
++
++  private block(expr: ExpressionRef): Value {
++    let name = this.module.readStringCached(_BinaryenBlockGetName(expr));
++    let target: Target | null = null;
++    let outer: Target | null = null;
++    if (name) {
++      outer = this.targets.has(name) ? this.targets.get(name)! : null;
++      this.targets.set(name, target = new Target());
++    }
++    let value = DEAD;
++    for (let i: Index = 0, k = _BinaryenBlockGetNumChildren(expr); i < k; ++i) {
++      value = this.eval(_BinaryenBlockGetChildAt(expr, i));
++    }
++    if (!this.state) value = DEAD;
++    if (target) {
++      this.state = joinStates(this.state, target.state);
++      value = join(value, target.value);
++      if (outer) this.targets.set(name!, outer);
++      else this.targets.delete(name!);
++    }
++    return value;
++  }
++
++  private loop(expr: ExpressionRef): Value {
++    let name = this.module.readStringCached(_BinaryenLoopGetName(expr));
++    let body = _BinaryenLoopGetBody(expr);
++    let entry = copyState(this.state);
++    let saved = this.saveTargets();
++    // Up to a state no pass widens: joined twice, then widened.
++    let head = entry;
++    for (let pass = 0; ; ++pass) {
++      let next = joinStates(entry, this.pass(name, body, head));
++      if (this.failed) return ANY;
++      if (withinState(next, head)) break;
++      head = pass < 2 ? joinStates(head, next) : this.widen(head!, next!);
++    }
++    // Then narrowed: each pass from a state that holds stays one that holds.
++    for (let pass = 0; pass < 2; ++pass) head = joinStates(entry, this.pass(name, body, head));
++    this.restoreTargets(saved);
++    let target = new Target();
++    if (name) this.targets.set(name, target);
++    this.state = copyState(head);
++    let value = this.eval(body);
++    if (name) this.targets.delete(name);
++    return value;
++  }
++
++  /** One pass over a loop's body from `head`: the state that branches back. */
++  private pass(name: string | null, body: ExpressionRef, head: State): State {
++    let target = new Target();
++    if (name) this.targets.set(name, target);
++    this.state = copyState(head);
++    this.eval(body);
++    if (name) this.targets.delete(name);
++    return target.state;
++  }
++
++  private widen(old: Value[], next: Value[]): State {
++    let out = new Array<Value>(old.length);
++    for (let i = 0, k = old.length; i < k; ++i) {
++      let a = old[i];
++      let b = next[i];
++      if (!a.whole || !b.whole) {
++        out[i] = this.types[i] == TypeRef.I32 ? ANY_I32 : ANY;
++        continue;
++      }
++      let isI32 = this.types[i] == TypeRef.I32;
++      out[i] = new Value(
++        b.lo < a.lo ? (isI32 ? I32_MIN : -Infinity) : a.lo,
++        b.hi > a.hi ? (isI32 ? I32_MAX : Infinity) : a.hi,
++        true
++      );
++    }
++    return out;
++  }
++
++  private saveTargets(): Map<Target, Target> {
++    let saved = new Map<Target, Target>();
++    for (let _values = Map_values(this.targets), i = 0, k = _values.length; i < k; ++i) {
++      let target = _values[i];
++      let copy = new Target();
++      copy.state = copyState(target.state);
++      copy.value = target.value;
++      saved.set(target, copy);
++    }
++    return saved;
++  }
++
++  private restoreTargets(saved: Map<Target, Target>): void {
++    for (let _keys = Map_keys(saved), i = 0, k = _keys.length; i < k; ++i) {
++      let target = _keys[i];
++      let copy = saved.get(target)!;
++      target.state = copy.state;
++      target.value = copy.value;
++    }
++  }
++
++  private branch(expr: ExpressionRef): Value {
++    let condition = _BinaryenIfGetCondition(expr);
++    let test = this.eval(condition);
++    if (!this.state) return DEAD;
++    let before = this.state;
++    let afterTrue: State = null;
++    let afterFalse: State = null;
++    let a = DEAD;
++    let b = DEAD;
++    this.state = isFalse(test) ? null : this.refine(condition, copyState(before), true);
++    a = this.eval(_BinaryenIfGetIfTrue(expr));
++    afterTrue = this.state;
++    this.state = isTrue(test) ? null : this.refine(condition, copyState(before), false);
++    let ifFalse = _BinaryenIfGetIfFalse(expr);
++    if (ifFalse) b = this.eval(ifFalse);
++    afterFalse = this.state;
++    this.state = joinStates(afterTrue, afterFalse);
++    if (!afterTrue) return b;
++    if (!afterFalse) return a;
++    return join(a, b);
++  }
++
++  private send(name: string, state: State, value: Value): void {
++    if (!this.targets.has(name)) {
++      this.failed = true;
++      return;
++    }
++    let target = this.targets.get(name)!;
++    if (!state) return;
++    target.state = joinStates(target.state, state);
++    target.value = join(target.value, value);
++  }
++
++  /** `state` where `condition` is `truth`: its locals narrowed; null when it cannot be. */
++  private refine(condition: ExpressionRef, state: State, truth: bool): State {
++    if (!state) return null;
++    switch (_BinaryenExpressionGetId(condition)) {
++      case ExpressionId.Unary: {
++        if (_BinaryenUnaryGetOp(condition) == UnaryOp.EqzI32) return this.refine(_BinaryenUnaryGetValue(condition), state, !truth);
++        break;
++      }
++      case ExpressionId.Binary: {
++        let op = _BinaryenBinaryGetOp(condition);
++        let left = _BinaryenBinaryGetLeft(condition);
++        let right = _BinaryenBinaryGetRight(condition);
++        if (op == BinaryOp.AndI32 && truth || op == BinaryOp.OrI32 && !truth) {
++          return this.refine(right, this.refine(left, state, truth), truth);
++        }
++        let signed = comparison(op);
++        if (signed < 0) break;
++        let a = assert(this.values.get(left));
++        let b = assert(this.values.get(right));
++        if (isUnsigned(op) && (a.lo < 0 || b.lo < 0)) return state;
++        if (!truth) signed = negated(signed);
++        // `x * x <= n`, either way round: x within the root of n. The square
++        // of a whole x is never NaN, and exact where it can be at most n.
++        state = this.root(state, a, signed, b);
++        state = this.root(state, b, swapped(signed), a);
++        if (!a.whole || !b.whole) return state;
++        state = this.narrow(state, a.id, signed, b);
++        return this.narrow(state, b.id, swapped(signed), a);
++      }
++    }
++    let value = assert(this.values.get(condition));
++    if (_BinaryenExpressionGetType(condition) != TypeRef.I32) return state;
++    return this.narrow(state, value.id, truth ? BinaryOp.NeI32 : BinaryOp.EqI32, FALSE);
++  }
++
++  /** `state` where `square op bound`: the locals whose square it is narrowed to its root. */
++  private root(state: State, square: Value, op: BinaryOp, bound: Value): State {
++    if (!square.square || !bound.whole || bound.hi < 0 || bound.hi > EXACT / 2) return state;
++    if (op != BinaryOp.LeI32 && op != BinaryOp.LtI32) return state;
++    let root = Math.floor(Math.sqrt(bound.hi));
++    state = this.narrow(state, square.square, BinaryOp.LeI32, new Value(-Infinity, root, true));
++    return this.narrow(state, square.square, BinaryOp.GeI32, new Value(-root, Infinity, true));
++  }
++
++  /** `state` with each local of value `id` known to stand in `op` to `bound`. */
++  private narrow(state: State, id: i32, op: BinaryOp, bound: Value): State {
++    if (!state || !id) return state;
++    for (let i = 0, k = state.length; i < k; ++i) {
++      let value = state[i];
++      if (value.id != id) continue;
++      let narrowed = constrain(value, op, bound);
++      if (!narrowed) return null;
++      state[i] = narrowed;
++    }
++    return state;
++  }
++
++  private unary(expr: ExpressionRef, value: Value): Value {
++    switch (_BinaryenUnaryGetOp(expr)) {
++      case UnaryOp.ConvertI32ToF64: return new Value(value.lo, value.hi, true, value.id);
++      case UnaryOp.ConvertU32ToF64: return value.lo >= 0 ? new Value(value.lo, value.hi, true, value.id) : whole(0, 4294967295);
++      case UnaryOp.TruncSatF64ToI32:
++      case UnaryOp.TruncF64ToI32: {
++        if (isInt32(value)) return new Value(value.lo, value.hi, true, value.id);
++        if (value.whole) return int(max(value.lo, I32_MIN), min(value.hi, I32_MAX));
++        return ANY_I32;
++      }
++      case UnaryOp.TruncSatF64ToU32:
++      case UnaryOp.TruncF64ToU32: {
++        if (isInt32(value) && value.lo >= 0) return new Value(value.lo, value.hi, true, value.id);
++        return ANY_I32;
++      }
++      case UnaryOp.FloorF64:
++      case UnaryOp.CeilF64:
++      case UnaryOp.TruncF64:
++      case UnaryOp.NearestF64: return value.whole ? value : ANY;
++      case UnaryOp.AbsF64: {
++        if (!value.whole) return ANY;
++        if (value.lo >= 0) return value;
++        if (value.hi <= 0) return whole(-value.hi, -value.lo);
++        return whole(0, max(-value.lo, value.hi));
++      }
++      case UnaryOp.NegF64: return value.whole && (value.lo > 0 || value.hi < 0) ? whole(-value.hi, -value.lo) : ANY;
++      case UnaryOp.EqzI32: return compare(BinaryOp.EqI32, value, FALSE);
++      case UnaryOp.ClzI32:
++      case UnaryOp.CtzI32:
++      case UnaryOp.PopcntI32: return new Value(0, 32, true);
++      case UnaryOp.Extend8I32: return value.lo >= -128 && value.hi <= 127 ? value : new Value(-128, 127, true);
++      case UnaryOp.Extend16I32: return value.lo >= -32768 && value.hi <= 32767 ? value : new Value(-32768, 32767, true);
++    }
++    return ANY;
++  }
++
++  private binary(op: BinaryOp, a: Value, b: Value): Value {
++    let signed = comparison(op);
++    if (signed >= 0) {
++      if (isUnsigned(op) && (a.lo < 0 || b.lo < 0)) return BOOL;
++      return compare(signed, a, b);
++    }
++    switch (op) {
++      case BinaryOp.AddF64: return a.whole && b.whole ? whole(a.lo + b.lo, a.hi + b.hi) : ANY;
++      case BinaryOp.SubF64: return a.whole && b.whole ? whole(a.lo - b.hi, a.hi - b.lo) : ANY;
++      case BinaryOp.MulF64: {
++        if (!a.whole || !b.whole) return ANY;
++        // -0 when one is 0 and the other negative
++        if (a.lo <= 0 && a.hi >= 0 && b.lo < 0 || b.lo <= 0 && b.hi >= 0 && a.lo < 0) return ANY;
++        let p1 = product(a.lo, b.lo), p2 = product(a.lo, b.hi), p3 = product(a.hi, b.lo), p4 = product(a.hi, b.hi);
++        let value = whole(min(min(p1, p2), min(p3, p4)), max(max(p1, p2), max(p3, p4)));
++        if (a.id == 0 || a.id != b.id) return value;
++        // A square, bounded or not, bounds its root where it is compared (refine).
++        return new Value(value.lo, value.hi, value.whole, 0, a.id);
++      }
++      case BinaryOp.CopysignF64: {
++        if (!a.whole || !b.whole) return ANY;
++        let size = a.lo >= 0 ? a : a.hi <= 0 ? whole(-a.hi, -a.lo) : whole(0, max(-a.lo, a.hi));
++        if (b.lo >= 0) return a.lo >= 0 ? a : size;
++        if (b.hi < 0 && size.lo > 0) return whole(-size.hi, -size.lo);
++        return ANY;
++      }
++      case BinaryOp.MinF64: return a.whole && b.whole ? whole(min(a.lo, b.lo), min(a.hi, b.hi)) : ANY;
++      case BinaryOp.MaxF64: return a.whole && b.whole ? whole(max(a.lo, b.lo), max(a.hi, b.hi)) : ANY;
++      case BinaryOp.AddI32: return int(a.lo + b.lo, a.hi + b.hi);
++      case BinaryOp.SubI32: return int(a.lo - b.hi, a.hi - b.lo);
++      case BinaryOp.MulI32: {
++        let p1 = a.lo * b.lo, p2 = a.lo * b.hi, p3 = a.hi * b.lo, p4 = a.hi * b.hi;
++        return int(min(min(p1, p2), min(p3, p4)), max(max(p1, p2), max(p3, p4)));
++      }
++      case BinaryOp.DivI32:
++      case BinaryOp.DivU32: {
++        if (a.lo >= 0 && b.lo > 0) return int(Math.floor(a.lo / b.hi), Math.floor(a.hi / b.lo));
++        return ANY_I32;
++      }
++      case BinaryOp.RemI32: {
++        let size = max(Math.abs(b.lo), Math.abs(b.hi));
++        if (size == 0) return ANY_I32;
++        let most = size - 1;
++        if (a.lo >= 0) return int(0, min(a.hi, most));
++        if (a.hi <= 0) return int(max(a.lo, -most), 0);
++        return int(-most, most);
++      }
++      case BinaryOp.RemU32: return a.lo >= 0 && b.lo > 0 ? int(0, min(a.hi, b.hi - 1)) : ANY_I32;
++      case BinaryOp.AndI32: {
++        if (a.lo == a.hi && b.lo == b.hi) return int(<f64>(<i32>a.lo & <i32>b.lo), <f64>(<i32>a.lo & <i32>b.lo));
++        if (a.lo >= 0 && b.lo >= 0) return int(0, min(a.hi, b.hi));
++        if (a.lo >= 0) return int(0, a.hi);
++        if (b.lo >= 0) return int(0, b.hi);
++        return ANY_I32;
++      }
++      case BinaryOp.OrI32:
++      case BinaryOp.XorI32: {
++        if (a.lo == a.hi && b.lo == b.hi) {
++          let value = <f64>(op == BinaryOp.OrI32 ? <i32>a.lo | <i32>b.lo : <i32>a.lo ^ <i32>b.lo);
++          return int(value, value);
++        }
++        if (a.lo >= 0 && b.lo >= 0) {
++          let mask: f64 = 1;
++          while (mask <= max(a.hi, b.hi)) mask *= 2;
++          return int(0, mask - 1);
++        }
++        return ANY_I32;
++      }
++      case BinaryOp.ShlI32: {
++        if (b.lo != b.hi) return ANY_I32;
++        let scale = Math.pow(2, <i32>b.lo & 31);
++        return int(a.lo * scale, a.hi * scale);
++      }
++      case BinaryOp.ShrI32: {
++        if (b.lo != b.hi) return int(min(a.lo, 0), max(a.hi, 0));
++        let scale = Math.pow(2, <i32>b.lo & 31);
++        return int(Math.floor(a.lo / scale), Math.floor(a.hi / scale));
++      }
++      case BinaryOp.ShrU32: {
++        if (b.lo != b.hi) return a.lo >= 0 ? int(0, a.hi) : ANY_I32;
++        let shift = <i32>b.lo & 31;
++        let scale = Math.pow(2, shift);
++        if (a.lo >= 0) return int(Math.floor(a.lo / scale), Math.floor(a.hi / scale));
++        return shift == 0 ? ANY_I32 : int(0, Math.pow(2, 32 - shift) - 1);
++      }
++    }
++    return ANY;
++  }
++
++  // The rewrite
++
++  /** Calls `visit` on each expression under `expr`, `expr` first; one that answers false is not entered. */
++  private forEach(expr: ExpressionRef, visit: (expr: ExpressionRef) => bool): void {
++    if (!visit(expr)) return;
++    let children = this.children(expr);
++    for (let i = 0, k = children.length; i < k; ++i) this.forEach(children[i], visit);
++  }
++
++  /** An expression's children, in the order they run; the analysis followed every kind there is. */
++  private children(expr: ExpressionRef): ExpressionRef[] {
++    let out = new Array<ExpressionRef>();
++    let add = (child: ExpressionRef): void => {
++      if (child) out.push(child);
++    };
++    switch (_BinaryenExpressionGetId(expr)) {
++      case ExpressionId.Block: {
++        for (let i: Index = 0, k = _BinaryenBlockGetNumChildren(expr); i < k; ++i) add(_BinaryenBlockGetChildAt(expr, i));
++        break;
++      }
++      case ExpressionId.Loop: add(_BinaryenLoopGetBody(expr)); break;
++      case ExpressionId.If: {
++        add(_BinaryenIfGetCondition(expr));
++        add(_BinaryenIfGetIfTrue(expr));
++        add(_BinaryenIfGetIfFalse(expr));
++        break;
++      }
++      case ExpressionId.Break: add(_BinaryenBreakGetValue(expr)); add(_BinaryenBreakGetCondition(expr)); break;
++      case ExpressionId.Switch: add(_BinaryenSwitchGetValue(expr)); add(_BinaryenSwitchGetCondition(expr)); break;
++      case ExpressionId.Call: {
++        for (let i: Index = 0, k = _BinaryenCallGetNumOperands(expr); i < k; ++i) add(_BinaryenCallGetOperandAt(expr, i));
++        break;
++      }
++      case ExpressionId.CallIndirect: {
++        for (let i: Index = 0, k = _BinaryenCallIndirectGetNumOperands(expr); i < k; ++i) add(_BinaryenCallIndirectGetOperandAt(expr, i));
++        add(_BinaryenCallIndirectGetTarget(expr));
++        break;
++      }
++      case ExpressionId.LocalSet: add(_BinaryenLocalSetGetValue(expr)); break;
++      case ExpressionId.GlobalSet: add(_BinaryenGlobalSetGetValue(expr)); break;
++      case ExpressionId.Load: add(_BinaryenLoadGetPtr(expr)); break;
++      case ExpressionId.Store: add(_BinaryenStoreGetPtr(expr)); add(_BinaryenStoreGetValue(expr)); break;
++      case ExpressionId.Unary: add(_BinaryenUnaryGetValue(expr)); break;
++      case ExpressionId.Binary: add(_BinaryenBinaryGetLeft(expr)); add(_BinaryenBinaryGetRight(expr)); break;
++      case ExpressionId.Select: {
++        add(_BinaryenSelectGetIfTrue(expr));
++        add(_BinaryenSelectGetIfFalse(expr));
++        add(_BinaryenSelectGetCondition(expr));
++        break;
++      }
++      case ExpressionId.Drop: add(_BinaryenDropGetValue(expr)); break;
++      case ExpressionId.Return: add(_BinaryenReturnGetValue(expr)); break;
++      case ExpressionId.MemoryGrow: add(_BinaryenMemoryGrowGetDelta(expr)); break;
++      case ExpressionId.MemoryFill: {
++        add(_BinaryenMemoryFillGetDest(expr));
++        add(_BinaryenMemoryFillGetValue(expr));
++        add(_BinaryenMemoryFillGetSize(expr));
++        break;
++      }
++      case ExpressionId.MemoryCopy: {
++        add(_BinaryenMemoryCopyGetDest(expr));
++        add(_BinaryenMemoryCopyGetSource(expr));
++        add(_BinaryenMemoryCopyGetSize(expr));
++        break;
++      }
++    }
++    return out;
++  }
++
++  /** Rewrites each child of `expr` in place. */
++  private rewriteChildren(expr: ExpressionRef): void {
++    switch (_BinaryenExpressionGetId(expr)) {
++      case ExpressionId.Block: {
++        for (let i: Index = 0, k = _BinaryenBlockGetNumChildren(expr); i < k; ++i) {
++          _BinaryenBlockSetChildAt(expr, i, this.rewrite(_BinaryenBlockGetChildAt(expr, i)));
++        }
++        break;
++      }
++      case ExpressionId.Loop: _BinaryenLoopSetBody(expr, this.rewrite(_BinaryenLoopGetBody(expr))); break;
++      case ExpressionId.If: {
++        _BinaryenIfSetCondition(expr, this.rewrite(_BinaryenIfGetCondition(expr)));
++        _BinaryenIfSetIfTrue(expr, this.rewrite(_BinaryenIfGetIfTrue(expr)));
++        let ifFalse = _BinaryenIfGetIfFalse(expr);
++        if (ifFalse) _BinaryenIfSetIfFalse(expr, this.rewrite(ifFalse));
++        break;
++      }
++      case ExpressionId.Break: {
++        let value = _BinaryenBreakGetValue(expr);
++        if (value) _BinaryenBreakSetValue(expr, this.rewrite(value));
++        let condition = _BinaryenBreakGetCondition(expr);
++        if (condition) _BinaryenBreakSetCondition(expr, this.rewrite(condition));
++        break;
++      }
++      case ExpressionId.Switch: {
++        let value = _BinaryenSwitchGetValue(expr);
++        if (value) _BinaryenSwitchSetValue(expr, this.rewrite(value));
++        _BinaryenSwitchSetCondition(expr, this.rewrite(_BinaryenSwitchGetCondition(expr)));
++        break;
++      }
++      case ExpressionId.Call: {
++        for (let i: Index = 0, k = _BinaryenCallGetNumOperands(expr); i < k; ++i) {
++          _BinaryenCallSetOperandAt(expr, i, this.rewrite(_BinaryenCallGetOperandAt(expr, i)));
++        }
++        break;
++      }
++      case ExpressionId.CallIndirect: {
++        for (let i: Index = 0, k = _BinaryenCallIndirectGetNumOperands(expr); i < k; ++i) {
++          _BinaryenCallIndirectSetOperandAt(expr, i, this.rewrite(_BinaryenCallIndirectGetOperandAt(expr, i)));
++        }
++        _BinaryenCallIndirectSetTarget(expr, this.rewrite(_BinaryenCallIndirectGetTarget(expr)));
++        break;
++      }
++      case ExpressionId.LocalSet: _BinaryenLocalSetSetValue(expr, this.rewrite(_BinaryenLocalSetGetValue(expr))); break;
++      case ExpressionId.GlobalSet: _BinaryenGlobalSetSetValue(expr, this.rewrite(_BinaryenGlobalSetGetValue(expr))); break;
++      case ExpressionId.Load: _BinaryenLoadSetPtr(expr, this.rewrite(_BinaryenLoadGetPtr(expr))); break;
++      case ExpressionId.Store: {
++        _BinaryenStoreSetPtr(expr, this.rewrite(_BinaryenStoreGetPtr(expr)));
++        _BinaryenStoreSetValue(expr, this.rewrite(_BinaryenStoreGetValue(expr)));
++        break;
++      }
++      case ExpressionId.Unary: _BinaryenUnarySetValue(expr, this.rewrite(_BinaryenUnaryGetValue(expr))); break;
++      case ExpressionId.Binary: {
++        _BinaryenBinarySetLeft(expr, this.rewrite(_BinaryenBinaryGetLeft(expr)));
++        _BinaryenBinarySetRight(expr, this.rewrite(_BinaryenBinaryGetRight(expr)));
++        break;
++      }
++      case ExpressionId.Select: {
++        _BinaryenSelectSetIfTrue(expr, this.rewrite(_BinaryenSelectGetIfTrue(expr)));
++        _BinaryenSelectSetIfFalse(expr, this.rewrite(_BinaryenSelectGetIfFalse(expr)));
++        _BinaryenSelectSetCondition(expr, this.rewrite(_BinaryenSelectGetCondition(expr)));
++        break;
++      }
++      case ExpressionId.Drop: _BinaryenDropSetValue(expr, this.rewrite(_BinaryenDropGetValue(expr))); break;
++      case ExpressionId.Return: {
++        let value = _BinaryenReturnGetValue(expr);
++        if (value) _BinaryenReturnSetValue(expr, this.rewrite(value));
++        break;
++      }
++      case ExpressionId.MemoryGrow: _BinaryenMemoryGrowSetDelta(expr, this.rewrite(_BinaryenMemoryGrowGetDelta(expr))); break;
++      case ExpressionId.MemoryFill: {
++        _BinaryenMemoryFillSetDest(expr, this.rewrite(_BinaryenMemoryFillGetDest(expr)));
++        _BinaryenMemoryFillSetValue(expr, this.rewrite(_BinaryenMemoryFillGetValue(expr)));
++        _BinaryenMemoryFillSetSize(expr, this.rewrite(_BinaryenMemoryFillGetSize(expr)));
++        break;
++      }
++      case ExpressionId.MemoryCopy: {
++        _BinaryenMemoryCopySetDest(expr, this.rewrite(_BinaryenMemoryCopyGetDest(expr)));
++        _BinaryenMemoryCopySetSource(expr, this.rewrite(_BinaryenMemoryCopyGetSource(expr)));
++        _BinaryenMemoryCopySetSize(expr, this.rewrite(_BinaryenMemoryCopyGetSize(expr)));
++        break;
++      }
++    }
++  }
++
++  private valueOf(expr: ExpressionRef): Value {
++    return this.values.has(expr) ? this.values.get(expr)! : DEAD;
++  }
++
++  /** `expr` with its kept locals in i32: of the same type, the same value. */
++  private rewrite(expr: ExpressionRef): ExpressionRef {
++    if (!this.reached.has(expr)) return expr;
++    let value = this.valueOf(expr);
++    let module = this.module;
++    let type = _BinaryenExpressionGetType(expr);
++    let id = _BinaryenExpressionGetId(expr);
++    if (type == TypeRef.F64 && id != ExpressionId.Const && isInt32(value) && this.cheap(expr)) {
++      return module.unary(UnaryOp.ConvertI32ToF64, this.lower(expr));
++    }
++    switch (id) {
++      case ExpressionId.LocalSet: {
++        let index = _BinaryenLocalSetGetIndex(expr);
++        if (!_BinaryenLocalSetIsTee(expr) && this.kept.has(index)) {
++          return module.local_set(this.kept.get(index)!, this.lower(_BinaryenLocalSetGetValue(expr)), false);
++        }
++        break;
++      }
++      case ExpressionId.Binary: {
++        // A comparison of two whole numbers within i32 is i32's.
++        let op = comparison(_BinaryenBinaryGetOp(expr));
++        let left = _BinaryenBinaryGetLeft(expr);
++        let right = _BinaryenBinaryGetRight(expr);
++        if (op >= 0 && _BinaryenExpressionGetType(left) == TypeRef.F64 && isInt32(this.valueOf(left)) && isInt32(this.valueOf(right)) && this.cheap(left) && this.cheap(right)) {
++          return module.binary(op, this.lower(left), this.lower(right));
++        }
++        break;
++      }
++      case ExpressionId.Unary: {
++        // `<i32>x` of a whole number within i32 is the number.
++        let op = _BinaryenUnaryGetOp(expr);
++        let operand = _BinaryenUnaryGetValue(expr);
++        if ((op == UnaryOp.TruncSatF64ToI32 || op == UnaryOp.TruncF64ToI32) && isInt32(this.valueOf(operand)) && this.cheap(operand)) {
++          return this.lower(operand);
++        }
++        break;
++      }
++      case ExpressionId.If: {
++        // A test that always comes out one way: only its effects are kept.
++        let test = this.valueOf(_BinaryenIfGetCondition(expr));
++        let taken = isTrue(test) ? _BinaryenIfGetIfTrue(expr) : isFalse(test) ? _BinaryenIfGetIfFalse(expr) : -1;
++        if (taken != -1) {
++          let condition = module.drop(this.rewrite(_BinaryenIfGetCondition(expr)));
++          return taken ? module.block(null, [ condition, this.rewrite(taken) ], AUTO) : condition;
++        }
++        break;
++      }
++    }
++    this.rewriteChildren(expr);
++    return expr;
++  }
++
++  /** Whether `expr`, a whole number within i32, is had in i32 without a conversion. */
++  private cheap(expr: ExpressionRef): bool {
++    if (this.cheapness.has(expr)) return this.cheapness.get(expr)!;
++    let cheap = this.isCheap(expr);
++    this.cheapness.set(expr, cheap);
++    return cheap;
++  }
++
++  private isCheap(expr: ExpressionRef): bool {
++    if (_BinaryenExpressionGetType(expr) == TypeRef.I32) return true;
++    if (!isInt32(this.valueOf(expr))) return false;
++    switch (_BinaryenExpressionGetId(expr)) {
++      case ExpressionId.Const: return true;
++      case ExpressionId.LocalGet: return this.kept.has(_BinaryenLocalGetGetIndex(expr));
++      case ExpressionId.LocalSet: return this.kept.has(_BinaryenLocalSetGetIndex(expr));
++      case ExpressionId.Unary: {
++        let op = _BinaryenUnaryGetOp(expr);
++        let operand = _BinaryenUnaryGetValue(expr);
++        if (op == UnaryOp.ConvertI32ToF64 || op == UnaryOp.ConvertU32ToF64) return true;
++        if (isRounding(op) || op == UnaryOp.NegF64) return isInt32(this.valueOf(operand)) && this.cheap(operand);
++        return false;
++      }
++      case ExpressionId.Binary: {
++        let op = _BinaryenBinaryGetOp(expr);
++        let left = _BinaryenBinaryGetLeft(expr);
++        let right = _BinaryenBinaryGetRight(expr);
++        if (op == BinaryOp.AddF64 || op == BinaryOp.SubF64 || op == BinaryOp.MulF64) {
++          return isInt32(this.valueOf(left)) && isInt32(this.valueOf(right)) && this.cheap(left) && this.cheap(right);
++        }
++        if (op == BinaryOp.CopysignF64) return this.copiesSign(expr) && this.cheap(left);
++        return false;
++      }
++      case ExpressionId.If: {
++        let test = this.valueOf(_BinaryenIfGetCondition(expr));
++        if (isTrue(test)) return this.cheap(_BinaryenIfGetIfTrue(expr));
++        if (isFalse(test)) return this.cheap(_BinaryenIfGetIfFalse(expr));
++        return false;
++      }
++    }
++    return false;
++  }
++
++  /** Whether `copysign(x, sign)` is `x`: x not negative, the sign a local's that is not either. */
++  private copiesSign(expr: ExpressionRef): bool {
++    let left = _BinaryenBinaryGetLeft(expr);
++    let right = _BinaryenBinaryGetRight(expr);
++    let x = this.valueOf(left);
++    let sign = this.valueOf(right);
++    return isInt32(x) && x.lo >= 0 && sign.whole && sign.lo >= 0 && _BinaryenExpressionGetId(right) == ExpressionId.LocalGet;
++  }
++
++  /** `expr`, a whole number within i32, as an i32. */
++  private lower(expr: ExpressionRef): ExpressionRef {
++    let module = this.module;
++    if (_BinaryenExpressionGetType(expr) == TypeRef.I32) return this.rewrite(expr);
++    let value = this.valueOf(expr);
++    switch (_BinaryenExpressionGetId(expr)) {
++      case ExpressionId.Const: return module.i32(<i32>value.lo);
++      case ExpressionId.LocalGet: {
++        let index = _BinaryenLocalGetGetIndex(expr);
++        if (this.kept.has(index)) return module.local_get(this.kept.get(index)!, TypeRef.I32);
++        break;
++      }
++      case ExpressionId.LocalSet: {
++        let index = _BinaryenLocalSetGetIndex(expr);
++        if (this.kept.has(index)) return module.local_tee(this.kept.get(index)!, this.lower(_BinaryenLocalSetGetValue(expr)), false, TypeRef.I32);
++        break;
++      }
++      case ExpressionId.Unary: {
++        let op = _BinaryenUnaryGetOp(expr);
++        let operand = _BinaryenUnaryGetValue(expr);
++        if (op == UnaryOp.ConvertI32ToF64 || op == UnaryOp.ConvertU32ToF64) return this.rewrite(operand);
++        if (isInt32(this.valueOf(operand))) {
++          if (isRounding(op)) return this.lower(operand);
++          if (op == UnaryOp.NegF64) return module.binary(BinaryOp.SubI32, module.i32(0), this.lower(operand));
++        }
++        break;
++      }
++      case ExpressionId.Binary: {
++        let op = _BinaryenBinaryGetOp(expr);
++        let left = _BinaryenBinaryGetLeft(expr);
++        let right = _BinaryenBinaryGetRight(expr);
++        if ((op == BinaryOp.AddF64 || op == BinaryOp.SubF64 || op == BinaryOp.MulF64) && isInt32(this.valueOf(left)) && isInt32(this.valueOf(right))) {
++          // The exact result is within i32: i32's, which wraps, gives the same.
++          let intOp = op == BinaryOp.AddF64 ? BinaryOp.AddI32 : op == BinaryOp.SubF64 ? BinaryOp.SubI32 : BinaryOp.MulI32;
++          return module.binary(intOp, this.lower(left), this.lower(right));
++        }
++        if (op == BinaryOp.CopysignF64 && this.copiesSign(expr)) return this.lower(left);
++        break;
++      }
++      case ExpressionId.If: {
++        let condition = _BinaryenIfGetCondition(expr);
++        let test = this.valueOf(condition);
++        let taken = isTrue(test) ? _BinaryenIfGetIfTrue(expr) : isFalse(test) ? _BinaryenIfGetIfFalse(expr) : 0;
++        if (taken && isInt32(this.valueOf(taken))) {
++          return module.block(null, [ module.drop(this.rewrite(condition)), this.lower(taken) ], TypeRef.I32);
++        }
++        break;
++      }
++    }
++    // Exact: the value is a whole number within i32.
++    return module.unary(UnaryOp.TruncSatF64ToI32, this.rewrite(expr));
++  }
++}
++
++/** Keeps the whole numbers of the module's functions in i32 where that is proven; returns how many locals were. */
++export function keepWholeNumbers(module: Module): i32 {
++  let moduleRef = module.ref;
++  let kept = 0;
++  for (let i: Index = 0, k = _BinaryenGetNumFunctions(moduleRef); i < k; ++i) {
++    let func = _BinaryenGetFunctionByIndex(moduleRef, i);
++    let body = _BinaryenFunctionGetBody(func);
++    if (!body || !hasLoopOverF64(func, body)) continue;
++    kept += new WholeNumbers(module, func).run();
++  }
++  return kept;
++}
++
++/** Whether a function has an f64 local and a loop: what a whole number in i32 speeds up. */
++function hasLoopOverF64(func: FunctionRef, body: ExpressionRef): bool {
++  let vars = getFunctionVars(func);
++  if (!vars.includes(TypeRef.F64)) return false;
++  return hasLoop(body);
++}
++
++function hasLoop(expr: ExpressionRef): bool {
++  switch (_BinaryenExpressionGetId(expr)) {
++    case ExpressionId.Loop: return true;
++    case ExpressionId.Block: {
++      for (let i: Index = 0, k = _BinaryenBlockGetNumChildren(expr); i < k; ++i) {
++        if (hasLoop(_BinaryenBlockGetChildAt(expr, i))) return true;
++      }
++      return false;
++    }
++    case ExpressionId.If: {
++      let ifFalse = _BinaryenIfGetIfFalse(expr);
++      return hasLoop(_BinaryenIfGetIfTrue(expr)) || (ifFalse != 0 && hasLoop(ifFalse));
++    }
++  }
++  return false;
 +}
 diff --git a/src/program.ts b/src/program.ts
 index f5d9b7c..81527b0 100644

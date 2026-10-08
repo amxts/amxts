@@ -315,6 +315,8 @@ export function finishing(hoodExports: string, level: number | null, done: (firs
 					exportCallGlobals(module);
 					if (level === null) {
 						inlineSmall(module);
+						// A number that only ever holds a whole number within i32 is kept in an i32.
+						assemblyscript.keepWholeNumbers(module.ptr);
 						makeStackObjects(module, dataEnd);
 					}
 					if (imports.has(SUSPEND_IMPORT)) asyncify(module, level ?? OPTIMIZE.full);

@@ -81,6 +81,19 @@ And it allocates less:
 - a constructor inlined as a super call does not check again whether
   `this` was allocated.
 
+And it keeps a whole number in an integer: a `number` local that can only
+ever hold a whole number within i32 - a loop's counter, an index, a
+remainder, a product or a sum of such - gets an i32 local in its place, and
+the arithmetic and the comparisons over it are i32's
+(`src/passes/wholenumbers.ts`, run by the build on the optimized module,
+`keepWholeNumbers`). It is proven by an interval analysis of each function
+with a loop, where a value is a whole number within a range - never NaN, an
+infinity or -0 - or anything; a loop is solved to a fixpoint, and a
+comparison narrows the locals it compares in the branch it guards, `x * x <=
+n` included. What is not proven stays an f64: `7 / 2` is 3.5, a sum past
+2^31 is exact, `-6 % 3` is -0. The check a `%` makes that its numbers are
+whole is seen to hold there, and only i32's remainder is left.
+
 After changing `src/` or `std/` in `runtime/deps/assemblyscript`, rebuild it
 and write the patch back from there:
 
