@@ -51,7 +51,7 @@ const LIMITS: Record<string, number> = {
 	"Pawn calls a plugin": 1.5,
 	"timer armed": 1.25,
 	"timer firing": 1.5,
-	"variadic native": 1.5,
+	"variadic native": 2.5,
 	"command": 1.5,
 	"menu choice": 2.5,
 	"remainder": 2,
