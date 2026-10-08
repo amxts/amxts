@@ -160,6 +160,60 @@ function throwAfter(count: i32): void {
 	garbage(count);
 	throw new Error("thrown");
 }
+
+// Closures a global alone keeps - a variable or a static field - made after
+// a catch, inside a try, before a rethrow.
+let held: (() => i32) | null = null;
+class Handlers {
+	static last: (() => i32) | null = null;
+}
+
+function capture(node: Node): void {
+	held = () => node.value;
+}
+
+function captureAfterCatch(node: Node): void {
+	try {
+		throwAfter(10);
+	} catch (e) {
+		held = () => node.value;
+	}
+}
+
+function captureInTry(node: Node): void {
+	try {
+		Handlers.last = () => node.value;
+		throwAfter(10);
+	} catch (e) {}
+}
+
+function captureAndRethrow(node: Node): void {
+	try {
+		try {
+			throwAfter(10);
+		} catch (e) {
+			held = () => node.value;
+			throw e;
+		}
+	} catch (e) {}
+}
+
+export function heldByGlobals(): i32 {
+	let failed = 0;
+	capture(new Node(21));
+	garbage(1000);
+	if (held!() != 21) failed |= 1;
+	captureAfterCatch(new Node(22));
+	garbage(1000);
+	if (held!() != 22) failed |= 2;
+	captureInTry(new Node(23));
+	garbage(1000);
+	if (Handlers.last!() != 23) failed |= 4;
+	captureAndRethrow(new Node(24));
+	garbage(1000);
+	if (held!() != 24) failed |= 8;
+	return failed;
+}
 `;
 
 for (const optimize of [false, true]) {
@@ -168,6 +222,12 @@ for (const optimize of [false, true]) {
 			const { error, exports } = await probe({ 'probe.ts': SOURCE }, [...OFTEN, ...(optimize ? ['-O3'] : [])]);
 			expect(error).toBe('');
 			expect(exports.run()).toBe(0);
+		});
+
+		test('a closure a global alone keeps survives collections', async () => {
+			const { error, exports } = await probe({ 'probe.ts': SOURCE }, [...OFTEN, ...(optimize ? ['-O3'] : [])]);
+			expect(error).toBe('');
+			expect(exports.heldByGlobals()).toBe(0);
 		});
 	});
 }

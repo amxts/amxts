@@ -329,6 +329,11 @@ export function caught(): i32 {
 	__collect();
 	return first!.value != 1 || saved!.value != 3 ? 1 : 0;
 }
+
+/** A closure the global alone keeps, then objects made after it would take its place were it freed. */
+export function capturedThenCaught(): i32 {
+	return captured() | caught() | (held!() != 2 ? 1 : 0);
+}
 `;
 
 test('a literal given to a function that only reads it is made in the caller\'s frame, one the callee keeps on the heap', async () => {
@@ -344,5 +349,5 @@ test('a literal given to a function that only reads it is made in the caller\'s 
 	// "a0".."a9": length 2, 'a' 97.
 	expect(exports.heldAcross(10)).toBe(10 * (2 + 97));
 
-	for (const leaving of ['kept', 'keptTwoDown', 'keptInside', 'captured', 'pushed', 'caught']) expect([leaving, exports[leaving]()]).toEqual([leaving, 0]);
+	for (const leaving of ['kept', 'keptTwoDown', 'keptInside', 'captured', 'pushed', 'caught', 'capturedThenCaught']) expect([leaving, exports[leaving]()]).toEqual([leaving, 0]);
 });

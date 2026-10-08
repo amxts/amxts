@@ -363,7 +363,7 @@ index da649de..621cece 100644
 +  }
 +}
 diff --git a/src/builtins.ts b/src/builtins.ts
-index f876049..8d02018 100644
+index f876049..107db99 100644
 --- a/src/builtins.ts
 +++ b/src/builtins.ts
 @@ -1055,6 +1055,10 @@ function builtin_isString(ctx: BuiltinFunctionContext): ExpressionRef {
@@ -377,6 +377,22 @@ index f876049..8d02018 100644
  // isArray<T!>() / isArray<T?>(value: T) -> bool
  function builtin_isArray(ctx: BuiltinFunctionContext): ExpressionRef {
    let compiler = ctx.compiler;
+@@ -10843,13 +10847,8 @@ export function compileVisitGlobals(compiler: Compiler): void {
+     let element = unchecked(_values[i]);
+     if (element.kind != ElementKind.Global) continue;
+     let global = <Global>element;
+-    let globalType = global.type;
+-    let classReference = globalType.getClass();
+-    if (
+-      classReference &&
+-      !classReference.hasDecorator(DecoratorFlags.Unmanaged) &&
+-      global.is(CommonFlags.Compiled)
+-    ) {
++    // amxts: isManaged, not a class: a function value is a closure on the heap
++    if (global.type.isManaged && global.is(CommonFlags.Compiled)) {
+       if (global.is(CommonFlags.Inlined)) {
+         let value = global.constantIntegerValue;
+         if (i64_low(value) || i64_high(value)) {
 diff --git a/src/compiler.ts b/src/compiler.ts
 index f99bd5a..ad70f1e 100644
 --- a/src/compiler.ts

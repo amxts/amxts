@@ -182,7 +182,7 @@ describe('semantics', () => {
 	});
 
 	test('new Promise(executor) wraps a callback: its resolve can be kept and called later', () => {
-		const host = run('wrapped');
+		const host = run('wrapped', 'collect');
 		expect(host.log.splice(0)).toEqual(['asked']);
 		host.call('reply');
 		expect(host.log).toEqual(['answered: yes']);
