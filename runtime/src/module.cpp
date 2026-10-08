@@ -2400,6 +2400,9 @@ struct NameHash {
 typedef std::unordered_map<std::string, Forward, NameHash> Commands;
 static Commands g_clientCommands;
 static Commands g_serverCommands;
+// The players' commands of `menuselect`, which a key of a plugin's menu runs
+// first: kept, as a press would otherwise look them up each time.
+static Forward *g_menuselect = NULL;
 
 // A command's name in lower case, ASCII's letters only: the CRT's tolower
 // asks the locale for each byte, a measurable part of a player's command.
@@ -2440,7 +2443,10 @@ static void AddCommand(Commands &commands, const std::string &lower, int32_t fn,
 	h.tag = TakeTag();
 	h.access = access;
 	Bind(h);
-	commands[lower].handlers.push_back(h);
+	Forward &f = commands[lower];
+	f.handlers.push_back(h);
+	if (&commands == &g_clientCommands && lower == "menuselect")
+		g_menuselect = &f;
 }
 
 /**
@@ -4927,6 +4933,7 @@ static void Teardown()
 	g_amxxReady = false;
 	g_clientCommands.clear();
 	g_serverCommands.clear();
+	g_menuselect = NULL;
 
 	g_timers.clear();
 	g_timerHeap.clear();
@@ -7297,11 +7304,14 @@ void ClientCommand(edict_t *e)
 	if (RaiseFor(FORWARD_CLIENT_COMMAND, id) > 0)
 		RETURN_META(MRES_SUPERCEDE);
 
-	if (!g_clientCommands.empty()) {
+	// A key of a plugin's menu is a `menuselect`, whose commands are kept.
+	Forward *commands = key >= 0 ? g_menuselect : NULL;
+	if (key < 0 && !g_clientCommands.empty()) {
 		Commands::iterator it = FindCommand(g_clientCommands, CMD_ARGV(0));
-		if (it != g_clientCommands.end() && RunCommand(it->second, id))
-			RETURN_META(MRES_SUPERCEDE);
+		commands = it != g_clientCommands.end() ? &it->second : NULL;
 	}
+	if (commands && RunCommand(*commands, id))
+		RETURN_META(MRES_SUPERCEDE);
 	if (key < 0)
 		RETURN_META(MRES_IGNORED);
 	uint32_t argv[MAX_EVENT_ARGS] = { (uint32_t)id, (uint32_t)key, 0, 0 };

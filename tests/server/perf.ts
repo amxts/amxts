@@ -59,8 +59,8 @@ const LIMITS: Record<string, number> = {
 	"timer firing": 1.5,
 	"variadic native": 1.25,
 	"command": 1.5,
-	"menu choice": 2.5,
-	"remainder": 2,
+	"menu choice": 1.5,
+	"remainder": 1.25,
 	"fractions": 0.5,
 	"hot path": 1.5,
 };
