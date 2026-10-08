@@ -10,8 +10,9 @@ import { spawnSync } from 'node:child_process';
 // and amxts-compile.exe on a server - so that a plugin compiles the same way
 // in both places. In particular the `~/` alias, which is ours rather than
 // AssemblyScript's and lives in the readFile hook below.
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 // The Binaryen asc itself runs on - the same copy, so the compiler a server
 // gets carries one - for the one pass asc does not run: Asyncify.
 // @ts-ignore - shipped as JavaScript, with types beside it we do not need here
@@ -114,6 +115,27 @@ const WAKE_IMPORT = 'env.co_wake';
  * can be made in its function's frame (makeStackObjects).
  */
 const BORROWING_IMPORTS = new Set(['env.ent_vector']);
+
+/**
+ * The arguments of Pawn's natives that the module's thunk copies - text in
+ * or out, an array - and so keeps no address of, by the native's import:
+ * read off runtime/natives.txt, which the server kit has beside its
+ * executable. An object whose address goes only there, a field of the
+ * options a function reads, is no reason to keep it on the heap.
+ */
+const COPIED_ARGUMENTS: ReadonlyMap<string, number[]> = (() => {
+	const file = [
+		process.env.AMXTS_NATIVES,
+		join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'runtime/natives.txt'),
+		join(dirname(process.execPath), 'natives.txt'),
+	].find(each => each && existsSync(each));
+	if (!file) return new Map();
+	return new Map(readFileSync(file, 'utf8').split(/\r?\n/).flatMap((line) => {
+		const [name, , crossing] = line.split(' ');
+		if (!crossing || line.startsWith('#') || crossing === 'leaf') return [];
+		return [[`env.${name}`, crossing.split(',').flatMap((each, index) => (each === 'v' ? [] : [index]))]];
+	}));
+})();
 
 /**
  * The imports that never run the plugin's code - the abort, which does not
@@ -338,14 +360,18 @@ const DATA_END = '~lib/memory/__data_end';
 
 /**
  * A full build's objects that never leave the function that makes them,
- * made in its frame rather than on the heap - `player.origin.x` allocates
- * nothing - by the compiler's pass over the inlined code. A function an
- * async function's coroutine may park in keeps its objects on the heap.
+ * made in its frame rather than on the heap - `player.origin.x` and the
+ * options literal of `player.showHud(text, { hold: 2 })` allocate nothing -
+ * by the compiler's pass over the inlined code, which knows which
+ * parameters each function keeps. A function an async function's coroutine
+ * may park in keeps its objects on the heap.
  */
 function makeStackObjects(module: any, dataEnd: number) {
 	const functions = functionsOf(module);
 	const named = (imports: Set<string>) => functions.filter(each => each.imported && imports.has(each.imported)).map(each => each.name);
-	assemblyscript.makeStackObjects(module.ptr, named(BORROWING_IMPORTS), named(new Set([SUSPEND_IMPORT])), dataEnd, named(QUIET_IMPORTS));
+	// An import's name with an argument's index, for one argument.
+	const copied = functions.flatMap(each => (COPIED_ARGUMENTS.get(each.imported ?? '') ?? []).map(index => `${each.name}#${index}`));
+	assemblyscript.makeStackObjects(module.ptr, [...named(BORROWING_IMPORTS), ...copied], named(new Set([SUSPEND_IMPORT])), dataEnd, named(QUIET_IMPORTS));
 }
 
 /**

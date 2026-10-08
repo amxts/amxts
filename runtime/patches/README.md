@@ -61,12 +61,20 @@ And it allocates less:
   at room of its own, as `Vector` does): one allocation, its own buffer
   until it grows past that room;
 - an object that never leaves the function that makes it - its fields read
-  and written there, its address given only to an import that keeps none -
-  is made in that function's part of the shadow stack, with the header of a
-  static object the collector neither frees nor looks into
-  (`src/passes/stackobjects.ts`, run by the build on the optimized module,
-  `makeStackObjects`); a function an async function's coroutine may park
-  in is left alone;
+  and written there, its address given only to an import that keeps none or
+  to a function that keeps none of it - is made in that function's part of
+  the shadow stack, with the header of a static object the collector never
+  frees (`src/passes/stackobjects.ts`, run by the build on the optimized
+  module, `makeStackObjects`). Which parameters a function keeps is worked
+  out for the whole program first: stored into the heap or a global,
+  returned, captured, given on to a function or an import that keeps it.
+  An object literal is made where it is written, not by a call, and an
+  array literal is one allocation, its elements in its own object, so
+  `player.showHud(text, { color: [255, 40, 40] })` allocates nothing; an
+  object stored into another made in the same frame stays there with it.
+  The collector reads the references in such an object when it reads the
+  stack, so a store into one needs no barrier; a function an async
+  function's coroutine may park in is left alone;
 - null stored into a reference field is a plain store, without the
   collector's barrier, and a field that starts at zero is not written again
   in a constructor: the incremental runtime's allocation is zeroed;

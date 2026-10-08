@@ -409,6 +409,7 @@ public measure()
 	report_each("HUD message", HUD_MESSAGE, id, FEW);
 	// Pawn writes its parameters in place at every call.
 	report_each("HUD message, options in place", HUD_MESSAGE, id, FEW);
+	report_each("HUD message, colour in place", HUD_MESSAGE, id, FEW);
 	report_each("origin read", ORIGIN_READ, id, FEW);
 	report_each("origin into a vector", ORIGIN_READ, id, MANY);
 	report_each("string in", STRING_IN, id, FEW);

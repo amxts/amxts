@@ -38,7 +38,8 @@ const LIMITS: Record<string, number> = {
 	"health write": 1.5,
 	"money with its HUD": 2.5,
 	"HUD message": 2,
-	"HUD message, options in place": 3,
+	"HUD message, options in place": 2,
+	"HUD message, colour in place": 2,
 	"origin read": 1.5,
 	"origin into a vector": 1.25,
 	"string in": 3,
@@ -303,7 +304,8 @@ function measure(player: Player) {
 	}));
 	// What perf-pawn.sma's set_hudmessage and show_hudmessage do; a bot is
 	// shown nothing on either side. The options made once, as a plugin keeps
-	// them, and written in place at each call.
+	// them, written in place at each call, and with their colour in place
+	// too, as a plugin writes them.
 	const red = [255, 40, 40];
 	const hud: HudOptions = { color: red, hold: 2 };
 	ours.set("HUD message", nsEach(FEW, () => {
@@ -311,6 +313,9 @@ function measure(player: Player) {
 	}));
 	ours.set("HUD message, options in place", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) player.showHud("Round 3", { color: red, hold: 2 });
+	}));
+	ours.set("HUD message, colour in place", nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) player.showHud("Round 3", { color: [255, 40, 40], hold: 2 });
 	}));
 	ours.set("origin read", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) sink += player.origin.x;
