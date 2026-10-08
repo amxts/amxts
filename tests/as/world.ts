@@ -26,6 +26,23 @@ server.addCommand("world_view", ({ player }) => {
 	player.view = null;
 	print(player, `${through != null && through.id == camera.id} ${player.view == null}`, "console");
 });
+server.addCommand("world_model", ({ player }) => {
+	player.model = "vip";
+	const worn = player.model;
+	player.setModel("santa", { hitboxes: true });
+	player.resetModel();
+	print(player, `${worn} ${player.model}`, "console");
+});
+game.addEventListener("entityState", (event) => {
+	if (event.player.name == "Bob") {
+		event.preventDefault();
+		return;
+	}
+	event.renderFx = "glowShell";
+	event.renderColor = [255, 0, 0];
+	event.origin = event.origin.add([0, 0, 10]);
+}, { classname: "myplugin_marker" });
+
 server.addCommand("world_drop", ({ player }) => {
 	print(player, `${player.dropToFloor()}`, "console");
 });

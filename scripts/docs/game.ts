@@ -30,6 +30,12 @@ const theWeapon: Text = { en: `The weapon the event is about - one of the class 
 const theEntity: Text = { en: `The entity the event is about - one of the class \`classname\` names.`, ru: `Сущность, о которой событие, — одного класса, названного в \`classname\`.` };
 
 export const GAME: Record<string, GameDoc> = {
+	entityState: {
+		summary: {
+			en: `The state of an entity a player can see, as he is sent it each frame: its place, angles, look - written for him alone - or hidden from him with \`event.preventDefault()\`. \`{ classname }\` names the entities a listener is about; the module passes only those.`,
+			ru: `Состояние сущности, которую видит игрок, как он получает его каждый кадр: её место, углы, вид — изменённые только для него, — или скрытая от него через \`event.preventDefault()\`. \`{ classname }\` называет сущности, о которых слушатель; модуль передаёт только их.`,
+		},
+	},
 	touch: {
 		summary: {
 			en: `An entity touched another: \`event.toucher\` moved into \`event.touched\`. Pass the classes it is about as the third argument - \`{ toucher: "player", touched: "player" }\` - so only those touches reach the plugin; \`event.preventDefault()\` blocks the touch.`,

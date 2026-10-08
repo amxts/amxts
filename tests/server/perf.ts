@@ -1,7 +1,7 @@
-// The speed check: what a native, a field, a vector, the HUD's money, text,
-// the values a plugin keeps, an event, a forward, a timer, a variadic
-// native, a command, a menu's choice, Pawn calling this plugin, whole and
-// fractional arithmetic and a real plugin's hot path cost here, against the
+// The speed check: what a native, a field, a vector, the HUD's money, a HUD
+// message, text, the values a plugin keeps, an event, a forward, a timer, a
+// variadic native, a command, a menu's choice, Pawn calling this plugin, whole
+// and fractional arithmetic and a real plugin's hot path cost here, against the
 // same in Pawn (perf-pawn.sma), measured in one run on one machine. It
 // checks ratios, not times, so it holds on any machine; each figure is the
 // best of three runs. A limit is changed on purpose, with the measurement
@@ -37,6 +37,8 @@ const LIMITS: Record<string, number> = {
 	"health read": 2,
 	"health write": 1.5,
 	"money with its HUD": 2.5,
+	"HUD message": 2,
+	"HUD message, options in place": 2,
 	"origin read": 1.5,
 	"origin into a vector": 1.25,
 	"string in": 3,
@@ -298,6 +300,17 @@ function measure(player: Player) {
 	}));
 	ours.set("money with its HUD", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) player.money = 800;
+	}));
+	// What perf-pawn.sma's set_hudmessage and show_hudmessage do; a bot is
+	// shown nothing on either side. The options made once, as a plugin keeps
+	// them, and written in place at each call.
+	const red = [255, 40, 40];
+	const hud: HudOptions = { color: red, hold: 2 };
+	ours.set("HUD message", nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) player.showHud("Round 3", hud);
+	}));
+	ours.set("HUD message, options in place", nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) player.showHud("Round 3", { color: red, hold: 2 });
 	}));
 	ours.set("origin read", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) sink += player.origin.x;

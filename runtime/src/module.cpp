@@ -4195,6 +4195,19 @@ static void w_setUserInfo(wasm_exec_env_t env, int32_t id, int32_t key, int32_t 
 static int32_t w_playerSilent(wasm_exec_env_t env, int32_t id, int32_t on);
 static int32_t w_geoCountry(wasm_exec_env_t env, int32_t ip, int32_t what, int32_t out, int32_t max);
 static void w_playerSwitchTeam(wasm_exec_env_t env, int32_t id);
+static void w_playerModel(wasm_exec_env_t env, int32_t id, int32_t name, int32_t index);
+static int32_t w_playerModelGet(wasm_exec_env_t env, int32_t id, int32_t out, int32_t max);
+static void ModelUserInfoChanged(int id, char *info);
+static void KeepModels();
+static int32_t w_hudLine(wasm_exec_env_t env);
+static void w_hudShow(wasm_exec_env_t env, int32_t id, int32_t line, int32_t params, int32_t text);
+static void w_hudClear(wasm_exec_env_t env, int32_t id, int32_t line);
+static void HudSlotReset(int id);
+static int32_t w_stateHook(wasm_exec_env_t env, int32_t classname, int32_t fn);
+static double w_stateGet(wasm_exec_env_t env, int32_t field);
+static void w_stateSet(wasm_exec_env_t env, int32_t field, double value);
+// The HUD lines plugins made (hud.h), let go at the map's end, as the plugins are.
+static std::vector<std::vector<uint8_t>> g_hudLines;
 static int32_t w_storeOpen(wasm_exec_env_t env, int32_t name);
 static int32_t w_storeGet(wasm_exec_env_t env, int32_t handle, int32_t key, int32_t out, int32_t max);
 static void w_storeSet(wasm_exec_env_t env, int32_t handle, int32_t key, int32_t value);
@@ -4291,6 +4304,14 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "player_silent",  (void *)w_playerSilent,  "(ii)i", NULL },
 	{ "geo_country",    (void *)w_geoCountry,    "(iiii)i", NULL },
 	{ "player_switch_team", (void *)w_playerSwitchTeam, "(i)", NULL },
+	{ "player_model",   (void *)w_playerModel,   "(iii)", NULL },
+	{ "player_model_get", (void *)w_playerModelGet, "(iii)i", NULL },
+	{ "hud_line",       (void *)w_hudLine,       "()i", NULL },
+	{ "hud_show",       (void *)w_hudShow,       "(iiii)", NULL },
+	{ "hud_clear",      (void *)w_hudClear,      "(ii)", NULL },
+	{ "state_hook",     (void *)w_stateHook,     "(ii)i", NULL },
+	{ "state_get",      (void *)w_stateGet,      "(i)F", NULL },
+	{ "state_set",      (void *)w_stateSet,      "(iF)", NULL },
 	{ "store_open",     (void *)w_storeOpen,     "(i)i",  NULL },
 	{ "store_get",      (void *)w_storeGet,      "(iiii)i", NULL },
 	{ "store_set",      (void *)w_storeSet,      "(iii)", NULL },
@@ -6475,6 +6496,7 @@ static void RaiseAuthorized()
 static void Connected(int id)
 {
 	PlayerSlotReset(id);
+	HudSlotReset(id);
 	g_connected[id] = true;
 	NewPlayer(id);
 	RaiseFor(FORWARD_CLIENT_CONNECT, id);
@@ -6896,6 +6918,7 @@ void ServerDeactivate()
 	if (!g_activated)
 		RETURN_META(MRES_IGNORED);
 	FlushStores(true);
+	g_hudLines.clear();
 
 	for (int id = 1; id < CLIENT_SLOTS && id <= gpGlobals->maxClients; id++) {
 		if (g_connected[id])
@@ -6958,6 +6981,7 @@ void ClientUserInfoChanged_Post(edict_t *e, char *info)
 		RETURN_META(MRES_IGNORED);
 
 	NameChanges(id, 1);
+	ModelUserInfoChanged(id, info);
 	RaiseFor(FORWARD_CLIENT_INFOCHANGED, id);
 	if (!g_inGame[id] && MF_IsPlayerBot(id)) {
 		Connected(id);
@@ -7447,6 +7471,12 @@ static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line)
 // The server's game, versions, map and light.
 #include "world.h"
 
+// HUD messages, sent by the module on channels it keeps per player.
+#include "hud.h"
+
+// What the server sends each player of each entity: the entityState event.
+#include "entitystate.h"
+
 // ---------------------------------------------------------------- the frame
 
 /**
@@ -7469,6 +7499,7 @@ void StartFrame_Post()
 	PollSpeaking();
 	SettleCstrike(g_activated);
 	KeepStepsSilent();
+	KeepModels();
 	FlushStores(false);
 	if (!g_pluginActions.empty())
 		RunPluginActions();

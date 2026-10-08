@@ -24,13 +24,11 @@ import {
 	user_kill, get_user_flags, read_flags,
 	get_cvar_num, get_cvar_string, set_cvar_num, set_cvar_string, get_players, get_user_info,
 	LibraryExists, module_exists, get_speak, set_speak,
-	read_args, read_argv, set_hudmessage, show_hudmessage, create_cvar, get_cvar_pointer,
+	read_args, read_argv, create_cvar, get_cvar_pointer,
 	get_pcvar_float, get_pcvar_num, get_pcvar_string, set_pcvar_float, set_pcvar_num, set_pcvar_string,
 	get_localinfo, register_dictionary, get_langsnum, get_lang,
-	set_dhudmessage, show_dhudmessage, CreateHudSyncObj, ShowSyncHudMsg, ClearSyncHud,
 	precache_model, precache_sound, precache_generic, get_user_userid,
-	emessage_begin, emessage_begin_f, ewrite_byte, ewrite_short, ewrite_string, emessage_end, elog_message,
-	has_reunion, REU_GetAuthKey
+	emessage_begin, emessage_begin_f, ewrite_byte, ewrite_short, ewrite_string, emessage_end, elog_message
 } from "./natives";
 // Promise, async/await and AbortSignal, as the globals they are in JavaScript.
 import "./promise";
@@ -1341,13 +1339,9 @@ const AUTH_TYPES: AuthType[] = [
 	"hltv", "sc2009", "avsmp", "sxei", "revEmu2013", "sse3",
 ];
 
-// Reunion's natives exist only when reapi finds Reunion: asked once, as reapi is.
-let reunionHere: i32 = -1;
-
-function hasReunion(): bool {
-	if (reunionHere < 0) reunionHere = __hasReapi() && has_reunion() ? 1 : 0;
-	return reunionHere == 1;
-}
+// The key a player's game proved itself with, as Reunion read it: its length, "" without Reunion.
+// @ts-ignore: decorator
+@external("env", "reunion_key") declare function _reunionKey(id: i32, out: usize, max: i32): i32;
 
 /** A weapon a player can hold, by its class name, e.g. `"weapon_ak47"` or `"weapon_knife"`. */
 export type WeaponName =
@@ -1448,17 +1442,6 @@ export function hasModule(name: ModuleName): boolean {
 	return loaded;
 }
 
-// The backend the hood picks for a game event, an action or a field of
-// ReGameDLL's own, asked once rather than on every call: 1 reapi, 0 the
-// stock modules, -1 not asked yet.
-let reapiHere: i32 = -1;
-
-/** @hidden Whether the server has reapi: the hood's choice of backend, made once. */
-export function __hasReapi(): bool {
-	if (reapiHere < 0) reapiHere = hasModule("reapi") ? 1 : 0;
-	return reapiHere == 1;
-}
-
 const saidOnce = new Set<string>();
 
 /**
@@ -1518,6 +1501,16 @@ function sendServerName(id: number, name: string): void {
 @external("env", "light_style")  declare function _lightStyle(text: string): void;
 // @ts-ignore: decorator
 @external("env", "player_view")  declare function _playerView(id: i32, target: i32): void;
+// @ts-ignore: decorator
+@external("env", "player_model") declare function _playerModel(id: i32, model: string, index: i32): void;
+// @ts-ignore: decorator
+@external("env", "player_model_get") declare function _playerModelGet(id: i32, out: usize, max: i32): i32;
+
+/** The options of `player.setModel`: what goes with the model. */
+export interface ModelOptions {
+	/** The model's own hitboxes, not the game's: for a model shaped otherwise; `false` when left out. */
+	hitboxes?: boolean;
+}
 // @ts-ignore: decorator
 @external("env", "player_view_get") declare function _playerViewGet(id: i32): i32;
 const SERVER_GAME: i32 = 1;
@@ -2113,8 +2106,8 @@ export class Player extends PlayerFields implements Client {
 	get authKey(): string {
 		const kept = this.__authKey;
 		if (changetype<usize>(kept) != 0 && this.__keptNow()) return changetype<string>(kept);
-		if (!hasReunion()) return "";
-		const key = REU_GetAuthKey(this.id);
+		const length = _reunionKey(this.id, changetype<usize>(infoBuffer), INFO_MAX);
+		const key = String.UTF8.decodeUnsafe(changetype<usize>(infoBuffer), length);
 		if (key.length > 0 && this.__keeps()) this.__authKey = key;
 		return key;
 	}
@@ -2362,6 +2355,49 @@ export class Player extends PlayerFields implements Client {
 
 		_playerDrop(this.id, name);
 		return this.items.some(each => each.id == item.id) ? null : item;
+	}
+
+	/**
+	 * The model he wears, as his game knows it, e.g. `"vip"`, `"gign"`, or one
+	 * of the server's own, `models/player/<model>/<model>.mdl`. Set, it
+	 * stays through his respawns and team changes until `resetModel()` -
+	 * `setModel` keeps its hitboxes too.
+	 *
+	 * Pawn: `cs_get_user_model`, `cs_set_user_model`, `rg_set_user_model`
+	 */
+	get model(): string {
+		const length = _playerModelGet(this.id, changetype<usize>(infoBuffer), INFO_MAX);
+		return length > 0 ? String.UTF8.decodeUnsafe(changetype<usize>(infoBuffer), length) : this.info.get("model");
+	}
+
+	set model(value: string) {
+		this.setModel(value);
+	}
+
+	/**
+	 * Puts a model on him, as `player.model = name` does; `{ hitboxes: true
+	 * }` takes the model's own hitboxes too, for a model shaped other than
+	 * the game's - precached with `server.precache("models/player/<name>/<name>.mdl")`.
+	 *
+	 * Pawn: `cs_set_user_model(id, model, true)`, `rg_set_user_model(id, model, true)`
+	 */
+	setModel(model: string, options: ModelOptions = {}): void {
+		let index = 0;
+		if (options.hitboxes ?? false) {
+			const path = `models/player/${model}/${model}.mdl`;
+			index = <i32>new Resource(path).index;
+			if (index == 0) console.error(`player.setModel("${model}", { hitboxes: true }): precache "${path}" first`);
+		}
+		_playerModel(this.id, model, index);
+	}
+
+	/**
+	 * Gives him back the model the game chose for him, its hitboxes too.
+	 *
+	 * Pawn: `cs_reset_user_model`, `rg_reset_user_model`
+	 */
+	resetModel(): void {
+		_playerModel(this.id, "", 0);
 	}
 
 	/**
@@ -3141,33 +3177,38 @@ export interface HudOptions {
 /** A HUD message's appearance effect, one of: `"fade"` in and out, `"flicker"`, or `"typewriter"` — letter by letter. */
 export type HudEffect = "fade" | "flicker" | "typewriter";
 
-function hudEffect(options: HudOptions): i32 {
-	return options.effect == "flicker" ? 1 : options.effect == "typewriter" ? 2 : 0;
-}
 
-// A field left out is AMX Mod X's own default, set_hudmessage's.
-function setHud(options: HudOptions): void {
-	const color = options.color ?? [200, 100, 0];
-	const red = color.length > 0 ? color[0] : 200;
-	const green = color.length > 1 ? color[1] : 100;
-	const blue = color.length > 2 ? color[2] : 0;
-	const x = options.x ?? -1.0;
-	const y = options.y ?? 0.35;
-	const effectTime = options.effectTime ?? 6.0;
-	const hold = options.hold ?? 12.0;
-	const fadeIn = options.fadeIn ?? 0.1;
-	const fadeOut = options.fadeOut ?? 0.2;
-	if (options.large) {
-		set_dhudmessage(red, green, blue, x, y, hudEffect(options), effectTime, hold, fadeIn, fadeOut);
-		return;
-	}
-	set_hudmessage(red, green, blue, x, y, hudEffect(options), effectTime, hold, fadeIn, fadeOut, options.channel ?? -1);
-}
+// HUD messages, sent by the module (runtime/src/hud.h).
+// @ts-ignore: decorator
+@external("env", "hud_line")  declare function _hudLine(): i32;
+// @ts-ignore: decorator
+@external("env", "hud_show")  declare function _hudShow(id: i32, line: i32, params: usize, text: string): void;
+// @ts-ignore: decorator
+@external("env", "hud_clear") declare function _hudClear(id: i32, line: i32): void;
 
-function showHudTo(id: i32, text: string, options: HudOptions): void {
-	setHud(options);
-	if (options.large) show_dhudmessage(id, text);
-	else show_hudmessage(id, text);
+// What hud_show reads: where, the effect, the colour, the times, the channel, large.
+const hudParams = new StaticArray<f64>(12);
+
+/** A HUD message to a player or to everyone (0), on a line's channel (0: an automatic one). A field left out is AMX Mod X's own default, set_hudmessage's. */
+function showHudTo(id: i32, text: string, options: HudOptions, line: i32 = 0): void {
+	// Read, not kept: no default is made for a field left out.
+	const color = options.color;
+	const colors = color != null ? color.length : 0;
+	const effect = options.effect;
+	const params = hudParams;
+	unchecked(params[0] = options.x ?? -1.0);
+	unchecked(params[1] = options.y ?? 0.35);
+	unchecked(params[2] = effect == null ? 0 : effect == "flicker" ? 1 : effect == "typewriter" ? 2 : 0);
+	unchecked(params[3] = colors > 0 ? unchecked(color![0]) : 200);
+	unchecked(params[4] = colors > 1 ? unchecked(color![1]) : 100);
+	unchecked(params[5] = colors > 2 ? unchecked(color![2]) : 0);
+	unchecked(params[6] = options.effectTime ?? 6.0);
+	unchecked(params[7] = options.hold ?? 12.0);
+	unchecked(params[8] = options.fadeIn ?? 0.1);
+	unchecked(params[9] = options.fadeOut ?? 0.2);
+	unchecked(params[10] = options.channel ?? -1);
+	unchecked(params[11] = options.large ?? false ? 1 : 0);
+	_hudShow(id, line, changetype<usize>(params), text);
 }
 
 /**
@@ -3185,18 +3226,16 @@ function showHudTo(id: i32, text: string, options: HudOptions): void {
  * Pawn: `CreateHudSyncObj`, `ShowSyncHudMsg`
  */
 export class HudLine {
-	private handle: i32 = -1;
+	private handle: i32 = 0;
 
 	/** Shows `text` to the player on this line, replacing what it showed him before. */
 	show(player: Player, text: string, options: HudOptions = {}): void {
-		if (this.handle < 0) this.handle = <i32>CreateHudSyncObj();
-		setHud(options);
-		ShowSyncHudMsg(player.id, this.handle, text);
+		showHudTo(<i32>player.id, text, options, this.line());
 	}
 
 	/** Removes the line's message from the player's screen before its time is up. */
 	clear(player: Player): void {
-		if (this.handle >= 0) ClearSyncHud(player.id, this.handle);
+		if (this.handle > 0) _hudClear(<i32>player.id, this.handle);
 	}
 
 	/**
@@ -3205,13 +3244,17 @@ export class HudLine {
 	 * Pawn: `ShowSyncHudMsg(0, ...)`
 	 */
 	showAll(text: string, options: HudOptions = {}): void {
-		const players = server.players;
-		for (let i = 0; i < players.length; i++) this.show(players[i], text, options);
+		showHudTo(0, text, options, this.line());
 	}
 
 	/** Removes the line's message from every screen. */
 	clearAll(): void {
-		if (this.handle >= 0) ClearSyncHud(0, this.handle);
+		if (this.handle > 0) _hudClear(0, this.handle);
+	}
+
+	private line(): i32 {
+		if (this.handle == 0) this.handle = _hudLine();
+		return this.handle;
 	}
 }
 
@@ -4404,6 +4447,20 @@ export class Server {
 	}
 
 	/**
+	 * The AMX Mod X folder for logs: `addons/amxmodx/logs` unless the server moved it.
+	 *
+	 * Pawn: `get_localinfo("amxx_logs")`
+	 */
+	get logsDir(): string {
+		let dir = keptLogsDir;
+		if (changetype<usize>(dir) != 0) return changetype<string>(dir);
+		dir = get_localinfo("amxx_logs");
+		if (dir.length == 0) dir = "addons/amxmodx/logs";
+		keptLogsDir = dir;
+		return dir;
+	}
+
+	/**
 	 * The game's folder, e.g. `"cstrike"`, `"czero"`.
 	 *
 	 * Pawn: `get_modname`
@@ -4599,6 +4656,7 @@ export class Server {
 let keptMap: string | null = null;
 let keptConfigsDir: string | null = null;
 let keptDataDir: string | null = null;
+let keptLogsDir: string | null = null;
 
 /** The server the plugin runs on: its events, commands and map. */
 export const server = new Server();
@@ -4646,6 +4704,11 @@ export class Game extends GameFields {
 			addTouchListener(changetype<TouchListener>(listener), given.toucher ?? "*", given.touched ?? "*");
 			return;
 		}
+		if (idof<GameEventMap[K]>() == idof<EntityStateEvent>()) {
+			if (!isVoid<R>()) ERROR("an entityState listener answers nothing: hide the entity with event.preventDefault()");
+			addStateListener(changetype<StateListener>(listener), given.classname ?? "");
+			return;
+		}
 		addGameListener<GameEventMap[K], R>(listener, given.post == true, given.classname ?? "");
 	}
 
@@ -4656,6 +4719,10 @@ export class Game extends GameFields {
 		const given = options as GameListenerOptions;
 		if (idof<GameEventMap[K]>() == idof<TouchEvent>()) {
 			removeTouchListener(changetype<TouchListener>(listener), given.toucher ?? "*", given.touched ?? "*");
+			return;
+		}
+		if (idof<GameEventMap[K]>() == idof<EntityStateEvent>()) {
+			removeStateListener(changetype<StateListener>(listener), given.classname ?? "");
 			return;
 		}
 		removeGameListener<GameEventMap[K], R>(listener, given.post == true, given.classname ?? "");
@@ -4931,6 +4998,207 @@ function touchFired(filter: TouchFilter, touched: number, toucher: number): void
 	listeners.end();
 }
 
+// What a player is sent of each entity (runtime/src/entitystate.h): the
+// listeners of a class, the state read and written while they run.
+// @ts-ignore: decorator
+@external("env", "state_hook") declare function _stateHook(classname: string, fn: i32): i32;
+// @ts-ignore: decorator
+@external("env", "state_get")  declare function _stateGet(field: i32): f64;
+// @ts-ignore: decorator
+@external("env", "state_set")  declare function _stateSet(field: i32, value: f64): void;
+const STATE_ORIGIN: i32 = 0;
+const STATE_ANGLES: i32 = 3;
+const STATE_RENDER_MODE: i32 = 6;
+const STATE_RENDER_AMOUNT: i32 = 7;
+const STATE_RENDER_COLOR: i32 = 8;
+const STATE_RENDER_FX: i32 = 11;
+const STATE_EFFECTS: i32 = 12;
+const STATE_MODEL_INDEX: i32 = 13;
+const STATE_BODY: i32 = 14;
+const STATE_SKIN: i32 = 15;
+
+function stateVector(field: i32): Vector {
+	return new Vector(_stateGet(field), _stateGet(field + 1), _stateGet(field + 2));
+}
+
+function setStateVector(field: i32, value: number[]): void {
+	for (let i = 0; i < 3; i++) _stateSet(field + i, i < value.length ? value[i] : 0);
+}
+
+/**
+ * The state of an entity a player can see, as he is sent it this frame:
+ * its fields as he will see them. Writing one changes what he sees, not the
+ * entity - `event.renderFx = "glowShell"` makes it glow for him alone - and
+ * `preventDefault()` hides it from him.
+ *
+ * ```ts
+ * game.addEventListener("entityState", (event) => {
+ *   if (event.player.team != "CT") event.preventDefault();
+ * }, { classname: "myplugin_marker" });
+ * ```
+ *
+ * Pawn: `register_forward(FM_AddToFullPack, ..., 1)`, `get_es`, `set_es`
+ */
+export class EntityStateEvent {
+	/** @hidden */ __player: i32 = 0;
+	/** @hidden */ __entity: i32 = 0;
+
+	/** The player it is sent to. */
+	get player(): Player {
+		return __playerOf(this.__player);
+	}
+
+	/** The entity it is about: a player, or another entity. */
+	get entity(): Entity {
+		const id = this.__entity;
+		return id >= 1 && id <= get_maxplayers() ? __playerOf(id) : new Entity(id);
+	}
+
+	/**
+	 * The entity's position as he sees it.
+	 *
+	 * Pawn: `ES_Origin`
+	 */
+	get origin(): Vector { return stateVector(STATE_ORIGIN); }
+	set origin(value: number[]) { setStateVector(STATE_ORIGIN, value); }
+
+	/**
+	 * The entity's angles as he sees them.
+	 *
+	 * Pawn: `ES_Angles`
+	 */
+	get angles(): Vector { return stateVector(STATE_ANGLES); }
+	set angles(value: number[]) { setStateVector(STATE_ANGLES, value); }
+
+	/**
+	 * The entity's render mode as he sees it, as its `renderMode`.
+	 *
+	 * Pawn: `ES_RenderMode`
+	 */
+	get renderMode(): RenderMode { return renderModeName(<i32>_stateGet(STATE_RENDER_MODE)); }
+	set renderMode(value: RenderMode) {
+		if (value != "unknown") _stateSet(STATE_RENDER_MODE, renderModeCell(value));
+	}
+
+	/**
+	 * The entity's opacity as he sees it, `0` to `255`, as its `renderAmount`.
+	 *
+	 * Pawn: `ES_RenderAmt`
+	 */
+	get renderAmount(): number { return _stateGet(STATE_RENDER_AMOUNT); }
+	set renderAmount(value: number) { _stateSet(STATE_RENDER_AMOUNT, value); }
+
+	/**
+	 * The entity's render colour as he sees it, red, green, blue, as its `renderColor`.
+	 *
+	 * Pawn: `ES_RenderColor`
+	 */
+	get renderColor(): Vector { return stateVector(STATE_RENDER_COLOR); }
+	set renderColor(value: number[]) { setStateVector(STATE_RENDER_COLOR, value); }
+
+	/**
+	 * The entity's render effect as he sees it, as its `renderFx`: `"glowShell"` a shell around it.
+	 *
+	 * Pawn: `ES_RenderFx`
+	 */
+	get renderFx(): RenderFx { return renderFxName(<i32>_stateGet(STATE_RENDER_FX)); }
+	set renderFx(value: RenderFx) {
+		if (value != "unknown") _stateSet(STATE_RENDER_FX, renderFxCell(value));
+	}
+
+	/**
+	 * The entity's effects as he sees them, as its `effects`.
+	 *
+	 * Pawn: `ES_Effects`
+	 */
+	get effects(): Effect[] { return <Effect[]>EFFECT.namesOf(<i32>_stateGet(STATE_EFFECTS)); }
+	set effects(value: Effect[]) { _stateSet(STATE_EFFECTS, EFFECT.maskOf(value)); }
+
+	/**
+	 * The model he sees, by its precache index.
+	 *
+	 * Pawn: `ES_ModelIndex`
+	 */
+	get modelIndex(): number { return _stateGet(STATE_MODEL_INDEX); }
+	set modelIndex(value: number) { _stateSet(STATE_MODEL_INDEX, value); }
+
+	/**
+	 * The model's body part he sees.
+	 *
+	 * Pawn: `ES_Body`
+	 */
+	get body(): number { return _stateGet(STATE_BODY); }
+	set body(value: number) { _stateSet(STATE_BODY, value); }
+
+	/**
+	 * The model's skin he sees.
+	 *
+	 * Pawn: `ES_Skin`
+	 */
+	get skin(): number { return _stateGet(STATE_SKIN); }
+	set skin(value: number) { _stateSet(STATE_SKIN, value); }
+
+	/** Hides the entity from him this frame. */
+	preventDefault(): void {
+		handled();
+	}
+}
+
+/** An entityState listener, as game.addEventListener("entityState", ...) takes one. */
+type StateListener = (event: EntityStateEvent) => void;
+
+// One hook per class, its listeners behind it, switched off while it has none.
+class StateFilter {
+	listeners: __Listeners<StateListener> = new __Listeners<StateListener>();
+	hook: __Switch = new __Switch();
+	// The one event its listeners get, made again for each entity: this hook runs for every entity a player sees.
+	event: EntityStateEvent = new EntityStateEvent();
+	constructor(public classname: string) {}
+}
+
+const stateFilters: StateFilter[] = [];
+
+function stateFilter(classname: string): StateFilter | null {
+	for (let i = 0; i < stateFilters.length; i++) {
+		if (stateFilters[i].classname == classname) return stateFilters[i];
+	}
+	return null;
+}
+
+function addStateListener(listener: StateListener, classname: string): void {
+	let filter = stateFilter(classname);
+	if (filter == null) {
+		filter = new StateFilter(classname);
+		stateFilters.push(filter);
+		const target = filter;
+		const fired = (host: number, entity: number, c: number, d: number): void => stateFired(target, <i32>host, <i32>entity);
+		const handle = _stateHook(classname, hostIndex(fired, true));
+		filter.hook.add((on: bool): void => _hookOn(handle, on ? 1 : 0));
+	}
+	filter.listeners.push(listener);
+	filter.hook.set(true);
+}
+
+function removeStateListener(listener: StateListener, classname: string): void {
+	const filter = stateFilter(classname);
+	if (filter == null) return;
+	filter.listeners.remove(listener);
+	filter.hook.set(filter.listeners.count > 0);
+}
+
+function stateFired(filter: StateFilter, host: i32, entity: i32): void {
+	const event = filter.event;
+	event.__player = host;
+	event.__entity = entity;
+	const listeners = filter.listeners;
+	const n = listeners.begin();
+	for (let i = 0; i < n; i++) {
+		const listener = listeners.at(i);
+		if (listener) listener(event);
+	}
+	listeners.end();
+}
+
 /** The winner of a round, one of `"TERRORIST"`, `"CT"`, `"draw"`, or `"none"` - a restart without a winner. */
 export type RoundWinner = "TERRORIST" | "CT" | "draw" | "none";
 
@@ -4987,7 +5255,7 @@ export * from "./events";
 // are used here: `Flag` for a command's default argument, the other two to
 // turn an event's short name into the forward the module raises.
 import { Flag, FlagName, flagOf, HookName, hookIdOf } from "./constants";
-import { Contents, Entity, GameFields, HitGroup, PlayerFields, Weapon, contentsName, hitGroupName } from "./entities";
+import { Contents, Entity, GameFields, HitGroup, PlayerFields, RenderFx, RenderMode, Weapon, contentsName, hitGroupName, renderFxCell, renderFxName, renderModeCell, renderModeName } from "./entities";
 import {
 	MSG_ALL, MSG_ONE, MSG_ONE_UNRELIABLE, MSG_PVS, LibType_Library, SPEAK_MUTED, SPEAK_ALL, SPEAK_LISTENALL, ARG_STRING
 } from "./constants";
@@ -6878,7 +7146,7 @@ const storeRoom = new StaticArray<u8>(1024);
 
 // Flag enums and the array that stands for a mask - generated, see scripts/generate-flags.ts.
 export * from "./flags";
-import { Access, ACCESS, HIDE_HUD, HideHud } from "./flags";
+import { Access, ACCESS, EFFECT, Effect, HIDE_HUD, HideHud } from "./flags";
 
 // Hookchain events and game.addEventListener's hood - generated, see scripts/generate-hooks.ts.
 export * from "./hooks";

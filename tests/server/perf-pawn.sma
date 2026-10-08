@@ -53,7 +53,8 @@ enum
 	ECHO_PAWN,
 	VARIADIC,
 	STEAM_ID,
-	MAP_NAME
+	MAP_NAME,
+	HUD_MESSAGE
 }
 
 new HookChain:g_hook;
@@ -326,6 +327,14 @@ run(what, id, count)
 		case HEALTH_READ: for (new i = 0; i < count; i++) g_sink += get_user_health(id);
 		case HEALTH_WRITE: for (new i = 0; i < count; i++) set_user_health(id, 100);
 		case MONEY_HUD: for (new i = 0; i < count; i++) rg_add_account(id, 800, AS_SET);
+		case HUD_MESSAGE:
+		{
+			for (new i = 0; i < count; i++)
+			{
+				set_hudmessage(255, 40, 40, -1.0, 0.35, 0, 6.0, 2.0, 0.1, 0.2, -1);
+				show_hudmessage(id, "Round 3");
+			}
+		}
 		case ORIGIN_READ:
 		{
 			for (new i = 0; i < count; i++)
@@ -397,6 +406,9 @@ public measure()
 	report_each("health read", HEALTH_READ, id, MANY);
 	report_each("health write", HEALTH_WRITE, id, MANY);
 	report_each("money with its HUD", MONEY_HUD, id, FEW);
+	report_each("HUD message", HUD_MESSAGE, id, FEW);
+	// Pawn writes its parameters in place at every call.
+	report_each("HUD message, options in place", HUD_MESSAGE, id, FEW);
 	report_each("origin read", ORIGIN_READ, id, FEW);
 	report_each("origin into a vector", ORIGIN_READ, id, MANY);
 	report_each("string in", STRING_IN, id, FEW);

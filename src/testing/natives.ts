@@ -549,7 +549,7 @@ export const NATIVES: Record<string, Native> = {
 	},
 
 	set_hudmessage: (c, [r, g, b, x, y, _effects, _fxtime, hold, _fadein, _fadeout, channel]) => {
-		c.server.hud = { color: [r, g, b], x: bitsFloat(x), y: bitsFloat(y), hold: bitsFloat(hold), channel };
+		c.server.hud = { color: [r, g, b], x: bitsFloat(x), y: bitsFloat(y), hold: bitsFloat(hold), channel, line: 0, large: false };
 	},
 	show_hudmessage: (c, [id, format, ...tail]) => sendText(c, id, 'hud', formatPawn(c, c.memory.text(format), tail)),
 
@@ -1034,7 +1034,7 @@ export const NATIVES: Record<string, Native> = {
 	GetHamReturnString: (c, [out, size]) => c.memory.setText(out, size, String(chain(c).answer)),
 	GetHamReturnVector: (c, [out]) => c.memory.setVector(out, [0, 0, 0]),
 	set_dhudmessage: (c, [r, g, b, x, y, _effects, _fxtime, hold]) => {
-		c.server.hud = { color: [r, g, b], x: bitsFloat(x), y: bitsFloat(y), hold: bitsFloat(hold), channel: -1 };
+		c.server.hud = { color: [r, g, b], x: bitsFloat(x), y: bitsFloat(y), hold: bitsFloat(hold), channel: -1, line: 0, large: true };
 	},
 	// A server without reapi hears ReGameDLL's events through these (as/hlds.ts).
 	// register_logevent(function[], argsnum, ...filters): server.gameLog() calls it.

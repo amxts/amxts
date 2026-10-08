@@ -737,6 +737,8 @@ export class FakeServer {
 	readonly modules: Set<string>;
 	/** The GeoIP database, by address: `server.countries.set("1.2.3.4", { code: "DE", name: "Germany" })`. */
 	readonly countries = new Map<string, { code: string; name: string }>();
+	/** The model a plugin put on each player (player.model), by his id. */
+	readonly models = new Map<number, string>();
 	/** The entity each player sees through (player.view), by his id; 0 or none for his own eyes. */
 	readonly views = new Map<number, number>();
 	/** The maps the fake server has: map_valid and change_level know these. */
@@ -815,7 +817,10 @@ export class FakeServer {
 	/** When each Storage key was last set, by "name\0key": the fake's clock, in seconds. */
 	readonly storeTimes = new Map<string, number>();
 	readonly forwardHandles: { name: string; types: number[] }[] = [];
-	hud = { color: [200, 100, 0], x: -1, y: 0.35, hold: 12, channel: -1 };
+	/** How the last HUD message was sent: its colour, place, hold, channel (-1 automatic), line (0 none) and size. */
+	hud = { color: [200, 100, 0], x: -1, y: 0.35, hold: 12, channel: -1, line: 0, large: false };
+	/** The HUD lines plugins made. */
+	hudLines = 0;
 
 	/** The game rules' members a plugin set (set_member_game), by member. */
 	readonly rules = new Map<number, number>();
@@ -858,6 +863,10 @@ export class FakeServer {
 	hookedMessage: { args: (number | string)[]; types: number[] } | null = null;
 	/** register_touch's callbacks. */
 	readonly touches: { touched: string; toucher: string; slot: Slot }[] = [];
+	/** The entityState listeners' hooks: the class each is about, "" any. */
+	readonly stateHooks: { classname: string; slot: Slot }[] = [];
+	/** The state being sent while its listeners run (sendState), by the module's field numbers. */
+	sending: number[] | null = null;
 	/** register_logevent's callbacks: the number of arguments a line has, and the filters it passes. @internal */
 	readonly logEvents: { argc: number; filters: string[]; slot: Slot }[] = [];
 	/** The log line logevent callbacks are reading, as AMX Mod X splits it. @internal */
@@ -2118,6 +2127,26 @@ export class FakeServer {
 	}
 
 	/**
+	 * What the server sends `host` of `entity` (AddToFullPack): its listeners
+	 * run on the state - sixteen numbers, by the module's field numbers:
+	 * origin, angles, render mode, amount, colour, fx, effects, model index,
+	 * body, skin - and say what was sent, or that it was hidden.
+	 */
+	sendState(host: FakePlayer, entity: FakeEntity, state: number[] = Array.from({ length: 16 }).fill(0) as number[]): { hidden: boolean; state: number[] } {
+		const sent = [...state];
+		let hidden = false;
+		this.sending = sent;
+		try {
+			for (const { slot } of this.stateHooks.filter(h => h.classname === '' || h.classname === entity.classname)) {
+				if (this.withCallArgs([host.id, entity.id], () => this.call(slot, [host.id, entity.id], 0)) > 0) hidden = true;
+			}
+		} finally {
+			this.sending = null;
+		}
+		return { hidden, state: sent };
+	}
+
+	/**
 	 * One entity moving into another: the register_touch callbacks whose
 	 * classes match ("*" or "" is any), called as the engine module calls
 	 * them - (touched, toucher). The largest answer, as the module takes it.
@@ -2637,6 +2666,34 @@ export class FakeServer {
 		light_style(this: FakeServer, plugin: PluginInstance, text: number) {
 			this.engineCalls.push(`LightStyle 0 ${plugin.memory.string(text)}`);
 		},
+		// HUD messages: the text to each player, as his messages' "hud" line; how it was set, in server.hud.
+		hud_line(this: FakeServer) {
+			return ++this.hudLines;
+		},
+		hud_show(this: FakeServer, plugin: PluginInstance, id: number, line: number, params: number, text: number) {
+			const p = Array.from({ length: 12 }, (_, i) => plugin.memory.number(params + i * 8));
+			this.hud = { color: [p[3], p[4], p[5]], x: p[0], y: p[1], hold: p[7], channel: p[10], line, large: p[11] !== 0 };
+			const message = plugin.memory.string(text);
+			for (const target of id > 0 ? [this.player(id)] : this.players) {
+				if (target && !target.bot) target.show('hud', message);
+			}
+		},
+		hud_clear(this: FakeServer, plugin: PluginInstance, id: number, line: number) {
+			this.engineCalls.push(`HudClear ${id} ${line}`);
+		},
+		// The model a plugin put on each player, by his id: written into his userinfo as the module does.
+		player_model(this: FakeServer, plugin: PluginInstance, id: number, model: number, index: number) {
+			const target = this.player(id);
+			if (!target) return;
+			const name = plugin.memory.string(model);
+			if (name) this.models.set(id, name);
+			else this.models.delete(id);
+			target.info.set('model', name || 'urban');
+			this.engineCalls.push(`Model ${id} ${name || '-'} ${index}`);
+		},
+		player_model_get(this: FakeServer, plugin: PluginInstance, id: number, out: number, max: number) {
+			return plugin.memory.setUtf8(out, max, this.models.get(id) ?? '');
+		},
 		// What each player sees through, by his id: 0 his own eyes.
 		player_view(this: FakeServer, plugin: PluginInstance, id: number, target: number) {
 			this.engineCalls.push(`SetView ${id} ${target || id}`);
@@ -2681,7 +2738,7 @@ export class FakeServer {
 		},
 		reunion_key(this: FakeServer, plugin: PluginInstance, id: number, out: number, max: number) {
 			const target = this.players.find(each => each.id === id);
-			return plugin.memory.setUtf8(out, max, this.reunion ? target?.authKey ?? '' : '');
+			return plugin.memory.setUtf8(out, max, this.reunion && this.chains ? target?.authKey ?? '' : '');
 		},
 
 		// engfunc(EngFunc_RunPlayerMove, ...) made by the module itself, the angles and the speeds Floats' bits; 0 for no player there, which engfunc then takes.
@@ -2801,6 +2858,19 @@ export class FakeServer {
 		// Every cvar's change is heard as it is made here.
 		cvar_exact() {
 			return 1;
+		},
+
+		state_hook(this: FakeServer, plugin: PluginInstance, classname: number, fn: number) {
+			const slot = this.takeSlot(plugin, fn, SHAPE_WIDE, '', 0);
+			this.stateHooks.push({ classname: plugin.memory.string(classname), slot });
+			this.hookSlots.set(this.hookSlots.size + 1, slot);
+			return this.hookSlots.size;
+		},
+		state_get(this: FakeServer, plugin: PluginInstance, field: number) {
+			return this.sending?.[field] ?? 0;
+		},
+		state_set(this: FakeServer, plugin: PluginInstance, field: number, value: number) {
+			if (this.sending) this.sending[field] = value;
 		},
 
 		touch_hook(this: FakeServer, plugin: PluginInstance, touched: number, toucher: number, fn: number) {

@@ -224,3 +224,14 @@ test('print(0, ...) sends nothing and says server.print; give takes any name and
 	expect(server.log.split('weapon_ak74').length - 1).toBe(1);
 	expect(alice.items).toEqual([]);
 });
+
+test('a HUD line keeps its id for the module, which chooses the channel; a large message is the director\'s', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	alice.command('pl_hud_line');
+
+	expect(alice.hud).toBe('5\nbig');
+	expect(server.hud).toEqual({ color: [200, 100, 0], x: -1, y: 0.2, hold: 12, channel: -1, line: 0, large: true });
+	expect(server.engineCalls).toContain('HudClear 0 1');
+});

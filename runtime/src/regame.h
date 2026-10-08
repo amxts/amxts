@@ -657,11 +657,145 @@ static void KeepStepsSilent()
 			INDEXENT(id)->v.flTimeStepSound = SILENT_STEP_TIME;
 }
 
+// ---------------------------------------------------------------- player.model
+
+/**
+ * The model a player wears by a plugin's say (player.model), with his user id
+ * - a later player in the slot wears his own - and the model's precache
+ * index for its hitboxes, 0 for the game's. `due`: his game sent another
+ * model in its userinfo, to be written back at the next frame - not inside
+ * the engine's own userinfo call, which would run it again.
+ */
+struct WornModel {
+	std::string name;
+	int userId = 0;
+	int index = 0;
+	bool due = false;
+};
+
+static WornModel g_worn[CLIENT_SLOTS];
+// How many slots hold one: with none, the userinfo hook and the frame do nothing.
+static int g_wornCount = 0;
+
+static bool Wears(int id)
+{
+	return id >= 1 && id < CLIENT_SLOTS && !g_worn[id].name.empty() && InGame(id) && g_worn[id].userId == GETPLAYERUSERID(INDEXENT(id));
+}
+
+/**
+ * The game writing a key of a player's userinfo - the team's model at spawn
+ * and team change, on the original game: a model over the one he wears does
+ * not go in. In Metamod's table only while someone wears one.
+ */
+static ALIGNED_ENTRY void ModelKeyValue(int id, char *info, const char *key, const char *value)
+{
+	if (key && value && !strcmp(key, "model") && Wears(id) && g_worn[id].name != value)
+		RETURN_META(MRES_SUPERCEDE);
+	RETURN_META(MRES_IGNORED);
+}
+
+static void HookModelKeys()
+{
+	if (g_pengfuncsTable)
+		g_pengfuncsTable->pfnSetClientKeyValue = g_wornCount > 0 ? ModelKeyValue : NULL;
+}
+
+static void Unwear(int id)
+{
+	if (!g_worn[id].name.empty())
+		g_wornCount--;
+	g_worn[id] = WornModel();
+	HookModelKeys();
+}
+
+/**
+ * player_model(id, model, index) - he wears `model` (models/player/<model>/
+ * <model>.mdl) from now on, through respawns and team changes: ReGameDLL's
+ * SetPlayerModelEx keeps it there, the module's userinfo hook on any game.
+ * `index` is the model's precache index, for its own hitboxes; 0 keeps the
+ * game's. An empty model gives him back the game's.
+ */
+static void w_playerModel(wasm_exec_env_t env, int32_t id, int32_t name, int32_t index)
+{
+	std::string model = AsString(Inst(env), name);
+	if (!InGame(id))
+		return;
+	edict_t *e = INDEXENT(id);
+	char *object = ObjectOf(id);
+	re::CSPlayer *player = CSPlayerOf(id);
+	Unwear(id);
+
+	if (model.empty()) {
+		if (player) {
+			bool *hasC4 = PlayerMember<bool>(object, "m_bHasC4");
+			player->SetPlayerModelEx("");
+			player->SetPlayerModel(hasC4 && *hasC4);
+		}
+		else {
+			int *kind = PlayerMember<int>(object, "m_iModelName");
+			if (kind && *kind > 0 && *kind < (int)(sizeof(g_modelNames) / sizeof(g_modelNames[0])))
+				SET_CLIENT_KEYVALUE(id, GET_INFOKEYBUFFER(e), "model", (char *)g_modelNames[*kind]);
+		}
+		int *own = PlayerMember<int>(object, "m_modelIndexPlayer");
+		if (own && *own > 0)
+			e->v.modelindex = *own;
+		return;
+	}
+
+	WornModel &worn = g_worn[id];
+	worn.name = model;
+	worn.userId = GETPLAYERUSERID(e);
+	worn.index = index;
+	g_wornCount++;
+	HookModelKeys();
+	if (player)
+		player->SetPlayerModelEx(model.c_str());
+	SET_CLIENT_KEYVALUE(id, GET_INFOKEYBUFFER(e), "model", (char *)model.c_str());
+	if (index > 0)
+		e->v.modelindex = index;
+}
+
+/** player_model_get(id, out, max) - the model he wears by a plugin's say, as UTF-8; "" for the game's. */
+static int32_t w_playerModelGet(wasm_exec_env_t env, int32_t id, int32_t out, int32_t max)
+{
+	return WriteBytes(Inst(env), out, max, Wears(id) ? g_worn[id].name.c_str() : "");
+}
+
+/** A player's userinfo changed: a model other than the one he wears is written back at the next frame. */
+static void ModelUserInfoChanged(int id, char *info)
+{
+	if (!g_wornCount || !Wears(id))
+		return;
+	const char *now = INFOKEY_VALUE(info, "model");
+	if (!now || g_worn[id].name != now)
+		g_worn[id].due = true;
+}
+
+/** Each frame: the models the game wrote over put back, and the hitboxes of a model worn with its own. */
+static void KeepModels()
+{
+	if (!g_wornCount)
+		return;
+	for (int id = 1; id < CLIENT_SLOTS && id <= gpGlobals->maxClients; id++) {
+		if (!Wears(id))
+			continue;
+		WornModel &worn = g_worn[id];
+		edict_t *e = INDEXENT(id);
+		if (worn.due) {
+			worn.due = false;
+			SET_CLIENT_KEYVALUE(id, GET_INFOKEYBUFFER(e), "model", (char *)worn.name.c_str());
+		}
+		if (worn.index > 0 && e->v.modelindex != worn.index)
+			e->v.modelindex = worn.index;
+	}
+}
+
 /** A player's slot let go or taken anew: nothing of the last one's stays. */
 static void PlayerSlotReset(int id)
 {
 	if (id < 1 || id >= CLIENT_SLOTS)
 		return;
+	Unwear(id);
 	if (g_silentSteps[id])
 		g_silentCount--;
 	g_silentSteps[id] = false;

@@ -1506,8 +1506,9 @@ const SOUND_CHANNELS: SoundChannel[] = ["auto", "weapon", "voice", "item", "body
 
 ${enumTypesUsed.map(enumBlock).join('\n\n')}
 
-// A trace's hit group (trace.line) and a point's contents (pointContents) read as the fields' do.
-export { contentsName, hitGroupName };
+// A trace's hit group (trace.line), a point's contents (pointContents) and an
+// entity's state as a player is sent it (entityState) read as the fields' do.
+export { contentsName, hitGroupName, renderFxCell, renderFxName, renderModeCell, renderModeName };
 
 /** The WeaponKind names and the bit each has in var_weapons: 1 << its id. */
 const WEAPON_BITS = new FlagFamily(

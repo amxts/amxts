@@ -2096,6 +2096,18 @@ export default {
 			Pawn: \`get_configsdir\`
 		`,
 	},
+	'Server.logsDir': {
+		en: `
+			The AMX Mod X folder for logs: \`addons/amxmodx/logs\` unless the server moved it.
+
+			Pawn: \`get_localinfo("amxx_logs")\`
+		`,
+		ru: `
+			Папка AMX Mod X для логов: \`addons/amxmodx/logs\`, если сервер её не перенёс.
+
+			Pawn: \`get_localinfo("amxx_logs")\`
+		`,
+	},
 	'Server.dataDir': {
 		en: `
 			The AMX Mod X folder for plugins' data files: \`addons/amxmodx/data\` unless the server moved it.
@@ -3321,6 +3333,242 @@ export default {
 			счёта.
 
 			Pawn: \`get_user_ping(id, ping, loss)\`
+		`,
+	},
+	'Player.model': {
+		en: `
+			The model he wears, as his game knows it, e.g. \`"vip"\`, \`"gign"\`, or one
+			of the server's own, \`models/player/<model>/<model>.mdl\`. Set, it
+			stays through his respawns and team changes until \`resetModel()\` -
+			\`setModel\` keeps its hitboxes too.
+
+			Pawn: \`cs_get_user_model\`, \`cs_set_user_model\`, \`rg_set_user_model\`
+		`,
+		ru: `
+			Модель, которую он носит, как её знает его игра, например \`"vip"\`, \`"gign"\`,
+			или своя модель сервера, \`models/player/<model>/<model>.mdl\`. Заданная,
+			она остаётся при возрождениях и смене команды до \`resetModel()\`; \`setModel\`
+			меняет ещё и хитбоксы.
+
+			Pawn: \`cs_get_user_model\`, \`cs_set_user_model\`, \`rg_set_user_model\`
+		`,
+	},
+	'Player.setModel': {
+		en: `
+			Puts a model on him, as \`player.model = name\` does; \`{ hitboxes: true
+			}\` takes the model's own hitboxes too, for a model shaped other than
+			the game's - precached with \`server.precache("models/player/<name>/<name>.mdl")\`.
+
+			Pawn: \`cs_set_user_model(id, model, true)\`, \`rg_set_user_model(id, model, true)\`
+		`,
+		ru: `
+			Надевает на него модель, как \`player.model = name\`; \`{ hitboxes: true }\`
+			берёт ещё и хитбоксы самой модели — для модели другой формы, чем у игры,
+			закэшированной через \`server.precache("models/player/<name>/<name>.mdl")\`.
+
+			Pawn: \`cs_set_user_model(id, model, true)\`, \`rg_set_user_model(id, model, true)\`
+		`,
+	},
+	'Player.resetModel': {
+		en: `
+			Gives him back the model the game chose for him, its hitboxes too.
+
+			Pawn: \`cs_reset_user_model\`, \`rg_reset_user_model\`
+		`,
+		ru: `
+			Возвращает ему модель, которую выбрала для него игра, и её хитбоксы.
+
+			Pawn: \`cs_reset_user_model\`, \`rg_reset_user_model\`
+		`,
+	},
+	'ModelOptions': {
+		en: `
+			The options of \`player.setModel\`: what goes with the model.
+		`,
+		ru: `
+			Параметры \`player.setModel\`: что идёт вместе с моделью.
+		`,
+	},
+	'ModelOptions.hitboxes': {
+		en: `
+			The model's own hitboxes, not the game's: for a model shaped otherwise; \`false\` when left out.
+		`,
+		ru: `
+			Хитбоксы самой модели, а не игры: для модели другой формы; \`false\`, если не указано.
+		`,
+	},
+	'EntityStateEvent': {
+		en: `
+			The state of an entity a player can see, as he is sent it this frame:
+			its fields as he will see them. Writing one changes what he sees, not the
+			entity - \`event.renderFx = "glowShell"\` makes it glow for him alone - and
+			\`preventDefault()\` hides it from him.
+
+			\`\`\`ts
+			game.addEventListener("entityState", (event) => {
+			  if (event.player.team != "CT") event.preventDefault();
+			}, { classname: "myplugin_marker" });
+			\`\`\`
+
+			Pawn: \`register_forward(FM_AddToFullPack, ..., 1)\`, \`get_es\`, \`set_es\`
+		`,
+		ru: `
+			Состояние сущности, которую видит игрок, как он получает его в этом кадре:
+			её поля такими, какими он их увидит. Запись поля меняет то, что видит он, а
+			не саму сущность, — \`event.renderFx = "glowShell"\` подсвечивает её только для
+			него, — а \`preventDefault()\` скрывает её от него.
+
+			\`\`\`ts
+			game.addEventListener("entityState", (event) => {
+			  if (event.player.team != "CT") event.preventDefault();
+			}, { classname: "myplugin_marker" });
+			\`\`\`
+
+			Pawn: \`register_forward(FM_AddToFullPack, ..., 1)\`, \`get_es\`, \`set_es\`
+		`,
+	},
+	'EntityStateEvent.player': {
+		en: `
+			The player it is sent to.
+		`,
+		ru: `
+			Игрок, которому оно отправляется.
+		`,
+	},
+	'EntityStateEvent.entity': {
+		en: `
+			The entity it is about: a player, or another entity.
+		`,
+		ru: `
+			Сущность, о которой оно: игрок или другая сущность.
+		`,
+	},
+	'EntityStateEvent.origin': {
+		en: `
+			The entity's position as he sees it.
+
+			Pawn: \`ES_Origin\`
+		`,
+		ru: `
+			Позиция сущности, какой он её видит.
+
+			Pawn: \`ES_Origin\`
+		`,
+	},
+	'EntityStateEvent.angles': {
+		en: `
+			The entity's angles as he sees them.
+
+			Pawn: \`ES_Angles\`
+		`,
+		ru: `
+			Углы сущности, какими он их видит.
+
+			Pawn: \`ES_Angles\`
+		`,
+	},
+	'EntityStateEvent.renderMode': {
+		en: `
+			The entity's render mode as he sees it, as its \`renderMode\`.
+
+			Pawn: \`ES_RenderMode\`
+		`,
+		ru: `
+			Режим отрисовки сущности, каким он его видит, как её \`renderMode\`.
+
+			Pawn: \`ES_RenderMode\`
+		`,
+	},
+	'EntityStateEvent.renderAmount': {
+		en: `
+			The entity's opacity as he sees it, \`0\` to \`255\`, as its \`renderAmount\`.
+
+			Pawn: \`ES_RenderAmt\`
+		`,
+		ru: `
+			Непрозрачность сущности, какой он её видит, от \`0\` до \`255\`, как её \`renderAmount\`.
+
+			Pawn: \`ES_RenderAmt\`
+		`,
+	},
+	'EntityStateEvent.renderColor': {
+		en: `
+			The entity's render colour as he sees it, red, green, blue, as its \`renderColor\`.
+
+			Pawn: \`ES_RenderColor\`
+		`,
+		ru: `
+			Цвет отрисовки сущности, каким он его видит, — красный, зелёный, синий, как её \`renderColor\`.
+
+			Pawn: \`ES_RenderColor\`
+		`,
+	},
+	'EntityStateEvent.renderFx': {
+		en: `
+			The entity's render effect as he sees it, as its \`renderFx\`: \`"glowShell"\` a shell around it.
+
+			Pawn: \`ES_RenderFx\`
+		`,
+		ru: `
+			Эффект отрисовки сущности, каким он его видит, как её \`renderFx\`: \`"glowShell"\` — оболочка вокруг неё.
+
+			Pawn: \`ES_RenderFx\`
+		`,
+	},
+	'EntityStateEvent.effects': {
+		en: `
+			The entity's effects as he sees them, as its \`effects\`.
+
+			Pawn: \`ES_Effects\`
+		`,
+		ru: `
+			Эффекты сущности, какими он их видит, как её \`effects\`.
+
+			Pawn: \`ES_Effects\`
+		`,
+	},
+	'EntityStateEvent.modelIndex': {
+		en: `
+			The model he sees, by its precache index.
+
+			Pawn: \`ES_ModelIndex\`
+		`,
+		ru: `
+			Модель, которую он видит, по её индексу прекэша.
+
+			Pawn: \`ES_ModelIndex\`
+		`,
+	},
+	'EntityStateEvent.body': {
+		en: `
+			The model's body part he sees.
+
+			Pawn: \`ES_Body\`
+		`,
+		ru: `
+			Часть тела модели, которую он видит.
+
+			Pawn: \`ES_Body\`
+		`,
+	},
+	'EntityStateEvent.skin': {
+		en: `
+			The model's skin he sees.
+
+			Pawn: \`ES_Skin\`
+		`,
+		ru: `
+			Скин модели, который он видит.
+
+			Pawn: \`ES_Skin\`
+		`,
+	},
+	'EntityStateEvent.preventDefault': {
+		en: `
+			Hides the entity from him this frame.
+		`,
+		ru: `
+			Скрывает от него сущность в этом кадре.
 		`,
 	},
 	'GameListenerOptions': {

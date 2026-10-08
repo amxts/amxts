@@ -117,3 +117,10 @@ server.addCommand("pl_breaking", ({ player }) => {
 	print(player, `${player.give(name)} ${player.give(name)} ${player.give("weapon_ak47")}`, "console");
 	player.removeAllItems({ suit: true });
 });
+
+const ticker = new HudLine();
+server.addCommand("pl_hud_line", ({ player }) => {
+	ticker.show(player, "5", { color: [255, 50, 50], hold: 1.1, channel: 3 });
+	player.showHud("big", { large: true, y: 0.2 });
+	ticker.clearAll();
+});

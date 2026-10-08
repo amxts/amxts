@@ -54,6 +54,34 @@ test('a player sees through a camera, and through his own eyes again', async () 
 	expect(server.engineCalls.filter(call => call.startsWith('SetView')).at(-1)).toBe(`SetView ${alice.id} ${alice.id}`);
 });
 
+test('a model put on a player is his until it is reset; hitboxes need the model precached', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	alice.command('world_model');
+
+	expect(alice.console).toBe('vip urban');
+	expect(server.engineCalls.filter(call => call.startsWith('Model'))).toEqual([`Model ${alice.id} vip 0`, `Model ${alice.id} santa 0`, `Model ${alice.id} - 0`]);
+	expect(server.log).toContain('player.setModel("santa", { hitboxes: true }): precache "models/player/santa/santa.mdl" first');
+});
+
+test('entityState: a listener of a class changes what one player is sent, and hides it from another', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	const bob = server.join('Bob');
+	const marker = server.createEntity('myplugin_marker');
+	const other = server.createEntity('info_target');
+
+	const toAlice = server.sendState(alice, marker, [1, 2, 3, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0]);
+	const toBob = server.sendState(bob, marker);
+	const untouched = server.sendState(alice, other, [1, 2, 3, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+	// renderFx 19 is kRenderFxGlowShell; the origin moved up by 10.
+	expect(toAlice).toEqual({ hidden: false, state: [1, 2, 13, 0, 0, 0, 0, 255, 255, 0, 0, 19, 0, 0, 0, 0] });
+	expect(toBob.hidden).toBe(true);
+	expect(untouched).toEqual({ hidden: false, state: [1, 2, 3, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0] });
+});
+
 test('dropToFloor asks the engine to drop the entity', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');

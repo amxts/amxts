@@ -1,7 +1,7 @@
 // What the module does beside the players, on the game itself: a Storage on
 // disk and the one it takes from AMX Mod X's nvault, traces through the map,
 // the server's game, versions, maps and light, the plugins it runs, a
-// message sent by its fields, a camera. world-pawn.sma is the Pawn side.
+// message sent by its fields, a model kept on a player, a camera. world-pawn.sma is the Pawn side.
 import { Checks } from "@amxts/core/check";
 import * as fs from "@amxts/core/fs";
 
@@ -76,6 +76,16 @@ async function run() {
 	server.removeMessageListener("team", onTeam);
 	check.expect(heard, "server.send is heard by a listener").toBe("SPECTATOR");
 
+	// A model: his through a team change and a respawn, then the game's again.
+	bot.model = "vip";
+	check.expect(bot.info.get("model"), "model is in his userinfo").toBe("vip");
+	bot.team = "TERRORIST";
+	bot.respawn();
+	await sleep(300);
+	check.expect(bot.info.get("model"), "the model stays through a team change and a respawn").toBe("vip");
+	bot.resetModel();
+	check.expect(bot.model != "vip" && bot.model == bot.info.get("model"), "resetModel gives the game's back").toBe(true);
+
 	// A camera, and his own eyes again.
 	const camera = Entity.create("info_target");
 	if (camera != null) {
@@ -87,6 +97,18 @@ async function run() {
 	}
 
 	check.expect(bot.give("weapon_nothing"), "give of a name the game has not").toBe(false);
+
+	// HUD through the module, and an entityState listener on and off: a bot is
+	// sent neither, so this is the module's way through them, not what a client sees.
+	const line = new HudLine();
+	line.showAll("amxts", { color: [0, 255, 0], channel: -1 });
+	server.showHud("amxts", { large: true });
+	line.clearAll();
+	const onState = (event: EntityStateEvent) => event.preventDefault();
+	game.addEventListener("entityState", onState, { classname: "player" });
+	await sleep(200);
+	game.removeEventListener("entityState", onState, { classname: "player" });
+	check.expect(bot.isConnected, "HUD and entityState leave the server running").toBe(true);
 
 	server.command(`kick "${NAME}"`);
 	check.done();
