@@ -1,5 +1,5 @@
 import type { Plugin } from '../scripts/compile';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // Several plugins compiled at once (scripts/compile-pool.ts): as many as the
@@ -59,9 +59,8 @@ describe('slots', () => {
 	});
 });
 
-const dir = join(tmpdir(), 'amxts-compile-pool');
-rmSync(dir, { recursive: true, force: true });
-mkdirSync(dir, { recursive: true });
+// A folder of this run's own: another checkout's tests may run at the same time.
+const dir = mkdtempSync(join(tmpdir(), 'amxts-compile-pool-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 const PLUGINS: Record<string, string> = {
