@@ -2783,7 +2783,7 @@ export default {
 			player crosses as Pawn takes it. A TypeScript plugin is called through
 			its module instead: it throws.
 
-			Pawn: \`callfunc_begin\`, \`callfunc_push_*\`, \`callfunc_end\`
+			Pawn: \`callfunc_begin\`, \`callfunc_begin_i\`, \`get_func_id\`, \`callfunc_push_*\`, \`callfunc_end\`
 		`,
 		ru: `
 			Вызывает публичную функцию плагина на Pawn и возвращает её результат:
@@ -2791,7 +2791,7 @@ export default {
 			передаются так, как их принимает Pawn. Плагин на TypeScript вызывают через его
 			модуль — бросает ошибку.
 
-			Pawn: \`callfunc_begin\`, \`callfunc_push_*\`, \`callfunc_end\`
+			Pawn: \`callfunc_begin\`, \`callfunc_begin_i\`, \`get_func_id\`, \`callfunc_push_*\`, \`callfunc_end\`
 		`,
 	},
 	'Player.send': {
@@ -3074,14 +3074,14 @@ export default {
 			what: \`trace.line(eyes, eyes.add(forward.scale(8192)), { ignore: player
 			}).entity\`.
 
-			Pawn: \`trace_line\`, \`engfunc(EngFunc_TraceLine, ...)\`, \`get_tr2\`
+			Pawn: \`trace_line\`, \`engfunc(EngFunc_TraceLine, ...)\`, \`create_tr2\`, \`get_tr2\`, \`free_tr2\`
 		`,
 		ru: `
 			Проводит линию от \`start\` до \`end\` и говорит, где и на чём она
 			остановилась: \`trace.line(eyes, eyes.add(forward.scale(8192)), { ignore:
 			player }).entity\`.
 
-			Pawn: \`trace_line\`, \`engfunc(EngFunc_TraceLine, ...)\`, \`get_tr2\`
+			Pawn: \`trace_line\`, \`engfunc(EngFunc_TraceLine, ...)\`, \`create_tr2\`, \`get_tr2\`, \`free_tr2\`
 		`,
 	},
 	'trace.hull': {

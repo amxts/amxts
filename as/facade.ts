@@ -1662,7 +1662,7 @@ export class ServerPlugin {
 	 * player crosses as Pawn takes it. A TypeScript plugin is called through
 	 * its module instead: it throws.
 	 *
-	 * Pawn: `callfunc_begin`, `callfunc_push_*`, `callfunc_end`
+	 * Pawn: `callfunc_begin`, `callfunc_begin_i`, `get_func_id`, `callfunc_push_*`, `callfunc_end`
 	 */
 	call<T1 = NoArgument, T2 = NoArgument, T3 = NoArgument, T4 = NoArgument, T5 = NoArgument, T6 = NoArgument>(
 		name: string, a1: T1 = zeroOf<T1>(), a2: T2 = zeroOf<T2>(), a3: T3 = zeroOf<T3>(), a4: T4 = zeroOf<T4>(), a5: T5 = zeroOf<T5>(), a6: T6 = zeroOf<T6>(),
@@ -5490,7 +5490,7 @@ export namespace trace {
 	 * what: `trace.line(eyes, eyes.add(forward.scale(8192)), { ignore: player
 	 * }).entity`.
 	 *
-	 * Pawn: `trace_line`, `engfunc(EngFunc_TraceLine, ...)`, `get_tr2`
+	 * Pawn: `trace_line`, `engfunc(EngFunc_TraceLine, ...)`, `create_tr2`, `get_tr2`, `free_tr2`
 	 */
 	export function line(start: number[], end: number[], options: TraceOptions = {}): TraceResult {
 		_traceLine(tracePoints(start, end), traceFlags(options), traceIgnored(options), changetype<usize>(traceOut));

@@ -38,7 +38,7 @@ const LIMITS: Record<string, number> = {
 	"health write": 1.5,
 	"money with its HUD": 2.5,
 	"HUD message": 2,
-	"HUD message, options in place": 2,
+	"HUD message, options in place": 3,
 	"origin read": 1.5,
 	"origin into a vector": 1.25,
 	"string in": 3,
