@@ -99,10 +99,11 @@ beforeAll(async () => {
  *
  * `--exportRuntime` gives an allocator and nothing that knows what a string
  * is, so the two conversions are here: AssemblyScript stores UTF-16 with its
- * byte length in the word before the data.
+ * byte length in the word before the data. Pinned: nothing in the module
+ * references it, and the next string's allocation may run the collector.
  */
 function str(value: string): number {
-	const pointer = exports.__new(value.length << 1, exports.STRING_ID.value);
+	const pointer = exports.__pin(exports.__new(value.length << 1, exports.STRING_ID.value));
 	const memory = new Uint16Array(exports.memory.buffer);
 
 	for (let i = 0; i < value.length; i++) {
