@@ -6747,6 +6747,15 @@ static cell AMX_NATIVE_CALL n_copyKeyvalue(AMX *amx, cell *params)
 	return 1;
 }
 
+// The cvars plugins made, in the module's own memory: Metamod asks whose
+// library a registered cvar lives in (dladdr), and for a heap address some
+// allocators - AddressSanitizer's - give it a library name it cannot open.
+// The engine keeps a cvar for the process, so they are never given back; a
+// plugin past the room makes the rest on the heap.
+#define CVARS_ROOM 512
+static cvar_t g_cvarsMade[CVARS_ROOM];
+static int g_cvarsCount = 0;
+
 /**
  * create_cvar(name, string, flags, ...) and register_cvar(name, string,
  * flags, ...) for a TypeScript plugin: the engine's cvar, made as AMX Mod X
@@ -6762,7 +6771,7 @@ static cell AMX_NATIVE_CALL n_createCvar(AMX *amx, cell *params)
 	cvar_t *cvar = name && *name ? CVAR_GET_POINTER(name) : NULL;
 	if (!cvar && name && *name) {
 		const char *value = MF_GetAmxString(amx, params[2], 1, &len);
-		cvar_t *made = new cvar_t();
+		cvar_t *made = g_cvarsCount < CVARS_ROOM ? &g_cvarsMade[g_cvarsCount++] : new cvar_t();
 		made->name = strdup(name);
 		made->string = strdup(value ? value : "");
 		made->flags = params[0] >= (cell)(3 * sizeof(cell)) ? (int)params[3] : 0;
