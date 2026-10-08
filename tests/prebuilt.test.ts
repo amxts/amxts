@@ -8,7 +8,8 @@ import { dirname, join } from 'node:path';
 // against - and what they were made from, and a build takes them while the
 // project would make the same - else it says why not. A core is its ABI: the
 // module is compiled here as 0.9.1 and taken as 0.9.2, another patch of its
-// line with the same hood, as the server's module of that line loads it.
+// line on the same ground with every import it uses, as the server's module
+// of that line loads it.
 // @ts-ignore - bun:test types not available during type checking
 import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { prebuiltOf, prebuiltSurface } from '../scripts/prebuilt';
@@ -131,7 +132,8 @@ describe.skipIf(!existsSync(wamrcPath()))('a module that comes compiled', () => 
 		expect(Object.keys(made.systems)).toEqual(['windows', 'linux']);
 		expect(Object.keys(made.from)).toEqual(['@amxts/core', '@test/greeter']);
 		expect(made.from['@amxts/core'].version).toBe('0.9.1');
-		expect(made.from['@amxts/core'].abi).toMatch(/^0\.9\.1\+abi\.[0-9a-f]{8}$/);
+		// The ABI its .aot carries: the identity, then the imports it uses.
+		expect(made.from['@amxts/core'].abi).toMatch(/^0\.9\.1\+abi\.[0-9a-f]{8}\n\S+ \(/);
 		expect(made.options).toEqual({ '@test/greeter': { greeting: 'Hello', times: 1 } });
 		// A number crosses as an include declares it: the declaration is part of the build.
 		expect(made.forwards).toEqual({ greeter_greeted: null });
@@ -158,6 +160,18 @@ describe.skipIf(!existsSync(wamrcPath()))('a module that comes compiled', () => 
 		const other = `${abi.slice(0, abi.indexOf('+'))}+abi.99999999`;
 		expect(withManifest(made => Object.assign(made.from['@amxts/core'], { abi: other }))).toEqual({ why: expect.stringContaining(`greeter 1.2.3 was built for amxts ${other}, the project has 0.9.2+abi.`) });
 		expect(withManifest(made => Object.assign(made, { format: 1 }))).toEqual({ why: 'greeter 1.2.3 comes compiled for another build of amxts' });
+	});
+
+	test('a core of its line takes it while it has every import the module uses, each of the same shape', () => {
+		const abi = manifest().from['@amxts/core'].abi!;
+		const [identity, first] = abi.split('\n');
+		expect(identity).toStartWith('0.9.1+abi.');
+		const name = first.split(' ', 1)[0];
+		// Built by a later patch, with an import the project's core does not have yet.
+		const later = abi.replace(identity, identity.replace('0.9.1', '0.9.3')).replace(`\n${first}`, `\n${first.replace(name, 'zz_later')}`);
+		expect(withManifest(made => Object.assign(made.from['@amxts/core'], { abi: later }))).toEqual({ why: 'greeter 1.2.3 was built for amxts 0.9.3 or later (it uses zz_later), the project has 0.9.2' });
+		const reshaped = abi.replace(`\n${first}`, `\n${first}x`);
+		expect(withManifest(made => Object.assign(made.from['@amxts/core'], { abi: reshaped }))).toEqual({ why: `greeter 1.2.3 was built for another shape of ${name}` });
 	});
 
 	test('what the project would compile otherwise is said, and compiled', () => {

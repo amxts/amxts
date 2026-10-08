@@ -10,9 +10,8 @@ import { spawnSync } from 'node:child_process';
 // and amxts-compile.exe on a server - so that a plugin compiles the same way
 // in both places. In particular the `~/` alias, which is ours rather than
 // AssemblyScript's and lives in the readFile hook below.
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, relative, resolve } from 'node:path';
 // The Binaryen asc itself runs on - the same copy, so the compiler a server
 // gets carries one - for the one pass asc does not run: Asyncify.
 // @ts-ignore - shipped as JavaScript, with types beside it we do not need here
@@ -20,7 +19,7 @@ import * as assemblyscript from '../runtime/deps/assemblyscript/dist/assemblyscr
 // @ts-ignore - its types are beside it, under a path tsconfig does not map
 import binaryen from '../runtime/deps/assemblyscript/node_modules/binaryen/index.js';
 import { ascMain } from './asc';
-import { ABI_SECTION, abiIdentity } from './build-identity';
+import { ABI_SECTION, nativesFile, pluginAbi } from './build-identity';
 import { LEAF_NATIVES } from './leaf-natives';
 import { playerFieldsBuild } from './player-fields';
 import { includeName, nativeContract, nativesTransform, pawnInclude } from './plugin-natives';
@@ -124,11 +123,7 @@ const BORROWING_IMPORTS = new Set(['env.ent_vector']);
  * options a function reads, is no reason to keep it on the heap.
  */
 const COPIED_ARGUMENTS: ReadonlyMap<string, number[]> = (() => {
-	const file = [
-		process.env.AMXTS_NATIVES,
-		join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'runtime/natives.txt'),
-		join(dirname(process.execPath), 'natives.txt'),
-	].find(each => each && existsSync(each));
+	const file = nativesFile();
 	if (!file) return new Map();
 	return new Map(readFileSync(file, 'utf8').split(/\r?\n/).flatMap((line) => {
 		const [name, , crossing] = line.split(' ');
@@ -286,7 +281,7 @@ export async function compileToWasm(
 	}
 	if (typeof made === 'string') return made;
 	mkdirSync(dirname(resolve(wasm)), { recursive: true });
-	writeFileSync(wasm, withSection(withSection(made.binary, MAP_SECTION, mapText(made.map)), ABI_SECTION, abiIdentity()));
+	writeFileSync(wasm, withSection(withSection(made.binary, MAP_SECTION, mapText(made.map)), ABI_SECTION, pluginAbi(importsOf(made.binary))));
 	return null;
 }
 

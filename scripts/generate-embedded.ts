@@ -60,7 +60,8 @@ writeFileSync(
 #define AMXTS_BUILD "${buildIdentity()}"
 
 // The ABI of the plugins it loads: a plugin carries the one it was compiled
-// against, and one of another is not loaded.
+// against with the imports it uses, and is loaded when it is of this line and
+// ground and tools/natives.txt below has each of its imports the same.
 #define AMXTS_ABI "${abiIdentity()}"
 
 ${files.map(f => `static const char *const ${f.name}[] = {\n${chunks(f.text)}\n};`).join('\n\n')}

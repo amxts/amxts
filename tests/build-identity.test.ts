@@ -5,9 +5,10 @@
  * a plugin's source, refusing a compiler of another build.
  *
  * And the ABI a plugin is compiled against: the version and a hash of the
- * hood's imports, natives table and patches, written into the plugin, which
- * the module checks before it loads it - by the line and the hash, so a
- * plugin of one patch loads on another's module.
+ * ground, then the shape of every import it uses, written into the plugin,
+ * which the module checks before it loads it - by the line, the hash and its
+ * imports, so a plugin of one patch loads on another's module that has what
+ * it uses.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -16,7 +17,7 @@ import { join } from 'node:path';
 // @ts-ignore - bun:test types not available during type checking
 import { expect, setDefaultTimeout, test } from 'bun:test';
 import pkg from '../package.json';
-import { ABI_SECTION, abiIdentity, abiLine, buildDefines, buildIdentity, importsOf, releaseLine } from '../scripts/build-identity';
+import { ABI_LOCK, ABI_SECTION, abiIdentity, abiLine, buildDefines, buildIdentity, importShapes, pluginAbi, releaseLine, shapeChanges } from '../scripts/build-identity';
 import { compilePlugin } from '../scripts/compile';
 import { readSection } from '../scripts/source-map';
 import { moduleAbiOf, wamrcPath } from '../scripts/system';
@@ -82,30 +83,43 @@ test('a module file is read for its ABI: test:server builds one again whose line
 	expect(moduleAbiOf(join(out, 'missing.dll'))).toBeNull();
 });
 
-test('an import is its name and its types: a parameter renamed is the same ABI', () => {
-	const code = [
-		'@external("env", "ent_get")         declare function _entGet(id: i32, offset: i32): i32;',
-		'@external("env", "co_suspend")',
-		'declare function suspend(): void;',
-		'@external("env", "net_close") export declare function netClose(request: i32);',
-	].join('\n');
+test('an import is its line of the natives table: its name, its types, how its arguments cross', () => {
+	const shapes = importShapes();
+	expect(shapes.get('abort')).toBe('abort (iiii)');
+	expect(shapes.get('add')).toStartWith('add (iiii)i ');
+	expect(pluginAbi(['env.add', 'env.abort'])).toBe([abiIdentity(), shapes.get('abort'), shapes.get('add')].join('\n'));
+});
 
-	expect(importsOf(code)).toEqual(['ent_get(i32,i32)i32', 'co_suspend()void', 'net_close(i32)void']);
-	expect(importsOf(code.replace('offset: i32', 'at: i32'))).toEqual(importsOf(code));
-	expect(importsOf(code.replace('offset: i32', 'offset: f64'))).not.toEqual(importsOf(code));
+test('within a line a released import keeps its shape, and is not taken away', () => {
+	const lock = ['# a comment', '0.3.0', 'add (iiii)i s', 'ent_get (ii)i', ''].join('\n');
+	const natives = ['# GENERATED', 'add (iiii)i s', 'ent_get (ii)i', 'ent_get2 (iii)i', ''].join('\n');
+	expect(shapeChanges(lock, natives, '0.3.2')).toEqual([]);
+	expect(shapeChanges(lock, natives.replace('add (iiii)i s', 'add (iiii)i s leaf'), '0.3.2')).toEqual(['add (iiii)i s']);
+	expect(shapeChanges(lock, natives.replace('ent_get (ii)i\n', ''), '0.3.2')).toEqual(['ent_get (ii)i']);
+	// Another line owes the lock nothing.
+	expect(shapeChanges(lock, '', '0.4.0')).toEqual([]);
+
+	// The core's own table keeps the lock of its line.
+	if (existsSync(ABI_LOCK)) expect(shapeChanges(readFileSync(ABI_LOCK, 'utf8'), readFileSync('runtime/natives.txt', 'utf8'))).toEqual([]);
 });
 
 test('a plugin carries the ABI it is compiled against, into its .aot', async () => {
 	const wasm = join(out, 'abi.wasm');
 	expect(await compileWasmFile({ source: 'tests/as/player-api.ts', root: 'as' }, wasm)).toBeNull();
-	expect(readSection(new Uint8Array(readFileSync(wasm)), ABI_SECTION)).toBe(abiIdentity());
+	const [identity, ...imports] = readSection(new Uint8Array(readFileSync(wasm)), ABI_SECTION)!.split('\n');
+	expect(identity).toBe(abiIdentity());
+	// The imports it uses, each as the natives table has it.
+	const shapes = importShapes();
+	expect(imports).toContain(shapes.get('ent_get')!);
+	expect(imports.every(shape => shapes.get(shape.split(' ', 1)[0]) === shape)).toBe(true);
+	expect(imports.length).toBeLessThan(shapes.size / 4);
 
 	const wamrc = wamrcPath();
 	if (!existsSync(wamrc)) return;
 	const aot = join(out, 'abi.aot');
 	const plugin = { source: 'tests/as/player-api.ts', output: aot, root: 'as', wamrc, signatures: 'runtime/natives.txt', quick: true };
 	expect(await compilePlugin(plugin)).toBeNull();
-	expect(readFileSync(aot).includes(`${ABI_SECTION}\0${abiIdentity()}`)).toBe(true);
+	expect(readFileSync(aot).includes(`${ABI_SECTION}\0${abiIdentity()}\n`)).toBe(true);
 });
 
 /** The ABI section of `source` compiled as `version`, and whether the compile came from the cache. */

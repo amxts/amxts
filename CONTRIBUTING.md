@@ -99,7 +99,9 @@ bun run generate
 ```
 
 It runs `bun run setup` first, then writes the API from the includes.
-`bun run clean` removes what the build made.
+`bun run clean` removes what the build made. Within a release line a
+released import keeps its shape (`runtime/abi-lock.txt`): when generate
+stops on one, give the new shape a new name instead.
 
 **6. The natives' image and the module that carries it:**
 

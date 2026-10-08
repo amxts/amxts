@@ -5304,27 +5304,90 @@ static std::string AbiLine(const std::string &abi)
 }
 
 /**
- * Whether a plugin of the ABI `abi` loads here: one of this module's line and
- * hash - any patch of 0.3 of the same hood, 0.3.0+abi.1a2b3c4d under
- * 0.3.1+abi.1a2b3c4d (scripts/build-identity.ts).
+ * This module's imports by name, each with its shape: its line of the
+ * natives table the module carries (tools/natives.txt in embedded.h) -
+ * `add (iiii)i [a1>,v,s,v leaf`.
  */
-static bool AbiFits(const std::string &abi)
+static const std::unordered_map<std::string, std::string> &ImportShapes()
 {
-	std::string ours = AMXTS_ABI;
-	size_t at = abi.find('+');
-	return at != std::string::npos && AbiLine(abi) == AbiLine(ours) && abi.substr(at) == ours.substr(ours.find('+'));
+	static std::unordered_map<std::string, std::string> shapes;
+	if (!shapes.empty())
+		return shapes;
+	for (size_t i = 0; i < sizeof(g_embedded) / sizeof(g_embedded[0]); i++) {
+		if (strcmp(g_embedded[i].path, "tools/natives.txt") != 0)
+			continue;
+		std::string text;
+		for (int c = 0; c < g_embedded[i].count; c++)
+			text += g_embedded[i].chunks[c];
+		for (size_t at = 0, end; at < text.size(); at = end + 1) {
+			end = text.find('\n', at);
+			if (end == std::string::npos)
+				end = text.size();
+			std::string line = text.substr(at, end - at);
+			if (!line.empty() && line[0] != '#')
+				shapes[line.substr(0, line.find(' '))] = line;
+		}
+	}
+	return shapes;
 }
 
 /**
- * Whether a plugin is of this module's ABI; when not, one line says so. It
- * names the lines when they differ, and the whole ABIs when only the hood
- * does.
+ * Whether a plugin whose ABI section is `abi` loads here. Its first line is
+ * the identity, which has to be of this module's line and ground - any patch
+ * of 0.3 on the same ground, 0.3.0+abi.1a2b3c4d under 0.3.1+abi.1a2b3c4d -
+ * and every line after it the shape of an import the plugin uses, which
+ * this module has to have the same (scripts/build-identity.ts). When an
+ * import does not fit, `import` gets its name.
+ */
+static bool AbiFits(const std::string &abi, std::string *import = NULL)
+{
+	std::string ours = AMXTS_ABI;
+	size_t end = abi.find('\n');
+	std::string identity = abi.substr(0, end);
+	size_t at = identity.find('+');
+	if (at == std::string::npos || AbiLine(identity) != AbiLine(ours) || identity.substr(at) != ours.substr(ours.find('+')))
+		return false;
+	const std::unordered_map<std::string, std::string> &shapes = ImportShapes();
+	while (end != std::string::npos) {
+		size_t next = abi.find('\n', end + 1);
+		std::string shape = abi.substr(end + 1, next == std::string::npos ? std::string::npos : next - end - 1);
+		std::string name = shape.substr(0, shape.find(' '));
+		std::unordered_map<std::string, std::string>::const_iterator it = shapes.find(name);
+		if (it == shapes.end() || it->second != shape) {
+			if (import)
+				*import = name;
+			return false;
+		}
+		end = next;
+	}
+	return true;
+}
+
+/**
+ * Whether a plugin is of this module's ABI; when not, one line says so. An
+ * import this module does not have is one of a later patch, which the
+ * plugin's own version names; an import of another shape means the plugin
+ * is built again. Otherwise it names the lines when they differ, and the
+ * whole identities when only the ground does.
  */
 static bool OfThisAbi(const char *name, const unsigned char *data, size_t size)
 {
 	std::string abi = AotAbi(data, size);
-	if (AbiFits(abi))
+	std::string import;
+	if (AbiFits(abi, &import))
 		return true;
+	abi = abi.substr(0, abi.find('\n'));
+	if (!import.empty() && ImportShapes().count(import)) {
+		MF_PrintSrvConsole("[amxts] %s was built for another shape of %s: build it again\n", name, import.c_str());
+		g_refusal = "built for another shape of " + import;
+		return false;
+	}
+	if (!import.empty()) {
+		std::string version = abi.substr(0, abi.find('+'));
+		MF_PrintSrvConsole("[amxts] %s needs amxts %s or later (it uses %s): npx amxts upgrade\n", name, version.c_str(), import.c_str());
+		g_refusal = "needs amxts " + version + " or later";
+		return false;
+	}
 	std::string ours = AMXTS_ABI;
 	bool sameLine = AbiLine(abi) == AbiLine(ours);
 	std::string built = abi.empty() ? "an older amxts" : "amxts " + (sameLine ? abi : AbiLine(abi));

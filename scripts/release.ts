@@ -38,6 +38,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { ABI_LOCK } from './build-identity';
 import { releaseNotes } from './changelog';
 import { manifestName, releaseProblems } from './release-check';
 import { releaseLine } from './release-line';
@@ -92,6 +93,14 @@ function releaseTag(): string {
 		throw new ReleaseError(`no tag: tag the commit v${VERSION}, or pass --tag`);
 	}
 	if (tag !== `v${VERSION}`) throw new ReleaseError(`the tag is ${tag}, and package.json says ${VERSION}: a release is v<version>`);
+	// The imports this release's plugins may use, locked for the rest of its line.
+	const lock = join(CORE, ABI_LOCK);
+	const locked = existsSync(lock) ? readFileSync(lock, 'utf8').split(/\r?\n/).find(line => line && !line.startsWith('#')) : undefined;
+	if (locked !== VERSION) {
+		const said = `${ABI_LOCK} is of ${locked ?? 'no release'}, this is ${VERSION}: run bun run abi:lock and commit it`;
+		if (!dryRun) throw new ReleaseError(said);
+		console.log(said);
+	}
 	return tag;
 }
 

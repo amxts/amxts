@@ -105,6 +105,7 @@
 		"plugins": "bun scripts/build-wasm.ts",
 		"serverkit": "bun scripts/pack-server.ts",
 		"server:image": "bun scripts/server-image.ts",
+		"abi:lock": "bun scripts/abi-lock.ts",
 		"release:windows": "bun scripts/release.ts windows",
 		"release:linux": "bun scripts/release.ts linux",
 		"release:upload": "bun scripts/release.ts upload",

@@ -23,12 +23,13 @@
 //   Binaryen, the API in as/, the natives table wamrc reads and the WAMR
 //   patch - which also decides whether the server's module loads the .aot.
 //   A package from the registry is its ABI (scripts/build-identity.ts): the
-//   .aot is taken under any core of its line whose hood is the same, as the
-//   server's module of that line loads it - a core's patch release needs no
-//   module released again. The .aot keeps the facade of the core it was
-//   compiled with, as any plugin built before the patch does. A folder on
-//   this machine (a checkout) is its content too, so the version, the ABI
-//   and a hash are all kept;
+//   .aot is taken under any core of its line on the same ground that has
+//   every import it uses with the same shape, as the server's module of that
+//   line loads it - a core's patch release needs no module released again,
+//   only one that uses what a later patch added. The .aot keeps the facade
+//   of the core it was compiled with, as any plugin built before the patch
+//   does. A folder on this machine (a checkout) is its content too, so the
+//   version, the ABI and a hash are all kept;
 // - every module package the compile reads - the module, and the ones it
 //   imports (menu-core reads config-core for its proxy) - the same way;
 // - the options amxts.config.ts gives them: setup is compiled with them;
@@ -51,12 +52,13 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
-import { abiIdentity, abiLine, coreVersion, releaseLine } from './build-identity';
+import { ABI_SECTION, abiIdentity, abiLine, coreVersion, importName, importShapes, releaseLine } from './build-identity';
 import { compileToMachineCode, compileToWasm } from './compile';
 import { codeFiles } from './compile-cache';
 import { includeForward, nativesBeside } from './plugin-natives';
 import { CORE_DIR, CORE_PLUGINS, loadProject, optionsOf, shared, sourcesFor } from './project';
 import { moduleSurface } from './shared-modules';
+import { readSection } from './source-map';
 import { SYSTEM_NAME, SYSTEMS, wamrcPath } from './system';
 import { c, log, since } from './ui';
 
@@ -248,14 +250,23 @@ function mismatch(manifest: PrebuiltManifest, pkg: ModulePackage, sources: Sourc
 }
 
 /**
- * How the ABI a module was built for differs from the project's - `amxts 0.2,
- * the project has 0.3`, or both whole within a line - or false when the
- * server's module would load it.
+ * How the ABI a module was built for (the identity and its imports, as its
+ * .aot carries them) differs from the project's - `amxts 0.2, the project
+ * has 0.3`, both whole within a line, an import of a later patch or of
+ * another shape - or false when the server's module would load it: a module
+ * built by one patch serves every patch of its line that has its imports.
  */
 function otherAbi(built: string, have: string): string | false {
-	if (abiLine(built) === abiLine(have)) return false;
-	const line = (abi: string) => releaseLine(abi.slice(0, abi.indexOf('+')));
-	return line(built) === line(have) ? `amxts ${built}, the project has ${have}` : `amxts ${line(built)}, the project has ${line(have)}`;
+	const [identity, ...imports] = built.split('\n');
+	if (abiLine(identity) !== abiLine(have)) {
+		const line = (abi: string) => releaseLine(abi.slice(0, abi.indexOf('+')));
+		return line(identity) === line(have) ? `amxts ${identity}, the project has ${have}` : `amxts ${line(identity)}, the project has ${line(have)}`;
+	}
+	const shapes = importShapes();
+	const misfit = imports.find(shape => shapes.get(importName(shape)) !== shape);
+	if (!misfit) return false;
+	const name = importName(misfit);
+	return shapes.has(name) ? `another shape of ${name}` : `amxts ${identity.slice(0, identity.indexOf('+'))} or later (it uses ${name}), the project has ${coreVersion()}`;
 }
 
 /** The `new Forward<...>("name")` calls of a package whose arguments are not all text: their names. */
@@ -279,6 +290,7 @@ async function prebuild(pkg: ModulePackage, sources: Sources): Promise<string> {
 	rmSync(dir, { recursive: true, force: true });
 	mkdirSync(dir, { recursive: true });
 	const owner = sources.ownerSource(pkg);
+	const core = installed(CORE_NAME, sources)!;
 	const plugin = { source: owner, output: '', root: CORE_PLUGINS, wamrc: wamrcPath(), signatures: join(CORE_DIR, 'runtime/natives.txt'), quick: false };
 	const natives: PluginNative[] = [];
 	const wasm = join(dir, `${pkg.short}.wasm`);
@@ -295,18 +307,19 @@ async function prebuild(pkg: ModulePackage, sources: Sources): Promise<string> {
 		const bytes = readFileSync(output);
 		systems[system] = { file: `${PREBUILT_DIR}/${system}/${pkg.short}.aot`, size: bytes.length, sha256: sha256(bytes) };
 	}
+	// The ABI the .aot carries: the identity, and the imports it uses.
+	const abi = readSection(new Uint8Array(readFileSync(wasm)), ABI_SECTION) ?? undefined;
 	rmSync(wasm, { force: true });
 
 	// What the compile read: its places in the tree, and the packages they are in.
 	const reached = sources.reach(join(CORE_PLUGINS, 'facade.ts'), sources.reach(join(CORE_PLUGINS, sources.entry(owner))));
 	const places = [...reached].map(place => posix(relative(CORE_PLUGINS, place))).sort();
 	const used = sources.project.modules.filter(each => each === pkg || [...reached].some(place => sources.packageOf(sources.real(place) ?? place) === each));
-	const core = installed(CORE_NAME, sources)!;
 	const manifest: PrebuiltManifest = {
 		format: FORMAT,
 		module: pkg.name,
 		version: pkg.version,
-		from: Object.fromEntries([[CORE_NAME, { version: core.version, hash: core.hash(), abi: core.abi }], ...used.map(each => [each.name, { version: each.version, hash: packageHash(each) }])]),
+		from: Object.fromEntries([[CORE_NAME, { version: core.version, hash: core.hash(), abi }], ...used.map(each => [each.name, { version: each.version, hash: packageHash(each) }])]),
 		options: Object.fromEntries(used.map(each => [each.name, optionsOf(sources.project, each.definition)])),
 		forwards: Object.fromEntries(used.flatMap(typedForwards).map(name => [name, declarationOf(name)])),
 		places,

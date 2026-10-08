@@ -768,13 +768,15 @@ interface Refused {
 }
 
 /**
- * The first plugin built, three times more: stamped with an ABI of another
- * line, with one of its line but another hood's hash, and with none, as one
- * built before plugins carried it. The module refuses each with one line and
- * loads the plugins listed after them as usual (scripts/build-identity.ts).
- * The first plugin itself is stamped with another patch of its line, which
- * the module loads: its suites run as any other's. The ABI is changed in
- * place, keeping its length, so the section keeps its size.
+ * The first plugin built, five times more: stamped with an ABI of another
+ * line, with one of its line but another ground's hash, with none, as one
+ * built before plugins carried it, with an import a later patch would add,
+ * and with an import of another shape. The module refuses each with one line
+ * and loads the plugins listed after them as usual
+ * (scripts/build-identity.ts). The first plugin itself is stamped with
+ * another patch of its line, which the module loads: its suites run as any
+ * other's. The ABI is changed in place, keeping its length, so the section
+ * keeps its size.
  */
 function refusedCopies(built: string[]): Refused[] {
 	const abi = abiIdentity();
@@ -789,6 +791,14 @@ function refusedCopies(built: string[]): Refused[] {
 		bytes.write(section, at, 'latin1');
 		writeFileSync(join(buildDir, file), bytes);
 	};
+	// The section's content ends where its size says: the custom section's
+	// header (type, size) and kind and name's length lie before its name.
+	const content = at + ABI_SECTION.length + 1;
+	const section = aot.toString('latin1', content, at - 6 + aot.readUInt32LE(at - 10));
+	const shapes = section.split('\n').slice(1);
+	const typed = shapes.find(shape => shape.includes('(i'))!;
+	const newer = shapes[0].replace(/^[^ ]+/, name => 'z'.repeat(name.length));
+	const restamp = (file: string, from: string, to: string) => stamp(file, `${ABI_SECTION}\0${section.replace(`\n${from}`, `\n${to}`)}`);
 	const otherLine = `${version.replace(/\d/g, '9')}${hash}`;
 	const otherHood = `${version}+abi.${'9'.repeat(hash.length - '+abi.'.length)}`;
 	const copies = [
@@ -800,6 +810,10 @@ function refusedCopies(built: string[]): Refused[] {
 		stamp(copy.file, copy.abi ? `${ABI_SECTION}\0${copy.abi}` : `amxts.xyz\0${abi}`);
 		return { file: copy.file, line: `[amxts] ${copy.file} was built for ${copy.by}, this is ${copy.ours} - build it again` };
 	});
+	restamp('newer-import.aot', shapes[0], newer);
+	refused.push({ file: 'newer-import.aot', line: `[amxts] newer-import.aot needs amxts ${version} or later (it uses ${newer.split(' ', 1)[0]}): npx amxts upgrade` });
+	restamp('other-shape.aot', typed, typed.replace('(i', '(F'));
+	refused.push({ file: 'other-shape.aot', line: `[amxts] other-shape.aot was built for another shape of ${typed.split(' ', 1)[0]}: build it again` });
 	const otherPatch = abi.replace(/^(\d+\.\d+\.)(\d)/, (_, head: string, digit: string) => `${head}${digit === '9' ? '8' : '9'}`);
 	stamp(built[0], `${ABI_SECTION}\0${otherPatch}`);
 	return refused;
