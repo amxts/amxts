@@ -378,7 +378,7 @@ index f876049..8d02018 100644
  function builtin_isArray(ctx: BuiltinFunctionContext): ExpressionRef {
    let compiler = ctx.compiler;
 diff --git a/src/compiler.ts b/src/compiler.ts
-index f99bd5a..883ba1e 100644
+index f99bd5a..ad70f1e 100644
 --- a/src/compiler.ts
 +++ b/src/compiler.ts
 @@ -49,22 +49,26 @@ import {
@@ -4720,14 +4720,10 @@ index f99bd5a..883ba1e 100644
        let member = classReference.getMember(memberName);
        if (!member || member.kind != ElementKind.PropertyPrototype) {
          this.error(
-@@ -8734,11 +11658,82 @@ export class Compiler extends DiagnosticEmitter {
-         deferredProperties.push(propertyInstance);
-         continue;
+@@ -8736,9 +11660,64 @@ export class Compiler extends DiagnosticEmitter {
        }
--
--      let propertyType = propertyInstance.type;
-+
-+      let propertyType = propertyInstance.type;
+ 
+       let propertyType = propertyInstance.type;
 +      let value = values[i];
 +      // amxts: `{ title: "Shop" }` where title is `string | (...) => string` - see compileText
 +      let fieldDeclaration = propertyInstance.prototype.fieldDeclaration;
@@ -4780,23 +4776,7 @@ index f99bd5a..883ba1e 100644
 +      // call of the setter a subclass might override: the object is not given
 +      // to a call
 +      if (isManaged) {
-+        let valueTypeRef = propertyType.toRef();
-+        let linked = propertyType.isManaged && !isConstZero(valueExpr);
-+        let tempValue = linked ? flow.getTempLocal(propertyType) : null;
-+        if (tempValue) {
-+          exprs.push(module.local_set(tempValue.index, valueExpr, false));
-+          valueExpr = module.local_get(tempValue.index, valueTypeRef);
-+        }
-+        exprs.push(module.store(propertyType.byteSize, module.local_get(tempLocal.index, classTypeRef), valueExpr, valueTypeRef, propertyInstance.memoryOffset));
-+        if (tempValue) {
-+          let linkInstance = this.program.linkInstance;
-+          this.compileFunction(linkInstance);
-+          exprs.push(module.call(linkInstance.internalName, [
-+            module.local_get(tempLocal.index, classTypeRef),
-+            module.local_get(tempValue.index, valueTypeRef),
-+            module.i32(0)
-+          ], TypeRef.None));
-+        }
++        this.makeFieldStore(propertyInstance, tempLocal.index, valueExpr, exprs);
 +        continue;
 +      }
        let expr = this.makeCallDirect(setterInstance, [
@@ -4806,7 +4786,7 @@ index f99bd5a..883ba1e 100644
        ], setterInstance.identifierNode, true);
        if (this.currentType != Type.void) { // in case
          expr = module.drop(expr);
-@@ -8826,12 +11821,25 @@ export class Compiler extends DiagnosticEmitter {
+@@ -8826,12 +11805,25 @@ export class Compiler extends DiagnosticEmitter {
      // instead checks conditions above with provided fields taken into account.
  
      // allocate a new instance first and assign 'this' to the temp. local
@@ -4838,7 +4818,7 @@ index f99bd5a..883ba1e 100644
  
      // once all field values have been set, return 'this'
      exprs.push(
-@@ -8924,7 +11932,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -8924,7 +11916,9 @@ export class Compiler extends DiagnosticEmitter {
        let contextualTypeArguments = cloneMap(classInstance.contextualTypeArguments);
        if (baseClass) {
          let baseCtor = this.ensureConstructor(baseClass, reportNode);
@@ -4849,7 +4829,7 @@ index f99bd5a..883ba1e 100644
          instance = new Function(
            CommonNames.constructor,
            new FunctionPrototype(
-@@ -9039,6 +12049,8 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9039,6 +12033,8 @@ export class Compiler extends DiagnosticEmitter {
      if (classInstance.didCheckFieldInitialization) return;
      classInstance.didCheckFieldInitialization = true;
      let ctor = assert(classInstance.constructorInstance);
@@ -4858,7 +4838,7 @@ index f99bd5a..883ba1e 100644
      this.checkFieldInitializationInFlow(classInstance, ctor.flow, relatedNode);
    }
  
-@@ -9128,6 +12140,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9128,6 +12124,9 @@ export class Compiler extends DiagnosticEmitter {
      let resolver = this.resolver;
      let target = resolver.lookupExpression(expression, flow, ctxType); // reports
      if (!target) return module.unreachable();
@@ -4868,7 +4848,7 @@ index f99bd5a..883ba1e 100644
      let thisExpression = resolver.currentThisExpression;
      if (target.hasDecorator(DecoratorFlags.Unsafe)) this.checkUnsafe(expression);
  
-@@ -9209,7 +12224,12 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9209,7 +12208,12 @@ export class Compiler extends DiagnosticEmitter {
              Constraints.ConvImplicit | Constraints.IsThis
            );
          }
@@ -4882,7 +4862,7 @@ index f99bd5a..883ba1e 100644
        }
        case ElementKind.FunctionPrototype: {
          let functionPrototype = <FunctionPrototype>target;
-@@ -9236,6 +12256,18 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9236,6 +12240,18 @@ export class Compiler extends DiagnosticEmitter {
            return module.unreachable();
          }
  
@@ -4901,7 +4881,7 @@ index f99bd5a..883ba1e 100644
          let offset = this.ensureRuntimeFunction(functionInstance);
          return this.options.isWasm64
            ? module.i64(i64_low(offset), i64_high(offset))
-@@ -9258,6 +12290,11 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9258,6 +12274,11 @@ export class Compiler extends DiagnosticEmitter {
      let ifThen = expression.ifThen;
      let ifElse = expression.ifElse;
  
@@ -4913,7 +4893,7 @@ index f99bd5a..883ba1e 100644
      let condExpr = this.compileExpression(expression.condition, Type.bool);
      let condExprTrueish = this.makeIsTrueish(condExpr, this.currentType, expression.condition);
      // Try to eliminate unnecesssary branches if the condition is constant
-@@ -9272,14 +12309,17 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9272,14 +12293,17 @@ export class Compiler extends DiagnosticEmitter {
  
      let outerFlow = this.currentFlow;
      let ifThenFlow = outerFlow.forkThen(condExpr);
@@ -4931,7 +4911,7 @@ index f99bd5a..883ba1e 100644
  
      if (contextualType == Type.void) { // values, including type mismatch, are irrelevant
        if (ifThenType != Type.void) {
-@@ -9301,6 +12341,11 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9301,6 +12325,11 @@ export class Compiler extends DiagnosticEmitter {
          this.currentType = contextualType;
          return module.unreachable();
        }
@@ -4943,7 +4923,7 @@ index f99bd5a..883ba1e 100644
        ifThenExpr = this.convertExpression(ifThenExpr, ifThenType, commonType, false, ifThen);
        ifThenType = commonType;
        ifElseExpr = this.convertExpression(ifElseExpr, ifElseType, commonType, false, ifElse);
-@@ -9311,7 +12356,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9311,7 +12340,9 @@ export class Compiler extends DiagnosticEmitter {
      outerFlow.inheritAlternatives(ifThenFlow, ifElseFlow);
      this.currentFlow = outerFlow;
  
@@ -4954,7 +4934,7 @@ index f99bd5a..883ba1e 100644
    }
  
    private compileUnaryPostfixExpression(
-@@ -9828,7 +12875,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9828,7 +12859,7 @@ export class Compiler extends DiagnosticEmitter {
            contextualType == Type.void
              ? Type.i32
              : contextualType.isFloatValue
@@ -4963,7 +4943,7 @@ index f99bd5a..883ba1e 100644
                : contextualType,
            Constraints.None
          );
-@@ -9847,7 +12894,12 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9847,7 +12878,12 @@ export class Compiler extends DiagnosticEmitter {
            return module.unreachable();
          }
  
@@ -4977,7 +4957,7 @@ index f99bd5a..883ba1e 100644
  
          switch (this.currentType.kind) {
            case TypeKind.Bool:
-@@ -9887,10 +12939,13 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9887,10 +12923,13 @@ export class Compiler extends DiagnosticEmitter {
        case Token.TypeOf: {
          return this.compileTypeof(expression, contextualType, constraints);
        }
@@ -4992,7 +4972,7 @@ index f99bd5a..883ba1e 100644
          );
          return module.unreachable();
        }
-@@ -10067,6 +13122,8 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10067,6 +13106,8 @@ export class Compiler extends DiagnosticEmitter {
    addDebugLocation(expr: ExpressionRef, range: Range): void {
      let targetFunction = this.currentFlow.targetFunction;
      let source = range.source;
@@ -5001,7 +4981,7 @@ index f99bd5a..883ba1e 100644
      if (source.debugInfoIndex < 0) source.debugInfoIndex = this.module.addDebugInfoFile(source.normalizedPath);
      // It's possible that an `expr` is seen multiple times, for example when
      // first adding debug information for an inner expression and later on for
-@@ -10220,6 +13277,31 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10220,6 +13261,31 @@ export class Compiler extends DiagnosticEmitter {
        case TypeKind.U64: return module.binary(BinaryOp.NeI64, expr, module.i64(0));
        case TypeKind.Isize:
        case TypeKind.Usize: {
@@ -5033,7 +5013,7 @@ index f99bd5a..883ba1e 100644
          return type.size == 64
            ? module.binary(BinaryOp.NeI64, expr, module.i64(0))
            : expr;
-@@ -10323,10 +13405,59 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10323,10 +13389,59 @@ export class Compiler extends DiagnosticEmitter {
      }
    }
  
@@ -5093,7 +5073,7 @@ index f99bd5a..883ba1e 100644
      if (type == stringType) {
        return expr;
      }
-@@ -10364,7 +13495,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10364,7 +13479,7 @@ export class Compiler extends DiagnosticEmitter {
                type.nonNullableType,
                reportNode
              ),
@@ -5102,7 +5082,7 @@ index f99bd5a..883ba1e 100644
            );
          }
          let toStringReturnType = toStringSignature.returnType;
-@@ -10416,6 +13547,23 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10416,6 +13531,49 @@ export class Compiler extends DiagnosticEmitter {
      }
    }
  
@@ -5123,10 +5103,36 @@ index f99bd5a..883ba1e 100644
 +    return this.makeCallDirect(setterInstance, [ thisExpr, valueExpr ], reportNode, true);
 +  }
 +
++  /**
++   * amxts: `object.field = value` where the object is of the field's own
++   * class - an object literal: a store, with the collector's barrier for a
++   * reference, rather than a call of the setter a subclass might override.
++   */
++  private makeFieldStore(field: Property, objectIndex: i32, valueExpr: ExpressionRef, stmts: ExpressionRef[]): void {
++    let module = this.module;
++    let type = field.type;
++    let typeRef = type.toRef();
++    let sizeTypeRef = this.options.sizeTypeRef;
++    let tempValue = type.isManaged && !isConstZero(valueExpr) ? this.currentFlow.getTempLocal(type) : null;
++    if (tempValue) {
++      stmts.push(module.local_set(tempValue.index, valueExpr, false));
++      valueExpr = module.local_get(tempValue.index, typeRef);
++    }
++    stmts.push(module.store(type.byteSize, module.local_get(objectIndex, sizeTypeRef), valueExpr, typeRef, field.memoryOffset));
++    if (!tempValue) return;
++    let linkInstance = this.program.linkInstance;
++    this.compileFunction(linkInstance);
++    stmts.push(module.call(linkInstance.internalName, [
++      module.local_get(objectIndex, sizeTypeRef),
++      module.local_get(tempValue.index, typeRef),
++      module.i32(0)
++    ], TypeRef.None));
++  }
++
    /** Makes a conditional allocation where `this` might not have been initialized yet. */
    makeConditionalAllocation(
      classInstance: Class,
-@@ -10436,85 +13584,689 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10436,85 +13594,694 @@ export class Compiler extends DiagnosticEmitter {
      );
    }
  
@@ -5235,6 +5241,11 @@ index f99bd5a..883ba1e 100644
 +        // amxts: a managed object comes zeroed from the incremental runtime's
 +        // allocation, so a field that starts at zero is not written again
 +        if (zeroed && isConstZero(valueExpr) && !isConstNegZero(valueExpr)) continue;
++        // amxts: an object literal made in place is of this very class
++        if (objectIndex >= 0) {
++          this.makeFieldStore(field, objectIndex, valueExpr, stmts);
++          continue;
++        }
 +        let expr = this.makeFieldSet(field, module.local_get(thisLocalIndex, sizeTypeRef), valueExpr, field.identifierNode);
 +        if (this.currentType != Type.void) { // in case
 +          expr = module.drop(expr);
@@ -5888,7 +5899,7 @@ index f99bd5a..883ba1e 100644
    }
  
    /** Makes a call to `abort`, if present, otherwise creates a trap. */
-@@ -10554,20 +14306,72 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10554,20 +14321,72 @@ export class Compiler extends DiagnosticEmitter {
      let filenameExpr = this.ensureStaticString(codeLocation.range.source.normalizedPath);
      let range = codeLocation.range;
      let source = range.source;
@@ -5970,7 +5981,7 @@ index f99bd5a..883ba1e 100644
    /** Makes a runtime non-null check, e.g. on `<Type>possiblyNull` or `possiblyNull!`. */
    makeRuntimeNonNullCheck(
      /** Expression being checked. */
-@@ -10575,7 +14379,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10575,7 +14394,9 @@ export class Compiler extends DiagnosticEmitter {
      /** Type of the expression. */
      type: Type,
      /** Report node. */
@@ -5981,7 +5992,7 @@ index f99bd5a..883ba1e 100644
    ): ExpressionRef {
      let module = this.module;
      let flow = this.currentFlow;
-@@ -10584,10 +14390,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10584,10 +14405,7 @@ export class Compiler extends DiagnosticEmitter {
      if (!flow.canOverflow(expr, type)) flow.setLocalFlag(tempIndex, LocalFlags.Wrapped);
      flow.setLocalFlag(tempIndex, LocalFlags.NonNull);
  
@@ -5993,7 +6004,7 @@ index f99bd5a..883ba1e 100644
  
      if (type.isExternalReference) {
        let nonNullExpr = module.local_get(tempIndex, type.toRef());
-@@ -10629,10 +14432,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10629,10 +14447,7 @@ export class Compiler extends DiagnosticEmitter {
      let temp = flow.getTempLocal(type);
      let tempIndex = temp.index;
  
@@ -6005,7 +6016,7 @@ index f99bd5a..883ba1e 100644
  
      if (!toType.isNullableReference || flow.isNonnull(expr, type)) {
        // Simplify if the value cannot be `null`. If toType is non-nullable, a
-@@ -10669,6 +14469,20 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10669,6 +14484,20 @@ export class Compiler extends DiagnosticEmitter {
  
  // helpers
  
@@ -6026,7 +6037,7 @@ index f99bd5a..883ba1e 100644
  function mangleImportName(
    element: Element,
    declaration: DeclarationStatement
-@@ -10725,3 +14539,524 @@ function mangleImportName(
+@@ -10725,3 +14554,524 @@ function mangleImportName(
      );
    }
  }
@@ -10431,10 +10442,10 @@ index d34997e..e735e21 100644
        let func = _keys[i];
 diff --git a/src/passes/stackobjects.ts b/src/passes/stackobjects.ts
 new file mode 100644
-index 0000000..f6c9a95
+index 0000000..dcb8e23
 --- /dev/null
 +++ b/src/passes/stackobjects.ts
-@@ -0,0 +1,1028 @@
+@@ -0,0 +1,1060 @@
 +/**
 + * @fileoverview amxts: objects made in the frame of the function that makes them.
 + *
@@ -11292,16 +11303,19 @@ index 0000000..f6c9a95
 +  }
 +
 +  /**
-+   * Whether the code right after the object is made - its inlined
-+   * constructor's stores - writes every byte of it before anything reads
-+   * one: then it needs no zeroing. On the way, a store written over before
++   * The bytes of the object that the code right after it is made - its
++   * inlined constructor's or its literal's stores - writes before anything
++   * reads one: those need no zeroing. On the way, a store written over before
 +   * any read is dropped, and a store through a field holding an address in
 +   * the object (an array's `dataStart`) goes to that address directly. Only
-+   * stores of a constant or an address in the object are followed, and the
-+   * stores into the shadow stack's slots between them, which are elsewhere.
++   * stores of a constant, an address in the object or a value read from a
++   * local or a global are followed, and the stores into the shadow stack's
++   * slots between them, which are elsewhere.
 +   */
-+  private writtenFirst(body: Body, object: StackObject): bool {
++  private writtenFirst(body: Body, object: StackObject): bool[] {
 +    let module = this.module;
++    let size = object.size;
++    let written = new Array<bool>(size).fill(false);
 +    // The object is made by a statement of a block, or kept in a frame's
 +    // slot as it is made.
 +    let made = assert(body.parents.get(object.call));
@@ -11313,12 +11327,10 @@ index 0000000..f6c9a95
 +      made = block;
 +      block = body.parents.get(made);
 +    }
-+    if (!block || _BinaryenExpressionGetId(block) != ExpressionId.Block) return false;
++    if (!block || _BinaryenExpressionGetId(block) != ExpressionId.Block) return written;
 +    let count = _BinaryenBlockGetNumChildren(block);
 +    let at: Index = 0;
 +    while (at < count && _BinaryenBlockGetChildAt(block, at) != made) ++at;
-+    let size = object.size;
-+    let written = new Array<bool>(size).fill(false);
 +    // The offset of each word that holds an address in the object, and that address's offset.
 +    let pointers = new Map<i32, i32>();
 +    // The last store at each offset, not read since: its size, and the store.
@@ -11368,8 +11380,39 @@ index 0000000..f6c9a95
 +      unread.set(start, store);
 +      if (points >= 0 && bytes == 4) pointers.set(start, points);
 +    }
-+    for (let k = 0; k < size; ++k) if (!written[k]) return false;
-+    return true;
++    return written;
++  }
++
++  /**
++   * Zeroes the bytes of an object at `address` in the frame that are not
++   * `written`: by stores of up to 8 bytes, or a fill for a long run.
++   */
++  private zeroing(base: Index, address: i32, written: bool[]): ExpressionRef[] {
++    let module = this.module;
++    let stmts = new Array<ExpressionRef>();
++    let size = written.length;
++    for (let k = 0; k < size;) {
++      if (written[k]) {
++        ++k;
++        continue;
++      }
++      let end = k;
++      while (end < size && !written[end]) ++end;
++      if (end - k > 64) {
++        stmts.push(module.memory_fill(module.binary(BinaryOp.AddI32, module.local_get(base, TypeRef.I32), module.i32(address + k)), module.i32(0), module.i32(end - k)));
++        k = end;
++        continue;
++      }
++      // The object starts 16-aligned: each store at its own alignment.
++      while (k < end) {
++        let bytes = 8;
++        while (bytes > 1 && (k % bytes != 0 || k + bytes > end)) bytes >>= 1;
++        let type = bytes == 8 ? TypeRef.I64 : TypeRef.I32;
++        stmts.push(module.store(bytes, module.local_get(base, TypeRef.I32), bytes == 8 ? module.i64(0) : module.i32(0), type, address + k));
++        k += bytes;
++      }
++    }
++    return stmts;
 +  }
 +
 +  /** The offset in the object that `expr` is the address of - its local, or that plus a constant - or -1. */
@@ -11392,8 +11435,8 @@ index 0000000..f6c9a95
 +    let base = _BinaryenFunctionAddVar(func, TypeRef.I32);
 +    let saved = _BinaryenFunctionAddVar(func, TypeRef.I32);
 +    // Each object's header is written once, where the function starts; its
-+    // fields are zeroed each time it is made, as an allocation's are, unless
-+    // its constructor writes all of them first.
++    // fields are zeroed each time it is made, as an allocation's are, but for
++    // those its constructor or its literal writes first.
 +    let headers = new Array<ExpressionRef>();
 +    let offset = 0;
 +    // An object the collector visits is zeroed where the function starts:
@@ -11407,7 +11450,8 @@ index 0000000..f6c9a95
 +        headers.push(module.store(4, module.local_get(base, TypeRef.I32), module.i32(object.visited ? 1 : 0), TypeRef.I32, offset + FLAG));
 +      }
 +      if (object.visited) {
-+        headers.push(module.memory_fill(module.binary(BinaryOp.AddI32, module.local_get(base, TypeRef.I32), module.i32(address)), module.i32(0), module.i32(object.size)));
++        let zeroes = this.zeroing(base, address, new Array<bool>(object.size).fill(false));
++        for (let j = 0, l = zeroes.length; j < l; ++j) headers.push(zeroes[j]);
 +      }
 +      headers.push(module.store(4, module.local_get(base, TypeRef.I32), module.i32(0), TypeRef.I32, address - HEADER));
 +      headers.push(module.store(4, module.local_get(base, TypeRef.I32), module.i32(TRANSPARENT), TypeRef.I32, address - HEADER + 4));
@@ -11416,10 +11460,9 @@ index 0000000..f6c9a95
 +      headers.push(module.store(4, module.local_get(base, TypeRef.I32), module.i32(object.size), TypeRef.I32, address - 4));
 +      let set = assert(body.parents.get(object.call));
 +      let made = module.binary(BinaryOp.AddI32, module.local_get(base, TypeRef.I32), module.i32(address));
-+      _BinaryenLocalSetSetValue(set, this.writtenFirst(body, object) ? made : module.block(null, [
-+        module.memory_fill(module.binary(BinaryOp.AddI32, module.local_get(base, TypeRef.I32), module.i32(address)), module.i32(0), module.i32(object.size)),
-+        made
-+      ], TypeRef.I32));
++      let zeroes = this.zeroing(base, address, this.writtenFirst(body, object));
++      zeroes.push(made);
++      _BinaryenLocalSetSetValue(set, zeroes.length > 1 ? module.block(null, zeroes, TypeRef.I32) : made);
 +      offset += SLOT_HEADER + ((object.size + 15) & ~15);
 +    }
 +
