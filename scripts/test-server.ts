@@ -1182,7 +1182,8 @@ function report(results: SuiteResult[], problems: string[]): number {
 		const status = result.failed === 0 ? 'ok  ' : 'FAIL';
 		const counts = `${result.passed} ok${result.failed ? `, ${result.failed} failed` : ''}`;
 		console.log(`${status} ${result.suite.name.padEnd(18)} ${counts}${result.problem ? ` - ${result.problem}` : ''}`);
-		for (const line of result.lines.filter(one => one.includes(' FAIL '))) console.log(`       ${line}`);
+		// perf's ratios are printed passed or not: a run's figures are its record.
+		for (const line of result.lines.filter(one => one.includes(' FAIL ') || one.includes(' times Pawn\'s '))) console.log(`       ${line}`);
 		// The lines of a suite that timed out - its rcon reply, then the
 		// console - tell a command that never ran from one that stopped.
 		if (result.problem?.startsWith('no ')) {

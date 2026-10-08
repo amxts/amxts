@@ -252,6 +252,9 @@ jobs:
       # /cores (scripts/core-dumps.ts).
       - name: Core dumps into /cores
         run: sudo sysctl -w kernel.core_pattern=/cores/core.%e.%p
+      # perf's ratios depend on the CPU, and runners differ: each run says which it had.
+      - name: The runner's CPU
+        run: grep -m1 "model name" /proc/cpuinfo; uname -r
       - name: The server suites on Linux
         working-directory: amxts
         run: |
