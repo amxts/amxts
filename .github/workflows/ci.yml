@@ -1,7 +1,8 @@
 # The core's checks, and the server's files of a release.
 #
 # On every push and pull request, side by side: the type check and lint; the
-# test suite in three parts; and the Linux module, wamrc and the server suites
+# test suite in three parts, and again with a step of the collector on every
+# allocation (AMXTS_GC_STRESS); and the Linux module, wamrc and the server suites
 # built once, in Docker, then the suites run on a Linux test server in Docker
 # (bun run test:server --linux), on three AMX Mod X builds, on plain HLDS
 # and under sanitizers. On a tag v*, the Windows files are
@@ -61,13 +62,20 @@ jobs:
         working-directory: amxts
         run: npm run test:node
 
+  # Under stress the collector runs on every allocation: an object nothing
+  # the collector visits still references is freed at once, and the test that
+  # uses it fails, not a server some day.
   tests:
+    name: tests (${{ matrix.part }}${{ matrix.stress && ', GC stress' || '' }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         part: [1, 2, 3]
+        stress: [false, true]
+    env:
+      AMXTS_GC_STRESS: ${{ matrix.stress && '1' || '' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -79,8 +87,8 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: amxts/node_modules/.cache/amxts
-          key: tests-${{ matrix.part }}-${{ hashFiles('amxts/runtime/patches/**', 'amxts/as/**', 'amxts/scripts/**', 'amxts/src/**', 'amxts/tests/**') }}
-          restore-keys: tests-${{ matrix.part }}-
+          key: tests-${{ matrix.stress && 'stress-' || '' }}${{ matrix.part }}-${{ hashFiles('amxts/runtime/patches/**', 'amxts/as/**', 'amxts/scripts/**', 'amxts/src/**', 'amxts/tests/**') }}
+          restore-keys: tests-${{ matrix.stress && 'stress-' || '' }}${{ matrix.part }}-
       - name: Tests, part ${{ matrix.part }} of 3
         working-directory: amxts
         run: bun run test --part ${{ matrix.part }}/3
