@@ -3,9 +3,9 @@
 // variadic native, a command, a menu's choice, Pawn calling this plugin, whole
 // and fractional arithmetic and a real plugin's hot path cost here, against the
 // same in Pawn (perf-pawn.sma), measured in one run on one machine. It
-// checks ratios, not times, so it holds on any machine; each figure is the
-// best of three runs. A limit is changed on purpose, with the measurement
-// that moves it.
+// checks ratios, not times, so it holds on any machine; most figures are the
+// best of three runs, a move of the bot the median of turns. A limit is
+// changed on purpose, with the measurement that moves it.
 import { hook, unhook } from "@amxts/core";
 import { EngFunc_RunPlayerMove, LibType_Library } from "@amxts/core/constants";
 import { engfunc, get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, server_exec, strlen } from "@amxts/core/natives";
@@ -19,6 +19,9 @@ const TIMERS = 300;
 // The turns perf-pawn.sma times an impulse listener in, and the moves of each.
 const IMPULSE_ROUNDS = 1001;
 const IMPULSE_RUN = 200;
+// The turns `variadic native` is timed in, and the moves of each side's.
+const MOVE_ROUNDS = 101;
+const MOVE_RUN = 200;
 
 /** What Pawn measured, by name: nanoseconds an operation, or milliseconds a whole run. */
 const pawn = new Map<string, number>();
@@ -54,7 +57,7 @@ const LIMITS: Record<string, number> = {
 	"Pawn calls a plugin": 1.5,
 	"timer armed": 1.25,
 	"timer firing": 1.5,
-	"variadic native": 2.5,
+	"variadic native": 1.25,
 	"command": 1.5,
 	"menu choice": 2.5,
 	"remainder": 2,
@@ -268,6 +271,45 @@ function timeImpulseListener(id: number) {
 }
 
 /**
+ * `variadic native`: a move of the bot through the native's `...` tail, as
+ * perf-pawn.sma makes it. A move is the game's own work, and what it costs
+ * drifts with where the bot is, so Pawn's moves and these run in turns, a
+ * short run each, which side first alternating, and the median of the
+ * turns' ratios is the measure.
+ */
+function timeMoves(id: number) {
+	const angles = [0.0, 0.0, 0.0];
+	const ratios: number[] = [];
+	const theirs: number[] = [];
+	for (let round = 0; round < MOVE_ROUNDS; round++) {
+		const pawnFirst = round % 2 == 0;
+		if (pawnFirst) movesOfPawn(id);
+		const start = performance.now();
+		for (let i = 0; i < MOVE_RUN; i++) engfunc(EngFunc_RunPlayerMove, id, angles, 0, 0, 0, 0, 0, 0);
+		const mine = performance.now() - start;
+		if (!pawnFirst) movesOfPawn(id);
+		const pawnMs = pawnTimeOf("variadic run");
+		theirs.push(pawnMs);
+		ratios.push(mine / pawnMs);
+	}
+	const pawnNs = middle(theirs) * 1_000_000 / MOVE_RUN;
+	pawn.set("variadic native", pawnNs);
+	ours.set("variadic native", pawnNs * middle(ratios));
+}
+
+/** One run of Pawn's moves, timed by perf-pawn.sma as "variadic run". */
+function movesOfPawn(id: number) {
+	server.command(`amxts_perf_pawn_moves ${id} ${MOVE_RUN}`);
+	server_exec();
+}
+
+/** The median. */
+function middle(values: number[]) {
+	values.sort((a, b) => a - b);
+	return values[Math.floor(values.length / 2)];
+}
+
+/**
  * Nanoseconds a command the bot sends takes to reach a handler: through the
  * engine and every plugin's hook of the game's ClientCommand, as a player's
  * command comes.
@@ -340,11 +382,7 @@ function measure(player: Player) {
 	ours.set("server.map", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) sink += server.map.length;
 	}));
-	// A move of the bot through the native's `...` tail, as perf-pawn.sma makes it.
-	const angles = [0.0, 0.0, 0.0];
-	ours.set("variadic native", nsEach(FEW, () => {
-		for (let i = 0; i < FEW; i++) engfunc(EngFunc_RunPlayerMove, id, angles, 0, 0, 0, 0, 0, 0);
-	}));
+	timeMoves(id);
 	ours.set("timer armed", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) clearTimeout(setTimeout(idle, 1000));
 	}));

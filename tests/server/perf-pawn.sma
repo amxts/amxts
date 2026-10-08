@@ -2,9 +2,10 @@
 // plugins write them, each the best of three runs, timed with perf.ts's
 // clock and handed back to it. Run by amxts_perf_pawn <player id>, which
 // perf.ts sends, amxts_perf_pawn_timers, once a round of timers,
-// amxts_perf_pawn_commands, for how many commands its handler got, and
-// amxts_perf_pawn_menu <player id>, which opens its menu on the bot, and
-// amxts_perf_pawn_impulse <player id>, which times perf.ts's impulse listener. What
+// amxts_perf_pawn_commands, for how many commands its handler got,
+// amxts_perf_pawn_menu <player id>, which opens its menu on the bot,
+// amxts_perf_pawn_impulse <player id>, which times perf.ts's impulse listener, and
+// amxts_perf_pawn_moves <player id> <moves>, one short run of the bot's moves. What
 // only Pawn can time on perf.ts's side - a forward reaching it, a call of its
 // native - is timed here too and handed back with perf_ours.
 #include <amxmodx>
@@ -51,7 +52,6 @@ enum
 	FORWARD_NOBODY,
 	ECHO_OURS,
 	ECHO_PAWN,
-	VARIADIC,
 	STEAM_ID,
 	MAP_NAME,
 	HUD_MESSAGE
@@ -90,6 +90,7 @@ public plugin_init()
 	register_clcmd("amxts_perf_pawn_command", "on_command");
 	register_srvcmd("amxts_perf_pawn_menu", "show_menu_to");
 	register_srvcmd("amxts_perf_pawn_impulse", "time_listener");
+	register_srvcmd("amxts_perf_pawn_moves", "time_moves");
 	g_menu = menu_create("Perf", "on_menu");
 	menu_additem(g_menu, "choose");
 	g_impulse = CreateMultiForward("client_impulse", ET_IGNORE, FP_CELL, FP_CELL);
@@ -134,6 +135,14 @@ public on_impulse(id)
 public on_command(id)
 {
 	g_commands++;
+	return PLUGIN_HANDLED;
+}
+
+// One short run of the bot's moves through the variadic native, `<player id> <moves>`:
+// perf.ts runs its own right before or after, while the bot is as it is.
+public time_moves()
+{
+	perf_report("variadic run", moves_ms(read_argv_int(1), 0, read_argv_int(2)));
 	return PLUGIN_HANDLED;
 }
 
@@ -365,8 +374,6 @@ run(what, id, count)
 		case FORWARD_NOBODY: for (new i = 0; i < count; i++) ExecuteForward(g_nobody, ret, id, 0);
 		case ECHO_OURS: for (new i = 0; i < count; i++) g_sink += perf_echo(i);
 		case ECHO_PAWN: for (new i = 0; i < count; i++) g_sink += perf_lib_echo(i);
-		// A move of the bot, as moves_ms makes it: no time passes, so the bot stays as it is.
-		case VARIADIC: for (new i = 0; i < count; i++) engfunc(EngFunc_RunPlayerMove, id, origin, 0.0, 0.0, 0.0, 0, 0, 0);
 	}
 }
 
@@ -419,7 +426,6 @@ public measure()
 	report_each("player.steamId", STEAM_ID, id, FEW);
 	report_each("server.map", MAP_NAME, id, FEW);
 	report_each("timer armed", TIMER_ARMED, id, FEW);
-	report_each("variadic native", VARIADIC, id, FEW);
 
 	report_each("relay with no listener", FORWARD_NOBODY, id, FEW);
 	report_ours("relay with no listener", FORWARD_RELAYED, id, FEW);
