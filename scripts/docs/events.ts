@@ -165,10 +165,26 @@ export const EVENTS: Record<string, EventDoc> = {
 	},
 	client_command: {
 		summary: {
-			en: `A player sent a console command. For one command, \`server.addCommand("name", handler)\` is simpler.`,
-			ru: `Игрок отправил консольную команду. Для одной команды проще \`server.addCommand("name", handler)\`.`,
+			en: `A player sent a console command - a chat line is \`say\` or \`say_team\`. For one command, \`server.addCommand("name", handler)\` is simpler.`,
+			ru: `Игрок отправил консольную команду — строка в чат это \`say\` или \`say_team\`. Для одной команды проще \`server.addCommand("name", handler)\`.`,
 		},
-		fields: { player },
+		notes: [],
+		fields: {
+			player,
+			command: {
+				en: `The command's name, as typed, e.g. \`"say"\`, \`"say_team"\`, \`"buy"\`.`,
+				ru: `Имя команды, как её ввели, например \`"say"\`, \`"say_team"\`, \`"buy"\`.`,
+			},
+			args: {
+				en: `The command's words after its name; for \`say\` and \`say_team\`, the words of the chat line - \`say /cp now\` is \`["/cp", "now"]\`.`,
+				ru: `Слова команды после имени; у \`say\` и \`say_team\` — слова строки чата: \`say /cp now\` — это \`["/cp", "now"]\`.`,
+			},
+			text: {
+				en: `The command's text after its name, as one line; for \`say\` and \`say_team\`, the chat line without its quotes.`,
+				ru: `Текст команды после имени одной строкой; у \`say\` и \`say_team\` — строка чата без кавычек.`,
+			},
+		},
+		example: `server.addEventListener("command", (event) => {\n\tif (event.command == "say" && event.args[0] == "/cp") checkpoint(event.player);\n});`,
 	},
 	client_infochanged: {
 		summary: {

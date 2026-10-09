@@ -24,7 +24,7 @@ import {
 	user_kill, get_user_flags, read_flags,
 	get_cvar_num, get_cvar_string, set_cvar_num, set_cvar_string, get_players, get_user_info,
 	LibraryExists, module_exists, get_speak, set_speak,
-	read_args, read_argv, create_cvar, get_cvar_pointer,
+	read_argc, read_args, read_argv, create_cvar, get_cvar_pointer,
 	get_pcvar_float, get_pcvar_num, get_pcvar_string, set_pcvar_float, set_pcvar_num, set_pcvar_string,
 	get_localinfo, register_dictionary, get_langsnum, get_lang,
 	precache_model, precache_sound, precache_generic, get_user_userid,
@@ -1478,6 +1478,29 @@ export function __logArgs(): string[] {
 		args.push(String.UTF8.decodeUnsafe(changetype<usize>(logBuffer), length));
 	}
 	return args;
+}
+
+/** Whether a console command is a chat line. */
+function isChat(name: string): bool {
+	return name == "say" || name == "say_team";
+}
+
+/** @hidden The name of the console command being told: `read_argv(0)`. */
+export function __commandName(): string {
+	return read_argv(0);
+}
+
+/** @hidden Its text after the name: a chat line without its quotes. */
+export function __commandText(): string {
+	return isChat(read_argv(0)) ? chatLine() : read_args();
+}
+
+/** @hidden Its words after the name: the chat line's for `say` and `say_team`, the engine's for any other. */
+export function __commandArgs(): string[] {
+	if (isChat(read_argv(0))) return chatLine().split(" ").filter(word => word.length > 0);
+	const words: string[] = [];
+	for (let i = 1, n = <i32>read_argc(); i < n; i++) words.push(read_argv(i));
+	return words;
 }
 
 /** The most of a message-of-the-day's text one MOTD message carries, in bytes. */
