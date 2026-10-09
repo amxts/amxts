@@ -12,7 +12,8 @@ import type { Change, Edit, Left } from './upgrade';
 // - `Storage.get` gives `undefined` for a key that is not there, as `Map.get`
 //   does: a comparison of its value with `null` compares with `undefined`,
 //   and a `| null` it was annotated with is `| undefined`.
-// - `give` takes any text: the cast to `ItemName` goes.
+// - `give` takes any text: the cast to `ItemName` goes, and its import when
+//   nothing else names the type.
 // - A test's `server.vault(name)` is `server.storage(name)`: a Storage is not nVault.
 // - An entity's `viewModel` and `weaponModel` are the model's file, text: a
 //   `0` written or compared is `""`, another number is listed.
@@ -52,6 +53,8 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 	const lineOf = (node: ts.Node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
 	const textOf = (node: ts.Node) => node.getText(source);
 	const replace = (node: ts.Node, to: string) => edits.push({ start: node.getStart(source), end: node.getEnd(), with: to, from: textOf(node) });
+	// The casts give no longer needs, and how many there are of each type.
+	const casts = new Map<string, number>();
 
 	// The names a Storage is held by, and the names that hold what its get gave.
 	const storages = new Set<string>();
@@ -151,9 +154,35 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 		if (callee.name.text === 'give' && args.length >= 1) {
 			const item = args[0];
 			const cast = ts.isTypeAssertionExpression(item) || ts.isAsExpression(item) ? item : undefined;
-			if (cast && /^(?:ItemName|WeaponName)$/.test(textOf(cast.type))) replace(item, textOf(cast.expression));
+			if (cast && /^(?:ItemName|WeaponName)$/.test(textOf(cast.type))) {
+				replace(item, textOf(cast.expression));
+				casts.set(textOf(cast.type), (casts.get(textOf(cast.type)) ?? 0) + 1);
+			}
 		}
 	};
 	visit(source);
+	for (const [name, count] of casts) dropImport(name, count);
 	return { ...applyEdits(file, text, source, edits), left };
+
+	/** The import of a type the file names only in the casts that went. */
+	function dropImport(name: string, count: number) {
+		let named = 0;
+		const countNames = (node: ts.Node) => {
+			if (ts.isIdentifier(node) && node.text === name && !ts.isImportSpecifier(node.parent)) named++;
+			ts.forEachChild(node, countNames);
+		};
+		countNames(source);
+		if (named > count) return;
+		for (const statement of source.statements) {
+			const bindings = ts.isImportDeclaration(statement) ? statement.importClause?.namedBindings : undefined;
+			if (!bindings || !ts.isNamedImports(bindings)) continue;
+			const at = bindings.elements.findIndex(element => element.name.text === name);
+			if (at < 0) continue;
+			const { elements } = bindings;
+			const alone = elements.length === 1 && !statement.importClause!.name;
+			const start = alone ? statement.getStart(source) : at > 0 ? elements[at - 1].getEnd() : elements[at].getStart(source);
+			const end = alone ? statement.getEnd() + (text[statement.getEnd()] === '\r' ? 2 : text[statement.getEnd()] === '\n' ? 1 : 0) : at > 0 ? elements[at].getEnd() : elements[at + 1].getStart(source);
+			edits.push({ start, end, with: '', from: text.slice(start, end).trim() });
+		}
+	}
 }

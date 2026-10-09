@@ -737,7 +737,12 @@ test('a death message\'s flags are lowerCamelCase too', () => {
 });
 
 test('calls of a changed shape: print to a player and to everyone, removeAllItems\'s suit, a Storage\'s missing value, give\'s cast, a model\'s file', () => {
+	const imports = [
+		'import type { ItemName } from "@amxts/core";',
+		'import { type Player, type WeaponName, server } from "@amxts/core";',
+	];
 	const source = [
+		...imports,
 		'const points = new Storage("myplugin_points");',
 		'print(0, `Round ${round}`);',
 		'print(0, "Go!", "center");',
@@ -767,6 +772,7 @@ test('calls of a changed shape: print to a player and to everyone, removeAllItem
 	const { text, left } = upgradeCalls('plugins/a.ts', source);
 
 	expect(text.split('\n')).toEqual([
+		'import { type Player, server } from "@amxts/core";',
 		'const points = new Storage("myplugin_points");',
 		'server.print(`Round ${round}`);',
 		'server.print("Go!", "center");',
@@ -793,9 +799,9 @@ test('calls of a changed shape: print to a player and to everyone, removeAllItem
 		'',
 	]);
 	expect(left.map(each => [each.line, each.why])).toEqual([
-		[6, 'print takes a player now, and the place as its second argument: player.print(text, "center"); everyone is server.print(text, "center")'],
-		[12, 'print takes a player now: `player.print(text)`'],
-		[23, 'weaponModel is the model\'s file now, text: "models/v_knife.mdl"'],
+		[8, 'print takes a player now, and the place as its second argument: player.print(text, "center"); everyone is server.print(text, "center")'],
+		[14, 'print takes a player now: `player.print(text)`'],
+		[25, 'weaponModel is the model\'s file now, text: "models/v_knife.mdl"'],
 	]);
 	// A second run changes nothing.
 	expect(upgradeCalls('plugins/a.ts', text).text).toBe(text);
