@@ -19,6 +19,15 @@ test('the map starts as on a real server: the plugins are loaded, then the confi
 	expect(server.log).toContain('plugins loaded\nconfigs executed, step 3');
 });
 
+test('a reload: the plugin hears "end", and the new one the map\'s start, as on a running map', async () => {
+	const server = await loadPlugin(COUNTER, { cvars: { counter_step: '3' } });
+	server.join('Admin').command('counter_add 2');
+
+	await server.reload(server.plugins[0]);
+
+	expect(server.log.split('\n').slice(-3)).toEqual(['end, total 6', 'plugins loaded', 'configs executed, step 3']);
+});
+
 test('a cvar is made with its default, and its listener hears a change', async () => {
 	const server = await loadPlugin(COUNTER);
 	expect(server.cvar('counter_step')).toBe('1');

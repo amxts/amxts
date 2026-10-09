@@ -1872,6 +1872,29 @@ export class FakeServer {
 		for (const owner of owners) this.request(owner.plugin!, plugin.run, gone);
 	}
 
+	/**
+	 * `amxts_reload <plugin>`: the plugin hears `"end"` and goes, its file is
+	 * loaded again, and the new one hears the map's start - `"init"`,
+	 * `"pluginsLoaded"`, `"configsQueued"`, `"configsExecuted"` - as a
+	 * reload on a running map does.
+	 */
+	async reload(plugin: PluginInstance): Promise<PluginInstance> {
+		this.fireTo(plugin, 'plugin_end');
+		this.unload(plugin);
+		const fresh = await this.load(plugin.source);
+		for (const name of ['plugin_init', 'plugin_cfg', 'OnAutoConfigsBuffered', 'OnConfigsExecuted']) this.fireTo(fresh, name);
+		return fresh;
+	}
+
+	/** A forward with no arguments to one plugin's handlers, as the module's RaiseTo. */
+	private fireTo(plugin: PluginInstance, name: string): void {
+		this.withCallArgs([], () => {
+			for (const handler of [...(this.events.get(name) ?? [])]) {
+				if (handler.plugin === plugin) this.call(handler, [0], 0);
+			}
+		});
+	}
+
 	/** A menu by its id, or the error AMX Mod X gives for another number. @internal */
 	menu(id: number): FakeMenu {
 		const menu = this.menus.get(id);

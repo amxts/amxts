@@ -59,8 +59,8 @@ export const EVENTS: Record<string, EventDoc> = {
 	},
 	plugin_end: {
 		summary: {
-			en: `The map is ending or the server is shutting down: save what has to survive.`,
-			ru: `Карта заканчивается или сервер выключается: сохраните то, что должно пережить смену карты.`,
+			en: `The plugin stops - the map ends, the server shuts down, or \`amxts_reload\`/\`amxts_unload\` stops it: save what has to survive.`,
+			ru: `Плагин останавливается — карта заканчивается, сервер выключается или его останавливает \`amxts_reload\`/\`amxts_unload\`: сохраните то, что должно это пережить.`,
 		},
 	},
 	server_changelevel: {

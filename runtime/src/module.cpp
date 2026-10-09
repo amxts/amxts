@@ -2393,6 +2393,11 @@ static int TakeSlot(int32_t fn, int32_t shape, const char *key, bool *reused, ce
 // files from then on.
 static bool g_amxxReady = false;
 
+// How far this map's start has come: 1 once pluginsLoaded (plugin_cfg) is
+// raised, 2 once configsExecuted is. A plugin loaded later hears what it
+// missed (FireInit).
+static int g_mapStage = 0;
+
 /**
  * The commands plugins added, by name in lower case: the players' and the
  * server's. Each name's handlers are a Forward's, walked in place in the
@@ -5470,6 +5475,17 @@ static void LoadScripts(const PluginList &before = PluginList())
 	g_loadingAll = false;
 }
 
+/** Forward `index` to the plugin at `only`, or to every plugin. */
+static void RaiseTo(int index, int only = -1)
+{
+	Forward &f = g_forwards[index];
+	f.depth++;
+	for (size_t i = 0, end = f.handlers.size(); i < end; i++)
+		if (only < 0 || f.handlers[i].plugin == only)
+			Fire(f.handlers[i], NULL, 0, 0);
+	EndDispatch(f);
+}
+
 /**
  * Tells the plugins that the server is up - every plugin, or the one at
  * `only`, loaded once the server was.
@@ -5478,16 +5494,31 @@ static void LoadScripts(const PluginList &before = PluginList())
  * level runs when it is loaded, but everything it may not do that early -
  * read a config, register a command, put its menus up - waits for this. A
  * reload that skipped it left a plugin half awake, which is a strange thing
- * to debug.
+ * to debug. So a plugin loaded on a running map hears the rest of the map's
+ * start too, as far as it has come: what a plugin sets up in pluginsLoaded
+ * is set up after a reload as well.
  */
 static void FireInit(int only = -1)
 {
-	Forward &f = g_forwards[FORWARD_PLUGIN_INIT];
-	f.depth++;
-	for (size_t i = 0, end = f.handlers.size(); i < end; i++)
-		if (only < 0 || f.handlers[i].plugin == only)
-			Fire(f.handlers[i], NULL, 0, 0);
-	EndDispatch(f);
+	RaiseTo(FORWARD_PLUGIN_INIT, only);
+	if (g_mapStage < 1)
+		return;
+	RaiseTo(FORWARD_PLUGIN_CFG, only);
+	RaiseTo(FORWARD_ONAUTOCONFIGSBUFFERED, only);
+	if (g_mapStage >= 2)
+		RaiseTo(FORWARD_ONCONFIGSEXECUTED, only);
+}
+
+/**
+ * Tells the running plugins among these that they stop - amxts_reload,
+ * amxts_unload, a .aot written again - as a map's end does, so each can save
+ * what it keeps. All of them hear it before any goes.
+ */
+static void FireEnd(const std::vector<int> &plugins)
+{
+	for (size_t i = 0; i < plugins.size(); i++)
+		if (g_plugins[plugins[i]].state == PLUGIN_RUNNING)
+			RaiseTo(FORWARD_PLUGIN_END, plugins[i]);
 }
 
 
@@ -5559,6 +5590,7 @@ static void ReloadPlugins()
 		return;
 
 	MF_PrintSrvConsole("[amxts] reloading\n");
+	FireEnd(all);
 	LoadScripts(UnloadPlugins());
 	FireInit();
 }
@@ -5613,6 +5645,7 @@ static void UnloadOne(const std::string &wanted)
 	if (Busy(std::vector<int>(1, index)))
 		return;
 
+	FireEnd(std::vector<int>(1, index));
 	ReleasePlugin(index);
 	g_plugins[index].state = PLUGIN_UNLOADED;
 	MF_PrintSrvConsole("[amxts] unloaded %s\n", name.c_str());
@@ -5678,6 +5711,7 @@ static void ReloadOne(const std::string &wanted)
 		MF_PrintSrvConsole("[amxts] reloading %s\n", g_plugins[index].name.c_str());
 	else
 		MF_PrintSrvConsole("[amxts] reloading %s, and what uses its module: %s\n", g_plugins[index].name.c_str(), Names(dependents).c_str());
+	FireEnd(group);
 	for (size_t i = group.size(); i-- > 0;)
 		ReleasePlugin(group[i]);
 	StartPlugins(group);
@@ -6268,8 +6302,10 @@ static void ConfigTick()
 	if (!g_activated || g_configTicks >= 2 || gpGlobals->time < g_configTick)
 		return;
 	g_configTick = gpGlobals->time + 0.1f;
-	if (gpGlobals->time >= g_configsDue && ++g_configTicks == 2)
+	if (gpGlobals->time >= g_configsDue && ++g_configTicks == 2) {
+		g_mapStage = 2;
 		Raise(FORWARD_ONCONFIGSEXECUTED);
+	}
 }
 
 // ---- client_authorized
@@ -6718,6 +6754,7 @@ void ServerActivate_Post(edict_t *edicts, int count, int clients)
 
 	if (g_image)
 		StartServer();
+	g_mapStage = 1;
 	Raise(FORWARD_PLUGIN_CFG);
 	Raise(FORWARD_ONAUTOCONFIGSBUFFERED);
 	RETURN_META(MRES_IGNORED);
@@ -6741,6 +6778,7 @@ void ServerDeactivate()
 
 	g_authorized.clear();
 	g_activated = false;
+	g_mapStage = 0;
 	g_precached = false;
 	HookOff(g_dropClient);
 	HookOff(g_cvarSet);
