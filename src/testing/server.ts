@@ -945,8 +945,9 @@ export class FakeServer {
 		this.rules.set(constant('m_nMaxPlayers'), this.maxPlayers);
 		this.entityIds = this.maxPlayers + 1;
 		this.timeZone = options.timeZone;
-		// AMX Mod X's own, which a test may set: the languages.
-		const cvars = { amx_language: 'en', amx_client_languages: '1', ...options.cvars };
+		// AMX Mod X's own, which a test may set: the languages; and the game's
+		// a plugin often sets, at the game's defaults.
+		const cvars = { amx_language: 'en', amx_client_languages: '1', mp_freezetime: '6', mp_round_infinite: '0', ...options.cvars };
 		for (const [name, value] of Object.entries(cvars)) this.createCvar(name, value);
 		for (const [path, text] of Object.entries(options.files ?? {})) this.writeFile(path, text);
 		if (options.platform === 'win32') this.writeFile('addons/amxmodx/modules/amxts_amxx.dll', '');
