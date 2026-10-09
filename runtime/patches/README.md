@@ -49,7 +49,9 @@ And it makes a plugin's many small calls cheaper:
   native may call back into the plugin) other than one marked `@leaf`, no
   call through a function value - keeps no shadow-stack frame, and a call
   to it no slots for its arguments; in one that can, a local gets a slot
-  only if it holds a value across such a call (`src/passes/shadowstack.ts`);
+  only if it holds a value across such a call (`src/passes/shadowstack.ts`) -
+  a template's parts are read again after its join, which takes them from
+  a static array the collector never visits;
 - the check for an error on its way to a catch after a call is kept only
   where the callee may throw, which is known once the whole program is
   compiled;

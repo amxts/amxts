@@ -198,6 +198,18 @@ function captureAndRethrow(node: Node): void {
 	} catch (e) {}
 }
 
+// A template of three parts or more is joined from a static array the
+// collector never visits: a part made for it is held by its local alone,
+// the second here, which nothing else reads after the array is filled.
+function word(i: i32): string {
+	return "w" + i.toString();
+}
+
+export function templateParts(): i32 {
+	const text = \`\${word(1)} \${word(2)}.\`;
+	return text == "w1 w2." ? 0 : 1;
+}
+
 export function heldByGlobals(): i32 {
 	let failed = 0;
 	capture(new Node(21));
@@ -228,6 +240,13 @@ for (const optimize of [false, true]) {
 			const { error, exports } = await probe({ 'probe.ts': SOURCE }, [...OFTEN, ...(optimize ? ['-O3'] : [])]);
 			expect(error).toBe('');
 			expect(exports.heldByGlobals()).toBe(0);
+		});
+
+		// A whole cycle of the collector on every allocation: the join's frees what nothing keeps.
+		test('the parts of a template live until it is joined', async () => {
+			const { error, exports } = await probe({ 'probe.ts': SOURCE }, [...OFTEN, '--use', 'ASC_GC_SWEEPFACTOR=1000000', ...(optimize ? ['-O3'] : [])]);
+			expect(error).toBe('');
+			expect(exports.templateParts()).toBe(0);
 		});
 	});
 }
