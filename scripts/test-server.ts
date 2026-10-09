@@ -476,8 +476,17 @@ function ask(message: string, wait: number): Promise<string | null> {
 			done(reply);
 		};
 		let timer = setTimeout(finish, wait);
+		// A reply too long for one packet comes in pieces: -2, the reply's
+		// number, a byte of the piece's index (high half) and the count (low).
+		const pieces: Buffer[] = [];
 
-		socket.on('message', (packet) => {
+		socket.on('message', (piece) => {
+			let packet = piece;
+			if (packet.readInt32LE(0) === -2) {
+				pieces.push(packet.subarray(9));
+				if ((packet[8] >> 4) + 1 < (packet[8] & 15)) return;
+				packet = Buffer.concat(pieces.splice(0));
+			}
 			reply = (reply ?? '') + packet.subarray(4).toString('utf-8').replace(/^l/, '').replace(/\0+$/, '');
 			clearTimeout(timer);
 			timer = setTimeout(finish, 200);
