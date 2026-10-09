@@ -1072,8 +1072,12 @@ export class FakeServer {
 
 	// ------------------------------------------------------------ dictionaries
 
-	/** The dictionaries' lines by language, then key: what register_dictionary loaded and translate() added. */
-	readonly dictionary = new Map<string, Map<string, string>>();
+	/**
+	 * The dictionaries' lines by language, then key: what register_dictionary
+	 * loaded and translate() added. It starts with the languages AMX Mod X's
+	 * own dictionaries bring, as a server's does.
+	 */
+	readonly dictionary = new Map<string, Map<string, string>>(['en', 'de', 'sr', 'tr', 'fr', 'sv', 'da', 'pl', 'nl', 'es', 'bp', 'cz', 'fi', 'ru'].map(code => [code, new Map()]));
 	/** Every key in the order it came, as GetLangTransKey numbers them. */
 	private readonly langKeys: string[] = [];
 

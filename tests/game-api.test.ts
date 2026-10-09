@@ -115,11 +115,14 @@ test('the server tells its game and versions, goes to a map it has, sets the lig
 	expect(bob.center).toContain('Go!');
 });
 
-test('lang.languages lists the languages of the loaded dictionaries', async () => {
-	const server = await loadPlugin(PLUGIN, { files: { 'addons/amxmodx/data/lang/myplugin.txt': '[en]\nHELLO = Hello\n\n[de]\nHELLO = Hallo\n' } });
+test('lang.languages lists the languages of the plugin\'s dictionaries, or of one, not every one AMX Mod X knows', async () => {
+	const server = await loadPlugin(PLUGIN, { files: {
+		'addons/amxmodx/data/lang/myplugin.txt': '[en]\nHELLO = Hello\n\n[RU]\nHELLO = Привет\n',
+		'addons/amxmodx/data/lang/other.txt': '[de]\nHELLO = Hallo\n',
+	} });
 	const alice = server.join('Alice');
 
 	alice.command('game_languages');
 
-	expect(alice.console).toBe('en,de');
+	expect(alice.console).toBe('en,ru de 0');
 });

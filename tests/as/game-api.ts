@@ -65,5 +65,5 @@ server.addCommand("game_server", ({ player }) => {
 
 server.addCommand("game_languages", ({ player }) => {
 	lang.load("myplugin");
-	print(player, lang.languages().join(","), "console");
+	print(player, `${lang.languages().join(",")} ${lang.languages("other").join(",")} ${lang.languages("none").length}`, "console");
 });

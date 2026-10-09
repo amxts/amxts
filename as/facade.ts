@@ -26,10 +26,11 @@ import {
 	LibraryExists, module_exists, get_speak, set_speak,
 	read_argc, read_args, read_argv, create_cvar, get_cvar_pointer,
 	get_pcvar_float, get_pcvar_num, get_pcvar_string, set_pcvar_float, set_pcvar_num, set_pcvar_string,
-	get_localinfo, register_dictionary, get_langsnum, get_lang,
+	get_localinfo, register_dictionary,
 	precache_model, precache_sound, precache_generic, get_user_userid,
 	emessage_begin, emessage_begin_f, ewrite_byte, ewrite_short, ewrite_string, emessage_end, elog_message
 } from "./natives";
+import { readFileSync } from "./fs";
 // Promise, async/await and AbortSignal, as the globals they are in JavaScript.
 import "./promise";
 import { Vector } from "./vector";
@@ -5624,6 +5625,10 @@ export class Aim {
  * Pawn: `register_dictionary`, `LookupLangKey`
  */
 export namespace lang {
+	// The dictionaries this plugin loaded, for languages(): AMX Mod X's own
+	// list has every language of any dictionary on the server.
+	const loaded: string[] = [];
+
 	/**
 	 * Loads the dictionary `data/lang/<name>.txt`: `lang.load("myplugin")`.
 	 * `false` when there is no such file.
@@ -5631,7 +5636,9 @@ export namespace lang {
 	 * Pawn: `register_dictionary`
 	 */
 	export function load(name: string): boolean {
-		return register_dictionary(`${name}.txt`) != 0;
+		const found = register_dictionary(`${name}.txt`) != 0;
+		if (found && !loaded.includes(name)) loaded.push(name);
+		return found;
 	}
 
 	/**
@@ -5651,19 +5658,34 @@ export namespace lang {
 	}
 
 	/**
-	 * The languages the loaded dictionaries have, by their codes:
-	 * `["en", "ru", "de"]`.
-	 *
-	 * Pawn: `get_langsnum`, `get_lang`
+	 * The languages of a dictionary, by their codes, in the file's order:
+	 * `lang.languages("myplugin")` is `["en", "ru"]`. Without a name, those of
+	 * the dictionaries this plugin loaded with `lang.load` - not every
+	 * language the server's dictionaries have.
 	 */
-	export function languages(): string[] {
+	export function languages(dictionary: string = ""): string[] {
+		const names = dictionary.length > 0 ? [dictionary] : loaded;
 		const list: string[] = [];
-		const code: number[] = [0, 0, 0];
-		for (let i = 0, n = <i32>get_langsnum(); i < n; i++) {
-			get_lang(i, code);
-			list.push(String.fromCharCode(<i32>code[0]) + String.fromCharCode(<i32>code[1]));
+		for (let i = 0; i < names.length; i++) {
+			const codes = languagesOf(names[i]);
+			for (let j = 0; j < codes.length; j++) {
+				if (!list.includes(codes[j])) list.push(codes[j]);
+			}
 		}
 		return list;
+	}
+
+	/** The sections of `data/lang/<name>.txt` - `[en]`, `[ru]` - in its order. */
+	function languagesOf(name: string): string[] {
+		const text = readFileSync(`${server.dataDir}/lang/${name}.txt`);
+		const codes: string[] = [];
+		if (text == null) return codes;
+		const lines = text.split("\n");
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i].trim();
+			if (line.length == 4 && line.startsWith("[") && line.endsWith("]")) codes.push(line.substring(1, 3).toLowerCase());
+		}
+		return codes;
 	}
 }
 
