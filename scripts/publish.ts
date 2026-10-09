@@ -262,8 +262,11 @@ function plan(): Plan {
  * A package.json as it is published: its version as it goes out, and every
  * `file:` or `link:` spec of one of these packages as `^<that package's
  * version>`. Every other spec of one of them must already be `^<its version>`.
+ * A module that runs on more than one line of the core names them in its
+ * `amxts.core` (`"^0.2.0 || ^0.3.0"`), its published range for the core,
+ * which must take the core it goes out with.
  */
-function publishedManifest(manifest: any, { own, out }: Plan) {
+export function publishedManifest(manifest: any, { own, out }: Pick<Plan, 'own' | 'out'>) {
 	const published = structuredClone(manifest);
 	published.version = out.get(manifest.name);
 	for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
@@ -273,10 +276,19 @@ function publishedManifest(manifest: any, { own, out }: Plan) {
 				continue;
 			}
 			if (!/^(?:file|link):/.test(spec) && spec !== `^${own.get(name)}`) throw new PublishError(`${published.name}: ${field} ${name} is ${spec}, not ^${own.get(name)}, its version`);
-			published[field][name] = `^${out.get(name)}`;
+			published[field][name] = name === '@amxts/core' && manifest.amxts?.core ? coreRangeOf(manifest, out.get(name)!) : `^${out.get(name)}`;
 		}
 	}
 	return published;
+}
+
+/** A module's own range for the core: carets joined by `||`, one of them taking the core it goes out with. */
+function coreRangeOf(manifest: any, core: string) {
+	const range = String(manifest.amxts.core);
+	const carets = range.split('||').map(each => each.trim());
+	if (!carets.every(each => /^\^\d+\.\d+\.\d+$/.test(each))) throw new PublishError(`${manifest.name}: amxts.core is ${range}, not carets joined by ||`);
+	if (!carets.some(each => caretTakes(each, core))) throw new PublishError(`${manifest.name}: amxts.core is ${range}, which does not take the core's ${core}`);
+	return carets.join(' || ');
 }
 
 /** The release's wamrc binaries: where they are, checked against their manifests. */
@@ -775,9 +787,11 @@ async function main(args: string[]) {
 	}
 }
 
-try {
-	await main(process.argv.slice(2));
-} catch (error) {
-	process.stderr.write(`\n${error instanceof PublishError ? error.message : (error as Error).stack}\n`);
-	process.exit(1);
+if (import.meta.main) {
+	try {
+		await main(process.argv.slice(2));
+	} catch (error) {
+		process.stderr.write(`\n${error instanceof PublishError ? error.message : (error as Error).stack}\n`);
+		process.exit(1);
+	}
 }
