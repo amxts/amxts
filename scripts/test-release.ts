@@ -204,8 +204,8 @@ function serverImage(): string {
 }
 
 /** The server's console. */
-function consoleLines(): string[] {
-	const logs = docker(['logs', container]);
+function consoleLines(name = container): string[] {
+	const logs = docker(['logs', name]);
 	return `${logs.stdout ?? ''}${logs.stderr ?? ''}`.replace(/\0/g, ' ').split(/\r?\n/);
 }
 
@@ -213,6 +213,31 @@ function consoleLines(): string[] {
 function serverFile(path: string): string | null {
 	const read = docker(['exec', container, 'cat', `/hlds/cstrike/${path}`]);
 	return read.status === 0 ? read.stdout : null;
+}
+
+/** The container of a server started from the image alone, with no project: the kit as it comes. */
+const fresh = `${container}-fresh`;
+
+/**
+ * The server as the kit makes it, with no project mounted: the kit carries
+ * no compiler, and the example it comes with, hello.aot, loads.
+ */
+async function freshServer(image: string) {
+	console.log(`\n== a fresh server: ${image}, container ${fresh}`);
+	const run = docker(['run', '-d', '--name', fresh, image, '+mp_timelimit', '0']);
+	if (run.status !== 0) throw new CheckError(`docker run failed: ${run.stderr.trim()}`);
+	const loaded = (lines: string[]) => lines.some(line => line.includes('[amxts] loaded hello.aot'));
+	for (const deadline = Date.now() + START_TIMEOUT; Date.now() < deadline && !loaded(consoleLines(fresh));) {
+		await new Promise(done => setTimeout(done, 1000));
+	}
+	const lines = consoleLines(fresh);
+	const tools = docker(['exec', fresh, 'ls', '/hlds/cstrike/addons/amxts/tools']).status === 0;
+	docker(['rm', '-f', fresh]);
+	fail([
+		!loaded(lines) && 'the kit\'s hello.aot did not load on a fresh server',
+		tools && 'the kit has addons/amxts/tools: a server builds nothing',
+		...lines.filter(line => ERROR_LINE.test(line)).map(line => `an error in the fresh server's console: ${line}`),
+	]);
 }
 
 const meaningful = (text: string | null) => (text ?? '').split(/\r?\n/).map(line => line.trim()).filter(line => line && !/^[;#/]/.test(line));
@@ -276,7 +301,9 @@ let cleaned = false;
 function cleanUp() {
 	if (cleaned) return;
 	cleaned = true;
-	if (docker(['container', 'inspect', container]).status === 0) docker(['rm', '-f', container]);
+	for (const name of [container, fresh]) {
+		if (docker(['container', 'inspect', name]).status === 0) docker(['rm', '-f', name]);
+	}
 	spawnSync(process.execPath, [join(CORE, 'scripts/publish.ts'), 'local', '--stop'], { cwd: CORE, env: publishEnv, stdio: 'ignore' });
 	if (args.includes('--keep')) {
 		console.log(`the folder stays: ${root}`);
@@ -359,6 +386,7 @@ async function main() {
 		!existsSync(join(project, '.amxts/tsconfig.json')) && 'no .amxts/tsconfig.json',
 		...changes(installed, snapshot(join(project, 'node_modules'))).slice(0, 20).map(change => `node_modules changed: ${change}`),
 	]);
+	await freshServer(image);
 	await runServer(image);
 }
 

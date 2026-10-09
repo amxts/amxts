@@ -1,9 +1,8 @@
 # A Linux game server with amxts: HLDS (app 90, steam_legacy) with ReHLDS,
 # ReGameDLL, Metamod-R, AMX Mod X 1.10 and ReAPI, and amxts on it - the
-# module, which needs no plugin of AMX Mod X's, and the server kit, whose
-# compiler builds a .ts plugin on the server. A project's plugins, configs
-# and files come from the folder mounted at /project, at every start
-# (start.sh).
+# module, which needs no plugin of AMX Mod X's, and the server kit's example
+# plugin. A project's built plugins, configs and files come from the folder
+# mounted at /project, at every start (start.sh).
 #
 #   docker run --rm -it -p 27015:27015/udp -v <project>:/project ghcr.io/amxts/server
 #
@@ -71,11 +70,10 @@ RUN curl -fsSLo rehlds.zip "https://github.com/rehlds/ReHLDS/releases/download/$
 RUN rm -rf /hlds/steamapps /hlds/linux64 /hlds/cstrike/addons/amxmodx/scripting
 
 # amxts: the module - modules.ini names it above - and addons/amxts with the
-# compiler. AMX Mod X's plugins.ini has no line for amxts: the module needs
-# no plugin.
+# example plugin. AMX Mod X's plugins.ini has no line for amxts: the module
+# needs no plugin.
 COPY --from=kit addons/amxts /hlds/cstrike/addons/amxts
 COPY --from=kit addons/amxmodx/modules/amxts_amxx_i386.so /hlds/cstrike/addons/amxmodx/modules/
-RUN chmod 755 /hlds/cstrike/addons/amxts/tools/amxts-compile /hlds/cstrike/addons/amxts/tools/wamrc
 
 FROM debian:bookworm-slim
 

@@ -6,14 +6,14 @@ import { spawnSync } from 'node:child_process';
 
 // Compiles one plugin: .ts in, .aot out.
 //
-// Both halves of the project use this one function - `bun run plugins` here,
-// and amxts-compile.exe on a server - so that a plugin compiles the same way
-// in both places. In particular the `~/` alias, which is ours rather than
-// AssemblyScript's and lives in the readFile hook below.
+// Every build compiles through this one function - `amxts build` and `dev`,
+// the tests, the modules' prebuilt plugins - so that a plugin compiles the
+// same way everywhere. In particular the `~/` alias, which is ours rather
+// than AssemblyScript's and lives in the readFile hook below.
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
-// The Binaryen asc itself runs on - the same copy, so the compiler a server
-// gets carries one - for the one pass asc does not run: Asyncify.
+// The Binaryen asc itself runs on - the same copy - for the one pass asc
+// does not run: Asyncify.
 // @ts-ignore - shipped as JavaScript, with types beside it we do not need here
 import * as assemblyscript from '../runtime/deps/assemblyscript/dist/assemblyscript.js';
 // @ts-ignore - its types are beside it, under a path tsconfig does not map
@@ -49,14 +49,6 @@ export interface Plugin {
 	 * plugin rather than ten. It does the same, a little slower.
 	 */
 	quick?: boolean;
-	/**
-	 * Compiled on a game server (amxts-compile): Binaryen's -O1, as a quick
-	 * build's, which keeps asc and Binaryen within a small server's memory -
-	 * asc's full optimisation holds the whole program in Binaryen several
-	 * hundred MB over it - but without a quick build's stack frames, and with
-	 * wamrc at its own level.
-	 */
-	light?: boolean;
 }
 
 /** Binaryen's optimisation level: a quick build's, and a full one's - asc's own --optimize. */
@@ -129,8 +121,7 @@ const BORROWING_IMPORTS = new Set(['env.ent_vector']);
 /**
  * The arguments of Pawn's natives that the module's thunk copies - text in
  * or out, an array - and so keeps no address of, by the native's import:
- * read off runtime/natives.txt, which the server kit has beside its
- * executable. An object whose address goes only there, a field of the
+ * read off runtime/natives.txt. An object whose address goes only there, a field of the
  * options a function reads, is no reason to keep it on the heap.
  */
 const COPIED_ARGUMENTS: ReadonlyMap<string, number[]> = (() => {
@@ -273,18 +264,17 @@ export function writeInclude(output: string, natives: PluginNative[]): void {
  * natives, listed there.
  */
 export async function compileToWasm(
-	plugin: Pick<Plugin, 'source' | 'root' | 'quick' | 'light'>,
+	plugin: Pick<Plugin, 'source' | 'root' | 'quick'>,
 	wasm: string,
 	names = false,
 	natives?: PluginNative[],
 ): Promise<string | null> {
-	// A quick or a light build leaves the optimising to one Binaryen pass afterwards.
-	const lowered = plugin.quick || plugin.light;
-	const flags = [...(lowered ? [] : ['--optimize']), ...(names ? ['--debug'] : []), '--sourceMap'];
-	const level = lowered ? OPTIMIZE.quick : null;
-	// A quick or a light build compiles every plugin with the scheduler's
-	// exports, once, and one that never waits loses them (finishing).
-	const hoodExports = lowered ? ASYNC_EXPORTS : BASE_EXPORTS;
+	// A quick build leaves the optimising to one Binaryen pass afterwards.
+	const flags = [...(plugin.quick ? [] : ['--optimize']), ...(names ? ['--debug'] : []), '--sourceMap'];
+	const level = plugin.quick ? OPTIMIZE.quick : null;
+	// A quick build compiles every plugin with the scheduler's exports, once,
+	// and one that never waits loses them (finishing).
+	const hoodExports = plugin.quick ? ASYNC_EXPORTS : BASE_EXPORTS;
 	let made = await compileWasm(plugin, hoodExports, flags, level, natives);
 
 	// A plugin that makes a promise - an async function, fetch, sleep - has
@@ -322,8 +312,8 @@ export function finishing(hoodExports: string, level: number | null, done: (firs
 			const emit = module.emitBinary.bind(module);
 			module.emitBinary = (url?: string) => {
 				let imports = new Set(functionsOf(module).map(each => each.imported));
-				// A quick or a light build's plugin that never waits, compiled
-				// with the scheduler's exports: they go, and what only they reached.
+				// A quick build's plugin that never waits, compiled with the
+				// scheduler's exports: they go, and what only they reached.
 				if (hoodExports === ASYNC_EXPORTS && level !== null && !imports.has(WAKE_IMPORT)) {
 					for (const name of ASYNC_NAMES) module.removeExport(name);
 					module.runPasses(['remove-unused-module-elements']);
@@ -516,9 +506,8 @@ async function compileWasm(
 	// error with nothing written to stderr.
 	if (error || !binary) return stderr.toString() || String(error?.message ?? error);
 	// A quick build is a dev build (`amxts dev`): its map names the project's
-	// folder, where the module finds the sources to show a failed line; so
-	// does a light one, made on the server the sources are on. A build to
-	// ship names none - the machine's folders are not the server's.
+	// folder, where the module finds the sources to show a failed line. A
+	// build to ship names none - the machine's folders are not the server's.
 	const root = level === null ? '' : sources.project.dir;
 	return { binary, map: pluginMap(sourceMap, file => fileName(sources, plugin.root, file), functions.first, functions.names.map(displayName), root) };
 }

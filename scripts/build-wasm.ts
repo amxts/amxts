@@ -35,7 +35,7 @@ import { createSocket } from 'node:dgram';
 // generic one. Both
 // must come from the same WAMR release as the module, or the loader reports
 // "unknown binary version" (CONTRIBUTING.md builds both from one checkout).
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { includePath } from './compile';
 import { compileAll } from './compile-pool';
@@ -415,17 +415,6 @@ async function deployAndReload(built: string[], names: string): Promise<string> 
 	}
 	// The module's own natives for Pawn: the fields plugins add to Player.
 	if (existsSync(pawnIncludes)) copyFileSync(join(CORE_DIR, 'runtime/host/amxts.inc'), join(pawnIncludes, 'amxts.inc'));
-
-	// A folder beside the plugins is a library - `~/lib/thing`, `~/myplugin/config`.
-	// It is compiled into the .aot already, so nothing here needs it; a .ts
-	// plugin written on the server does, and it was silently compiling against
-	// whatever copy happened to be there.
-	const ownFolder = resolve(sourceDir) !== resolve(CORE_PLUGINS) || resolve(project.dir) === resolve(CORE_DIR);
-	for (const entry of ownFolder ? readdirSync(sourceDir, { withFileTypes: true }) : []) {
-		if (entry.isDirectory()) {
-			cpSync(join(sourceDir, entry.name), join(serverDir, 'plugins', entry.name), { recursive: true });
-		}
-	}
 
 	if (project.config) {
 		writeFileSync(listPath, serverList(existing, readFileSync(join(outDir, 'plugins.ini'), 'utf8')));

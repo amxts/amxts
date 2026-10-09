@@ -1,5 +1,5 @@
 // Which system a server runs, and what a build compiles for: src/system.mjs.
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // @ts-ignore - bun:test types not available during type checking
@@ -76,32 +76,21 @@ test('a server kit carries what the facade references and the promise typings, b
 	expect(apiFiles()).toEqual(expect.arrayContaining([...references, 'promise.types.d.ts', 'facade.ts', 'natives.ts']));
 });
 
-/** runtime/src/embedded.h read back: each file the module writes out, by its path under addons/amxts. */
-function embedded(): Map<string, { text: string; keep: boolean }> {
+/** runtime/src/embedded.h read back: each string array it carries, by name, and each file the module writes out, by its path under addons/amxts. */
+function embedded() {
 	const header = readFileSync('runtime/src/embedded.h', 'utf8');
 	const unescape = (literal: string) => literal.replace(/\\(.)/g, (_, char: string) => (char === 'n' ? '\n' : char));
 	const arrays = new Map([...header.matchAll(/static const char \*const (\w+)\[\] = \{\n([\s\S]*?)\n\};/g)]
 		.map(([, name, body]) => [name, [...body.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(([, piece]) => unescape(piece)).join('')]));
-	return new Map([...header.matchAll(/\{ "([^"]+)", (\w+), .*, ([01]) \},/g)]
+	const files = new Map([...header.matchAll(/\{ "([^"]+)", (\w+), .*, ([01]) \},/g)]
 		.map(([, path, name, keep]) => [path, { text: arrays.get(name) ?? '', keep: keep === '1' }]));
+	return { arrays, files };
 }
 
-test('a server start writes the whole API as it is, the editor\'s files and the example', () => {
-	const files = embedded();
-	const api = readdirSync('as').filter(name => name.endsWith('.ts'));
-
-	for (const file of api) expect({ file, text: files.get(`plugins/${file}`)?.text }).toEqual({ file, text: readFileSync(`as/${file}`, 'utf8').replace(/\r/g, '') });
-	expect(files.get('tools/natives.txt')?.text).toBe(readFileSync('runtime/natives.txt', 'utf8').replace(/\r/g, ''));
-	expect(files.get('plugins/imports.d.ts')?.text).toContain('export import server = __0.server;');
-
-	// With auto-imports every plugin is a module, and `~/` is the plugins folder.
-	const tsconfig = JSON.parse(files.get('plugins/tsconfig.json')?.text ?? '{}');
-	expect(tsconfig.compilerOptions?.moduleDetection).toBe('force');
-	expect(tsconfig.compilerOptions?.paths['~/*']).toEqual(['./*']);
-	// The core's API by the package's name, its files beside the plugins: only the entries it exports.
-	expect(tsconfig.compilerOptions?.paths['@amxts/core/natives']).toEqual(['./natives.ts']);
-	expect(tsconfig.compilerOptions?.paths['@amxts/core/os']).toEqual(['./os.ts']);
-	expect(tsconfig.compilerOptions?.paths['@amxts/core/*']).toBeUndefined();
-
-	expect([...files].filter(([, file]) => file.keep).map(([path]) => path).sort()).toEqual(['plugins.ini', 'plugins/hello.ts']);
+test('a server start writes the plugin list, once; the module carries the natives table', () => {
+	const { arrays, files } = embedded();
+	// A server builds nothing: no API, no editor's files, no compiler's table on its disk.
+	expect([...files.keys()]).toEqual(['plugins.ini']);
+	expect(files.get('plugins.ini')?.keep).toBe(true);
+	expect(arrays.get('g_nativesTable')).toBe(readFileSync('runtime/natives.txt', 'utf8').replace(/\r/g, ''));
 });

@@ -47,8 +47,6 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/mman.h>
-#include <spawn.h>
-#include <sys/wait.h>
 #include <unistd.h>
 #endif
 #include <string>
@@ -147,7 +145,7 @@ static bool g_imageComplete = false;
 
 // What a plugin of the list is now (amxts_plugins): running; unloaded by
 // amxts_unload, until amxts_load or the map changes; refused - it did not
-// compile or load, and Plugin.reason says why; waiting - a new entry nothing
+// load, and Plugin.reason says why; waiting - a new entry nothing
 // has loaded yet; or loading - LoadEntry is on it, and its top level or
 // init() may be running.
 #define PLUGIN_RUNNING  0
@@ -172,15 +170,10 @@ struct Plugin {
 	int32_t             *closureEnv = NULL;
 	int32_t             *argumentsLength = NULL;
 	int32_t             *ambientPlayer = NULL;
-	// The plugins.ini line - "shop.ts" - or what amxts_load was given.
+	// The plugins.ini line - "shop.aot" - or what amxts_load was given.
 	std::string          name;
-	// The .aot: the line's file, or for a .ts the build beside the list.
+	// The .aot, in plugins/ beside the list.
 	std::string          path;
-	// The .ts this was compiled from, when it was written as one. The watcher
-	// follows whichever file the author edits: the source if there is one, the
-	// .aot if the author builds elsewhere and drops the result in.
-	std::string          source;
-	time_t               sourceStamp = 0;
 	// When the .aot was last written.
 	time_t               stamp = 0;
 	// Named in plugins.ini, rather than loaded by hand with amxts_load.
@@ -4594,8 +4587,8 @@ static time_t FileStamp(const char *path)
  * The plugin list, relative to the game folder: addons/amxts/plugins.ini, or
  * the file `+localinfo amxts_plugins <file>` names on the command line.
  *
- * The plugins it names are looked for in plugins/ beside it, and a .ts is
- * built into build/ beside it, so a list elsewhere brings its own folder: the
+ * The plugins it names are looked for in plugins/ beside it, so a list
+ * elsewhere brings its own folder: the
  * second server `bun run test:server` starts from the same install loads only
  * its test plugins, and the server that owns the install is not touched.
  *
@@ -4644,18 +4637,11 @@ static void EnsureDirectory(const char *relative)
 }
 
 /**
- * Lays out addons/amxts beside the module, on every start.
- *
- * A server owner installs one file - the module - and the rest appears: the
- * folders, the API a plugin imports, the editor's files, the signature table
- * the compiler reads, and an example to edit - the list
- * scripts/server-files.ts makes (embedded.h).
- *
- * The API is rewritten every time rather than only when missing. It is not
- * the author's: it is this module's own, and a copy left over from an older
- * build is exactly the failure this avoids - a plugin that compiles against
- * natives the module has no thunk for. plugins.ini and the example are the
- * author's, so those are written once and then left alone.
+ * Lays out addons/amxts beside the module, on every start: the plugins
+ * folder and the plugin list - the list scripts/server-files.ts makes
+ * (embedded.h). A server owner installs one file - the module - and the rest
+ * appears. plugins.ini is the author's, so it is written once and then left
+ * alone.
  */
 /** A file's bytes, empty when it cannot be read. */
 static std::string ReadWhole(const char *path)
@@ -4682,7 +4668,7 @@ static void InstallFiles()
 		return;
 
 	EnsureDirectory("addons/amxts");
-	EnsureDirectory("addons/amxts/build");
+	EnsureDirectory("addons/amxts/plugins");
 
 	for (size_t i = 0; i < sizeof(g_embedded) / sizeof(g_embedded[0]); i++) {
 		const EmbeddedFile &file = g_embedded[i];
@@ -4978,354 +4964,8 @@ static void Teardown()
 		ClearPlayerData(i);
 }
 
-// The on-server compiler's file name in addons/amxts/tools.
-#ifdef _WIN32
-#define COMPILER_FILE "amxts-compile.exe"
-#else
-#define COMPILER_FILE "amxts-compile"
-#endif
-
-// Not forever: a compiler that never returns would take the server with it,
-// and a game server hanging on a plugin author's typo is a worse failure than
-// a plugin that does not load.
-#define COMPILE_TIMEOUT_MS 120000
-
-// What RunCompiler returns for a compiler the system killed for its memory.
-#define COMPILER_OUT_OF_MEMORY -2
-
-/**
- * The compiler's JavaScriptCore kept small, for a game server's memory: asc
- * runs once a compile, too short a time to pay for the optimising JIT tiers
- * and their memory; no compiler or collector threads with heaps of their own;
- * a heap sized as if the machine had 128 MB, so the collector runs before it
- * grows; and freed pages given back at once.
- */
-static const char *const COMPILER_ENV[] = {
-	"BUN_JSC_useDFGJIT=0",
-	"BUN_JSC_useFTLJIT=0",
-	"BUN_JSC_useOMGJIT=0",
-	"BUN_JSC_useConcurrentJIT=0",
-	"BUN_JSC_useConcurrentGC=0",
-	"BUN_JSC_forceRAMSize=134217728",
-	"MIMALLOC_PURGE_DELAY=0",
-};
-#define COMPILER_ENV_COUNT (sizeof(COMPILER_ENV) / sizeof(COMPILER_ENV[0]))
-
-/** Whether `entry` (NAME=value) sets a variable COMPILER_ENV sets. */
-static bool SetForCompiler(const char *entry)
-{
-	for (size_t i = 0; i < COMPILER_ENV_COUNT; i++) {
-		size_t name = strchr(COMPILER_ENV[i], '=') - COMPILER_ENV[i] + 1;
-		if (!strncmp(entry, COMPILER_ENV[i], name))
-			return true;
-	}
-	return false;
-}
-
-/** The server's environment, less what `drop` says, with COMPILER_ENV after it. */
-static std::vector<std::string> CompilerEnvironment(const std::vector<std::string> &server, bool (*drop)(const char *))
-{
-	std::vector<std::string> env;
-	for (size_t i = 0; i < server.size(); i++)
-		if (!SetForCompiler(server[i].c_str()) && !drop(server[i].c_str()))
-			env.push_back(server[i]);
-	env.insert(env.end(), COMPILER_ENV, COMPILER_ENV + COMPILER_ENV_COUNT);
-	return env;
-}
-
-static int OutOfMemory()
-{
-	MF_PrintSrvConsole("[amxts] the compiler ran out of memory (killed by the system): build on your machine with npx amxts build\n");
-	return COMPILER_OUT_OF_MEMORY;
-}
-
-/**
- * Runs `tool args...` with its output going to `log`, and waits for it.
- * Returns its exit code; -1 when it could not start or did not finish, or
- * COMPILER_OUT_OF_MEMORY - each said on the console.
- */
-#ifdef _WIN32
-static bool KeepAll(const char *)
-{
-	return false;
-}
-
-static int RunCompiler(const std::string &tool, const std::vector<std::string> &args, const std::string &log)
-{
-	SECURITY_ATTRIBUTES inherit;
-	inherit.nLength = sizeof(inherit);
-	inherit.lpSecurityDescriptor = NULL;
-	inherit.bInheritHandle = TRUE;
-
-	HANDLE out = CreateFileA(log.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &inherit,
-	                         CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-
-	std::string command = "\"" + tool + "\"";
-	for (size_t i = 0; i < args.size(); i++)
-		command += " \"" + args[i] + "\"";
-	std::vector<char> line(command.begin(), command.end());
-	line.push_back(0);
-
-	STARTUPINFOA start;
-	memset(&start, 0, sizeof(start));
-	start.cb = sizeof(start);
-	start.dwFlags = STARTF_USESTDHANDLES;
-	// With STARTF_USESTDHANDLES all three have to be real handles, so stdin
-	// gets the null device rather than NULL.
-	HANDLE nothing = CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ, &inherit,
-	                             OPEN_EXISTING, 0, NULL);
-
-	start.hStdOutput = out;
-	start.hStdError = out;
-	start.hStdInput = nothing;
-
-	PROCESS_INFORMATION process;
-	memset(&process, 0, sizeof(process));
-
-	std::vector<std::string> server;
-	char *strings = GetEnvironmentStringsA();
-	for (char *at = strings; at && *at; at += strlen(at) + 1)
-		server.push_back(at);
-	if (strings)
-		FreeEnvironmentStringsA(strings);
-	std::vector<std::string> env = CompilerEnvironment(server, KeepAll);
-	std::vector<char> block;
-	for (size_t i = 0; i < env.size(); i++)
-		block.insert(block.end(), env[i].c_str(), env[i].c_str() + env[i].size() + 1);
-	block.push_back(0);
-
-	BOOL started = CreateProcessA(NULL, &line[0], NULL, NULL, TRUE, CREATE_NO_WINDOW,
-	                              &block[0], NULL, &start, &process);
-
-	if (out != INVALID_HANDLE_VALUE)
-		CloseHandle(out);
-	if (nothing != INVALID_HANDLE_VALUE)
-		CloseHandle(nothing);
-
-	if (!started) {
-		MF_PrintSrvConsole("[amxts] could not run %s\n", tool.c_str());
-		return -1;
-	}
-
-	DWORD waited = WaitForSingleObject(process.hProcess, COMPILE_TIMEOUT_MS);
-
-	if (waited != WAIT_OBJECT_0) {
-		MF_PrintSrvConsole("[amxts] the compiler did not finish in %ds\n", COMPILE_TIMEOUT_MS / 1000);
-		TerminateProcess(process.hProcess, 1);
-		CloseHandle(process.hProcess);
-		CloseHandle(process.hThread);
-		return -1;
-	}
-
-	DWORD code = 1;
-	GetExitCodeProcess(process.hProcess, &code);
-	CloseHandle(process.hProcess);
-	CloseHandle(process.hThread);
-	if (code == (DWORD)STATUS_NO_MEMORY)
-		return OutOfMemory();
-	return (int)code;
-}
-#else
-extern char **environ;
-
-// hlds_run puts the server's own folder first on LD_LIBRARY_PATH, with a
-// 32-bit libstdc++ in it; the compiler is a 64-bit program of its own and
-// has no use for the server's libraries.
-static bool ServerLibraries(const char *entry)
-{
-	return !strncmp(entry, "LD_LIBRARY_PATH=", 16) || !strncmp(entry, "LD_PRELOAD=", 11);
-}
-
-static int RunCompiler(const std::string &tool, const std::vector<std::string> &args, const std::string &log)
-{
-	// An upload over FTP or a panel's file manager drops the execute bit; the
-	// compiler and the wamrc beside it get it back rather than fail with EACCES.
-	std::string wamrc = tool.substr(0, tool.find_last_of('/') + 1) + "wamrc";
-	const char *tools[] = { tool.c_str(), wamrc.c_str() };
-	for (int i = 0; i < 2; i++)
-		if (access(tools[i], X_OK) != 0)
-			chmod(tools[i], 0755);
-
-	posix_spawn_file_actions_t files;
-	posix_spawn_file_actions_init(&files);
-	posix_spawn_file_actions_addopen(&files, 0, "/dev/null", O_RDONLY, 0);
-	posix_spawn_file_actions_addopen(&files, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-	posix_spawn_file_actions_adddup2(&files, 1, 2);
-
-	std::vector<std::string> server;
-	for (char **at = environ; at && *at; at++)
-		server.push_back(*at);
-	std::vector<std::string> keep = CompilerEnvironment(server, ServerLibraries);
-	std::vector<char *> env;
-	for (size_t i = 0; i < keep.size(); i++)
-		env.push_back(&keep[i][0]);
-	env.push_back(NULL);
-
-	std::vector<std::string> words(1, tool);
-	words.insert(words.end(), args.begin(), args.end());
-	std::vector<char *> argv;
-	for (size_t i = 0; i < words.size(); i++)
-		argv.push_back(&words[i][0]);
-	argv.push_back(NULL);
-
-	pid_t pid;
-	int failed = posix_spawn(&pid, tool.c_str(), &files, NULL, &argv[0], &env[0]);
-	posix_spawn_file_actions_destroy(&files);
-
-	if (failed) {
-		MF_PrintSrvConsole("[amxts] could not run %s: %s\n", tool.c_str(), strerror(failed));
-		return -1;
-	}
-
-	// Polled rather than waited for, so that a compiler that hangs can be
-	// stopped: waitpid has no timeout.
-	int status = 0;
-	for (int waited = 0;; waited += 10) {
-		pid_t done = waitpid(pid, &status, WNOHANG);
-		if (done == pid)
-			break;
-		if (done < 0 && errno != EINTR) {
-			MF_PrintSrvConsole("[amxts] lost the compiler: %s\n", strerror(errno));
-			return -1;
-		}
-		if (waited >= COMPILE_TIMEOUT_MS) {
-			MF_PrintSrvConsole("[amxts] the compiler did not finish in %ds\n", COMPILE_TIMEOUT_MS / 1000);
-			kill(pid, SIGKILL);
-			waitpid(pid, &status, 0);
-			return -1;
-		}
-		struct timespec pause = { 0, 10 * 1000000L };
-		nanosleep(&pause, NULL);
-	}
-
-	if (WIFEXITED(status))
-		return WEXITSTATUS(status);
-	// What a container's memory limit does to a process over it.
-	if (WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL)
-		return OutOfMemory();
-	MF_PrintSrvConsole("[amxts] the compiler was stopped by signal %d\n", WIFSIGNALED(status) ? WTERMSIG(status) : 0);
-	return -1;
-}
-#endif
-
-/**
- * Compiles a plugin's source, the way AMX Mod X compiles a .sma on the server.
- *
- * amxts-compile is asc and wamrc in one executable, so a plugin author needs
- * nothing but a text editor: they write TypeScript, drop it in
- * addons/amxts/plugins, and the server turns it into machine code. It lives in
- * addons/amxts/tools with wamrc and the signature table beside it, and all
- * three belong to this module - the thunks, the imports and the signatures are
- * three faces of one list. It compiles for the system it runs on, which is
- * this server's.
- *
- * ponytail: this waits for the compiler, which takes a second or two, and the
- * server waits with it. At a map change that is invisible; on a reload in the
- * middle of a round it is a freeze. Spawning it without waiting and picking
- * the result up in the watcher is the fix if it ever matters.
- *
- * The compiler's own output is what says why a plugin failed, so it goes to a
- * file and from there to the console; nothing is run through a shell (on
- * Windows, cmd.exe would flash a window on every build).
- */
-/** The first line of a file, without its line ending; "" when there is none. */
-static std::string FirstLine(const std::string &file)
-{
-	char text[256] = "";
-	FILE *f = fopen(file.c_str(), "r");
-	if (f) {
-		if (!fgets(text, sizeof(text), f))
-			text[0] = 0;
-		fclose(f);
-	}
-	text[strcspn(text, "\r\n")] = 0;
-	return text;
-}
-
-/**
- * The build amxts-compile says it is of (`--version`), asked once a file:
- * "" for one too old to say - it takes the flag for a source and answers with
- * its usage.
- */
-static std::string CompilerBuild(const std::string &tool, const std::string &log)
-{
-	static time_t asked = 0;
-	static std::string build;
-
-	time_t stamp = FileStamp(tool.c_str());
-	if (stamp != asked) {
-		asked = stamp;
-		std::vector<std::string> args(1, "--version");
-		build = RunCompiler(tool, args, log) == 0 ? FirstLine(log) : "";
-	}
-	return build;
-}
-
-/** Why the last CompilePlugin or LoadPlugin failed, in a few words: what amxts_plugins shows. */
+/** Why the last LoadPlugin failed, in a few words: what amxts_plugins shows. */
 static std::string g_refusal;
-
-static bool CompilePlugin(const std::string &source, const std::string &output)
-{
-	std::string tool = MF_BuildPathname("addons/amxts/tools/" COMPILER_FILE);
-
-	if (FileStamp(tool.c_str()) == 0) {
-		MF_PrintSrvConsole("[amxts] %s is missing - a .ts plugin needs the compiler beside the module\n", tool.c_str());
-		g_refusal = "the compiler is missing";
-		return false;
-	}
-
-	std::string log = MF_BuildPathname("addons/amxts/build/compile.log");
-
-	// The module writes the API a plugin imports, and a compiler of another
-	// build reads it with another AssemblyScript: its errors would say nothing
-	// of why. So one of another build compiles nothing.
-	std::string build = CompilerBuild(tool, log);
-	if (build != AMXTS_BUILD) {
-		MF_PrintSrvConsole("[amxts] %s is not compiled: amxts-compile is %s%s, the module %s - take both from the same release\n",
-		                   source.c_str(), build.empty() ? "of an older release" : "", build.c_str(), AMXTS_BUILD);
-		g_refusal = "the compiler is of another build";
-		return false;
-	}
-
-	MF_PrintSrvConsole("[amxts] compiling %s\n", source.c_str());
-
-	// asc and Binaryen, then wamrc: each stage a process of its own, which
-	// gives its memory back as it exits, so a compile takes no more than its
-	// larger stage's.
-	static const char *const stages[] = { "--stage-wasm", "--stage-aot" };
-	int code = 0;
-	for (int i = 0; i < 2 && code == 0; i++) {
-		std::vector<std::string> args;
-		args.push_back(stages[i]);
-		args.push_back(source);
-		args.push_back(output);
-		code = RunCompiler(tool, args, log);
-	}
-
-	if (code < 0) {
-		g_refusal = code == COMPILER_OUT_OF_MEMORY ? "the compiler ran out of memory" : "the compiler did not finish";
-		return false;
-	}
-
-	MF_PrintSrvConsole("[amxts] compiler exited with %d\n", code);
-
-	if (code != 0) {
-		MF_PrintSrvConsole("[amxts] %s did not compile:\n", source.c_str());
-
-		FILE *f = fopen(log.c_str(), "r");
-		if (f) {
-			char text[256];
-			while (fgets(text, sizeof(text), f))
-				MF_PrintSrvConsole("  %s", text);
-			fclose(f);
-		}
-
-		g_refusal = "it does not compile";
-		return false;
-	}
-
-	return true;
-}
 
 #ifdef _WIN32
 #define THIS_SYSTEM "Windows"
@@ -5398,21 +5038,6 @@ static std::string AotAbi(const unsigned char *data, size_t size)
 	return "";
 }
 
-/** The ABI of the .aot at `path`, "" when it has none or is not there. */
-static std::string FileAbi(const std::string &path)
-{
-	FILE *f = fopen(path.c_str(), "rb");
-	if (!f)
-		return "";
-	std::vector<unsigned char> data;
-	unsigned char chunk[65536];
-	size_t got;
-	while ((got = fread(chunk, 1, sizeof(chunk), f)) > 0)
-		data.insert(data.end(), chunk, chunk + got);
-	fclose(f);
-	return data.empty() ? "" : AotAbi(&data[0], data.size());
-}
-
 /** The line of an ABI's version, major.minor: 0.3 of 0.3.1+abi.1a2b3c4d. */
 static std::string AbiLine(const std::string &abi)
 {
@@ -5423,7 +5048,7 @@ static std::string AbiLine(const std::string &abi)
 
 /**
  * This module's imports by name, each with its shape: its line of the
- * natives table the module carries (tools/natives.txt in embedded.h) -
+ * natives table the module carries (g_nativesTable in embedded.h) -
  * `add (iiii)i [a1>,v,s,v leaf`.
  */
 static const std::unordered_map<std::string, std::string> &ImportShapes()
@@ -5431,20 +5056,16 @@ static const std::unordered_map<std::string, std::string> &ImportShapes()
 	static std::unordered_map<std::string, std::string> shapes;
 	if (!shapes.empty())
 		return shapes;
-	for (size_t i = 0; i < sizeof(g_embedded) / sizeof(g_embedded[0]); i++) {
-		if (strcmp(g_embedded[i].path, "tools/natives.txt") != 0)
-			continue;
-		std::string text;
-		for (int c = 0; c < g_embedded[i].count; c++)
-			text += g_embedded[i].chunks[c];
-		for (size_t at = 0, end; at < text.size(); at = end + 1) {
-			end = text.find('\n', at);
-			if (end == std::string::npos)
-				end = text.size();
-			std::string line = text.substr(at, end - at);
-			if (!line.empty() && line[0] != '#')
-				shapes[line.substr(0, line.find(' '))] = line;
-		}
+	std::string text;
+	for (size_t c = 0; c < sizeof(g_nativesTable) / sizeof(g_nativesTable[0]); c++)
+		text += g_nativesTable[c];
+	for (size_t at = 0, end; at < text.size(); at = end + 1) {
+		end = text.find('\n', at);
+		if (end == std::string::npos)
+			end = text.size();
+		std::string line = text.substr(at, end - at);
+		if (!line.empty() && line[0] != '#')
+			shapes[line.substr(0, line.find(' '))] = line;
 	}
 	return shapes;
 }
@@ -5699,10 +5320,20 @@ static void InitPlugin(int index)
 	DrainJobs(index);
 }
 
+/** Whether `name` ends in `ending`. */
+static bool EndsWith(const std::string &name, const char *ending)
+{
+	size_t length = strlen(ending);
+	return name.size() >= length && name.compare(name.size() - length, length, ending) == 0;
+}
+
 /**
- * Compiles the plugin at `index` when its .ts is newer than its build, or the
- * build is of another ABI, then loads it and runs its init(). Its entry says
- * how that went: running, or refused and why.
+ * Loads the plugin at `index` and runs its init(). Its entry says how that
+ * went: running, or refused and why.
+ *
+ * A server loads .aot files only, as AMX Mod X loads .amxx: a plugin is
+ * built on the author's machine. A .ts named here, with no .aot of its name
+ * beside it, is said so - once, as it is loaded - and refused.
  */
 static bool LoadEntry(int index)
 {
@@ -5710,12 +5341,10 @@ static bool LoadEntry(int index)
 	p.state = PLUGIN_LOADING;
 	g_refusal = "";
 
-	// Built from an older source, or by an amxts of another ABI: compiled again.
 	bool loaded = false;
-	if (!p.source.empty()) {
-		p.sourceStamp = FileStamp(p.source.c_str());
-		bool stale = FileStamp(p.path.c_str()) < p.sourceStamp || !AbiFits(FileAbi(p.path));
-		loaded = (!stale || CompilePlugin(p.source, p.path)) && LoadPlugin(index);
+	if (EndsWith(p.name, ".ts") && FileStamp(p.path.c_str()) == 0) {
+		MF_PrintSrvConsole("[amxts] %s is source: the server loads only .aot - build it on your machine with npx amxts build and upload the .aot\n", p.name.c_str());
+		g_refusal = "source - build it with npx amxts build and upload the .aot";
 	} else {
 		loaded = LoadPlugin(index);
 	}
@@ -5734,9 +5363,11 @@ static bool LoadEntry(int index)
 /** A plugin's name without its .ts or .aot: what a command may call it by. */
 static std::string Stem(const std::string &name)
 {
-	size_t dot = name.find_last_of('.');
-	bool known = dot != std::string::npos && (name.compare(dot, std::string::npos, ".ts") == 0 || name.compare(dot, std::string::npos, ".aot") == 0);
-	return known ? name.substr(0, dot) : name;
+	if (EndsWith(name, ".ts"))
+		return name.substr(0, name.size() - 3);
+	if (EndsWith(name, ".aot"))
+		return name.substr(0, name.size() - 4);
+	return name;
 }
 
 /** The entry of `list` whose line is `name`; -1 for none. */
@@ -5759,20 +5390,18 @@ static int FindPlugin(const std::string &wanted)
 
 /**
  * A new entry, not loaded yet, for `line`: a plugin's file in plugins/ beside
- * the list. A .ts is built into build/ beside it, and the result kept there
- * so that a server restart does not compile it again. Its index.
+ * the list - for a .ts, the .aot of its name, which a build of it makes. Its
+ * index.
  */
 static int AddPlugin(const std::string &line, bool listed)
 {
 	const std::string home = ListHome();
-	std::string file = MF_BuildPathname("%s/plugins/%s", home.c_str(), line.c_str());
-	bool isSource = Stem(line) + ".ts" == line;
+	std::string file = EndsWith(line, ".ts") ? Stem(line) + ".aot" : line;
 
 	Plugin p;
 	p.name = line;
 	p.listed = listed;
-	p.source = isSource ? file : "";
-	p.path = isSource ? std::string(MF_BuildPathname("%s/build/%s.aot", home.c_str(), Stem(line).c_str())) : file;
+	p.path = MF_BuildPathname("%s/plugins/%s", home.c_str(), file.c_str());
 	g_plugins.push_back(p);
 	return (int)g_plugins.size() - 1;
 }
@@ -6030,8 +5659,7 @@ static void LoadOne(const std::string &wanted)
 }
 
 /**
- * amxts_reload <plugin>: starts it over from disk, compiled again when its
- * .ts changed. The plugins that call its module start over after it: they
+ * amxts_reload <plugin>: starts it over from disk. The plugins that call its module start over after it: they
  * hold handles and functions of the old instance.
  */
 static void ReloadOne(const std::string &wanted)
@@ -6202,23 +5830,6 @@ static void WatchPlugins()
 		// An unloaded plugin stays as it is until amxts_load.
 		if (p.state == PLUGIN_UNLOADED)
 			continue;
-
-		// A plugin written as TypeScript is watched by its source: the .aot is
-		// a build product, and waiting for that one would mean waiting for a
-		// compile that nothing has started. A refused one is watched as well,
-		// so that saving the fix is all it takes; compiling it here rather than
-		// at the reload keeps a plugin that is still broken from restarting
-		// the ones that are not.
-		if (!p.source.empty()) {
-			time_t now = FileStamp(p.source.c_str());
-			if (!now || now == p.sourceStamp)
-				continue;
-
-			MF_PrintSrvConsole("[amxts] %s changed, compiling\n", p.name.c_str());
-			p.sourceStamp = now;
-			changed = CompilePlugin(p.source, p.path) || changed;
-			continue;
-		}
 
 		time_t now = FileStamp(p.path.c_str());
 		if (now && now != p.stamp) {

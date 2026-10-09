@@ -693,9 +693,8 @@ export function serverDir(): string {
  * left there by an older amxts: a file named as one of the core's as/ (or
  * the editor's imports.d.ts) whose first line is the core's - a generator's
  * header or that file's own first line. An author's file of the same name
- * starts otherwise and stays a plugin. A server's addons/amxts/plugins holds
- * these files on purpose: the module writes them there for the plugins
- * compiled on the server.
+ * starts otherwise and stays a plugin. A server's addons/amxts/plugins of
+ * an older amxts holds them too: its module wrote them there.
  */
 export function staleCopies(project: Project): string[] {
 	const dir = resolve(project.pluginsDir);

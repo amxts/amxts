@@ -40,19 +40,14 @@ export const MODULE_FILE = { windows: 'amxts_amxx.dll', linux: 'amxts_amxx_i386.
 
 /**
  * The files of a system's GitHub Release that a server runs: the name each is
- * attached under, and where it goes under the game folder (cstrike). A `tool`
- * is the compiler for `.ts` plugins written on the server, which a server has
- * only when its kit put it there.
+ * attached under, and where it goes under the game folder (cstrike). A server
+ * runs the module alone - it loads plugins built elsewhere. `tool` is a file
+ * a server has only when its kit put it there; no such file is left.
  * @param {System} system
- * @returns {{ asset: string, path: string, tool: boolean }[]} the module first, then the tools
+ * @returns {{ asset: string, path: string, tool: boolean }[]} the module first
  */
 export function serverFiles(system) {
-	const suffix = `${system}-x64`;
-	return [
-		{ asset: MODULE_FILE[system], path: `addons/amxmodx/modules/${MODULE_FILE[system]}`, tool: false },
-		{ asset: executable(`amxts-compile-${suffix}`, system), path: `addons/amxts/tools/${executable('amxts-compile', system)}`, tool: true },
-		{ asset: executable(`wamrc-${suffix}`, system), path: `addons/amxts/tools/${executable('wamrc', system)}`, tool: true },
-	];
+	return [{ asset: MODULE_FILE[system], path: `addons/amxmodx/modules/${MODULE_FILE[system]}`, tool: false }];
 }
 
 /** A system's release manifest, attached beside its files: the version, and each file's size and sha256. */

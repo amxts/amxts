@@ -800,14 +800,13 @@ function codeFiles(dir: string, skip: Set<string>): string[] {
 }
 
 /**
- * The project's code to upgrade. The module's own files - the API a server
- * writes beside its plugins, at the core's version it runs - are not, in the
- * server's folder or a copy of one; a file of that name in the plugins
- * folder is the author's.
+ * The project's code to upgrade. The module's own files - the API an older
+ * server wrote beside its plugins - are not, in the server's folder or a copy
+ * of one; a file of that name in the plugins folder is the author's.
  */
 function projectFiles(dir: string, pluginsDir: string, outDir: string): string[] {
-	// The API at the top of as/, and the editor's globals: what the module
-	// writes beside the plugins (scripts/server-files.ts).
+	// The API at the top of as/, and the editor's globals: what an older
+	// module wrote beside the plugins.
 	const theirs = new Set([...apiFiles(), 'imports.d.ts']);
 	return codeFiles(dir, new Set([outDir, serverDir()])).filter(file => !theirs.has(basename(file)) || dirname(file) === pluginsDir);
 }

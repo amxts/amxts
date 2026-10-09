@@ -6,8 +6,8 @@
 //   bun run release:upload  [--dry-run]   attach what dist-release/ holds for the tag
 //   bun run release:publish [--dry-run]   check both are there, of one version, then publish
 //
-// Each system's build makes dist-release/<system>/: the module, amxts-compile,
-// wamrc, the server kit as one archive, and amxts-<system>.json - the version,
+// Each system's build makes dist-release/<system>/: the module, wamrc (for
+// the npm package @amxts/wamrc-<system>), the server kit as one archive, and amxts-<system>.json - the version,
 // the tag, the commit and every file's size and sha256. It finds the draft
 // release of the tag, or creates it with the version's section of
 // CHANGELOG.md as its notes (scripts/changelog.ts; a release that is already
@@ -42,7 +42,7 @@ import { ABI_LOCK } from './build-identity';
 import { releaseNotes } from './changelog';
 import { manifestName, releaseProblems } from './release-check';
 import { releaseLine } from './release-line';
-import { HOST_SYSTEM, modulePath, serverFiles, SYSTEM_NAME, wamrcPath } from './system';
+import { executable, HOST_SYSTEM, modulePath, serverFiles, SYSTEM_NAME, wamrcPath } from './system';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const args = process.argv.slice(2);
@@ -187,12 +187,10 @@ function sha256(file: string): string {
 
 /** The files a system's release carries, by the name they are attached under. */
 function releaseFiles(system: System): Record<string, string> {
-	const kitWamrc = system === HOST_SYSTEM ? wamrcPath() : join(CORE, 'runtime/build/linux/wamrc');
-	const [module, compile, wamrc] = serverFiles(system);
+	const [module] = serverFiles(system);
 	return {
 		[module.asset]: modulePath(system),
-		[compile.asset]: join(CORE, 'dist-server', system, compile.path),
-		[wamrc.asset]: kitWamrc,
+		[executable(`wamrc-${system}-x64`, system)]: system === HOST_SYSTEM ? wamrcPath() : join(CORE, 'runtime/build/linux/wamrc'),
 	};
 }
 
@@ -207,8 +205,7 @@ function pack(system: System, tag: string): string[] {
 		copyFileSync(from, join(dir, name));
 	}
 
-	// The kit as one archive: a zip for Windows, a tar.gz for Linux, which
-	// keeps the tools' execute bit when made on Linux.
+	// The kit as one archive: a zip for Windows, a tar.gz for Linux.
 	const kit = join(CORE, 'dist-server', system);
 	if (!existsSync(join(kit, 'addons'))) throw new ReleaseError(`${kit} is missing - bun run serverkit --os ${system}`);
 	const archive = system === 'windows' ? `amxts-server-${system}-x64.zip` : `amxts-server-${system}-x64.tar.gz`;
@@ -268,9 +265,9 @@ function createRelease(tag: string): void {
 		'',
 		'### 📦 Files',
 		'',
-		'- `amxts-server-windows-x64.zip`, `amxts-server-linux-x64.tar.gz` - the server kit: the module, and the compiler for `.ts` plugins written on the server.',
+		'- `amxts-server-windows-x64.zip`, `amxts-server-linux-x64.tar.gz` - the server kit: the module and an example plugin, `hello.aot`.',
 		'- `amxts_amxx.dll`, `amxts_amxx_i386.so` - the module alone.',
-		'- `amxts-compile-*`, `wamrc-*` - the on-server compiler and WAMR\'s AOT compiler, per system.',
+		'- `wamrc-*` - WAMR\'s AOT compiler, per system, which `@amxts/wamrc-<system>` carries for `npx amxts build`.',
 		'- `amxts-windows.json`, `amxts-linux.json` - what each was built from, with every file\'s sha256.',
 	].join('\n');
 	const file = join(mkdtempSync(join(tmpdir(), 'amxts-release-')), 'notes.md');

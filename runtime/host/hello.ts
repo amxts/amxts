@@ -1,7 +1,5 @@
-// The example a server writes out on its first start, and a working plugin.
-//
-// Put a file like this in addons/amxts/plugins, name it in plugins.ini, and
-// save: the server compiles it and loads it without a map change.
+// The example the server kit carries, built as plugins/hello.aot: the server
+// loads it on its first start, which shows the module works.
 
 plugin({
 	name: "Hello",

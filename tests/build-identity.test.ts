@@ -1,8 +1,5 @@
 /**
- * The build a module and the compiler beside it on a server are of: the
- * module carries it, amxts-compile is built as the same one, and
- * `amxts-compile --version` says it - what the module asks before it compiles
- * a plugin's source, refusing a compiler of another build.
+ * The build a module is of: the version and the commit.
  *
  * And the ABI a plugin is compiled against: the version and a hash of the
  * ground, then the shape of every import it uses, written into the plugin,
@@ -17,7 +14,7 @@ import { join } from 'node:path';
 // @ts-ignore - bun:test types not available during type checking
 import { expect, setDefaultTimeout, test } from 'bun:test';
 import pkg from '../package.json';
-import { ABI_LOCK, ABI_SECTION, abiIdentity, abiLine, buildDefines, buildIdentity, importShapes, pluginAbi, releaseLine, shapeChanges } from '../scripts/build-identity';
+import { ABI_LOCK, ABI_SECTION, abiIdentity, abiLine, buildIdentity, importShapes, pluginAbi, releaseLine, shapeChanges } from '../scripts/build-identity';
 import { compilePlugin } from '../scripts/compile';
 import { readSection } from '../scripts/source-map';
 import { moduleAbiOf, wamrcPath } from '../scripts/system';
@@ -32,14 +29,6 @@ mkdirSync(out, { recursive: true });
 test('a build is the version and the commit', () => {
 	const commit = spawnSync('git', ['rev-parse', '--short=10', 'HEAD'], { encoding: 'utf-8' }).stdout.trim();
 	expect(buildIdentity()).toBe(`${pkg.version}+${commit}`);
-});
-
-test('the compiler says the build it is built as', () => {
-	const version = (...define: string[]) =>
-		spawnSync(process.execPath, [...define, 'scripts/compile-one.ts', '--version'], { encoding: 'utf-8' }).stdout;
-
-	expect(version(...buildDefines('0.2.0+1bf291c0ab', '0.2.0+abi.1a2b3c4d'))).toBe('0.2.0+1bf291c0ab\n');
-	expect(version()).toBe('unknown\n');
 });
 
 test('the ABI is the version and a hash, the same on every call', () => {

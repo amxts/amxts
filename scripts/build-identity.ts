@@ -1,20 +1,12 @@
-// The build a module and the compiler beside it on a server are of: the
-// version and the commit, as a release's manifest names them -
-// `0.2.0+1bf291c0ab`, SemVer's build metadata.
-//
-// `bun run generate` writes it into the module (runtime/src/embedded.h), and
-// `bun run serverkit` builds amxts-compile with the one read back from there,
-// so the two agree whenever they come from one build. Before it compiles a
-// plugin's source, the module asks the compiler for its build
-// (`amxts-compile --version`) and refuses one of another: the module writes
-// the API a plugin imports, and a compiler of another release reads it with
-// another AssemblyScript, which fails with errors that say nothing of why.
+// The build a module is of: the version and the commit, as a release's
+// manifest names them - `0.2.0+1bf291c0ab`, SemVer's build metadata.
+// `bun run generate` writes it into the module (runtime/src/embedded.h).
 //
 // A plugin carries an identity of its own: the ABI it was compiled against,
 // which the module checks before it loads the plugin (abiIdentity, below).
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -36,29 +28,6 @@ export function buildIdentity(): string {
 	const git = spawnSync('git', ['rev-parse', '--short=10', 'HEAD'], { encoding: 'utf-8' });
 	const commit = git.status === 0 ? git.stdout.trim() : '';
 	return commit ? `${coreVersion()}+${commit}` : coreVersion();
-}
-
-/** A string the generated module carries (`#define <name> "..."`), or null before `bun run generate`. */
-function moduleDefine(name: string): string | null {
-	const header = './runtime/src/embedded.h';
-	if (!existsSync(header)) return null;
-	return new RegExp(`^#define ${name} "([^"]*)"$`, 'm').exec(readFileSync(header, 'utf-8'))?.[1] ?? null;
-}
-
-/** The build the generated module carries, or null before `bun run generate`. */
-export const moduleBuild = () => moduleDefine('AMXTS_BUILD');
-
-/** The ABI the generated module loads plugins of, or null before `bun run generate`. */
-export const moduleAbi = () => moduleDefine('AMXTS_ABI');
-
-/** The `--define`s that build amxts-compile as of `build`, stamping plugins with `abi`. */
-export function buildDefines(build: string, abi: string): string[] {
-	return Object.entries(buildConstants(build, abi)).map(([name, value]) => `--define=${name}=${value}`);
-}
-
-/** buildDefines as the bundler's `define`. */
-export function buildConstants(build: string, abi: string): Record<string, string> {
-	return { AMXTS_BUILD: JSON.stringify(build), AMXTS_ABI: JSON.stringify(abi) };
 }
 
 // ---------------------------------------------------------------- the ABI
@@ -107,12 +76,9 @@ export const ABI_SECTION = 'amxts.abi';
 
 const CORE = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/**
- * The natives table a compile reads: AMXTS_NATIVES, else the core's, else
- * the one beside amxts-compile on a server, which the module wrote there.
- */
+/** The natives table a compile reads: AMXTS_NATIVES, else the core's. */
 export function nativesFile(): string | undefined {
-	return [process.env.AMXTS_NATIVES, join(CORE, 'runtime/natives.txt'), join(dirname(process.execPath), 'natives.txt')].find(each => each && existsSync(each));
+	return [process.env.AMXTS_NATIVES, join(CORE, 'runtime/natives.txt')].find(each => each && existsSync(each));
 }
 
 /** A natives table's lines, but its comments: `add (iiii)i [a1>,v,s,v leaf`. */
@@ -128,16 +94,12 @@ export function importShapes(): Map<string, string> {
 	return new Map(lines.map(line => [importName(line), line]));
 }
 
-declare const AMXTS_ABI: string;
-
 /**
  * The ground this core compiles plugins on, which the module it builds loads
- * plugins of: `0.3.1+abi.1a2b3c4d`. amxts-compile on a server has the
- * module's own built in; anywhere else it is read off the patches, through
- * the tracked reads, so a cached compile is made again when they change.
+ * plugins of: `0.3.1+abi.1a2b3c4d`. It is read off the patches, through the
+ * tracked reads, so a cached compile is made again when they change.
  */
 export function abiIdentity(): string {
-	if (typeof AMXTS_ABI === 'string') return AMXTS_ABI;
 	// A patch by its name, which carries the upstream version; WAMR's by its content too.
 	const dir = join(CORE, 'runtime/patches');
 	const patches = tracked.readdirSync(dir).filter(file => file.endsWith('.patch')).map(file => (file.startsWith('wamr-') ? `${file}\n${tracked.readFileSync(join(dir, file), 'utf8')}` : file));

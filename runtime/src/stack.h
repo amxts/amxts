@@ -164,15 +164,14 @@ static bool ReadLine(const std::string &path, int line, std::string &text)
 
 /**
  * The source line of a place, from the first copy of its file found: in the
- * project's folder the map names, else in a folder above the plugin's .ts or
- * .aot.
+ * project's folder the map names, else in a folder above the plugin's .aot.
  */
 static bool SourceLine(const Plugin &p, const StackMap &map, const std::string &file, int line, std::string &text)
 {
 	std::vector<std::string> folders;
 	if (!map.root.empty())
 		folders.push_back(map.root);
-	const std::string plugin = RealPath(p.source.empty() ? p.path : p.source);
+	const std::string plugin = RealPath(p.path);
 	for (std::string folder = FolderOf(plugin); !folder.empty(); folder = FolderOf(folder))
 		folders.push_back(folder);
 

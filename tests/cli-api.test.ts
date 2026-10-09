@@ -87,12 +87,9 @@ test('the release a server takes: its files, where they go, and the image', asyn
 	expect(release.url).toBe(process.env.AMXTS_RELEASE_URL || `https://github.com/amxts/amxts/releases/download/v${api.version}/`);
 	expect(release.manifest).toBe('amxts-windows.json');
 	expect(release.image).toBe(`ghcr.io/amxts/server:${api.version}`);
-	expect(release.files).toEqual([
-		{ asset: 'amxts_amxx.dll', path: 'addons/amxmodx/modules/amxts_amxx.dll', tool: false },
-		{ asset: 'amxts-compile-windows-x64.exe', path: 'addons/amxts/tools/amxts-compile.exe', tool: true },
-		{ asset: 'wamrc-windows-x64.exe', path: 'addons/amxts/tools/wamrc.exe', tool: true },
-	]);
-	expect(api.release('linux').files.map((file: { asset: string }) => file.asset)).toEqual(['amxts_amxx_i386.so', 'amxts-compile-linux-x64', 'wamrc-linux-x64']);
+	// A server runs the module alone: it loads plugins built elsewhere.
+	expect(release.files).toEqual([{ asset: 'amxts_amxx.dll', path: 'addons/amxmodx/modules/amxts_amxx.dll', tool: false }]);
+	expect(api.release('linux').files.map((file: { asset: string }) => file.asset)).toEqual(['amxts_amxx_i386.so']);
 });
 
 test('the release a module is of, read from the ABI string it carries', async () => {
