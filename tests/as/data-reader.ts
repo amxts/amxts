@@ -7,7 +7,7 @@ server.addCommand("data_read", ({ player }) => read(player));
 server.addEventListener("disconnected", event => console.log(`left with ${describe(event.player)}`));
 
 function read(player: Player) {
-	print(player, describe(player), "console");
+	player.print(describe(player), "console");
 }
 
 function describe(player: Player) {

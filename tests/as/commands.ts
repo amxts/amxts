@@ -56,7 +56,7 @@ server.addServerCommand<Login>("cmd_login <url> <user>", login => logIn(login));
 
 server.addCommand("/help", ({ player }) => {
 	for (const command of server.commands) {
-		if (command.access == null || player.access.includes(command.access)) print(player, [command.usage, ...command.aliases].join(" "));
+		if (command.access == null || player.access.includes(command.access)) player.print([command.usage, ...command.aliases].join(" "));
 	}
 });
 

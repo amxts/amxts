@@ -19,7 +19,7 @@ interface EntityArgs {
 
 function exists(player: Player, id: number) {
 	const entity = new Entity(id);
-	print(player, `${entity.exists}`, "console");
+	player.print(`${entity.exists}`, "console");
 }
 
 function sound(player: Player) {
@@ -33,7 +33,7 @@ function box(player: Player) {
 	cube.model = "models/myplugin/box.mdl";
 	cube.setSize([-16, -8, 0], [16, 8, 40]);
 	cube.setSize([0, 0, 50], [1, 1, 40]);
-	print(player, `${cube.model} ${cube.modelIndex} ${cube.mins} ${cube.maxs} ${cube.size}`, "console");
+	player.print(`${cube.model} ${cube.modelIndex} ${cube.mins} ${cube.maxs} ${cube.size}`, "console");
 }
 
 /** An entity's health is a number, a fraction too; a player's stays whole, and fov his own. */
@@ -45,5 +45,5 @@ function health(player: Player) {
 	player.health = 75;
 	player.fov = 110;
 	const entity: Entity = player;
-	print(player, `${cube.health} ${player.health} ${entity.health} ${player.fov}`, "console");
+	player.print(`${cube.health} ${player.health} ${entity.health} ${player.fov}`, "console");
 }

@@ -40,15 +40,15 @@ function coreHashes() {
 		.map(file => [file, createHash('sha256').update(readFileSync(file)).digest('hex')]));
 }
 
-/** The words above `print` as the editor shows them for the plugin. */
-function printWords(config: string) {
+/** The words above `setTimeout` as the editor shows them for the plugin. */
+function timerWords(config: string) {
 	const parsed = ts.getParsedCommandLineOfConfigFile(config, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} })!;
 	const plugin = join(dir, 'plugins/a.ts').replace(/\\/g, '/');
 	const resolved = ts.resolveModuleName('@amxts/core/natives', plugin, parsed.options, ts.sys).resolvedModule?.resolvedFileName;
 	const facade = ts.resolveModuleName('@amxts/core', plugin, parsed.options, ts.sys).resolvedModule!.resolvedFileName;
 	const source = ts.createSourceFile(facade, readFileSync(facade, 'utf8'), ts.ScriptTarget.Latest, true);
-	const print = source.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'print')!;
-	return { natives: resolved && resolve(resolved), facade: resolve(facade), words: ts.getJSDocCommentsAndTags(print).map(doc => doc.getText(source)).join('\n') };
+	const timer = source.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'setTimeout')!;
+	return { natives: resolved && resolve(resolved), facade: resolve(facade), words: ts.getJSDocCommentsAndTags(timer).map(doc => doc.getText(source)).join('\n') };
 }
 
 test('in Russian the editor reads a copy in .amxts/api, the installed core stays as it is, and the plugin type-checks', () => {
@@ -62,7 +62,7 @@ test('in Russian the editor reads a copy in .amxts/api, the installed core stays
 			'',
 			'server.addCommand("/slap", ({ player }) => {',
 			'\tuser_slap(player.id, twice(2));',
-			'\tprint(player, "!gSlapped");',
+			'\tplayer.print("!gSlapped");',
 			'});',
 			'',
 		].join('\n'),
@@ -77,7 +77,7 @@ test('in Russian the editor reads a copy in .amxts/api, the installed core stays
 	expect(config.compilerOptions.paths['@amxts/core']).toEqual(['./api/core/facade.ts']);
 	expect(config.compilerOptions.paths['@amxts/core/os']).toEqual(['./api/core/os.ts']);
 	expect(config.include).toContain('./api/core/*.d.ts');
-	const ru = printWords(join(dir, '.amxts/tsconfig.json'));
+	const ru = timerWords(join(dir, '.amxts/tsconfig.json'));
 	expect(ru.facade).toBe(resolve(dir, '.amxts/api/core/facade.ts'));
 	expect(ru.natives).toBe(resolve(dir, '.amxts/api/core/natives.ts'));
 	expect(ru.words).toMatch(/\p{Script=Cyrillic}/u);
@@ -99,7 +99,7 @@ test('in English the editor reads the core itself, and the copy goes', () => {
 	expect(existsSync(join(dir, '.amxts/api'))).toBe(false);
 	expect(config.compilerOptions.paths['@amxts/core/natives'][0]).toEndWith('/as/natives.ts');
 	expect(config.compilerOptions.paths['@amxts/core/*']).toBeUndefined();
-	const en = printWords(join(dir, '.amxts/tsconfig.json'));
+	const en = timerWords(join(dir, '.amxts/tsconfig.json'));
 	expect(en.facade).toBe(resolve(CORE, 'as/facade.ts'));
 	expect(en.words).not.toMatch(/\p{Script=Cyrillic}/u);
 }, 120_000);

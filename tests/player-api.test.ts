@@ -249,15 +249,13 @@ test('a chat line that does not start with a colour starts yellow, or the client
 	expect(alice.chat).toBe('KZ hi there');
 });
 
-test('print(0, ...) sends nothing and says server.print; give takes any name and says once the one the game has not', async () => {
+test('give takes any name and says once the one the game has not', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
 
 	alice.command('pl_breaking');
 
 	expect(alice.console).toBe('false false true');
-	expect(alice.chat).not.toContain('nobody');
-	expect(server.log).toContain('print(0, "nobody"): to everyone is server.print("nobody")');
 	expect(server.log.split('weapon_ak74').length - 1).toBe(1);
 	expect(alice.items).toEqual([]);
 });

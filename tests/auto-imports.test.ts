@@ -49,7 +49,7 @@ const GREETER = module('greeter', 'greeter', 'export function greet(player: Play
 const COUNTER = module('counter', 'counter', 'let count = 0;\n\nexport function next(player: Player) {\n\treturn `${player.name} ${++count}`;\n}\n');
 
 /** A plugin that greets through the module when a player says /hi, with no import line. */
-const WELCOME = 'server.addCommand("/hi", ({ player }) => print(player, greeter.greet(player)));\n';
+const WELCOME = 'server.addCommand("/hi", ({ player }) => player.print(greeter.greet(player)));\n';
 
 const table = (entries: { name: string; from: string; namespace?: boolean }[]) => new Map(entries.map(entry => [entry.name, { namespace: false, ...entry }]));
 const free = (code: string) => [...freeNames(ts.createSourceFile('a.ts', code, ts.ScriptTarget.Latest, true))].sort();
@@ -61,12 +61,12 @@ describe('what a file uses without declaring it', () => {
 			'const limit = new Cvar("mp_limitteams");',
 			'function show(player: Player, { text = fallback }: Options) {',
 			'\tconst server = "local";',
-			'\tprint(player, `${text} ${server}`);',
+			'\tplayer.print(`${text} ${server}`);',
 			'}',
 			'server.addCommand("/show", show);',
 			'const shape = { lang: 1, game };',
 			'shape.lang = player.team;',
-		].join('\n'))).toEqual(['Options', 'Player', 'fallback', 'game', 'player', 'print', 'server']);
+		].join('\n'))).toEqual(['Options', 'Player', 'fallback', 'game', 'player', 'server']);
 	});
 
 	test('types, generics, classes and loops declare their names inside', () => {
@@ -80,17 +80,16 @@ describe('what a file uses without declaring it', () => {
 	});
 
 	test('the imports go after the last line, so every line keeps its number', () => {
-		const code = 'server.addCommand("/hp", (player: Player) => print(player, "hi"));\n\n\n';
+		const code = 'server.addCommand("/hp", (player: Player) => player.print("hi"));\n\n\n';
 		const out = withAutoImports('a.ts', code, table([
 			{ name: 'server', from: '@amxts/core' },
-			{ name: 'print', from: '@amxts/core' },
 			{ name: 'Player', from: '@amxts/core' },
 			{ name: 'game', from: '@amxts/core' },
 			{ name: 'greeter', from: '@test/greeter', namespace: true },
 		]));
 		expect(out.split('\n')).toEqual([
-			'server.addCommand("/hp", (player: Player) => print(player, "hi"));',
-			'import { Player, print, server } from "@amxts/core";',
+			'server.addCommand("/hp", (player: Player) => player.print("hi"));',
+			'import { Player, server } from "@amxts/core";',
 			'',
 		]);
 		expect(withAutoImports('a.ts', 'const x = 1;\n', table([{ name: 'server', from: '@amxts/core' }]))).toBe('const x = 1;\n');
@@ -100,7 +99,7 @@ describe('what a file uses without declaring it', () => {
 describe('the table', () => {
 	test('the facade\'s API, not its hood', () => {
 		const names = coreImports(join(CORE_PLUGINS, 'facade.ts')).map(entry => entry.name);
-		expect(names).toEqual(expect.arrayContaining(['Player', 'server', 'game', 'print', 'lang', 'effects', 'Cvar', 'Forward', 'Storage', 'sleep', 'setTimeout', 'TakeDamageEvent', 'HideHud', 'Vector', 'Entity']));
+		expect(names).toEqual(expect.arrayContaining(['Player', 'server', 'game', 'lang', 'effects', 'Cvar', 'Forward', 'Storage', 'sleep', 'setTimeout', 'TakeDamageEvent', 'HideHud', 'Vector', 'Entity']));
 		for (const hood of ['Call', 'CellBuffer', 'floatCell', 'publicFor', 'PawnFunction', 'addGameListener', 'HIDE_HUD', '__native']) expect(names).not.toContain(hood);
 		// No natives and no constants: a plugin that goes below the facade says so with an import.
 		for (const raw of ['get_user_health', 'var_origin']) expect(names).not.toContain(raw);
@@ -201,7 +200,7 @@ describe('a project', () => {
 				'',
 			].join('\n'),
 			'amxts.config.ts': 'export default defineConfig({ modules: ["@test/tally"] });\n',
-			'plugins/scores.ts': 'server.addCommand("/add", ({ player }) => {\n\ttally.total = tally.total + 5;\n\tprint(player, `total ${tally.total}`);\n});\n',
+			'plugins/scores.ts': 'server.addCommand("/add", ({ player }) => {\n\ttally.total = tally.total + 5;\n\tplayer.print(`total ${tally.total}`);\n});\n',
 		});
 		const server = await setup({ rootDir: dir });
 		const alice = server.join('Alice');
@@ -226,12 +225,12 @@ describe('a project', () => {
 			...GREETER,
 			'amxts.config.ts': 'export default defineConfig({ modules: ["@test/greeter"] });\n',
 			'plugins/welcome.ts': [
-				'import { print } from "@amxts/core";',
+				'import { server } from "@amxts/core";',
 				'import * as greeter from "@test/greeter";',
 				'',
 				'server.addCommand("/hi", ({ player }) => {',
 				'\tconst lang = "local";',
-				'\tprint(player, `${greeter.greet(player)} (${lang})`);',
+				'\tplayer.print(`${greeter.greet(player)} (${lang})`);',
 				'});',
 				'',
 			].join('\n'),

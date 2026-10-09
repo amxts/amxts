@@ -7,31 +7,31 @@ server.addCommand("world_angles", ({ player }) => {
 	const down = Vector.fromAngles([45, 0, 0]);
 	const back = new Vector(1, 1, -1).toAngles();
 	const { right, up } = Vector.directions([0, 0, 0]);
-	print(player, `${round(forward)} ${round(down)} ${round(back)} ${round(Vector.fromAngles(back).subtract(new Vector(1, 1, -1).normalize()))} ${round(right)} ${round(up)}`, "console");
+	player.print(`${round(forward)} ${round(down)} ${round(back)} ${round(Vector.fromAngles(back).subtract(new Vector(1, 1, -1).normalize()))} ${round(right)} ${round(up)}`, "console");
 });
 server.addCommand("world_trace", ({ player }) => {
 	const hit = trace.line([0, 0, 0], [200, 0, 0], { ignore: player });
 	const clear = trace.hull([0, 0, 0], [0, 0, 50], "human");
-	print(player, `${hit.fraction} ${round(hit.end)} ${round(hit.normal)} ${hit.entity?.id} ${hit.hit} ${clear.hit} ${clear.entity == null} ${pointContents([100, 0, 0])} ${pointContents([5, 0, 0])}`, "console");
+	player.print(`${hit.fraction} ${round(hit.end)} ${round(hit.normal)} ${hit.entity?.id} ${hit.hit} ${clear.hit} ${clear.entity == null} ${pointContents([100, 0, 0])} ${pointContents([5, 0, 0])}`, "console");
 });
 server.addCommand("world_aim", ({ player }) => {
 	const aim = player.aim;
 	const bob = server.players.find(each => each.name == "Bob")!;
-	print(player, `${aim.entity?.id} ${aim.hitGroup} ${round(aim.point)} ${player.canSee(bob)} ${player.canSeePoint([-100, 0, 0])} ${player.canSeePoint([50, 10, 0])}`, "console");
+	player.print(`${aim.entity?.id} ${aim.hitGroup} ${round(aim.point)} ${player.canSee(bob)} ${player.canSeePoint([-100, 0, 0])} ${player.canSeePoint([50, 10, 0])}`, "console");
 });
 server.addCommand("world_view", ({ player }) => {
 	const camera = Entity.create("info_target")!;
 	player.view = camera;
 	const through = player.view;
 	player.view = null;
-	print(player, `${through != null && through.id == camera.id} ${player.view == null}`, "console");
+	player.print(`${through != null && through.id == camera.id} ${player.view == null}`, "console");
 });
 server.addCommand("world_model", ({ player }) => {
 	player.model = "vip";
 	const worn = player.model;
 	player.setModel("santa", { hitboxes: true });
 	player.resetModel();
-	print(player, `${worn} ${player.model}`, "console");
+	player.print(`${worn} ${player.model}`, "console");
 });
 game.addEventListener("entityState", (event) => {
 	if (event.player.name == "Bob") {
@@ -44,5 +44,5 @@ game.addEventListener("entityState", (event) => {
 }, { classname: "myplugin_marker" });
 
 server.addCommand("world_drop", ({ player }) => {
-	print(player, `${player.dropToFloor()}`, "console");
+	player.print(`${player.dropToFloor()}`, "console");
 });

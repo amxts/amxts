@@ -30,7 +30,7 @@ interface ResetArgs {
 
 function add(player: Player, times: number) {
 	total += step.number * times;
-	print(player, `Counter: ${total}`, "console");
+	player.print(`Counter: ${total}`, "console");
 }
 
 function reset(to: number) {
@@ -40,11 +40,11 @@ function reset(to: number) {
 
 function countNear(player: Player) {
 	const near = Entity.findAll({ classname: "info_target", near: player.origin, radius: 100 });
-	print(player, `near: ${near.length}`, "console");
+	player.print(`near: ${near.length}`, "console");
 }
 
 function playedTime(player: Player) {
-	print(player, `played ${get_user_time(player.id)} s`, "console");
+	player.print(`played ${get_user_time(player.id)} s`, "console");
 }
 
 function reportTotal() {

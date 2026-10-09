@@ -11,11 +11,13 @@ function install(label: string) {
 	let heard = 0;
 	cmd("amxts_narrow", (id) => {
 		heard++;
-		print(id, `${prefix} ${label} narrow ${heard}`);
+		const player = new Player(id);
+		player.print(`${prefix} ${label} narrow ${heard}`);
 	});
 	cmdWide("amxts_wide", (id, level) => {
 		heard++;
-		print(id, `${label} wide ${heard} ${level}`);
+		const player = new Player(id);
+		player.print(`${label} wide ${heard} ${level}`);
 		handled();
 	});
 	hook("take_damage", victim => console.log(`${label} hook ${victim}`));

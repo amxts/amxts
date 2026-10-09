@@ -38,7 +38,7 @@ server.addEventListener("putInServer", (event) => {
 	const count = (visits.get(player.steamId) ?? 0) + 1;
 	visits.set(player.steamId, count);
 
-	print(player, `Welcome to ${server.map}, ${player.name}! Visit #${count}.`);
+	player.print(`Welcome to ${server.map}, ${player.name}! Visit #${count}.`);
 	greeted.emit(player.name, count);
 });
 
@@ -72,14 +72,14 @@ function showTip() {
 	const tip = tips[tipIndex % tips.length];
 	tipIndex++;
 
-	for (const player of server.players.filter(one => !one.isBot)) print(player, tip.text);
+	for (const player of server.players.filter(one => !one.isBot)) player.print(tip.text);
 }
 
 server.addCommand("/tour", ({ player }) => tour(player), { description: "Walk through the plugin API" });
 
 function tour(player: Player) {
 	if (!player.isAlive) {
-		print(player, "Come back alive - the tour happens to you.");
+		player.print("Come back alive - the tour happens to you.");
 		return;
 	}
 
@@ -92,16 +92,16 @@ function tour(player: Player) {
 
 /** A player: their data, team and actions on them. */
 function showPlayer(player: Player) {
-	print(player, `${player.name}: ${player.health} HP, ${player.armor} armor, team ${player.team}`);
+	player.print(`${player.name}: ${player.health} HP, ${player.armor} armor, team ${player.team}`);
 
 	player.give("weapon_flashbang");
 	player.setAmmo("weapon_flashbang", 2);
 	player.switchWeapon("weapon_knife");
 
 	const living = server.players.filter(player => player.isAlive && !player.isBot);
-	print(player, `${living.length} living people, ${server.players.filter(player => player.team === "CT").length} counter-terrorists`);
+	player.print(`${living.length} living people, ${server.players.filter(player => player.team === "CT").length} counter-terrorists`);
 
-	if (player.access.includes("cvar")) print(player, "You may change the server's settings.");
+	if (player.access.includes("cvar")) player.print("You may change the server's settings.");
 }
 
 /** An entity's fields with their types. */
@@ -116,7 +116,7 @@ function showEntity(player: Player) {
 	setTimeout(() => stopGlow(player), 5000);
 
 	const where = player.origin;
-	print(player, `Gravity ${player.gravity}, standing at ${Math.round(where[0])} ${Math.round(where[1])}`);
+	player.print(`Gravity ${player.gravity}, standing at ${Math.round(where[0])} ${Math.round(where[1])}`);
 }
 
 function stopGlow(player: Player) {
@@ -130,7 +130,7 @@ function showWeapon(player: Player) {
 	const weapon = player.activeItem;
 	if (weapon == null) return;
 
-	print(player, `In hand: ${weapon.kind}, carrying ${player.items.length} items`);
+	player.print(`In hand: ${weapon.kind}, carrying ${player.items.length} items`);
 	if (weapon.kind != "knife") weapon.clip = 1;
 }
 
@@ -140,7 +140,7 @@ function showFlags(player: Player) {
 	setTimeout(() => showMoney(player), 3000);
 
 	const onGround = player.flags.includes("onGround");
-	print(player, onGround ? "Your money is hidden for three seconds." : "Land first - you are in the air.");
+	player.print(onGround ? "Your money is hidden for three seconds." : "Land first - you are in the air.");
 }
 
 function showMoney(player: Player) {
@@ -149,8 +149,8 @@ function showMoney(player: Player) {
 
 /** The server itself. */
 function showServer(player: Player) {
-	print(player, `${server.map}, ${server.maxPlayers} slots, reapi ${hasModule("reapi") ? "loaded" : "missing"}`);
-	print(player, "Tour complete!", "center");
+	player.print(`${server.map}, ${server.maxPlayers} slots, reapi ${hasModule("reapi") ? "loaded" : "missing"}`);
+	player.print("Tour complete!", "center");
 
 	// A timer cancelled before it fires.
 	const never = setTimeout(neverRuns, 60000);

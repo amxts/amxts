@@ -222,7 +222,7 @@ export default {
 			server.addCommand<KickArgs>("/kick <target> [reason]", ({ player, target, reason }) => {
 			  target.kick(reason ?? \`Kicked by \${player.name}\`);
 			}, { access: "kick" });
-			server.addCommand("/hp", ({ player }) => print(player, \`\${player.health} HP\`));
+			server.addCommand("/hp", ({ player }) => player.print(\`\${player.health} HP\`));
 			server.addCommand(["/cp", "cp"], checkpoint);   // several names; a handler of the player
 			\`\`\`
 
@@ -251,7 +251,7 @@ export default {
 			server.addCommand<KickArgs>("/kick <target> [reason]", ({ player, target, reason }) => {
 			  target.kick(reason ?? \`Kicked by \${player.name}\`);
 			}, { access: "kick" });
-			server.addCommand("/hp", ({ player }) => print(player, \`\${player.health} HP\`));
+			server.addCommand("/hp", ({ player }) => player.print(\`\${player.health} HP\`));
 			server.addCommand(["/cp", "cp"], checkpoint);   // несколько имён; обработчик игрока
 			\`\`\`
 

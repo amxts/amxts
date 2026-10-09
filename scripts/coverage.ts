@@ -190,7 +190,7 @@ export const API: Record<string, Words> = {
 	rg_remove_item: 'player.removeItem(weapon)',
 	set_speak: 'player.muted, heardByEveryone, hearsEveryone',
 	get_speak: 'player.muted, heardByEveryone, hearsEveryone',
-	console_print: 'print(player, text, "console")',
+	console_print: 'player.print(text, "console")',
 	log_amx: 'console.log, console.error',
 	server_print: 'console.log',
 
@@ -438,7 +438,7 @@ const DISPLAY: Record<string, string> = {
 	'ClientMessage': 'server.addMessageListener(name, listener)',
 	'ClientMessage.preventDefault': 'event.preventDefault()',
 	'TouchEvent': 'game.addEventListener("touch", listener, { toucher, touched })',
-	'Variant': 'print(player, text, "chat")',
+	'Variant': 'player.print(text, "chat")',
 	'EndRoundOptions.dispatch': 'game.endRound({ dispatch })',
 	'ActionOptions.hooks': 'weapon.deploy(), weapon.deploy({ hooks: false })',
 	'Cvar': 'new Cvar(name)',

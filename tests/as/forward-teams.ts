@@ -16,5 +16,5 @@ function onJoined(player: Player, team: Team) {
 
 function join(player: Player) {
 	joined.emit(player, "CT");
-	print(player, `heard ${heard}`, "console");
+	player.print(`heard ${heard}`, "console");
 }

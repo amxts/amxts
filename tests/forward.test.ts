@@ -93,7 +93,7 @@ export const ended = new Forward<number, number>("probe_on_round_end");
 
 test('a RoundWinner goes to Pawn as its WinStatus number, and comes back a RoundWinner', async () => {
 	const sent = await pluginProbe('forward', `
-import { Forward, RoundWinner, plugin, print, server } from "@amxts/core";
+import { Forward, RoundWinner, plugin, server } from "@amxts/core";
 plugin({ name: "probe", version: "1", author: "x", include: "PROBE_INC" });
 const ended = new Forward<RoundWinner>("probe_on_round_end");
 let heard = "";
@@ -104,7 +104,7 @@ function onEnded(winner: RoundWinner) {
 }
 function end(player: Player) {
 	ended.emit("TERRORIST");
-	print(player, \`heard \${heard}\`, "console");
+	player.print(\`heard \${heard}\`, "console");
 }
 import { Player } from "@amxts/core";
 `, FORWARDS, async (file) => {

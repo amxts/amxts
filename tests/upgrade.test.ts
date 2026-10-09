@@ -736,7 +736,7 @@ test('a death message\'s flags are lowerCamelCase too', () => {
 	expect(upgradeFlags('plugins/a.ts', text).changes).toEqual([]);
 });
 
-test('calls of a changed shape: print to everyone, removeAllItems\'s suit, a Storage\'s missing value, give\'s cast', () => {
+test('calls of a changed shape: print to a player and to everyone, removeAllItems\'s suit, a Storage\'s missing value, give\'s cast', () => {
 	const source = [
 		'const points = new Storage("myplugin_points");',
 		'print(0, `Round ${round}`);',
@@ -745,6 +745,11 @@ test('calls of a changed shape: print to everyone, removeAllItems\'s suit, a Sto
 		'print({ id: player.id, variant: "center" }, "Done");',
 		'print({ id: player.id, color: "red" }, "Odd");',
 		'print(player, "Hi");',
+		'print(event.player, "Hi", "center");',
+		'print(player.id, "Hi");',
+		'print(new Player(target), "Hi");',
+		'print(killer ?? victim, "Hi");',
+		'print(5, "Hi");',
 		'player.removeAllItems(true);',
 		'player.removeAllItems(false);',
 		'player.removeAllItems(keepSuit);',
@@ -764,9 +769,14 @@ test('calls of a changed shape: print to everyone, removeAllItems\'s suit, a Sto
 		'server.print(`Round ${round}`);',
 		'server.print("Go!", "center");',
 		'server.print("Go!", "center");',
-		'print(player.id, "Done", "center");',
+		'player.print("Done", "center");',
 		'print({ id: player.id, color: "red" }, "Odd");',
-		'print(player, "Hi");',
+		'player.print("Hi");',
+		'event.player.print("Hi", "center");',
+		'player.print("Hi");',
+		'(new Player(target)).print("Hi");',
+		'(killer ?? victim).print("Hi");',
+		'print(5, "Hi");',
 		'player.removeAllItems({ suit: true });',
 		'player.removeAllItems();',
 		'player.removeAllItems({ suit: keepSuit });',
@@ -778,7 +788,10 @@ test('calls of a changed shape: print to everyone, removeAllItems\'s suit, a Sto
 		'server.storage("myplugin_points").set("STEAM_0:0:1", "6");',
 		'',
 	]);
-	expect(left.map(each => each.line)).toEqual([6]);
+	expect(left.map(each => [each.line, each.why])).toEqual([
+		[6, 'print takes a player now, and the place as its second argument: player.print(text, "center"); everyone is server.print(text, "center")'],
+		[12, 'print takes a player now: `player.print(text)`'],
+	]);
 	// A second run changes nothing.
 	expect(upgradeCalls('plugins/a.ts', text).text).toBe(text);
 });

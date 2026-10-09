@@ -16,5 +16,5 @@ export function menu_lang_open(id: number) {
 /** Tells the player a line with its arguments filled. */
 export function menu_lang_tell(id: number) {
 	const player = new Player(id);
-	print(player, lang.translate(player, "MYPLUGIN_SCORED", [player.name, "3"]));
+	player.print(lang.translate(player, "MYPLUGIN_SCORED", [player.name, "3"]));
 }

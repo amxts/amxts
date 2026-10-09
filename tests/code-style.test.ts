@@ -594,6 +594,9 @@ function scan(file: string): Finding[] {
 		at(m.index!, `22: ${m[1]} - a constant for a union's value; write the literal`);
 	}
 
+	// 41. A message goes to whoever reads it: player.print(text), server.print(text).
+	for (const index of freePrints(code)) at(index, '41: print(player, text) - write player.print(text); everyone is server.print(text)');
+
 	// 21. An if block stands apart: a blank line before it and after it,
 	// unless it opens or closes the block it is in.
 	for (const gap of ifBlockGaps(lines)) {
@@ -661,18 +664,47 @@ export function misplacedColourTags(source: string): { index: number; rule: stri
 
 test('27: a colour tag is only where the text shows it', () => {
 	const plugin = [
-		'print(player, "!gHi !wthere");',
-		'print(player, `${!won ? "a" : "b"} !dgrey`);',
+		'player.print("!gHi !wthere");',
+		'player.print(`${!won ? "a" : "b"} !dgrey`);',
 		'shop.addItem({ title: "!gGreen", enabled: ({ player }) => !player.isAlive, message: "!y(full)" });',
 		'shop.addItem({ title: "x", onSelect: ({ player }) => { player.name = "!g"; } });',
 		'menus.create("SHOP", { title: "!tTeam" });',
 	].join('\n');
 
 	expect(misplacedColourTags(plugin).map(f => f.rule)).toEqual([
-		'27: !w in print() - a menu\'s tag, dropped in chat',
+		'27: !w in player.print() - a menu\'s tag, dropped in chat',
 		'27: !g in shop.addItem() - a chat tag, dropped in a menu',
 		'27: !t in menus.create() - a chat tag, dropped in a menu',
 	]);
+});
+
+/**
+ * Where code calls a free `print(...)`, by index. A function or method of
+ * that name - `print(text: string) {` - and a call on something -
+ * `player.print(` - are not one.
+ */
+export function freePrints(code: string): number[] {
+	const method = /^\s*(?:(?:export|function|public|private|protected|static|async)\s+)*print\s*\([^)]*\)\s*(?::[^{;=]*)?\{/;
+	return [...code.matchAll(/(?<![\w.$])print\s*\(/g)]
+		.filter(m => !method.test(code.slice(code.lastIndexOf('\n', m.index!) + 1)))
+		.map(m => m.index!);
+}
+
+test('41: a free print is found, a method and a call on a player are not', () => {
+	const plugin = [
+		'print(player, "Hi");',
+		'server.addCommand("/hp", ({ player }) => print(player, `${player.health}`));',
+		'player.print("Hi");',
+		'class Shout {',
+		'\tprint(text: string) {',
+		'\t\tserver.print(text);',
+		'\t}',
+		'}',
+		'function print(text: string) {}',
+		'console.log("print(x)");',
+	].join('\n');
+
+	expect(freePrints(codeOnly(plugin)).map(index => lineOf(plugin, index))).toEqual([1, 2]);
 });
 
 /**

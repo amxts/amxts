@@ -18,13 +18,13 @@ server.addCommand("fsb_outside", ({ player }) => outside(player));
 function copy(player: Player, from: string, to: string) {
 	const bytes = fs.readBytesSync(from);
 	if (bytes == null) {
-		print(player, "no file", "console");
+		player.print("no file", "console");
 		return;
 	}
 
 	const written = fs.writeFileSync(to, bytes);
 	const appended = fs.appendFileSync(to, bytes.buffer);
-	print(player, `${bytes.length} ${written} ${appended}`, "console");
+	player.print(`${bytes.length} ${written} ${appended}`, "console");
 }
 
 function unpack(player: Player, archive: string) {
@@ -38,14 +38,14 @@ function unpack(player: Player, archive: string) {
 			if (folder.length > 0) fs.mkdirSync(folder, { recursive: true });
 			fs.writeFileSync(entry.path, entry.data);
 		}
-		print(player, entries.map(entry => `${entry.path}:${entry.data.length}`).join(","), "console");
+		player.print(entries.map(entry => `${entry.path}:${entry.data.length}`).join(","), "console");
 	} catch (error) {
-		print(player, error.message, "console");
+		player.print(error.message, "console");
 	}
 }
 
 function outside(player: Player) {
 	const written = fs.writeFileSync("../outside.bin", new Uint8Array(1));
 	const read = fs.readBytesSync("/etc/passwd");
-	print(player, `${written} ${read == null}`, "console");
+	player.print(`${written} ${read == null}`, "console");
 }

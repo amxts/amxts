@@ -34,7 +34,7 @@ Mod X рядом с Pawn-плагинами. Они вызывают друг д
 - **Редактор знает игру.** Каждый натив, поле ReAPI и хукчейн — с типом и
   подсказкой на русском или английском; опечатка — красная строка, а не
   ошибка на сервере.
-- **Без строк импорта.** `Player`, `server`, `print` и имена модулей
+- **Без строк импорта.** `Player`, `server`, `game` и имена модулей
   импортируются сами: сборка добавляет то, чем плагин пользуется, и ничего
   больше.
 - **Сохранил — играешь.** `amxts dev` пересобирает сохранённое, выкладывает и
@@ -95,7 +95,7 @@ server.addEventListener("putInServer", (event) => {
 });
 
 function sayHp(player: Player) {
-	print(player, `${player.name}, your HP: ${player.health}`);
+	player.print(`${player.name}, your HP: ${player.health}`);
 
 	if (player.health < 50) player.health = 100;
 }

@@ -13,13 +13,13 @@ interface MomentArgs {
 function local(player: Player, ms: number) {
 	const date = new Date(ms);
 	const parts = [date.getFullYear(), date.getMonth(), date.getDate(), date.getDay(), date.getHours(), date.getMinutes(), date.getSeconds(), date.getMilliseconds(), date.getTimezoneOffset()];
-	print(player, parts.join(" "), "console");
+	player.print(parts.join(" "), "console");
 }
 
 /** `new Date()` is now. */
 function now(player: Player) {
 	const date = new Date();
-	print(player, `${date.getTime() == Date.now()}`, "console");
+	player.print(`${date.getTime() == Date.now()}`, "console");
 }
 
 /** A moment as text: local, and as `en-US`, `en-GB`, `de`, `fr` and `ru` write it. */
@@ -27,5 +27,5 @@ function text(player: Player, ms: number) {
 	const date = new Date(ms);
 	const lines = [date.toString(), date.toDateString(), date.toTimeString(), date.toLocaleString(), date.toLocaleDateString(), date.toLocaleTimeString()];
 	for (const locale of ["en-GB", "de-DE", "fr-FR", "ru-RU"]) lines.push(date.toLocaleString(locale));
-	print(player, lines.join("|"), "console");
+	player.print(lines.join("|"), "console");
 }

@@ -13,7 +13,7 @@ server.addCommand("pl_screen", ({ player }) => {
 	everyone.showAll("for all");
 	player.screen.hint("Plant the bomb");
 	player.showMotd("x".repeat(200), "Rules");
-	print(player, `motd heard ${motdHeard}`, "console");
+	player.print(`motd heard ${motdHeard}`, "console");
 });
 // A shot the game plays: the first one stopped, the next played to the CTs alone.
 let shots = 0;
@@ -27,9 +27,9 @@ server.addCommand("pl_light", ({ player }) => {
 	server.lightStyle = "b";
 	player.screen.lightStyle("");
 });
-server.addCommand("pl_country", ({ player }) => print(player, `${player.country ?? "none"} ${player.countryCode ?? "none"}`, "console"));
+server.addCommand("pl_country", ({ player }) => player.print(`${player.country ?? "none"} ${player.countryCode ?? "none"}`, "console"));
 server.addCommand("pl_lang", ({ player }) => language(player));
-server.addCommand("pl_auth", ({ player }) => print(player, `${player.authType} ${player.protocol} ${player.authKey}`, "console"));
+server.addCommand("pl_auth", ({ player }) => player.print(`${player.authType} ${player.protocol} ${player.authKey}`, "console"));
 server.addCommand("pl_voice [routes]", ({ player, routes }) => voice(player, (routes ?? "").split(" ")));
 server.addCommand<JoinArgs>("pl_join <team>", ({ player, team }) => join(player, team));
 server.addCommand("pl_sound", ({ player }) => sound(player));
@@ -48,23 +48,23 @@ const MODES: ObserverMode[] = ["none", "chaseFree", "inEye"];
 function ammo(player: Player) {
 	player.give("weapon_flashbang");
 	player.setAmmo("weapon_flashbang", 2);
-	print(player, `${player.getAmmo("weapon_flashbang")} ${player.getAmmo("weapon_hegrenade")}`, "console");
+	player.print(`${player.getAmmo("weapon_flashbang")} ${player.getAmmo("weapon_hegrenade")}`, "console");
 }
 
 function language(player: Player) {
-	print(player, player.language, "console");
+	player.print(player.language, "console");
 }
 
 function voice(player: Player, routes: string[]) {
 	player.muted = routes.includes("muted");
 	player.heardByEveryone = routes.includes("heard");
 	player.hearsEveryone = routes.includes("hears");
-	print(player, `${player.muted} ${player.heardByEveryone} ${player.hearsEveryone}`, "console");
+	player.print(`${player.muted} ${player.heardByEveryone} ${player.hearsEveryone}`, "console");
 }
 
 function join(player: Player, team: Team) {
 	const joined = player.joinTeam(team);
-	print(player, `${joined} ${player.team}`, "console");
+	player.print(`${joined} ${player.team}`, "console");
 }
 
 function sound(player: Player) {
@@ -73,7 +73,7 @@ function sound(player: Player) {
 
 function observe(player: Player, name: string) {
 	player.observerMode = MODES.find(mode => mode == name) ?? "none";
-	print(player, `${player.observerMode} ${player.observerLastMode} ${player.iuser2}`, "console");
+	player.print(`${player.observerMode} ${player.observerLastMode} ${player.iuser2}`, "console");
 }
 
 /** Gives the other player every weapon this one carries, each with the rounds in its clip. */
@@ -86,12 +86,12 @@ function copyWeapons(player: Player) {
 		const given = other.items.find(weapon => weapon.kind == item.kind);
 		if (given) given.clip = item.clip;
 	}
-	print(player, other.items.map(weapon => `${weapon.classname} ${weapon.clip}`).join(", "), "console");
+	player.print(other.items.map(weapon => `${weapon.classname} ${weapon.clip}`).join(", "), "console");
 }
 
 async function askCvar(player: Player, name: string) {
 	const value = await player.queryCvar(name);
-	print(player, `${name} = ${value ?? "none"}`, "console");
+	player.print(`${name} = ${value ?? "none"}`, "console");
 }
 
 async function askUntilLeft(player: Player) {
@@ -118,22 +118,21 @@ function slots(player: Player) {
 	const dropped = player.dropItem("weapon_deagle");
 	const none = player.dropItem("weapon_awp");
 	const left = player.items.map<string>(item => item.classname).join(",");
-	print(player, `${removed} ${dropped != null ? dropped.classname : "none"} ${none == null} ${left}`, "console");
+	player.print(`${removed} ${dropped != null ? dropped.classname : "none"} ${none == null} ${left}`, "console");
 }
 
 function info(player: Player) {
 	const hand = player.info.get("cl_righthand");
 	player.info.set("_vgui_menus", "0");
 	player.silentSteps = true;
-	print(player, `${hand} ${player.info.get("_vgui_menus")} ${player.userId > 0} ${player.isHltv} ${player.silentSteps} ${player.connectedSeconds}`, "console");
+	player.print(`${hand} ${player.info.get("_vgui_menus")} ${player.userId > 0} ${player.isHltv} ${player.silentSteps} ${player.connectedSeconds}`, "console");
 }
 
-server.addCommand("pl_colors", ({ player }) => print(player, "KZ !yhi !gthere"));
+server.addCommand("pl_colors", ({ player }) => player.print("KZ !yhi !gthere"));
 
 server.addCommand("pl_breaking", ({ player }) => {
-	print(0, "nobody");
 	const name: string = "weapon_ak74";
-	print(player, `${player.give(name)} ${player.give(name)} ${player.give("weapon_ak47")}`, "console");
+	player.print(`${player.give(name)} ${player.give(name)} ${player.give("weapon_ak47")}`, "console");
 	player.removeAllItems({ suit: true });
 });
 

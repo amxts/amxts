@@ -49,7 +49,7 @@ const settings = configs.load<Settings>("settings", {
 	maps: [],
 });
 
-if (settings.motd !== undefined) print(player, settings.motd);
+if (settings.motd !== undefined) player.print(settings.motd);
 ```
 
 ```yaml

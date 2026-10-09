@@ -1811,7 +1811,7 @@ export interface MoveOptions {
  *
  * ```ts
  * server.addEventListener("putInServer", (event) => {
- * 	print(event.player, `Welcome, ${event.player.name}!`);
+ * 	event.player.print(`Welcome, ${event.player.name}!`);
  * });
  * ```
  */
@@ -1853,6 +1853,8 @@ export interface Client {
 	readonly language: string;
 	/** A signal that aborts when the player leaves the server: `fetch(url, { signal: client.signal })`. */
 	readonly signal: AbortSignal;
+	/** Sends the player a message, in the chat unless `variant` says another place: `client.print("Welcome!")`. Colour tags work as in `player.print`. */
+	print(message: string, variant?: VariantName): void;
 	/** Runs a command in the player's console, as if he had typed it: `client.command("stop")`. */
 	command(text: string): void;
 	/** Kicks the player off the server, with the reason he is shown: `client.kick("Spam")`. */
@@ -2629,6 +2631,33 @@ export class Player extends PlayerFields implements Client {
 	set silentSteps(value: boolean) { _playerSilent(this.id, value ? 1 : 0); }
 
 	/**
+	 * Sends the player a message; to everyone, `server.print`.
+	 *
+	 * ```ts
+	 * player.print("Health restored!");                // the player's chat
+	 * player.print("Health restored!", "center");      // the middle of the player's screen
+	 * server.print("Round starts in 5 seconds");       // everyone's chat
+	 * ```
+	 *
+	 * `variant` is where the message shows, one of `"chat"` (the default),
+	 * `"center"` - the middle of the screen, `"console"` - the player's
+	 * console, `"notify"` - the console too; CS shows it on screen only with
+	 * `developer 1`.
+	 *
+	 * Colour tags work in chat only, and a letter is the same colour as in a menu:
+	 * - `!y` yellow (the usual chat colour), `!g` green
+	 * - `!r` red, `!b` blue, `!d` grey, `!t` the colour of the reader's team
+	 *
+	 * A menu's own tags (`!w`, `!R`) are dropped from a chat line. Red, blue,
+	 * grey and `!t` share the message's one team colour: the first one used wins.
+	 *
+	 * Pawn: `client_print`, `client_print_color`
+	 */
+	print(message: string, variant: VariantName = "chat"): void {
+		send(<i32>this.id, variantOf(variant), message);
+	}
+
+	/**
 	 * Runs a command in the player's own console, as if he had typed it:
 	 * `player.command("messagemode say_team")`, `player.command("stop")`.
 	 * The player's game runs it, not the server. A bot has no game: its
@@ -2958,8 +2987,8 @@ export class __CommandWords {
 			console.log(usage);
 			return;
 		}
-		if (why.length > 0) print(player, why);
-		print(player, usage);
+		if (why.length > 0) player.print(why);
+		player.print(usage);
 	}
 }
 
@@ -4026,7 +4055,7 @@ function messageFired(channel: MessageChannel, receiver: i32): void {
  *
  * ```ts
  * server.addEventListener("playerChange", (event) => {
- *   print(event.player, event.value ? "You are protected" : "Your spawn protection is over");
+ *   event.player.print(event.value ? "You are protected" : "Your spawn protection is over");
  * }, { field: "spawnProtected" });
  * ```
  *
@@ -4347,7 +4376,7 @@ export class Cvar {
  *
  * ```ts
  * server.addEventListener("putInServer", (event) => {
- *   print(event.player, "Welcome!");      // event is a PutinserverEvent
+ *   event.player.print("Welcome!");      // event is a PutinserverEvent
  * });
  * server.map;                             // "de_dust2"
  * server.maxPlayers;                      // 32
@@ -4595,7 +4624,7 @@ export class Server {
 	/**
 	 * Sends every player a message: `server.print("Round 3")`, in the chat;
 	 * `variant` puts it in the middle of the screen (`"center"`) or the
-	 * console. Colour tags work as in `print`.
+	 * console. Colour tags work as in `player.print`.
 	 *
 	 * Pawn: `client_print(0, ...)`, `client_print_color(0, ...)`
 	 */
@@ -4623,7 +4652,7 @@ export class Server {
 	 * ```ts
 	 * server.addCommand("/help", ({ player }) => {
 	 *   for (const command of server.commands) {
-	 *     if (command.access == null || player.access.includes(command.access)) print(player, command.usage);
+	 *     if (command.access == null || player.access.includes(command.access)) player.print(command.usage);
 	 *   }
 	 * });
 	 * ```
@@ -5362,7 +5391,7 @@ const CHAT_TAGS = "yrdgbt";
 /** The colour tags a menu draws: `!y` yellow, `!r` red, `!d` grey, `!w` white, `!R` to the right edge. */
 const MENU_TAGS = "yrdwR";
 
-/** Turns a chat line's colour tags (`!g`, `!r`, ...) into the colour codes the client reads, and records in `swapTeam` which team colour the line needs. `print` calls it; exported for tests. */
+/** Turns a chat line's colour tags (`!g`, `!r`, ...) into the colour codes the client reads, and records in `swapTeam` which team colour the line needs. `player.print` calls it; exported for tests. */
 export function paint(text: string): string {
 	swapTeam = "";
 
@@ -5418,50 +5447,11 @@ function send(id: i32, channel: i32, message: string): void {
 	_sayText(id, painted, swapTeam);
 }
 
-/** The team colour the last `paint()` chose for the line, one of `"TERRORIST"` (red), `"CT"` (blue), `"SPECTATOR"` (grey), or `""` - the reader's own team colour. `print` reads it right after. */
+/** The team colour the last `paint()` chose for the line, one of `"TERRORIST"` (red), `"CT"` (blue), `"SPECTATOR"` (grey), or `""` - the reader's own team colour. `player.print` reads it right after. */
 export let swapTeam: string = "";
 
 /** `!t` asks for the sender's own team, which the module fills in. */
 const SENDER_TEAM = "";
-
-/**
- * Sends a message to a player; to everyone, `server.print`.
- *
- * ```ts
- * print(player, "Health restored!");                    // the player's chat
- * print(player, "Health restored!", "center");          // the middle of the player's screen
- * server.print("Round starts in 5 seconds");            // everyone's chat
- * ```
- *
- * The first argument is a player or a player's `id`. The third is where the
- * message shows, one of `"chat"` (the default), `"center"` - the middle of
- * the screen, `"console"` - the player's console, `"notify"` - the console too; CS
- * shows it on screen only with `developer 1`.
- *
- * Colour tags work in chat only, and a letter is the same colour as in a menu:
- * - `!y` yellow (the usual chat colour), `!g` green
- * - `!r` red, `!b` blue, `!d` grey, `!t` the colour of the reader's team
- *
- * A menu's own tags (`!w`, `!R`) are dropped from a chat line. Red, blue,
- * grey and `!t` share the message's one team colour: the first one used wins.
- *
- * Pawn: `client_print`, `client_print_color`
- */
-export function print<T extends Client | number = Client>(to: T, message: string, variant: VariantName = "chat"): void {
-	// A player id is a number - an f64, since number is JavaScript's.
-	if (isInteger<T>() || isFloat<T>()) {
-		const id = <i32>to;
-		// 0 for everyone is Pawn's; a plugin says it as server.print.
-		if (id == 0) console.error(`print(0, "${message}"): to everyone is server.print("${message}")`);
-		else send(id, variantOf(variant), message);
-	} else if (isReference<T>() && idof<T>() == idof<Client>()) {
-		send(<i32>changetype<Client>(to).id, variantOf(variant), message);
-	} else if (isReference<T>() && idof<T>() == idof<Player>()) {
-		send(<i32>changetype<Player>(to).id, variantOf(variant), message);
-	} else {
-		ERROR("print takes a player or a player id; everyone is server.print");
-	}
-}
 
 // =============================================================================
 // Traces through the world, and what is at a point: the engine's TraceLine,
@@ -5619,7 +5609,7 @@ export class Aim {
  *
  * ```ts
  * lang.load("myplugin");                                        // data/lang/myplugin.txt
- * print(player, lang.translate(player, "MYPLUGIN_WELCOME", [player.name]));
+ * player.print(lang.translate(player, "MYPLUGIN_WELCOME", [player.name]));
  * ```
  *
  * Pawn: `register_dictionary`, `LookupLangKey`
@@ -5799,7 +5789,7 @@ function armTimer(handler: TimerHandler, ms: number, repeat: bool): number {
  * as in the browser:
  *
  * ```ts
- * const handle = setTimeout(() => print(player, "Welcome!"), 2000);
+ * const handle = setTimeout(() => player.print("Welcome!"), 2000);
  * clearTimeout(handle);
  * ```
  *

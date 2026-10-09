@@ -16,7 +16,7 @@
 // over rcon - is made without a player, and its total goes to the log alone:
 //
 //   const check = new Checks("cvar");
-import { Player, print } from "../facade";
+import { Player } from "../facade";
 
 /**
  * Checks of one piece of the API on a live server. Each goes to the server
@@ -53,7 +53,8 @@ export class Checks {
 	done() {
 		const line = `[${this.tag}] ${this.passed} ok, ${this.failed} failed`;
 		console.log(line);
-		if (this.player != null) print(this.player, line);
+		const player = this.player;
+		if (player != null) player.print(line);
 	}
 
 	/** @hidden */

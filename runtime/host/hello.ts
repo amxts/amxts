@@ -30,15 +30,15 @@ server.addEventListener("putInServer", (event) => {
 
 	console.log(`${player.name} connected`);
 	server.print(`${player.name} joined`);
-	print(player, "Welcome to the server!");
+	player.print("Welcome to the server!");
 });
 
 // Declared below what uses it, the way a TypeScript file reads.
 function sayHp(player: Player) {
-	print(player, `${player.name}, your HP: ${player.health}`);
+	player.print(`${player.name}, your HP: ${player.health}`);
 
 	if (player.health < 50) {
 		player.health = 100;
-		print(player, "Health restored!", "center");
+		player.print("Health restored!", "center");
 	}
 }

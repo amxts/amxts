@@ -2,9 +2,11 @@ import type { Change, Edit, Left } from './upgrade';
 // The calls `amxts upgrade` brings up to date (scripts/upgrade.ts): the ones
 // whose shape changed, not their name.
 //
-// - `print(0, text)` is `server.print(text)`, and `print({ id, variant },
-//   text)` is `print(id, text, variant)` - `0` for everyone was Pawn's, and
-//   the object said what the third argument says.
+// - `print(player, text)` is `player.print(text)`, `print(0, text)` is
+//   `server.print(text)`, and `print({ id, variant }, text)` is the same with
+//   the variant last - `0` for everyone was Pawn's, and the object said what
+//   the variant says. A player's id is read off his Player:
+//   `print(player.id, ...)` is `player.print(...)`; another number is listed.
 // - `removeAllItems(true)` is `removeAllItems({ suit: true })`: a bare
 //   boolean nobody reads.
 // - `Storage.get` gives `undefined` for a key that is not there, as `Map.get`
@@ -17,6 +19,17 @@ import { applyEdits } from './upgrade';
 
 /** The words a file must have for a pass to look at it. */
 const CALL_WORDS = /\bprint\s*\(|\bremoveAllItems\s*\(|\bStorage\b|\bgive\s*\(|\.vault\s*\(/;
+
+/** What `x.print(` takes as it is; anything else is wrapped in parens. */
+const PLAIN = new Set([
+	ts.SyntaxKind.Identifier,
+	ts.SyntaxKind.PropertyAccessExpression,
+	ts.SyntaxKind.ElementAccessExpression,
+	ts.SyntaxKind.CallExpression,
+	ts.SyntaxKind.NonNullExpression,
+	ts.SyntaxKind.ParenthesizedExpression,
+	ts.SyntaxKind.ThisKeyword,
+]);
 
 const NULL_COMPARISONS = new Set([
 	ts.SyntaxKind.EqualsEqualsToken,
@@ -75,27 +88,35 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 		const callee = node.expression;
 		const args = node.arguments;
 
-		// print(0, ...) and print({ id, variant }, text)
+		// print(player, ...), print(0, ...) and print({ id, variant }, text)
 		// Only the callee and the first argument are rewritten, so a change
 		// inside the text (a Storage's get) is kept.
 		if (ts.isIdentifier(callee) && callee.text === 'print' && args.length >= 2) {
-			const to = args[0];
-			const everyone = (node: ts.Expression) => ts.isNumericLiteral(node) && node.text === '0';
+			let to = args[0];
+			let place = '';
 			const head = (to: string) => edits.push({ start: callee.getStart(source), end: args[1].getStart(source), with: to, from: text.slice(callee.getStart(source), args[1].getStart(source)) });
-			if (everyone(to)) {
-				head('server.print(');
+			if (ts.isObjectLiteralExpression(to)) {
+				const { properties } = to;
+				const field = (name: string) => properties.find((p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === name);
+				const id = field('id');
+				const variant = field('variant');
+				if (!id || args.length > 2 || properties.some(p => p !== id && p !== variant)) {
+					left.push({ file, line: lineOf(node), why: 'print takes a player now, and the place as its second argument: player.print(text, "center"); everyone is server.print(text, "center")' });
+					return;
+				}
+				if (variant) place = `, ${textOf(variant.initializer)}`;
+				to = id.initializer;
+			}
+			// A player's id names the player it is read off.
+			if (ts.isPropertyAccessExpression(to) && to.name.text === 'id') to = to.expression;
+			if (ts.isNumericLiteral(to) && to.text !== '0') {
+				left.push({ file, line: lineOf(node), why: 'print takes a player now: `player.print(text)`' });
 				return;
 			}
-			if (!ts.isObjectLiteralExpression(to)) return;
-			const field = (name: string) => to.properties.find((p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === name);
-			const id = field('id');
-			const variant = field('variant');
-			if (!id || args.length > 2 || to.properties.some(p => p !== id && p !== variant)) {
-				left.push({ file, line: lineOf(node), why: 'print takes a player and the place as its third argument: print(player, text, "center"); everyone is server.print(text, "center")' });
-				return;
-			}
-			head(everyone(id.initializer) ? 'server.print(' : `print(${textOf(id.initializer)}, `);
-			if (variant) edits.push({ start: args[1].getEnd(), end: args[1].getEnd(), with: `, ${textOf(variant.initializer)}`, from: '' });
+
+			if (ts.isNumericLiteral(to)) head('server.print(');
+			else head(`${PLAIN.has(to.kind) ? textOf(to) : `(${textOf(to)})`}.print(`);
+			if (place) edits.push({ start: args[1].getEnd(), end: args[1].getEnd(), with: place, from: '' });
 			return;
 		}
 		if (!ts.isPropertyAccessExpression(callee)) return;

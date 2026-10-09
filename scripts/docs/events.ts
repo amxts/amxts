@@ -128,7 +128,7 @@ export const EVENTS: Record<string, EventDoc> = {
 			ru: `Игрок зашёл и уже в игре: момент поприветствовать его.`,
 		},
 		fields: { player },
-		example: `server.addEventListener("putInServer", (event) => {\n\tprint(event.player, "Welcome!");\n});`,
+		example: `server.addEventListener("putInServer", (event) => {\n\tevent.player.print("Welcome!");\n});`,
 	},
 	client_disconnected: {
 		summary: {

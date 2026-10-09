@@ -8,5 +8,5 @@ function write(player: Player, tag: string) {
 	player.ghost = true;
 	player.kills = player.kills + 1.5;
 	player.tag = tag;
-	print(player, `written: ${player.kills}`, "console");
+	player.print(`written: ${player.kills}`, "console");
 }

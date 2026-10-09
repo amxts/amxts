@@ -34,7 +34,7 @@ plugin.
 - **The editor knows the game.** Every native, ReAPI field and hookchain
   comes with its type and a tooltip in English or Russian; a typo is a red
   line, not a runtime error.
-- **No import lines.** `Player`, `server`, `print` and the modules' names are
+- **No import lines.** `Player`, `server`, `game` and the modules' names are
   auto-imported: the build adds what a plugin uses, and nothing else.
 - **Save and play.** `amxts dev` rebuilds what you saved, deploys it and
   reloads the running server - no map change, nobody disconnected.
@@ -94,7 +94,7 @@ server.addEventListener("putInServer", (event) => {
 });
 
 function sayHp(player: Player) {
-	print(player, `${player.name}, your HP: ${player.health}`);
+	player.print(`${player.name}, your HP: ${player.health}`);
 
 	if (player.health < 50) player.health = 100;
 }

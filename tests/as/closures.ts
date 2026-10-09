@@ -5,7 +5,7 @@ const greeting = "Welcome";
 
 server.addEventListener("putInServer", (event) => {
 	const player = event.player;
-	setTimeout(() => print(player, `${greeting}, ${player.name}!`), 2000);
+	setTimeout(() => player.print(`${greeting}, ${player.name}!`), 2000);
 });
 
 interface CountArgs {
@@ -17,7 +17,7 @@ server.addCommand<CountArgs>("/count [from]", ({ player, from }) => countdown(pl
 function countdown(player: Player, from: number) {
 	let left = from;
 	const handle = setInterval(() => {
-		print(player, `${left}`);
+		player.print(`${left}`);
 		if (--left == 0) clearInterval(handle);
 	}, 1000);
 }
@@ -28,7 +28,7 @@ server.addCommand("/wave", () => {
 	for (const player of server.players) {
 		order++;
 		const place = order;
-		setTimeout(() => print(player, `${player.name} is #${place} of ${order}`), place * 100);
+		setTimeout(() => player.print(`${player.name} is #${place} of ${order}`), place * 100);
 	}
 });
 
@@ -41,7 +41,7 @@ class Scoreboard {
 			this.hits++;
 			if (event.damage > 50) event.preventDefault();
 		});
-		server.addCommand("/hits", ({ player }) => print(player, `${this.hits} hits`));
+		server.addCommand("/hits", ({ player }) => player.print(`${this.hits} hits`));
 	}
 }
 

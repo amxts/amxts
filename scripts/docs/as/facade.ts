@@ -603,7 +603,7 @@ export default {
 
 			\`\`\`ts
 			server.addEventListener("putInServer", (event) => {
-				print(event.player, \`Welcome, \${event.player.name}!\`);
+				event.player.print(\`Welcome, \${event.player.name}!\`);
 			});
 			\`\`\`
 		`,
@@ -614,7 +614,7 @@ export default {
 
 			\`\`\`ts
 			server.addEventListener("putInServer", (event) => {
-				print(event.player, \`Welcome, \${event.player.name}!\`);
+				event.player.print(\`Welcome, \${event.player.name}!\`);
 			});
 			\`\`\`
 		`,
@@ -690,6 +690,10 @@ export default {
 	'Client.signal': {
 		en: `A signal that aborts when the player leaves the server: \`fetch(url, { signal: client.signal })\`.`,
 		ru: `Сигнал, который срабатывает, когда игрок уходит с сервера: \`fetch(url, { signal: client.signal })\`.`,
+	},
+	'Client.print': {
+		en: `Sends the player a message, in the chat unless \`variant\` says another place: \`client.print("Welcome!")\`. Colour tags work as in \`player.print\`.`,
+		ru: `Отправляет игроку сообщение — в чат, если \`variant\` не называет другое место: \`client.print("Welcome!")\`. Цветовые метки — как в \`player.print\`.`,
 	},
 	'Client.command': {
 		en: `Runs a command in the player's console, as if he had typed it: \`client.command("stop")\`.`,
@@ -1165,6 +1169,54 @@ export default {
 			замедления.
 
 			Pawn: \`rg_reset_maxspeed\`
+		`,
+	},
+	'Player.print': {
+		en: `
+			Sends the player a message; to everyone, \`server.print\`.
+
+			\`\`\`ts
+			player.print("Health restored!");                // the player's chat
+			player.print("Health restored!", "center");      // the middle of the player's screen
+			server.print("Round starts in 5 seconds");       // everyone's chat
+			\`\`\`
+
+			\`variant\` is where the message shows, one of \`"chat"\` (the default),
+			\`"center"\` - the middle of the screen, \`"console"\` - the player's
+			console, \`"notify"\` - the console too; CS shows it on screen only with
+			\`developer 1\`.
+
+			Colour tags work in chat only, and a letter is the same colour as in a menu:
+			- \`!y\` yellow (the usual chat colour), \`!g\` green
+			- \`!r\` red, \`!b\` blue, \`!d\` grey, \`!t\` the colour of the reader's team
+
+			A menu's own tags (\`!w\`, \`!R\`) are dropped from a chat line. Red, blue,
+			grey and \`!t\` share the message's one team colour: the first one used wins.
+
+			Pawn: \`client_print\`, \`client_print_color\`
+		`,
+		ru: `
+			Отправляет игроку сообщение; всем — \`server.print\`.
+
+			\`\`\`ts
+			player.print("Health restored!");                // чат игрока
+			player.print("Health restored!", "center");      // посередине экрана игрока
+			server.print("Round starts in 5 seconds");       // чат всех игроков
+			\`\`\`
+
+			\`variant\` — где показать сообщение, одно из \`"chat"\` (по умолчанию),
+			\`"center"\` — посередине экрана, \`"console"\` — в консоли игрока,
+			\`"notify"\` — тоже в консоли; на экране CS показывает его только при
+			\`developer 1\`.
+
+			Цветовые метки работают только в чате, и буква — тот же цвет, что в меню:
+			- \`!y\` жёлтый (обычный цвет чата), \`!g\` зелёный
+			- \`!r\` красный, \`!b\` синий, \`!d\` серый, \`!t\` цвет команды читающего
+
+			Метки только для меню (\`!w\`, \`!R\`) из строки чата убираются. Красный, синий,
+			серый и \`!t\` делят один цвет команды на сообщение: побеждает первый.
+
+			Pawn: \`client_print\`, \`client_print_color\`
 		`,
 	},
 	'Player.command': {
@@ -1771,7 +1823,7 @@ export default {
 
 			\`\`\`ts
 			server.addEventListener("playerChange", (event) => {
-			  print(event.player, event.value ? "You are protected" : "Your spawn protection is over");
+			  event.player.print(event.value ? "You are protected" : "Your spawn protection is over");
 			}, { field: "spawnProtected" });
 			\`\`\`
 
@@ -1785,7 +1837,7 @@ export default {
 
 			\`\`\`ts
 			server.addEventListener("playerChange", (event) => {
-			  print(event.player, event.value ? "You are protected" : "Your spawn protection is over");
+			  event.player.print(event.value ? "You are protected" : "Your spawn protection is over");
 			}, { field: "spawnProtected" });
 			\`\`\`
 
@@ -1933,7 +1985,7 @@ export default {
 
 			\`\`\`ts
 			server.addEventListener("putInServer", (event) => {
-			  print(event.player, "Welcome!");      // event is a PutinserverEvent
+			  event.player.print("Welcome!");      // event is a PutinserverEvent
 			});
 			server.map;                             // "de_dust2"
 			server.maxPlayers;                      // 32
@@ -1950,7 +2002,7 @@ export default {
 
 			\`\`\`ts
 			server.addEventListener("putInServer", (event) => {
-			  print(event.player, "Welcome!");      // event — это PutinserverEvent
+			  event.player.print("Welcome!");      // event — это PutinserverEvent
 			});
 			server.map;                             // "de_dust2"
 			server.maxPlayers;                      // 32
@@ -3211,14 +3263,14 @@ export default {
 		en: `
 			Sends every player a message: \`server.print("Round 3")\`, in the chat;
 			\`variant\` puts it in the middle of the screen (\`"center"\`) or the
-			console. Colour tags work as in \`print\`.
+			console. Colour tags work as in \`player.print\`.
 
 			Pawn: \`client_print(0, ...)\`, \`client_print_color(0, ...)\`
 		`,
 		ru: `
 			Отправляет сообщение всем игрокам: \`server.print("Round 3")\` — в чат;
 			\`variant\` выводит его в середину экрана (\`"center"\`) или в консоль. Цветовые
-			теги работают как в \`print\`.
+			теги работают как в \`player.print\`.
 
 			Pawn: \`client_print(0, ...)\`, \`client_print_color(0, ...)\`
 		`,
@@ -3773,8 +3825,8 @@ export default {
 		ru: `Место показа сообщения строкой, одно из \`"chat"\`, \`"center"\`, \`"console"\` или \`"notify"\`.`,
 	},
 	'paint': {
-		en: `Turns a chat line's colour tags (\`!g\`, \`!r\`, ...) into the colour codes the client reads, and records in \`swapTeam\` which team colour the line needs. \`print\` calls it; exported for tests.`,
-		ru: `Переводит цветовые метки строки чата (\`!g\`, \`!r\`, ...) в коды цвета для клиента и записывает в \`swapTeam\`, какой цвет команды нужен строке. Её вызывает \`print\`; экспортирована для тестов.`,
+		en: `Turns a chat line's colour tags (\`!g\`, \`!r\`, ...) into the colour codes the client reads, and records in \`swapTeam\` which team colour the line needs. \`player.print\` calls it; exported for tests.`,
+		ru: `Переводит цветовые метки строки чата (\`!g\`, \`!r\`, ...) в коды цвета для клиента и записывает в \`swapTeam\`, какой цвет команды нужен строке. Её вызывает \`player.print\`; экспортирована для тестов.`,
 	},
 	'menuColors': {
 		en: `Turns a menu's colour tags (\`!y\`, \`!R\`, ...) into the codes the game draws, and drops the ones only chat has (\`!g\`, \`!b\`, \`!t\`) and the game's own codes written into the text (\`\\y\`); any other \`!\` stays. \`showMenu\` calls it, and a module hands its result to Pawn.`,
@@ -3793,56 +3845,8 @@ export default {
 		`,
 	},
 	'swapTeam': {
-		en: `The team colour the last \`paint()\` chose for the line, one of \`"TERRORIST"\` (red), \`"CT"\` (blue), \`"SPECTATOR"\` (grey), or \`""\` - the reader's own team colour. \`print\` reads it right after.`,
-		ru: `Цвет команды, который последний вызов \`paint()\` выбрал для строки, — одно из \`"TERRORIST"\` (красный), \`"CT"\` (синий), \`"SPECTATOR"\` (серый) или \`""\` — цвет команды читающего. \`print\` читает его сразу после.`,
-	},
-	'print': {
-		en: `
-			Sends a message to a player; to everyone, \`server.print\`.
-
-			\`\`\`ts
-			print(player, "Health restored!");                    // the player's chat
-			print(player, "Health restored!", "center");          // the middle of the player's screen
-			server.print("Round starts in 5 seconds");            // everyone's chat
-			\`\`\`
-
-			The first argument is a player or a player's \`id\`. The third is where the
-			message shows, one of \`"chat"\` (the default), \`"center"\` - the middle of
-			the screen, \`"console"\` - the player's console, \`"notify"\` - the console too; CS
-			shows it on screen only with \`developer 1\`.
-
-			Colour tags work in chat only, and a letter is the same colour as in a menu:
-			- \`!y\` yellow (the usual chat colour), \`!g\` green
-			- \`!r\` red, \`!b\` blue, \`!d\` grey, \`!t\` the colour of the reader's team
-
-			A menu's own tags (\`!w\`, \`!R\`) are dropped from a chat line. Red, blue,
-			grey and \`!t\` share the message's one team colour: the first one used wins.
-
-			Pawn: \`client_print\`, \`client_print_color\`
-		`,
-		ru: `
-			Отправляет сообщение игроку; всем — \`server.print\`.
-
-			\`\`\`ts
-			print(player, "Health restored!");                    // чат игрока
-			print(player, "Health restored!", "center");          // посередине экрана игрока
-			server.print("Round starts in 5 seconds");            // чат всех игроков
-			\`\`\`
-
-			Первый аргумент — игрок или \`id\` игрока. Третий — где показать
-			сообщение, одно из \`"chat"\` (по умолчанию), \`"center"\` — посередине экрана, \`"console"\` —
-			в консоли игрока, \`"notify"\` — тоже в консоли; на экране CS показывает его
-			только при \`developer 1\`.
-
-			Цветовые метки работают только в чате, и буква — тот же цвет, что в меню:
-			- \`!y\` жёлтый (обычный цвет чата), \`!g\` зелёный
-			- \`!r\` красный, \`!b\` синий, \`!d\` серый, \`!t\` цвет команды читающего
-
-			Метки только для меню (\`!w\`, \`!R\`) из строки чата убираются. Красный, синий,
-			серый и \`!t\` делят один цвет команды на сообщение: побеждает первый.
-
-			Pawn: \`client_print\`, \`client_print_color\`
-		`,
+		en: `The team colour the last \`paint()\` chose for the line, one of \`"TERRORIST"\` (red), \`"CT"\` (blue), \`"SPECTATOR"\` (grey), or \`""\` - the reader's own team colour. \`player.print\` reads it right after.`,
+		ru: `Цвет команды, который последний вызов \`paint()\` выбрал для строки, — одно из \`"TERRORIST"\` (красный), \`"CT"\` (синий), \`"SPECTATOR"\` (серый) или \`""\` — цвет команды читающего. \`player.print\` читает его сразу после.`,
 	},
 	'lang': {
 		en: `
@@ -3851,7 +3855,7 @@ export default {
 
 			\`\`\`ts
 			lang.load("myplugin");                                        // data/lang/myplugin.txt
-			print(player, lang.translate(player, "MYPLUGIN_WELCOME", [player.name]));
+			player.print(lang.translate(player, "MYPLUGIN_WELCOME", [player.name]));
 			\`\`\`
 
 			Pawn: \`register_dictionary\`, \`LookupLangKey\`
@@ -3862,7 +3866,7 @@ export default {
 
 			\`\`\`ts
 			lang.load("myplugin");                                        // data/lang/myplugin.txt
-			print(player, lang.translate(player, "MYPLUGIN_WELCOME", [player.name]));
+			player.print(lang.translate(player, "MYPLUGIN_WELCOME", [player.name]));
 			\`\`\`
 
 			Pawn: \`register_dictionary\`, \`LookupLangKey\`
@@ -4009,7 +4013,7 @@ export default {
 			as in the browser:
 
 			\`\`\`ts
-			const handle = setTimeout(() => print(player, "Welcome!"), 2000);
+			const handle = setTimeout(() => player.print("Welcome!"), 2000);
 			clearTimeout(handle);
 			\`\`\`
 
@@ -4022,7 +4026,7 @@ export default {
 			таймера, как в браузере:
 
 			\`\`\`ts
-			const handle = setTimeout(() => print(player, "Welcome!"), 2000);
+			const handle = setTimeout(() => player.print("Welcome!"), 2000);
 			clearTimeout(handle);
 			\`\`\`
 
@@ -5201,7 +5205,7 @@ export default {
 			\`\`\`ts
 			server.addCommand("/help", ({ player }) => {
 			  for (const command of server.commands) {
-			    if (command.access == null || player.access.includes(command.access)) print(player, command.usage);
+			    if (command.access == null || player.access.includes(command.access)) player.print(command.usage);
 			  }
 			});
 			\`\`\`
@@ -5214,7 +5218,7 @@ export default {
 			\`\`\`ts
 			server.addCommand("/help", ({ player }) => {
 			  for (const command of server.commands) {
-			    if (command.access == null || player.access.includes(command.access)) print(player, command.usage);
+			    if (command.access == null || player.access.includes(command.access)) player.print(command.usage);
 			  }
 			});
 			\`\`\`

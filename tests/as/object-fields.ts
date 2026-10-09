@@ -45,7 +45,7 @@ server.addCommand("sc_read", ({ player }) => {
 	const off = enabled == false;
 	const on = enabled == true;
 	const byDefault = enabled == "default";
-	print(player, `off=${off} on=${on} default=${byDefault} seenBy=${seenBy.join(",")} includes=${knows}`, "console");
+	player.print(`off=${off} on=${on} default=${byDefault} seenBy=${seenBy.join(",")} includes=${knows}`, "console");
 });
 
 server.addCommand("badge_write", ({ player }) => {
@@ -63,7 +63,7 @@ server.addCommand("badge_read", ({ player }) => {
 	const badge = player.badge;
 	const fans = badge.fans.map(fan => fan.id);
 	const friends = player.friends.map(friend => friend.id);
-	print(player, `title=${badge.title} level=${badge.level} shown=${badge.shown} color=${badge.color} fans=${fans.join(",")} friends=${friends.join(",")}`, "console");
+	player.print(`title=${badge.title} level=${badge.level} shown=${badge.shown} color=${badge.color} fans=${fans.join(",")} friends=${friends.join(",")}`, "console");
 });
 
 function othersThan(player: Player) {
