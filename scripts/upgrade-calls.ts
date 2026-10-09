@@ -208,8 +208,8 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 		countNames(source);
 		if (named > count) return;
 		for (const statement of source.statements) {
-			const core = ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier) && /^(?:@amxts\/core|~\/)/.test(statement.moduleSpecifier.text);
-			const bindings = core ? statement.importClause?.namedBindings : undefined;
+			if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || !/^(?:@amxts\/core|~\/)/.test(statement.moduleSpecifier.text)) continue;
+			const bindings = statement.importClause?.namedBindings;
 			if (!bindings || !ts.isNamedImports(bindings)) continue;
 			const at = bindings.elements.findIndex(element => element.name.text === name);
 			if (at < 0) continue;
