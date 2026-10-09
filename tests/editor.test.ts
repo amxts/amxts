@@ -32,7 +32,7 @@ test('the standard library takes what JavaScript\'s does in the editor', () => {
 	writeFileSync(join(dir, 'probe.ts'), [
 		'const scores = new Map([["ann", 1], ["bob", 2]]);',
 		'const names = new Set(["ann", "bob"]);',
-		'export const total: number = scores.get("ann") + names.size + Date.UTC(2024, 0) + Date.UTC(2024, 0, 2);',
+		'export const total: number = scores.get("ann") + names.size + Date.UTC(2024, 0) + Date.UTC(2024, 0, 2) + ["a"].flatMap(name => [name, name]).length;',
 		'',
 	].join('\n'));
 

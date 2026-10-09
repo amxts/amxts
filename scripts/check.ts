@@ -38,7 +38,10 @@ try {
 }
 
 if (!pkg && problems.length === 0) {
-	fail('amxts check: this folder is not a module package - package.json has no "amxts": { "module": ... }');
+	// A project: its plugins are checked by typecheck and build, not by this.
+	fail(existsSync(join(dir, 'amxts.config.ts'))
+		? 'amxts check checks a module package before it is published; in a project, `npx amxts typecheck` checks the plugins and `npx amxts build` builds them'
+		: 'amxts check: this folder is not a module package - package.json has no "amxts": { "module": ... }');
 	process.exit(1);
 }
 
