@@ -220,6 +220,13 @@ and fails when TypeScript's time over Pawn's passes its limit (`LIMITS` in
 `tests/server/perf.ts`): the failure names the ratio, both times and the
 limit. A change to a hot path is measured before and after, and the result
 goes to the maintainers, not into the commit; a limit moves only on purpose.
+On Linux CI also holds each measure against the last passing runs on the
+same CPU (`scripts/perf-history.ts`): one more than three times its median
+there fails the job, as the code's doing until a bisect on that CPU says
+otherwise - a rerun that lands on another CPU proves nothing. The Linux
+module's build fails when its own code makes a number whole through the
+x87 (`fldcw`): AMD's Zen cores stall on it at some code addresses, so a cast
+of a float or a double in the module is `Whole()`.
 
 ## Documentation
 

@@ -193,7 +193,8 @@ jobs:
   # while. Each takes the module and the suites linux-build made (--prebuilt)
   # and builds nothing. A server that crashes leaves a core dump, and the
   # runner prints its backtrace: the console, the dump and the backtrace are
-  # the job's artifact when it fails.
+  # the job's artifact when it fails. perf's measures are also held against
+  # the last passing runs on the same CPU (scripts/perf-history.ts).
   linux:
     name: ${{ matrix.plain && 'linux (plain HLDS)' || matrix.sanitize && 'linux (sanitizers)' || matrix.amxx && format('linux (AMX Mod X {0})', matrix.amxx) || 'linux' }}
     needs: linux-build
@@ -222,6 +223,8 @@ jobs:
       HLDS_SCOPE: ${{ matrix.plain && 'amxts-hlds-plain' || format('amxts-hlds{0}', matrix.amxx && format('-{0}', matrix.amxx) || '') }}
       # The build folder of the suites: --plain has one of its own.
       SUITES: dist-wasm/test-server-${{ matrix.plain && 'plain' || 'linux' }}
+      # The leg, for perf's history: its Pawn is another.
+      LEG: ${{ matrix.plain && 'plain' || matrix.amxx || 'default' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -254,12 +257,36 @@ jobs:
         run: sudo sysctl -w kernel.core_pattern=/cores/core.%e.%p
       # perf's ratios depend on the CPU, and runners differ: each run says which it had.
       - name: The runner's CPU
-        run: grep -m1 "model name" /proc/cpuinfo; uname -r
+        id: cpu
+        run: |
+          grep -m1 "model name" /proc/cpuinfo; uname -r
+          cpu=$(grep -m1 "model name" /proc/cpuinfo | sed 's/.*: //')
+          echo "name=$cpu" >> "$GITHUB_OUTPUT"
+          echo "key=$(printf %s "$cpu" | tr -c 'A-Za-z0-9' -)" >> "$GITHUB_OUTPUT"
+      # perf's measures of the last passing runs on this CPU and leg, for
+      # scripts/perf-history.ts. A slowdown taken on purpose starts a new
+      # history: the v in the key goes up.
+      - uses: actions/cache/restore@v6
+        if: ${{ !matrix.sanitize }}
+        with:
+          path: perf-history.json
+          key: perf-v1-${{ env.LEG }}-${{ steps.cpu.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: perf-v1-${{ env.LEG }}-${{ steps.cpu.outputs.key }}-
       - name: The server suites on Linux
         working-directory: amxts
         run: |
+          set -o pipefail
           [ "$SUITES" = dist-wasm/test-server-linux ] || mv dist-wasm/test-server-linux "$SUITES"
-          bun run test:server --linux --prebuilt $PLAIN $SANITIZE ${AMXX:+--amxx "$AMXX"}
+          bun run test:server --linux --prebuilt $PLAIN $SANITIZE ${AMXX:+--amxx "$AMXX"} | tee "$RUNNER_TEMP/server.log"
+      - name: perf against its past on this CPU
+        if: ${{ !cancelled() && !matrix.sanitize }}
+        working-directory: amxts
+        run: bun scripts/perf-history.ts "$RUNNER_TEMP/server.log" ../perf-history.json "${{ steps.cpu.outputs.name }}"
+      - uses: actions/cache/save@v6
+        if: ${{ success() && !matrix.sanitize }}
+        with:
+          path: perf-history.json
+          key: perf-v1-${{ env.LEG }}-${{ steps.cpu.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: The test server's console, core dump and backtrace
         if: failure()
         uses: actions/upload-artifact@v7
