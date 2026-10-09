@@ -777,10 +777,11 @@ interface Refused {
 }
 
 /**
- * The first plugin built, five times more: stamped with an ABI of another
+ * The first plugin built, six times more: stamped with an ABI of another
  * line, with one of its line but another ground's hash, with none, as one
  * built before plugins carried it, with an import a later patch would add,
- * and with an import of another shape. The module refuses each with one line
+ * and with an import of another shape, and its first half alone, as an
+ * upload leaves it midway. The module refuses each with one line
  * and loads the plugins listed after them as usual
  * (scripts/build-identity.ts). The first plugin itself is stamped with
  * another patch of its line, which the module loads: its suites run as any
@@ -823,6 +824,9 @@ function refusedCopies(built: string[]): Refused[] {
 	refused.push({ file: 'newer-import.aot', line: `[amxts] newer-import.aot needs amxts ${version} or later (it uses ${newer.split(' ', 1)[0]}): npx amxts upgrade` });
 	restamp('other-shape.aot', typed, typed.replace('(i', '(F'));
 	refused.push({ file: 'other-shape.aot', line: `[amxts] other-shape.aot was built for another shape of ${typed.split(' ', 1)[0]}: build it again` });
+	// Read while an upload is still writing it: the first half, its ABI section included or not.
+	writeFileSync(join(buildDir, 'cut-short.aot'), aot.subarray(0, aot.length >> 1));
+	refused.push({ file: 'cut-short.aot', line: '[amxts] cut-short.aot is incomplete or unreadable - it is loaded again once it changes' });
 	const otherPatch = abi.replace(/^(\d+\.\d+\.)(\d)/, (_, head: string, digit: string) => `${head}${digit === '9' ? '8' : '9'}`);
 	stamp(built[0], `${ABI_SECTION}\0${otherPatch}`);
 	return refused;

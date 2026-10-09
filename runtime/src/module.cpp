@@ -174,8 +174,13 @@ struct Plugin {
 	std::string          name;
 	// The .aot, in plugins/ beside the list.
 	std::string          path;
-	// When the .aot was last written.
+	// When the .aot was last written, and its size then.
 	time_t               stamp = 0;
+	long                 size = 0;
+	// A change the watcher saw and loads once its next look finds the file
+	// the same (WatchPlugins); -1 when there is none.
+	time_t               seenStamp = 0;
+	long                 seenSize = -1;
 	// Named in plugins.ini, rather than loaded by hand with amxts_load.
 	bool                 listed = true;
 	int                  state = PLUGIN_WAITING;
@@ -4584,16 +4589,28 @@ NO_STACK_COOKIE static cell Fire(const Handler &h, const uint32_t *argv, int arg
 	});
 }
 
-/** When a file was last written, or 0 if it cannot be read. */
-static time_t FileStamp(const char *path)
+/** When a file was last written and its size: false when it cannot be read. */
+static bool FileState(const char *path, time_t *stamp, long *size)
 {
 #ifdef _WIN32
 	struct _stat info;
-	return _stat(path, &info) == 0 ? info.st_mtime : 0;
+	bool found = _stat(path, &info) == 0;
 #else
 	struct stat info;
-	return stat(path, &info) == 0 ? info.st_mtime : 0;
+	bool found = stat(path, &info) == 0;
 #endif
+	*stamp = found ? info.st_mtime : 0;
+	*size = found ? (long)info.st_size : 0;
+	return found;
+}
+
+/** When a file was last written, or 0 if it cannot be read. */
+static time_t FileStamp(const char *path)
+{
+	time_t stamp;
+	long size;
+	FileState(path, &stamp, &size);
+	return stamp;
 }
 
 // ---------------------------------------------------------------- installing
@@ -5025,7 +5042,9 @@ static uint32_t ReadU32(const unsigned char *at)
 /**
  * The ABI an .aot was compiled against - its custom section amxts.abi, which
  * scripts/compile.ts writes and wamrc copies - or "" when it has none: a
- * plugin built before plugins carried one.
+ * plugin built before plugins carried one. `whole` says whether its sections
+ * reach the end of the file: one read while it is still being written - an
+ * upload comes in pieces - is cut short, ABI section or not.
  *
  * It is read off the file before WAMR sees it: a plugin of another ABI calls
  * imports this module does not have, or has with other types, and crashes
@@ -5035,22 +5054,25 @@ static uint32_t ReadU32(const unsigned char *at)
  * that counts the terminator, then the bytes - and its content
  * (aot_emit_custom_sections in WAMR's aot_emit_aot_file.c).
  */
-static std::string AotAbi(const unsigned char *data, size_t size)
+static std::string AotAbi(const unsigned char *data, size_t size, bool *whole)
 {
 	const size_t nameLength = sizeof(ABI_SECTION);
+	std::string abi;
 	size_t at = 8;
+	*whole = false;
 	while (at + 8 <= size) {
 		uint32_t type = ReadU32(data + at);
 		size_t length = ReadU32(data + at + 4);
 		const unsigned char *body = data + at + 8;
 		if (length > size - at - 8)
-			break;
+			return abi;
 		if (type == 100 && length >= 6 + nameLength && ReadU32(body) == 0
 		    && (size_t)(body[4] | body[5] << 8) == nameLength && memcmp(body + 6, ABI_SECTION, nameLength) == 0)
-			return std::string((const char *)body + 6 + nameLength, length - 6 - nameLength);
+			abi.assign((const char *)body + 6 + nameLength, length - 6 - nameLength);
 		at = (at + 8 + length + 3) & ~(size_t)3;
 	}
-	return "";
+	*whole = at >= size;
+	return abi;
 }
 
 /** The line of an ABI's version, major.minor: 0.3 of 0.3.1+abi.1a2b3c4d. */
@@ -5124,9 +5146,8 @@ static bool AbiFits(const std::string &abi, std::string *import = NULL)
  * is built again. Otherwise it names the lines when they differ, and the
  * whole identities when only the ground does.
  */
-static bool OfThisAbi(const char *name, const unsigned char *data, size_t size)
+static bool OfThisAbi(const char *name, std::string abi)
 {
-	std::string abi = AotAbi(data, size);
 	std::string import;
 	if (AbiFits(abi, &import))
 		return true;
@@ -5199,7 +5220,7 @@ static bool LoadPlugin(int index)
 {
 	const std::string name = g_plugins[index].name;
 	const std::string path = g_plugins[index].path;
-	g_plugins[index].stamp = FileStamp(path.c_str());
+	FileState(path.c_str(), &g_plugins[index].stamp, &g_plugins[index].size);
 
 	FILE *f = fopen(path.c_str(), "rb");
 	if (!f) {
@@ -5225,7 +5246,14 @@ static bool LoadPlugin(int index)
 		return false;
 	}
 
-	if (!OfThisAbi(name.c_str(), file, got))
+	bool whole;
+	std::string abi = AotAbi(file, got, &whole);
+	if (!whole) {
+		MF_PrintSrvConsole("[amxts] %s is incomplete or unreadable - it is loaded again once it changes\n", name.c_str());
+		g_refusal = "incomplete or unreadable - loaded again once it changes";
+		return false;
+	}
+	if (!OfThisAbi(name.c_str(), abi))
 		return false;
 
 	char err[192];
@@ -5736,8 +5764,11 @@ static void ReloadOne(const std::string &wanted)
  * wasm frame underneath - the one place where throwing the instances away is
  * safe.
  *
- * The new time is taken before the reload, not after, so a plugin that fails
- * to load is not retried every second.
+ * A change is loaded once two looks in a row, a tenth of a second apart,
+ * find the file's time and size alike: an upload writes it in pieces, and a
+ * half-written .aot read before its end is refused as incomplete. The new
+ * time is taken before the reload, not after, so a plugin that fails to load
+ * is not retried every second - only once its file changes again.
  */
 static void WatchPlugins();
 
@@ -5875,12 +5906,24 @@ static void WatchPlugins()
 		if (p.state == PLUGIN_UNLOADED)
 			continue;
 
-		time_t now = FileStamp(p.path.c_str());
-		if (now && now != p.stamp) {
-			MF_PrintSrvConsole("[amxts] %s changed on disk\n", p.name.c_str());
-			p.stamp = now;
-			changed = true;
+		time_t now;
+		long size;
+		if (!FileState(p.path.c_str(), &now, &size) || (now == p.stamp && size == p.size)) {
+			p.seenSize = -1;
+			continue;
 		}
+		// A file being written changes between two looks: it is loaded once
+		// two looks in a row find it alike.
+		if (now != p.seenStamp || size != p.seenSize) {
+			p.seenStamp = now;
+			p.seenSize = size;
+			continue;
+		}
+		MF_PrintSrvConsole("[amxts] %s changed on disk\n", p.name.c_str());
+		p.stamp = now;
+		p.size = size;
+		p.seenSize = -1;
+		changed = true;
 	}
 
 	if (changed)
