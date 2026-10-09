@@ -22,7 +22,7 @@ import ts from 'typescript';
  *
  * @param {ts.Program} program
  * @param {string} [root] the project's folder
- * @returns {{ node: ts.Node, message: string }[]}
+ * @returns {{ node: ts.Node, message: string }[]} the problems, in the files' order
  */
 export function buildProblems(program, root = process.cwd()) {
 	const inside = resolve(root) + sep;
@@ -47,7 +47,7 @@ export function buildProblems(program, root = process.cwd()) {
 
 	for (const file of program.getSourceFiles()) {
 		const path = resolve(file.fileName);
-		if (!file.isDeclarationFile && path.startsWith(inside) && !/[\\/](node_modules|\.amxts)[\\/]/.test(path)) visit(file);
+		if (!file.isDeclarationFile && path.startsWith(inside) && !/[\\/](?:node_modules|\.amxts)[\\/]/.test(path)) visit(file);
 	}
 	return found;
 }

@@ -1,7 +1,6 @@
 import type { PluginNative } from '../../scripts/plugin-natives';
 import type { Native, NativeCall } from './natives';
 import type { HookShape } from './tables';
-import { pawnLayout } from '../../scripts/plugin-natives';
 // A game server in TypeScript, standing where runtime/src/module.cpp and AMX
 // Mod X stand on a real one.
 //
@@ -13,6 +12,7 @@ import { pawnLayout } from '../../scripts/plugin-natives';
 // against the players and entities below. An import neither covers throws,
 // naming itself, the first time the plugin calls it.
 import { inflateRawSync } from 'node:zlib';
+import { pawnLayout } from '../../scripts/plugin-natives';
 import { compile } from './compile';
 import { Coroutines } from './coroutines';
 import { installKitFor } from './kits';

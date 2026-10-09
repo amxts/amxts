@@ -1,8 +1,8 @@
+import { crc32, deflateRawSync } from 'node:zlib';
 import { loadPlugin } from '@amxts/core/test-utils';
 // Files as bytes and zip archives, on the fake server: tests/as/fs-bytes.ts.
 // @ts-ignore - bun:test types not available during type checking
 import { expect, setDefaultTimeout, test } from 'bun:test';
-import { crc32, deflateRawSync } from 'node:zlib';
 
 setDefaultTimeout(120_000);
 

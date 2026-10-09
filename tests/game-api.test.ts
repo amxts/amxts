@@ -117,6 +117,7 @@ test('the server tells its game and versions, goes to a map it has, sets the lig
 
 test('lang.languages lists the languages of the plugin\'s dictionaries, or of one, not every one AMX Mod X knows', async () => {
 	const server = await loadPlugin(PLUGIN, { files: {
+		// Cyrillic on purpose: a Russian section, its code in capitals.
 		'addons/amxmodx/data/lang/myplugin.txt': '[en]\nHELLO = Hello\n\n[RU]\nHELLO = Привет\n',
 		'addons/amxmodx/data/lang/other.txt': '[de]\nHELLO = Hallo\n',
 	} });
