@@ -89,6 +89,22 @@ cmake -S /src/runtime -B "$module" -DCMAKE_BUILD_TYPE=Release \
 	"-DCMAKE_CXX_FLAGS=$flags" "-DCMAKE_SHARED_LINKER_FLAGS=$flags" > /dev/null
 build "$module"
 
+# The module's own code makes no number whole through the x87's rounding,
+# fldcw: AMD's Zen cores stall on it at some addresses, which any change
+# moves. A cast of a float or a double is module.cpp's Whole() there. What
+# fldcw is left is the libraries', off a plugin's calls: libstdc++, WAMR's
+# intrinsics, curl, libssh2 and AMX Mod X's SDK.
+if [ -z "$SANITIZE" ]; then
+	x87=$(objdump -d --no-show-raw-insn "$module/amxts_amxx_i386.so" \
+		| awk '/^[0-9a-f]+ <.*>:$/ { fn = $2 } /\tfldcw / { print fn }' | sort -u \
+		| grep -vE '^<(_ZNK?St|aot_intrinsic_|_libssh2_|progress_calc|Meta_Query)' || true)
+	if [ -n "$x87" ]; then
+		echo "== a number made whole through the x87 (fldcw) in the module - use Whole() in:" >&2
+		echo "$x87" >&2
+		exit 1
+	fi
+fi
+
 cp -L build-wamrc/wamrc /out/wamrc
 cp "$module/amxts_amxx_i386.so" /out/amxts_amxx_i386.so
 chmod 755 /out/wamrc /out/amxts_amxx_i386.so

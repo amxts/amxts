@@ -76,10 +76,10 @@ static int HudChannel(int id, int line, int fixed)
 /** A number of `scale` parts to one, as the engine reads a HUD message's (FixedUnsigned16 / FixedSigned16). */
 static int HudFixed(double value, int scale, bool sign)
 {
-	long output = (long)(value * scale);
+	int output = Whole(value * scale);
 	if (sign)
-		return output > 32767 ? 32767 : output < -32768 ? -32768 : (int)output;
-	return output > 65535 ? 65535 : output < 0 ? 0 : (int)output;
+		return output > 32767 ? 32767 : output < -32768 ? -32768 : output;
+	return output > 65535 ? 65535 : output < 0 ? 0 : output;
 }
 
 /** The text cut into the lines the client draws: a break at the last space before 69 letters, as UTIL_SplitHudMessage does. */
@@ -120,11 +120,11 @@ static void HudSend(int id, const double *p, int channel, const char *text)
 	WRITE_BYTE(channel & 0xFF);
 	WRITE_SHORT(HudFixed(p[HUD_X], 1 << 13, true));
 	WRITE_SHORT(HudFixed(p[HUD_Y], 1 << 13, true));
-	int effect = (int)p[HUD_EFFECT];
+	int effect = Whole(p[HUD_EFFECT]);
 	WRITE_BYTE(effect);
-	WRITE_BYTE((int)p[HUD_RED]);
-	WRITE_BYTE((int)p[HUD_GREEN]);
-	WRITE_BYTE((int)p[HUD_BLUE]);
+	WRITE_BYTE(Whole(p[HUD_RED]));
+	WRITE_BYTE(Whole(p[HUD_GREEN]));
+	WRITE_BYTE(Whole(p[HUD_BLUE]));
 	WRITE_BYTE(0);
 	// The second colour, the typewriter's: set_hudmessage's own.
 	WRITE_BYTE(255);
@@ -147,8 +147,8 @@ static void HudSendLarge(int id, const double *p, const std::string &text)
 	MESSAGE_BEGIN(MSG_ONE_UNRELIABLE, SVC_DIRECTOR, NULL, INDEXENT(id));
 	WRITE_BYTE((int)text.size() + 31);
 	WRITE_BYTE(DRC_CMD_MESSAGE);
-	WRITE_BYTE((int)p[HUD_EFFECT]);
-	WRITE_LONG((int)p[HUD_BLUE] + ((int)p[HUD_GREEN] << 8) + ((int)p[HUD_RED] << 16));
+	WRITE_BYTE(Whole(p[HUD_EFFECT]));
+	WRITE_LONG(Whole(p[HUD_BLUE]) + (Whole(p[HUD_GREEN]) << 8) + (Whole(p[HUD_RED]) << 16));
 	WRITE_LONG(bits(p[HUD_X]));
 	WRITE_LONG(bits(p[HUD_Y]));
 	WRITE_LONG(bits(p[HUD_FADE_IN]));
@@ -177,7 +177,7 @@ static void w_hudShow(wasm_exec_env_t env, int32_t id, int32_t line, int32_t par
 		return;
 	const double *p = (const double *)wasm_runtime_addr_app_to_native(inst, (uint64_t)params);
 	bool large = p[HUD_LARGE] != 0;
-	int fixed = (int)p[HUD_CHANNEL];
+	int fixed = Whole(p[HUD_CHANNEL]);
 	// The text is read and cut once, for the first player it reaches: a
 	// message to bots alone costs nothing more.
 	std::string message;

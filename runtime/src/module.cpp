@@ -106,6 +106,34 @@ struct FuncStubNT { ucell address; ucell nameofs; };
 #define NO_STACK_COOKIE
 #endif
 
+// A number made whole as a cast makes it: toward zero, 0x80000000 for NaN and
+// for what does not fit. GCC's cast on the i386 goes through the x87, setting
+// its rounding with fldcw before a fistp and back after it, and AMD's Zen
+// cores stall on that sequence for longer than a whole native takes wherever
+// its first fldcw falls in one narrow stretch of every 128 bytes of code -
+// which any change to the module moves. SSE2's conversion gives the same
+// answer at any address (Windows' compiler uses it for a cast already). It
+// reads the number where it is - a field, the plugin's memory - not a copy
+// the x87 stored, which Zen 4 reads back slowly.
+#if defined(__GNUC__) && defined(__i386__) && !defined(__SSE2_MATH__)
+static inline int32_t Whole(const double &x)
+{
+	int32_t whole;
+	__asm__("cvttsd2si %1, %0" : "=r"(whole) : "m"(x));
+	return whole;
+}
+
+static inline int32_t Whole(const float &x)
+{
+	int32_t whole;
+	__asm__("cvttss2si %1, %0" : "=r"(whole) : "m"(x));
+	return whole;
+}
+#else
+static inline int32_t Whole(const double &x) { return (int32_t)x; }
+static inline int32_t Whole(const float &x) { return (int32_t)x; }
+#endif
+
 // ---------------------------------------------------------------- state
 
 // The natives' image's AMX while a map runs, NULL between maps (LoadImage).
@@ -1849,7 +1877,7 @@ static int32_t w_get_health(wasm_exec_env_t env, int32_t id)
 {
 	char *at = PlayerEntvarAt(id, ENTVAR_HEALTH);
 	if (at)
-		return (int32_t)*(float *)at;
+		return Whole(*(float *)at);
 
 	static Cached cached = { { NULL, 0 }, 0 };
 	Args params(1);
@@ -1999,8 +2027,9 @@ static double w_date_now(wasm_exec_env_t env)
  */
 static int32_t w_date_timezone_offset(wasm_exec_env_t env, double time)
 {
-	// Whole seconds, rounded down: a moment before 1970 too.
-	time_t seconds = (time_t)(time / 1000.0);
+	// Whole seconds, rounded down: a moment before 1970 too. Whole where
+	// time_t has 32 bits (Linux's i386), a cast where it has 64.
+	time_t seconds = sizeof(time_t) == sizeof(int32_t) ? Whole(time / 1000.0) : (time_t)(time / 1000.0);
 	if ((double)seconds * 1000.0 > time) seconds--;
 	struct tm local;
 #ifdef _WIN32
@@ -7632,7 +7661,7 @@ static cell AMX_NATIVE_CALL n_getPlayerData(AMX *amx, cell *params)
 	double value = PlayerNumber((int)params[1], PawnKey(amx, params[2]));
 	if (!(value > -2147483648.0 && value < 2147483648.0))
 		return 0;
-	return (cell)value;
+	return Whole(value);
 }
 
 // amxts_set_player_data(id, const key[], value)

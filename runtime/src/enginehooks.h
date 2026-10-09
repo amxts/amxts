@@ -149,7 +149,7 @@ static void w_msg_set_number(wasm_exec_env_t env, int32_t index, double value)
 	if (arg->type == MESSAGE_ANGLE || arg->type == MESSAGE_COORD)
 		arg->real = (float)value;
 	else
-		arg->number = (int)value;
+		arg->number = Whole(value);
 	g_message->changed = true;
 }
 

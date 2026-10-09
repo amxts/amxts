@@ -596,7 +596,7 @@ static int32_t w_playerStat(wasm_exec_env_t env, int32_t id, int32_t what)
 		case STAT_USER_ID:   return GETPLAYERUSERID(e);
 		case STAT_PING:      g_engfuncs.pfnGetPlayerStats(e, &ping, &loss); return ping;
 		case STAT_LOSS:      g_engfuncs.pfnGetPlayerStats(e, &ping, &loss); return loss;
-		case STAT_CONNECTED: return (int32_t)(gpGlobals->time - g_connectedAt[id]);
+		case STAT_CONNECTED: return Whole(gpGlobals->time - g_connectedAt[id]);
 		default:             return 0;
 	}
 }

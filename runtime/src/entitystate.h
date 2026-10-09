@@ -98,7 +98,7 @@ static void w_stateSet(wasm_exec_env_t env, int32_t field, double value)
 		s->angles[field - STATE_ANGLES] = (float)value;
 		return;
 	}
-	int cell = (int)value;
+	int cell = Whole(value);
 	switch (field) {
 		case STATE_RENDER_MODE:     s->rendermode = cell; break;
 		case STATE_RENDER_AMOUNT:   s->renderamt = cell; break;
