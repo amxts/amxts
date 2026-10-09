@@ -223,8 +223,10 @@ jobs:
       HLDS_SCOPE: ${{ matrix.plain && 'amxts-hlds-plain' || format('amxts-hlds{0}', matrix.amxx && format('-{0}', matrix.amxx) || '') }}
       # The build folder of the suites: --plain has one of its own.
       SUITES: dist-wasm/test-server-${{ matrix.plain && 'plain' || 'linux' }}
-      # The leg, for perf's history: its Pawn is another.
-      LEG: ${{ matrix.plain && 'plain' || matrix.amxx || 'default' }}
+      # The leg, for perf's history: its Pawn is another. perf does not run
+      # on plain HLDS (no ReAPI to measure against) nor under sanitizers.
+      LEG: ${{ matrix.amxx || 'default' }}
+      PERF: ${{ !matrix.plain && !matrix.sanitize }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -267,7 +269,7 @@ jobs:
       # scripts/perf-history.ts. A slowdown taken on purpose starts a new
       # history: the v in the key goes up.
       - uses: actions/cache/restore@v6
-        if: ${{ !matrix.sanitize }}
+        if: ${{ env.PERF == 'true' }}
         with:
           path: perf-history.json
           key: perf-v1-${{ env.LEG }}-${{ steps.cpu.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -279,11 +281,11 @@ jobs:
           [ "$SUITES" = dist-wasm/test-server-linux ] || mv dist-wasm/test-server-linux "$SUITES"
           bun run test:server --linux --prebuilt $PLAIN $SANITIZE ${AMXX:+--amxx "$AMXX"} | tee "$RUNNER_TEMP/server.log"
       - name: perf against its past on this CPU
-        if: ${{ !cancelled() && !matrix.sanitize }}
+        if: ${{ !cancelled() && env.PERF == 'true' }}
         working-directory: amxts
         run: bun scripts/perf-history.ts "$RUNNER_TEMP/server.log" ../perf-history.json "${{ steps.cpu.outputs.name }}"
       - uses: actions/cache/save@v6
-        if: ${{ success() && !matrix.sanitize }}
+        if: ${{ success() && env.PERF == 'true' }}
         with:
           path: perf-history.json
           key: perf-v1-${{ env.LEG }}-${{ steps.cpu.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
