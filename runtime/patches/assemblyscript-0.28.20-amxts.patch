@@ -15601,7 +15601,7 @@ index 6a07f6f..5f05683 100644
      }
      sb.push(validWat ? "%29=>" : ") => ");
 diff --git a/std/assembly/array.ts b/std/assembly/array.ts
-index faa6d9b..6ea04ef 100644
+index faa6d9b..0ac0061 100644
 --- a/std/assembly/array.ts
 +++ b/std/assembly/array.ts
 @@ -22,7 +22,11 @@ function ensureCapacity(array: usize, newSize: usize, alignLog2: u32, canGrow: b
@@ -15762,6 +15762,15 @@ index faa6d9b..6ea04ef 100644
      return result;
    }
  
+@@ -423,7 +488,7 @@ export class Array<T> {
+     return this;
+   }
+ 
+-  sort(comparator: (a: T, b: T) => i32 = COMPARATOR<T>()): Array<T> {
++  sort(comparator: (a: T, b: T) => f64 = COMPARATOR<T>()): Array<T> {
+     SORT<T>(this.dataStart, this.length_, comparator);
+     return this;
+   }
 diff --git a/std/assembly/bindings/dom.ts b/std/assembly/bindings/dom.ts
 index 85c59ff..203868e 100644
 --- a/std/assembly/bindings/dom.ts
@@ -16334,18 +16343,29 @@ index dd32696..d43b29e 100644
 +  return fn;
 +}
 diff --git a/std/assembly/index.d.ts b/std/assembly/index.d.ts
-index a604397..dd80104 100644
+index a604397..7749c2e 100644
 --- a/std/assembly/index.d.ts
 +++ b/std/assembly/index.d.ts
-@@ -2083,7 +2083,7 @@ declare class Array<T> {
+@@ -2083,8 +2083,8 @@ declare class Array<T> {
    shift(): T;
    unshift(element: T): i32;
    slice(from?: i32, to?: i32): Array<T>;
 -  splice(start: i32, deleteCount?: i32): Array<T>;
+-  sort(comparator?: (a: T, b: T) => i32): this;
 +  splice(start: i32, deleteCount?: i32, ...items: T[]): Array<T>;
-   sort(comparator?: (a: T, b: T) => i32): this;
++  sort(comparator?: (a: T, b: T) => f64): this;
    join(separator?: string): string;
    reverse(): this;
+   /** Flattens an array of arrays. If any null entries exist in the array, they are ignored, unlike JavaScript's version of Array#flat(). */
+@@ -2121,7 +2121,7 @@ declare class StaticArray<T> {
+   concat<U extends ArrayLike<T>>(other: U): U;
+   slice(from?: i32, to?: i32): Array<T>;
+   slice<U extends ArrayLike<T>>(from?: i32, to?: i32): U;
+-  sort(comparator?: (a: T, b: T) => i32): this;
++  sort(comparator?: (a: T, b: T) => f64): this;
+   join(separator?: string): string;
+   reverse(): this;
+   toString(): string;
 diff --git a/std/assembly/json.ts b/std/assembly/json.ts
 new file mode 100644
 index 0000000..7eaa4f6
@@ -18540,7 +18560,7 @@ index ca2d6e4..b8959cf 100644
      return "[object Set]";
    }
 diff --git a/std/assembly/staticarray.ts b/std/assembly/staticarray.ts
-index 89cad68..6173e70 100644
+index 89cad68..32de6ee 100644
 --- a/std/assembly/staticarray.ts
 +++ b/std/assembly/staticarray.ts
 @@ -287,6 +287,24 @@ export class StaticArray<T> {
@@ -18568,6 +18588,15 @@ index 89cad68..6173e70 100644
    findLastIndex(fn: (value: T, index: i32, array: StaticArray<T>) => bool): i32 {
      for (let i = this.length - 1; i >= 0; --i) {
        if (fn(load<T>(changetype<usize>(this) + (<usize>i << alignof<T>())), i, this)) return i;
+@@ -359,7 +377,7 @@ export class StaticArray<T> {
+     return false;
+   }
+ 
+-  sort(comparator: (a: T, b: T) => i32 = COMPARATOR<T>()): StaticArray<T> {
++  sort(comparator: (a: T, b: T) => f64 = COMPARATOR<T>()): StaticArray<T> {
+     SORT<T>(changetype<usize>(this), this.length, comparator);
+     return this;
+   }
 diff --git a/std/assembly/string.ts b/std/assembly/string.ts
 index 7675318..f02d2fe 100644
 --- a/std/assembly/string.ts
@@ -18653,6 +18682,109 @@ index 7675318..f02d2fe 100644
  // Encoding helpers
  export namespace String {
  
+diff --git a/std/assembly/typedarray.ts b/std/assembly/typedarray.ts
+index 3eb3945..607cd56 100644
+--- a/std/assembly/typedarray.ts
++++ b/std/assembly/typedarray.ts
+@@ -66,7 +66,7 @@ export class Int8Array extends ArrayBufferView {
+     return this;
+   }
+ 
+-  sort(comparator: (a: i8, b: i8) => i32 = COMPARATOR<i8>()): Int8Array {
++  sort(comparator: (a: i8, b: i8) => f64 = COMPARATOR<i8>()): Int8Array {
+     SORT<i8>(this.dataStart, this.length, comparator);
+     return this;
+   }
+@@ -208,7 +208,7 @@ export class Uint8Array extends ArrayBufferView {
+     return this;
+   }
+ 
+-  sort(comparator: (a: u8, b: u8) => i32 = COMPARATOR<u8>()): Uint8Array {
++  sort(comparator: (a: u8, b: u8) => f64 = COMPARATOR<u8>()): Uint8Array {
+     SORT<u8>(this.dataStart, this.length, comparator);
+     return this;
+   }
+@@ -351,7 +351,7 @@ export class Uint8ClampedArray extends ArrayBufferView {
+     return this;
+   }
+ 
+-  sort(comparator: (a: u8, b: u8) => i32 = COMPARATOR<u8>()): Uint8ClampedArray {
++  sort(comparator: (a: u8, b: u8) => f64 = COMPARATOR<u8>()): Uint8ClampedArray {
+     SORT<u8>(this.dataStart, this.length, comparator);
+     return this;
+   }
+@@ -493,7 +493,7 @@ export class Int16Array extends ArrayBufferView {
+     return this;
+   }
+ 
+-  sort(comparator: (a: i16, b: i16) => i32 = COMPARATOR<i16>()): Int16Array {
++  sort(comparator: (a: i16, b: i16) => f64 = COMPARATOR<i16>()): Int16Array {
+     SORT<i16>(this.dataStart, this.length, comparator);
+     return this;
+   }
+@@ -635,7 +635,7 @@ export class Uint16Array extends ArrayBufferView {
+     return this;
+   }
+ 
+-  sort(comparator: (a: u16, b: u16) => i32 = COMPARATOR<u16>()): Uint16Array {
++  sort(comparator: (a: u16, b: u16) => f64 = COMPARATOR<u16>()): Uint16Array {
+     SORT<u16>(this.dataStart, this.length, comparator);
+     return this;
+   }
+@@ -777,7 +777,7 @@ export class Int32Array extends ArrayBufferView {
+     return this;
+   }
+ 
+-  sort(comparator: (a: i32, b: i32) => i32 = COMPARATOR<i32>()): Int32Array {
++  sort(comparator: (a: i32, b: i32) => f64 = COMPARATOR<i32>()): Int32Array {
+     SORT<i32>(this.dataStart, this.length, comparator);
+     return this;
+   }
+@@ -919,7 +919,7 @@ export class Uint32Array extends ArrayBufferView {
+     return this;
+   }
+ 
+-  sort(comparator: (a: u32, b: u32) => i32 = COMPARATOR<u32>()): Uint32Array {
++  sort(comparator: (a: u32, b: u32) => f64 = COMPARATOR<u32>()): Uint32Array {
+     SORT<u32>(this.dataStart, this.length, comparator);
+     return this;
+   }
+@@ -1061,7 +1061,7 @@ export class Int64Array extends ArrayBufferView {
+     return this;
+   }
+ 
+-  sort(comparator: (a: i64, b: i64) => i32 = COMPARATOR<i64>()): Int64Array {
++  sort(comparator: (a: i64, b: i64) => f64 = COMPARATOR<i64>()): Int64Array {
+     SORT<i64>(this.dataStart, this.length, comparator);
+     return this;
+   }
+@@ -1203,7 +1203,7 @@ export class Uint64Array extends ArrayBufferView {
+     return this;
+   }
+ 
+-  sort(comparator: (a: u64, b: u64) => i32 = COMPARATOR<u64>()): Uint64Array {
++  sort(comparator: (a: u64, b: u64) => f64 = COMPARATOR<u64>()): Uint64Array {
+     SORT<u64>(this.dataStart, this.length, comparator);
+     return this;
+   }
+@@ -1345,7 +1345,7 @@ export class Float32Array extends ArrayBufferView {
+     return this;
+   }
+ 
+-  sort(comparator: (a: f32, b: f32) => i32 = COMPARATOR<f32>()): Float32Array {
++  sort(comparator: (a: f32, b: f32) => f64 = COMPARATOR<f32>()): Float32Array {
+     SORT<f32>(this.dataStart, this.length, comparator);
+     return this;
+   }
+@@ -1487,7 +1487,7 @@ export class Float64Array extends ArrayBufferView {
+     return this;
+   }
+ 
+-  sort(comparator: (a: f64, b: f64) => i32 = COMPARATOR<f64>()): Float64Array {
++  sort(comparator: (a: f64, b: f64) => f64 = COMPARATOR<f64>()): Float64Array {
+     SORT<f64>(this.dataStart, this.length, comparator);
+     return this;
+   }
 diff --git a/std/assembly/util/number.ts b/std/assembly/util/number.ts
 index ebd9d09..fc50186 100644
 --- a/std/assembly/util/number.ts
@@ -18714,3 +18846,52 @@ index ebd9d09..fc50186 100644
 +  ) return length - 2;
 +  return length;
  }
+diff --git a/std/assembly/util/sort.ts b/std/assembly/util/sort.ts
+index ed1822e..ed7ca36 100644
+--- a/std/assembly/util/sort.ts
++++ b/std/assembly/util/sort.ts
+@@ -1,6 +1,8 @@
+ import { compareImpl } from "./string";
+ 
+-type Comparator<T> = (a: T, b: T) => i32;
++// amxts: a comparator returns a number, and its sign orders two elements, as
++// in JavaScript: `(a, b) => a - b` sorts fractions too. NaN is 0, equal.
++type Comparator<T> = (a: T, b: T) => f64;
+ 
+ // @ts-ignore: decorator
+ @lazy @inline const EMPTY = u32.MAX_VALUE;
+@@ -206,7 +208,7 @@ function insertionSort<T>(
+       let a = load<T>(ptr + (<usize>i << alignof<T>()), 0);
+       let b = load<T>(ptr + (<usize>i << alignof<T>()), 1 << alignof<T>());
+       let min = b, max = a;
+-      if (comparator(a, b) <= 0) {
++      if (!(comparator(a, b) > 0)) {
+         min = a, max = b;
+       }
+       let j = i - 1;
+@@ -252,10 +254,10 @@ function extendRunRight<T>(
+   ) > 0) {
+     while (
+       j < right &&
+-      (comparator(
++      comparator(
+         load<T>(ptr + (<usize>j << alignof<T>()), 1 << alignof<T>()),
+         load<T>(ptr + (<usize>j << alignof<T>()))
+-      ) >>> 31) // < 0
++      ) < 0
+     ) ++j;
+     // reverse
+     let k = j;
+@@ -267,10 +269,10 @@ function extendRunRight<T>(
+   } else {
+     while (
+       j < right &&
+-      comparator(
++      !(comparator(
+         load<T>(ptr + (<usize>j << alignof<T>()), 1 << alignof<T>()),
+         load<T>(ptr + (<usize>j << alignof<T>()))
+-      ) >= 0
++      ) < 0)
+     ) ++j;
+   }
+   return j;

@@ -525,7 +525,7 @@ export class URLSearchParams {
 		const order: i32[] = [];
 		for (let i: i32 = 0; i < this.__names.length; i++) order.push(i);
 		const names = this.__names;
-		order.sort((a: i32, b: i32): i32 => (names[a] < names[b] ? -1 : names[a] > names[b] ? 1 : a - b));
+		order.sort((a: i32, b: i32) => (names[a] < names[b] ? -1 : names[a] > names[b] ? 1 : a - b));
 		this.__names = order.map<string>((i: i32): string => names[i]);
 		const values = this.__values;
 		this.__values = order.map<string>((i: i32): string => values[i]);

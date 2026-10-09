@@ -31,7 +31,8 @@ unions of string literals, closures, optional properties and `undefined`,
 `Object.keys` and `for...in`, `try`/`catch`/`finally`, typed `JSON`, text joined
 with a number by `+`, `async`/`await`, overloads, object types in place,
 return types read off the body (a returned literal is the interface of its
-file), `flatMap`, a handler typed `Context & Player` that takes either,
+file), `flatMap`, a `sort` comparator whose number orders by its sign
+(`(a, b) => a - b` on fractions), a handler typed `Context & Player` that takes either,
 `Date` in the server's time zone.
 
 It also tunes the runtime (`std/assembly/rt/`) for a plugin, which makes
