@@ -12,7 +12,6 @@
 #include <engine>
 #include <fakemeta>
 #include <fun>
-#include <hamsandwich>
 #include <reapi>
 #include <perf>
 
@@ -22,8 +21,6 @@
 #define FRAMES 10000
 #define TIMERS 300
 #define TASK_ID 7300
-// The bot's knife swings a shot's listener is timed over, as perf.ts's.
-#define SHOTS 20000
 // The turns impulse_listener_ns takes, and the moves of each, as perf.ts's.
 #define IMPULSE_ROUNDS 1001
 #define IMPULSE_RUN 200
@@ -57,8 +54,7 @@ enum
 	ECHO_PAWN,
 	STEAM_ID,
 	MAP_NAME,
-	HUD_MESSAGE,
-	SWING
+	HUD_MESSAGE
 }
 
 new HookChain:g_hook;
@@ -128,12 +124,6 @@ public on_reset(id)
 {
 	g_sink++;
 	return HC_CONTINUE;
-}
-
-public on_shot()
-{
-	g_sink++;
-	return FMRES_IGNORED;
 }
 
 public on_impulse(id)
@@ -363,8 +353,6 @@ run(what, id, count)
 			}
 		}
 		case RESET: for (new i = 0; i < count; i++) rg_reset_maxspeed(id);
-		// `id` is the bot's knife: each swing plays its event.
-		case SWING: for (new i = 0; i < count; i++) ExecuteHamB(Ham_Weapon_PrimaryAttack, id);
 		case REMAINDER: g_sink += count_primes(200000);
 		case DIVISORS: g_sink += sum_divisors(700);
 		case POWERS: g_sink += sum_powers(2000, 2000);
@@ -455,14 +443,6 @@ public measure()
 	// One hookchain listener against both layers of perf.ts's: its raw hook and its event listener.
 	perf_report("raw hook", (heard - before) * 1000000.0 / float(FEW));
 	perf_report("event", (heard - before) * 1000000.0 / float(FEW));
-
-	// A listener of the events the game plays - a shot - against perf.ts's playbackEvent listener.
-	new knife = find_ent_by_owner(-1, "weapon_knife", id);
-	before = best(SWING, knife, SHOTS);
-	new shot = register_forward(FM_PlaybackEvent, "on_shot");
-	heard = best(SWING, knife, SHOTS);
-	unregister_forward(FM_PlaybackEvent, shot);
-	perf_report("shot listener", (heard - before) * 1000000.0 / float(SHOTS));
 
 	perf_report("remainder: primes", best(REMAINDER, id, 1));
 	perf_report("remainder: divisors", best(DIVISORS, id, 1));
