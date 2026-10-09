@@ -183,6 +183,10 @@ export const EVENTS: Record<string, EventDoc> = {
 				en: `The command's text after its name, as one line; for \`say\` and \`say_team\`, the chat line without its quotes.`,
 				ru: `Текст команды после имени одной строкой; у \`say\` и \`say_team\` — строка чата без кавычек.`,
 			},
+			preventDefault: {
+				en: `Stops the command: the game does not run it - a chat line is not said - and no plugin's \`server.addCommand\` hears it. The other listeners of \`"command"\` still do.`,
+				ru: `Останавливает команду: игра её не выполняет — строка чата не уходит в чат, — и её не слышит ни один \`server.addCommand\` плагинов. Остальные слушатели \`"command"\` её слышат.`,
+			},
 		},
 		example: `server.addEventListener("command", (event) => {\n\tif (event.command == "say" && event.args[0] == "/cp") checkpoint(event.player);\n});`,
 	},

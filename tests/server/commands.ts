@@ -1,7 +1,8 @@
 // A player's commands and the server's, as the module hears them: a bot's
 // command in chat - `say` and `say_team` - and in its console, one it lacks
 // the right for, a word a typed command does not take, a command of the
-// server console, and the module's own amxts_plugins.
+// server console, the module's own amxts_plugins, and a command a `command`
+// listener stops before the game and the plugins' commands get it.
 // @log Usage: amxts_commands_count <count>
 // @log plugin(s):
 import { read_flags, remove_user_flags, set_user_flags } from "@amxts/core/natives";
@@ -27,6 +28,24 @@ server.addServerCommand<CountArgs>("amxts_commands_count <count>", ({ count }) =
 	heard.push(`count ${count}`);
 });
 server.addServerCommand("amxts_test_commands", run);
+
+// While it is set, a chat line goes no further than the `command` event.
+let stopping = false;
+server.addEventListener("command", (event) => {
+	if (stopping && event.command == "say") event.preventDefault();
+});
+
+// The chat line the game last said, as its log has it.
+let said = "";
+server.addEventListener("log", (event) => {
+	if (event.args.length > 2 && event.args[1] == "say") said = event.args[2];
+});
+
+/** Waits a moment for the game's log line of a chat line. */
+async function lineSaid() {
+	for (let waits = 0; waits < 10 && said.length == 0; waits++) await sleep(50);
+	return said;
+}
 
 /** What the commands heard since the last call, joined. */
 function took() {
@@ -62,6 +81,18 @@ async function run() {
 	bot.command("amxts_commands_admin");
 	check.expect(took(), "with the right, he does").toBe("admin");
 	remove_user_flags(bot.id, rcon);
+
+	// The game says one chat line of a player in a moment: the stopped one
+	// goes first, which the game never gets.
+	said = "";
+	stopping = true;
+	bot.command("say amxts commands stopped");
+	check.expect(await lineSaid(), "preventDefault in a command listener: the game does not say it").toBe("");
+	bot.command("say /amxts_commands stopped");
+	check.expect(took(), "and no addCommand hears it").toBe("");
+	stopping = false;
+	bot.command("say amxts commands line");
+	check.expect(await lineSaid(), "without it, the game says the line").toBe("amxts commands line");
 
 	// The server's console runs a command on the next frame.
 	server.command("amxts_commands_count 3");
