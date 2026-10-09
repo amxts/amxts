@@ -91,11 +91,11 @@ function write<T>(path: string, data: T, append: bool): bool {
 	if (isString<T>()) return writeText(path, changetype<string>(data), append ? "ab" : "wb");
 	if (idof<T>() == idof<Uint8Array>()) {
 		const bytes = changetype<Uint8Array>(data);
-		return _writeBytes(path, bytes.dataStart, bytes.length, <i32>append) != 0;
+		return _writeBytes(path, bytes.dataStart, bytes.length, append ? 1 : 0) != 0;
 	}
 	if (idof<T>() == idof<ArrayBuffer>()) {
 		const buffer = changetype<ArrayBuffer>(data);
-		return _writeBytes(path, changetype<usize>(buffer), buffer.byteLength, <i32>append) != 0;
+		return _writeBytes(path, changetype<usize>(buffer), buffer.byteLength, append ? 1 : 0) != 0;
 	}
 	ERROR("a file takes text, a Uint8Array or an ArrayBuffer");
 	return false;
