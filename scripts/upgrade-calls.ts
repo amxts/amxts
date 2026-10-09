@@ -218,7 +218,7 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 			const start = alone ? statement.getStart(source) : at > 0 ? elements[at - 1].getEnd() : elements[at].getStart(source);
 			let end = alone ? lineEnd(statement.getEnd()) : at > 0 ? elements[at].getEnd() : elements[at + 1].getStart(source);
 			// A blank line after it goes too where it would be the first, or a second one.
-			if (alone && text[end] && lineEnd(end) > end && text.slice(end, lineEnd(end)).trim() === '' && /(?:^|\n\s*\n)\s*$/.test(text.slice(0, start))) end = lineEnd(end);
+			if (alone && text[end] && lineEnd(end) > end && text.slice(end, lineEnd(end)).trim() === '' && /^\s*$|\n[\t\r ]*\n[\t ]*$/.test(text.slice(0, start))) end = lineEnd(end);
 			edits.push({ start, end, with: '', from: text.slice(start, end).trim() });
 		}
 	}
