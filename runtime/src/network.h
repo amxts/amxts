@@ -726,26 +726,6 @@ static bool NetFlag(const std::string &value)
 	return !value.empty() && value != "0" && value != "false";
 }
 
-/**
- * A path of the game folder (`maps/de_dust2.bsp`), as @amxts/core/fs takes
- * one, made absolute - or "" when it would leave the folder: an absolute
- * path, a drive, or a `..` among its parts.
- */
-static std::string NetGamePath(const std::string &path)
-{
-	if (path.empty() || path[0] == '/' || path[0] == '\\' || path.find(':') != std::string::npos)
-		return "";
-	for (size_t start = 0;;) {
-		size_t end = path.find_first_of("/\\", start);
-		if (path.compare(start, end == std::string::npos ? std::string::npos : end - start, "..") == 0)
-			return "";
-		if (end == std::string::npos)
-			break;
-		start = end + 1;
-	}
-	return MF_BuildPathname("%s", path.c_str());
-}
-
 /** FTP's TLS: "try", "control" or "all" (or a flag, all) - CURLUSESSL_*. */
 static long NetSslMode(const std::string &value)
 {
@@ -784,7 +764,7 @@ static int32_t w_net_option(wasm_exec_env_t env, int32_t id, int32_t name, int32
 	else if (key == "ssl") r->ssl = NetSslMode(text);
 	else if (key == "timeout") r->timeoutMs = atol(text.c_str());
 	else if (key == "keyFile" || key == "file") {
-		std::string path = NetGamePath(text);
+		std::string path = GamePath(text);
 		if (path.empty())
 			return 0;
 		if (key == "keyFile") {

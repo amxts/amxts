@@ -12,7 +12,10 @@
 //
 // Text is UTF-8 both ways. A file is read whole, whatever its size: 128 bytes
 // a native call (the thunk's buffer for an array it does not know the size
-// of), never through a 255-character line buffer.
+// of), never through a 255-character line buffer. Bytes go through the
+// module's own fs_read and fs_write, a whole file a call, and refuse a path
+// that leaves the game folder; unzip reads the archive here and inflates
+// with the module's zlib (zip_inflate).
 //
 // There are no exceptions in AssemblyScript, so the synchronous functions say
 // they failed by their result - null, false - and the promise ones reject
@@ -55,6 +58,12 @@ import { __textFrom, __textInto, __textRoom } from "./natives";
 @external("env", "file_size")    declare function _fileSize(name: string, flag: i32, valve: i32, pathId: string): i32;
 // @ts-ignore: decorator
 @external("env", "GetFileTime")  declare function _fileTime(name: string, flag: i32): i32;
+// @ts-ignore: decorator
+@external("env", "fs_read")      declare function _readBytes(name: string, out: usize, max: i32): i32;
+// @ts-ignore: decorator
+@external("env", "fs_write")     declare function _writeBytes(name: string, data: usize, length: i32, append: i32): i32;
+// @ts-ignore: decorator
+@external("env", "zip_inflate")  declare function _inflate(data: usize, length: i32, out: usize, max: i32): i32;
 
 // fread_blocks' mode for one byte per cell.
 const BLOCK_CHAR: i32 = 1;
@@ -77,7 +86,22 @@ function open(path: string, mode: string): i32 {
 	return _fopen(path, mode, 0, 0);
 }
 
-function write(path: string, data: string, mode: string): bool {
+/** Writes text, or the bytes of a `Uint8Array` or an `ArrayBuffer`; `append` adds them at the end. */
+function write<T>(path: string, data: T, append: bool): bool {
+	if (isString<T>()) return writeText(path, changetype<string>(data), append ? "ab" : "wb");
+	if (idof<T>() == idof<Uint8Array>()) {
+		const bytes = changetype<Uint8Array>(data);
+		return _writeBytes(path, bytes.dataStart, bytes.length, <i32>append) != 0;
+	}
+	if (idof<T>() == idof<ArrayBuffer>()) {
+		const buffer = changetype<ArrayBuffer>(data);
+		return _writeBytes(path, changetype<usize>(buffer), buffer.byteLength, <i32>append) != 0;
+	}
+	ERROR("a file takes text, a Uint8Array or an ArrayBuffer");
+	return false;
+}
+
+function writeText(path: string, data: string, mode: string): bool {
 	const file = open(path, mode);
 	if (file == 0) return false;
 
@@ -128,26 +152,51 @@ export function readFileSync(path: string): string | null {
 }
 
 /**
- * Writes text to a file, replacing what was there; `false` when it cannot be
- * opened (a folder that does not exist, for one).
+ * Writes text, or bytes - a `Uint8Array` or an `ArrayBuffer` - to a file,
+ * replacing what was there; `false` when it cannot be opened (a folder that
+ * does not exist, for one). Bytes are not written past the game folder.
  *
  * ```ts
  * fs.writeFileSync("addons/amxmodx/data/last-map.txt", server.map);
+ * fs.writeFileSync("maps/kz_map.bsp", await response.arrayBuffer());
  * ```
  *
  * Pawn: `fopen`, `fputs`
  */
-export function writeFileSync(path: string, data: string): boolean {
-	return write(path, data, "wb");
+export function writeFileSync<T extends string | Uint8Array | ArrayBuffer = string>(path: string, data: T): boolean {
+	return write<T>(path, data, false);
 }
 
 /**
- * Adds text to the end of a file, making it if there is none; `false` when it cannot be opened.
+ * Adds text or bytes to the end of a file, making it if there is none; `false` when it cannot be opened.
  *
  * Pawn: `fopen(path, "a")`, `fputs`
  */
-export function appendFileSync(path: string, data: string): boolean {
-	return write(path, data, "ab");
+export function appendFileSync<T extends string | Uint8Array | ArrayBuffer = string>(path: string, data: T): boolean {
+	return write<T>(path, data, true);
+}
+
+/**
+ * Reads a whole file as bytes; `null` when it cannot be opened or the path
+ * leaves the game folder.
+ */
+export function readBytesSync(path: string): Uint8Array | null {
+	let size = _readBytes(path, 0, 0);
+	// A file that grows between the two calls is read again at its new size.
+	while (size >= 0) {
+		const bytes = new Uint8Array(size);
+		const read = _readBytes(path, bytes.dataStart, size);
+		if (read <= size) return read == size ? bytes : bytes.slice(0, max(read, 0));
+		size = read;
+	}
+	return null;
+}
+
+/** `readBytesSync` as a promise, rejected when the file cannot be opened. */
+export function readBytes(path: string): Promise<Uint8Array> {
+	const bytes = readBytesSync(path);
+	if (bytes == null) return Promise.reject<Uint8Array>(missing(path, "open"));
+	return Promise.resolve<Uint8Array>(bytes);
 }
 
 /**
@@ -252,13 +301,13 @@ export function readFile(path: string): Promise<string> {
 }
 
 /** `writeFileSync` as a promise, rejected when the file cannot be opened. */
-export function writeFile(path: string, data: string): Promise<void> {
-	return done(writeFileSync(path, data), path, "open");
+export function writeFile<T extends string | Uint8Array | ArrayBuffer = string>(path: string, data: T): Promise<void> {
+	return done(write<T>(path, data, false), path, "open");
 }
 
 /** `appendFileSync` as a promise, rejected when the file cannot be opened. */
-export function appendFile(path: string, data: string): Promise<void> {
-	return done(appendFileSync(path, data), path, "open");
+export function appendFile<T extends string | Uint8Array | ArrayBuffer = string>(path: string, data: T): Promise<void> {
+	return done(write<T>(path, data, true), path, "open");
 }
 
 /** `existsSync` as a promise. */
@@ -363,4 +412,141 @@ function done(ok: bool, path: string, call: string): Promise<void> {
 	if (ok) promise.__fulfillVoid();
 	else promise.__reject(missing(path, call));
 	return promise;
+}
+
+// ---------------------------------------------------------------- zip
+
+// The records of a zip archive: the end of its central directory, an entry
+// of the directory, an entry's local header.
+const ZIP_END: u32 = 0x06054B50;
+const ZIP_ENTRY: u32 = 0x02014B50;
+const ZIP_LOCAL: u32 = 0x04034B50;
+// The end record is 22 bytes and its comment 65535 at most.
+const ZIP_END_SIZE: i32 = 22;
+const ZIP_COMMENT_MAX: i32 = 0xFFFF;
+const ZIP_STORED: i32 = 0;
+const ZIP_DEFLATED: i32 = 8;
+// An entry's flags: encrypted.
+const ZIP_ENCRYPTED: i32 = 1;
+
+/** A file of a zip archive, from `unzip`: its path inside the archive and its bytes. */
+export class ZipEntry {
+	constructor(
+		/** The path inside the archive, `/` between folders: `"maps/de_dust2.bsp"`. */
+		readonly path: string,
+		/** The file's bytes. */
+		readonly data: Uint8Array,
+	) {}
+}
+
+/**
+ * The files of a zip archive, stored or deflated, with their paths inside it;
+ * folders are not listed. Throws an `Error` for data that is not a zip
+ * archive it can read, an entry whose bytes do not check out, and a path
+ * that would leave the folder it is unpacked into.
+ *
+ * ```ts
+ * for (const entry of fs.unzip(await response.arrayBuffer())) {
+ * 	fs.writeFileSync(entry.path, entry.data);
+ * }
+ * ```
+ */
+export function unzip<T extends Uint8Array | ArrayBuffer>(archive: T): ZipEntry[] {
+	if (idof<T>() == idof<Uint8Array>()) return unzipBytes(changetype<Uint8Array>(archive));
+	if (idof<T>() == idof<ArrayBuffer>()) return unzipBytes(Uint8Array.wrap(changetype<ArrayBuffer>(archive)));
+	ERROR("unzip takes a Uint8Array or an ArrayBuffer");
+	return [];
+}
+
+function unzipBytes(zip: Uint8Array): ZipEntry[] {
+	const end = zipEnd(zip);
+	const count = <i32>zipShort(zip, end + 10);
+	let at = <i32>zipWord(zip, end + 16);
+
+	const entries: ZipEntry[] = [];
+	for (let i: i32 = 0; i < count; i++) {
+		if (zipWord(zip, at) != ZIP_ENTRY) throw new Error("unzip: the archive's directory is damaged");
+		const flags = <i32>zipShort(zip, at + 8);
+		const method = <i32>zipShort(zip, at + 10);
+		const crc = zipWord(zip, at + 16);
+		const packed = <i32>zipWord(zip, at + 20);
+		const size = <i32>zipWord(zip, at + 24);
+		const nameLength = <i32>zipShort(zip, at + 28);
+		const local = <i32>zipWord(zip, at + 42);
+		const path = zipText(zip, at + 46, nameLength).replaceAll("\\", "/");
+		at += 46 + nameLength + <i32>zipShort(zip, at + 30) + <i32>zipShort(zip, at + 32);
+
+		if (path.endsWith("/")) continue;
+		if (leavesFolder(path)) throw new Error(`unzip: "${path}" would leave the folder`);
+		if (flags & ZIP_ENCRYPTED) throw new Error(`unzip: "${path}" is encrypted`);
+		if (method != ZIP_STORED && method != ZIP_DEFLATED) throw new Error(`unzip: "${path}" is compressed in a way unzip does not read`);
+
+		if (zipWord(zip, local) != ZIP_LOCAL) throw new Error(`unzip: "${path}" is damaged`);
+		const start = local + 30 + <i32>zipShort(zip, local + 26) + <i32>zipShort(zip, local + 28);
+		zipCheck(zip, start, packed);
+
+		const data = method == ZIP_STORED ? zip.slice(start, start + packed) : new Uint8Array(size);
+		if (method == ZIP_DEFLATED && size > 0 && _inflate(zip.dataStart + <usize>start, packed, data.dataStart, size) != size) {
+			throw new Error(`unzip: "${path}" is damaged`);
+		}
+		if (data.length != size || crc32(data) != crc) throw new Error(`unzip: "${path}" is damaged`);
+		entries.push(new ZipEntry(path, data));
+	}
+	return entries;
+}
+
+/** Where the end of the central directory starts: the last of its records, past which only its comment lies. */
+function zipEnd(zip: Uint8Array): i32 {
+	const last = zip.length - ZIP_END_SIZE;
+	for (let at = last; at >= 0 && at >= last - ZIP_COMMENT_MAX; at--) {
+		if (zipWord(zip, at) == ZIP_END) return at;
+	}
+	throw new Error("unzip: this is not a zip archive");
+}
+
+/** An absolute path, a drive or a `..` among its parts. */
+function leavesFolder(path: string): bool {
+	return path.startsWith("/") || path.includes(":") || path.split("/").includes("..");
+}
+
+function zipCheck(zip: Uint8Array, at: i32, length: i32): void {
+	if (at < 0 || length < 0 || at > zip.length - length) throw new Error("unzip: the archive is cut short");
+}
+
+function zipShort(zip: Uint8Array, at: i32): u32 {
+	zipCheck(zip, at, 2);
+	return <u32>load<u16>(zip.dataStart + <usize>at);
+}
+
+function zipWord(zip: Uint8Array, at: i32): u32 {
+	zipCheck(zip, at, 4);
+	return load<u32>(zip.dataStart + <usize>at);
+}
+
+function zipText(zip: Uint8Array, at: i32, length: i32): string {
+	zipCheck(zip, at, length);
+	return String.UTF8.decodeUnsafe(zip.dataStart + <usize>at, <usize>length);
+}
+
+// CRC-32 as zip writes it, a table of 256 made on the first archive.
+let crcTable: StaticArray<u32> | null = null;
+
+function crc32(data: Uint8Array): u32 {
+	let table = crcTable;
+	if (table == null) {
+		table = new StaticArray<u32>(256);
+		for (let n: u32 = 0; n < 256; n++) {
+			let c = n;
+			for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+			unchecked(table[n] = c);
+		}
+		crcTable = table;
+	}
+
+	let crc: u32 = 0xFFFFFFFF;
+	const start = data.dataStart;
+	for (let i: i32 = 0; i < data.length; i++) {
+		crc = unchecked(table[(crc ^ <u32>load<u8>(start + <usize>i)) & 0xFF]) ^ (crc >>> 8);
+	}
+	return crc ^ 0xFFFFFFFF;
 }

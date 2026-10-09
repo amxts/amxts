@@ -16,6 +16,7 @@ them as `amxts-LICENSE`.
 | `curl-COPYING` | [curl](https://curl.se) 8.22.0, linked into the module statically for `fetch` - the curl license (MIT-style) | the `amxts_amxx` module |
 | `mbedTLS-LICENSE` | [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) 3.6.7, linked into the module statically for HTTPS, FTPS and SFTP - Apache-2.0 (or GPL-2.0-or-later) | the `amxts_amxx` module |
 | `libssh2-COPYING` | [libssh2](https://libssh2.org) 1.11.1, linked into the module statically for SFTP - BSD-3-Clause | the `amxts_amxx` module |
+| `zlib-LICENSE` | [zlib](https://zlib.net) 1.2.11, the copy AMX Mod X's source carries, linked into the module statically for `unzip`'s inflate - the zlib license | the `amxts_amxx` module |
 | `MPL-2.0.txt` | Mozilla's list of certificate authorities, as [curl publishes it](https://curl.se/docs/caextract.html), carried inside the module for HTTPS - MPL-2.0 | the `amxts_amxx` module |
 | `LLVM-LICENSE.TXT` | [LLVM](https://github.com/llvm/llvm-project) 18.1.8, linked into `wamrc` statically - Apache-2.0 with LLVM exceptions | `wamrc` |
 

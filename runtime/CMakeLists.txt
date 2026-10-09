@@ -36,6 +36,18 @@ include("${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake")
 # fetch's network client: libcurl, mbedTLS and libssh2, built static.
 include(network.cmake)
 
+# zlib's inflate, for unzip: the copy AMX Mod X carries (the zlib license),
+# only the files raw inflate needs.
+set(ZLIB "${AMXX}/third_party/zlib")
+add_library(amxts_zlib STATIC
+	"${ZLIB}/inflate.c" "${ZLIB}/inftrees.c" "${ZLIB}/inffast.c"
+	"${ZLIB}/adler32.c" "${ZLIB}/crc32.c" "${ZLIB}/zutil.c"
+)
+target_include_directories(amxts_zlib PUBLIC "${ZLIB}")
+if(NOT WIN32)
+	target_compile_options(amxts_zlib PRIVATE -m32 -fPIC -ffunction-sections -fdata-sections)
+endif()
+
 add_library(amxts_amxx SHARED
 	src/module.cpp
 	"${AMXX}/public/sdk/amxxmodule.cpp"
@@ -55,7 +67,7 @@ target_include_directories(amxts_amxx PRIVATE
 )
 
 set_target_properties(amxts_amxx PROPERTIES PREFIX "")
-target_link_libraries(amxts_amxx PRIVATE net)
+target_link_libraries(amxts_amxx PRIVATE net amxts_zlib)
 
 if(WIN32)
 	# amxts_amxx.dll

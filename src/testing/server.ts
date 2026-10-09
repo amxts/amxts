@@ -12,6 +12,7 @@ import { pawnLayout } from '../../scripts/plugin-natives';
 // events registry, Fire with its outcome - and the natives in natives.ts,
 // against the players and entities below. An import neither covers throws,
 // naming itself, the first time the plugin calls it.
+import { inflateRawSync } from 'node:zlib';
 import { compile } from './compile';
 import { Coroutines } from './coroutines';
 import { installKitFor } from './kits';
@@ -46,6 +47,13 @@ export type NativeResult = number | boolean | string | number[] | string[] | nul
 /** A path as AMX Mod X takes it, relative to the game folder: `a/b/c.txt`. */
 export function normalizePath(path: string): string {
 	return path.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
+/** A path of the game folder, or null when it would leave it - absolute, a drive, a `..` - as the module's GamePath. */
+function gamePath(path: string): string | null {
+	const normal = normalizePath(path);
+	if (normal === '' || path.startsWith('/') || path.startsWith('\\') || path.includes(':') || normal.split('/').includes('..')) return null;
+	return normal;
 }
 
 /** A parameter's include default as the value Pawn passes when the call leaves it out. */
@@ -2358,6 +2366,36 @@ export class FakeServer {
 		},
 		net_read(this: FakeServer, plugin: PluginInstance, id: number, out: number, max: number) {
 			return this.network.read(plugin, id, out, max);
+		},
+
+		// A file's bytes, in files: as the module's fs_read and fs_write, a path that leaves the game folder is refused.
+		fs_read(this: FakeServer, plugin: PluginInstance, name: number, out: number, max: number) {
+			const path = gamePath(plugin.memory.string(name));
+			const bytes = path === null ? undefined : this.files.get(path);
+			if (!bytes) return -1;
+			if (out && max > 0) plugin.memory.setRaw(out, bytes.subarray(0, max));
+			return bytes.length;
+		},
+		fs_write(this: FakeServer, plugin: PluginInstance, name: number, data: number, length: number, append: number) {
+			const path = gamePath(plugin.memory.string(name));
+			if (path === null || !this.folderExists(path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')) return 0;
+			const bytes = new Uint8Array(plugin.instance.exports.memory.buffer, data, length);
+			const before = append ? this.files.get(path) ?? new Uint8Array(0) : new Uint8Array(0);
+			const file = new Uint8Array(before.length + length);
+			file.set(before);
+			file.set(bytes, before.length);
+			this.files.set(path, file);
+			return 1;
+		},
+		zip_inflate(this: FakeServer, plugin: PluginInstance, data: number, length: number, out: number, max: number) {
+			try {
+				const inflated = inflateRawSync(new Uint8Array(plugin.instance.exports.memory.buffer, data, length));
+				if (inflated.length > max) return -1;
+				plugin.memory.setRaw(out, inflated);
+				return inflated.length;
+			} catch {
+				return -1;
+			}
 		},
 		net_reply(this: FakeServer, plugin: PluginInstance, id: number) {
 			return this.network.reply(plugin, id);

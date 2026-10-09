@@ -4021,6 +4021,11 @@ static void w_rpcResult(wasm_exec_env_t env, int32_t to)
 	g_rpcResult.clear();
 }
 
+// ---------------------------------------------------------------- files
+
+// @amxts/core/fs's bytes and unzip's inflate: fs_read, fs_write, zip_inflate.
+#include "files.h"
+
 // ---------------------------------------------------------------- network
 
 // fetch's and the kit's requests, run on a worker thread: net_open and the rest, and NetFrame.
@@ -4435,6 +4440,9 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "net_redirects", (void *)w_net_redirects, "(i)i",    NULL },
 	{ "net_text",      (void *)w_net_text,      "(iiii)i", NULL },
 	{ "net_size",      (void *)w_net_size,      "(i)i",    NULL },
+	{ "fs_read",       (void *)w_fs_read,       "(iii)i",  NULL },
+	{ "fs_write",      (void *)w_fs_write,      "(iiii)i", NULL },
+	{ "zip_inflate",   (void *)w_zip_inflate,   "(iiii)i", NULL },
 	{ "net_read",      (void *)w_net_read,      "(iii)i",  NULL },
 	{ "net_reply",     (void *)w_net_reply,     "(i)i",    NULL }
 };

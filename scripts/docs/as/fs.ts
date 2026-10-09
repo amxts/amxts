@@ -31,21 +31,25 @@ export default {
 	},
 	'writeFileSync': {
 		en: `
-			Writes text to a file, replacing what was there; \`false\` when it cannot be
-			opened (a folder that does not exist, for one).
+			Writes text, or bytes - a \`Uint8Array\` or an \`ArrayBuffer\` - to a file,
+			replacing what was there; \`false\` when it cannot be opened (a folder that
+			does not exist, for one). Bytes are not written past the game folder.
 
 			\`\`\`ts
 			fs.writeFileSync("addons/amxmodx/data/last-map.txt", server.map);
+			fs.writeFileSync("maps/kz_map.bsp", await response.arrayBuffer());
 			\`\`\`
 
 			Pawn: \`fopen\`, \`fputs\`
 		`,
 		ru: `
-			Записывает текст в файл вместо того, что там было; \`false\`, если файл не
-			удалось открыть (например, такой папки нет).
+			Записывает текст или байты — \`Uint8Array\` или \`ArrayBuffer\` — в файл
+			вместо того, что там было; \`false\`, если файл не удалось открыть (например,
+			такой папки нет). Байты не пишутся за пределы папки игры.
 
 			\`\`\`ts
 			fs.writeFileSync("addons/amxmodx/data/last-map.txt", server.map);
+			fs.writeFileSync("maps/kz_map.bsp", await response.arrayBuffer());
 			\`\`\`
 
 			Pawn: \`fopen\`, \`fputs\`
@@ -53,14 +57,66 @@ export default {
 	},
 	'appendFileSync': {
 		en: `
-			Adds text to the end of a file, making it if there is none; \`false\` when it cannot be opened.
+			Adds text or bytes to the end of a file, making it if there is none; \`false\` when it cannot be opened.
 
 			Pawn: \`fopen(path, "a")\`, \`fputs\`
 		`,
 		ru: `
-			Дописывает текст в конец файла, создавая его, если файла нет; \`false\`, если его не удалось открыть.
+			Дописывает текст или байты в конец файла, создавая его, если файла нет; \`false\`, если его не удалось открыть.
 
 			Pawn: \`fopen(path, "a")\`, \`fputs\`
+		`,
+	},
+	'readBytesSync': {
+		en: `
+			Reads a whole file as bytes; \`null\` when it cannot be opened or the path
+			leaves the game folder.
+		`,
+		ru: `
+			Читает весь файл как байты; \`null\`, если его не удалось открыть или путь
+			ведёт за пределы папки игры.
+		`,
+	},
+	'readBytes': {
+		en: `\`readBytesSync\` as a promise, rejected when the file cannot be opened.`,
+		ru: `\`readBytesSync\` в виде промиса; отклоняется, если файл не удалось открыть.`,
+	},
+	'ZipEntry': {
+		en: `A file of a zip archive, from \`unzip\`: its path inside the archive and its bytes.`,
+		ru: `Файл zip-архива из \`unzip\`: его путь внутри архива и его байты.`,
+	},
+	'ZipEntry.path': {
+		en: `The path inside the archive, \`/\` between folders: \`"maps/de_dust2.bsp"\`.`,
+		ru: `Путь внутри архива, \`/\` между папками: \`"maps/de_dust2.bsp"\`.`,
+	},
+	'ZipEntry.data': {
+		en: `The file's bytes.`,
+		ru: `Байты файла.`,
+	},
+	'unzip': {
+		en: `
+			The files of a zip archive, stored or deflated, with their paths inside it;
+			folders are not listed. Throws an \`Error\` for data that is not a zip
+			archive it can read, an entry whose bytes do not check out, and a path
+			that would leave the folder it is unpacked into.
+
+			\`\`\`ts
+			for (const entry of fs.unzip(await response.arrayBuffer())) {
+				fs.writeFileSync(entry.path, entry.data);
+			}
+			\`\`\`
+		`,
+		ru: `
+			Файлы zip-архива, сохранённые как есть или сжатые deflate, с их путями внутри
+			архива; папки не перечисляются. Бросает \`Error\` для данных, которые не
+			читаются как zip-архив, для файла, чьи байты не сходятся, и для пути, который
+			ведёт за пределы папки, куда архив распаковывается.
+
+			\`\`\`ts
+			for (const entry of fs.unzip(await response.arrayBuffer())) {
+				fs.writeFileSync(entry.path, entry.data);
+			}
+			\`\`\`
 		`,
 	},
 	'existsSync': {
