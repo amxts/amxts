@@ -737,6 +737,10 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		en: `The player's field of view in degrees: \`90\` is normal, \`40\` and \`10\` through a sniper scope. Setting it widens or narrows his view - \`110\` shows more - until the game sets it again: at spawn, when he draws a weapon, when he zooms.`,
 		ru: `Поле зрения игрока в градусах: \`90\` — обычное, \`40\` и \`10\` — в снайперский прицел. Запись расширяет или сужает обзор — \`110\` показывает больше, — пока игра не поставит своё: при появлении, когда он достаёт оружие, когда приближает прицел.`,
 	},
+	m_flFallVelocity: {
+		en: `The player's falling speed, units per second, positive downwards: the one the game works fall damage out from on landing. Setting it sets the entity's \`fallVelocity\` too - \`player.fallVelocity = 0\` lands him without damage.`,
+		ru: `Скорость падения игрока, единиц в секунду, вниз положительная: по ней игра считает урон при приземлении. Запись ставит и \`fallVelocity\` сущности — \`player.fallVelocity = 0\` приземляет без урона.`,
+	},
 	m_iLastZoom: {
 		en: `The player's zoom (field of view) to go back to after a sniper rifle reloads or fires.`,
 		ru: `Зум игрока (поле зрения), к которому вернуться после перезарядки или выстрела снайперской винтовки.`,

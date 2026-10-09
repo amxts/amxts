@@ -172,3 +172,21 @@ test('a field is read where the game keeps it, not through reapi\'s natives', ()
 	expect(source).toContain('\tget gameName(): string { return regameText("gameName", gameNameHlds); }');
 	expect(source).toMatch(/\tget teamBalanced\(\): boolean \{ return regameCell\(\d+, "teamBalanced"\) != 0; \}/);
 });
+
+test('every member of the include is a field, or the generator says why it is not', () => {
+	const include = readFileSync('includes/vendor/reapi_gamedll_const.inc', 'utf8');
+	const generator = readFileSync('scripts/generate-entities.ts', 'utf8');
+	const classes = ['CBaseEntity', 'CBaseAnimating', 'CBaseMonster', 'CBasePlayer', 'CBasePlayerItem', 'CBasePlayerWeapon', 'CSGameRules'];
+	const missing: string[] = [];
+	for (const cls of classes) {
+		const block = include.match(new RegExp(`enum ${cls}_Members\\s*\\{([\\s\\S]*?)\\n\\};`))![1];
+		for (const [, comment, name] of block.matchAll(/\/\*([\s\S]*?)\*\/\s*(\w+)/g)) {
+			// An array, a class or a struct has no field of one value: the natives keep it.
+			const shape = comment.match(/Member type:\s*(.*)/)?.[1] ?? '';
+			if (/\[|class |struct /.test(shape) && !shape.trim().endsWith('*')) continue;
+			if (!members.includes(name) && !generator.includes(`\t${name}: '`) && !generator.includes(`'${name}',`)) missing.push(name);
+		}
+	}
+	expect(missing).toEqual([]);
+	expect(members).toContain('m_flFallVelocity');
+});

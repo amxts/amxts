@@ -589,9 +589,33 @@ const collisions: string[] = [];
 
 // A player's own copy of an entvar, under the entvar's name: PlayerFields
 // overrides Entity's field with it. The game writes both together - the
-// zoom is m_iFOV and pev->fov at once - and so does the setter.
+// zoom is m_iFOV and pev->fov at once - and so does the setter. The fall
+// speed the game's fall damage reads is m_flFallVelocity, beside the
+// movement code's pev->flFallVelocity: `player.fallVelocity = 0` clears both.
 const PLAYER_OWN: Record<string, string> = {
 	m_iFOV: 'var_fov',
+	m_flFallVelocity: 'var_flFallVelocity',
+};
+
+// A member whose name an entvar or a hand-written field already has, left
+// out on purpose: the game keeps it beside the entvar and a plugin reads the
+// entvar, or it is a field written by hand. Any other name taken twice stops
+// the generator, so a member reapi adds is never dropped without a word.
+const SAME_NAME: Record<string, string> = {
+	var_frags: 'player.frags, written by hand',
+	var_team: 'player.team, written by hand',
+	m_iTeam: 'player.team, written by hand',
+	m_iDeaths: 'player.deaths, written by hand',
+	m_iId: 'weapon.id, written by hand',
+	m_flFrameRate: 'a copy of pev->framerate in CBaseAnimating',
+	m_flAnimTime: 'a copy of pev->animtime in CBaseAnimating',
+	m_hEnemy: 'the monster AI enemy, beside pev->enemy',
+	m_pChaseTarget: 'the spectator target, beside pev->iuser2',
+	m_flTimeStepSound: 'a copy of pev->flTimeStepSound',
+	m_flSwimTime: 'a copy of pev->flSwimTime',
+	m_flDuckTime: 'a copy of pev->flDuckTime',
+	m_iStepLeft: 'a copy of pev->iStepLeft',
+	m_Weapon_fMaxSpeed: 'the weapon speed limit, beside pev->maxspeed',
 };
 
 function collect(path: string, enumName: string, taken = used, handWritten = HAND_WRITTEN) {
@@ -611,12 +635,8 @@ function collect(path: string, enumName: string, taken = used, handWritten = HAN
 		}
 
 		const name = nameOf(reapi);
-		if (handWritten.has(name)) {
-			collisions.push(`${reapi} -> ${name}: written by hand`);
-			continue;
-		}
-		if (taken.has(name) && !PLAYER_OWN[reapi]) {
-			collisions.push(`${reapi} -> ${name}: taken by an earlier field`);
+		if (handWritten.has(name) || (taken.has(name) && !PLAYER_OWN[reapi])) {
+			collisions.push(`${reapi} -> ${name}: ${SAME_NAME[reapi] ?? 'taken by an earlier field, and not in SAME_NAME'}`);
 			continue;
 		}
 		taken.add(name);
@@ -888,6 +908,10 @@ function accessor(f: Field, kind: 'entvar' | 'member' | 'game') {
 				break;
 			}
 			lines.push(`\tget ${f.name}(): number { return cellFloat(${read}); }`);
+			if (f.settable && PLAYER_OWN[f.reapi]) {
+				lines.push(`\tset ${f.name}(value: number) {`, `\t\t${write('<i32>floatCell(value)')};`, `\t\tsetEntvarCell(this.id, ${offsetOf(PLAYER_OWN[f.reapi])}, <i32>floatCell(value));`, `\t}`);
+				break;
+			}
 			if (f.settable) lines.push(`\tset ${f.name}(value: number) { ${write('<i32>floatCell(value)')}; }`);
 			break;
 		case 'int':
@@ -1705,6 +1729,11 @@ writeFileSync('./as/entities.ts', out);
 
 console.log(`Entity: ${entvars.length} entvars; PlayerFields: ${members.length} members; Weapon: ${weaponMembers.length} members, ${weaponKinds.length} kinds; GameFields: ${gameRules.length} members`);
 console.log(`${skipped.length} skipped, ${collisions.length} collisions`);
+const unexplained = collisions.filter(c => c.includes('not in SAME_NAME'));
+if (unexplained.length > 0) {
+	for (const c of unexplained) console.error(`  ${c}`);
+	throw new Error('a member name is taken: give it its own in MEMBER_NAMES, or say why it is left out in SAME_NAME');
+}
 
 const undescribed = generatedFields.filter(f => !ENTITY_FIELDS[f.docKey ?? f.reapi]);
 const stray = Object.keys(ENTITY_FIELDS).filter(key => !generatedFields.some(f => (f.docKey ?? f.reapi) === key));
