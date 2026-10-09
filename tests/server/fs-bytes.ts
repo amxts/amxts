@@ -1,5 +1,5 @@
 // Files as bytes on a real server: the module's fs_read and fs_write, and
-// unzip inflating with the module's zlib. The archive holds a deflated text
+// extract inflating with the module's zlib. The archive holds a deflated text
 // and a stored file of bytes.
 import * as fs from "@amxts/core/fs";
 import { Checks } from "@amxts/core/check";
@@ -22,8 +22,8 @@ function run() {
 	check.expect(fs.appendFileSync(`${FOLDER}/amxts.zip`, archive.buffer), "appendFileSync takes an ArrayBuffer").toBe(true);
 	check.expect(fs.statSync(`${FOLDER}/amxts.zip`)?.size ?? 0, "appended at the end").toBe(archive.length * 2);
 
-	const entries = fs.unzip(archive);
-	check.expect(entries.map(entry => entry.path).join(","), "unzip lists the files").toBe("amxts-zip/a.txt,amxts-zip/b.bin");
+	const entries = fs.extract(archive);
+	check.expect(entries.map(entry => entry.path).join(","), "extract lists the files").toBe("amxts-zip/a.txt,amxts-zip/b.bin");
 	check.expect(`${entries[0].data.length} ${entries[0].data.slice(294).join(" ")}`, "a deflated file inflates").toBe("300 104 101 108 108 111 32");
 	check.expect(entries[1].data.join(" "), "a stored file is as it was").toBe("0 1 2 255 0");
 

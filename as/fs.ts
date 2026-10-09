@@ -14,7 +14,7 @@
 // a native call (the thunk's buffer for an array it does not know the size
 // of), never through a 255-character line buffer. Bytes go through the
 // module's own fs_read and fs_write, a whole file a call, and refuse a path
-// that leaves the game folder; unzip reads the archive here and inflates
+// that leaves the game folder; extract reads the archive here and inflates
 // with the module's zlib (zip_inflate).
 //
 // There are no exceptions in AssemblyScript, so the synchronous functions say
@@ -429,8 +429,8 @@ const ZIP_DEFLATED: i32 = 8;
 // An entry's flags: encrypted.
 const ZIP_ENCRYPTED: i32 = 1;
 
-/** A file of a zip archive, from `unzip`: its path inside the archive and its bytes. */
-export class ZipEntry {
+/** A file of an archive, from `extract`: its path inside the archive and its bytes. */
+export class ArchiveEntry {
 	constructor(
 		/** The path inside the archive, `/` between folders: `"maps/de_dust2.bsp"`. */
 		readonly path: string,
@@ -440,32 +440,60 @@ export class ZipEntry {
 }
 
 /**
- * The files of a zip archive, stored or deflated, with their paths inside it;
- * folders are not listed. Throws an `Error` for data that is not a zip
- * archive it can read, an entry whose bytes do not check out, and a path
- * that would leave the folder it is unpacked into.
+ * The files of an archive, with their paths inside it; folders are not
+ * listed. The archive's kind is read off its first bytes: a zip archive,
+ * stored or deflated. Throws an `Error` for a kind it does not read - naming
+ * the ones it does - an entry whose bytes do not check out, and a path that
+ * would leave the folder it is unpacked into.
  *
  * ```ts
- * for (const entry of fs.unzip(await response.arrayBuffer())) {
+ * for (const entry of fs.extract(await response.arrayBuffer())) {
  * 	fs.writeFileSync(entry.path, entry.data);
  * }
  * ```
  */
-export function unzip<T extends Uint8Array | ArrayBuffer>(archive: T): ZipEntry[] {
-	if (idof<T>() == idof<Uint8Array>()) return unzipBytes(changetype<Uint8Array>(archive));
-	if (idof<T>() == idof<ArrayBuffer>()) return unzipBytes(Uint8Array.wrap(changetype<ArrayBuffer>(archive)));
-	ERROR("unzip takes a Uint8Array or an ArrayBuffer");
+export function extract<T extends Uint8Array | ArrayBuffer>(archive: T): ArchiveEntry[] {
+	if (idof<T>() == idof<Uint8Array>()) return extractBytes(changetype<Uint8Array>(archive));
+	if (idof<T>() == idof<ArrayBuffer>()) return extractBytes(Uint8Array.wrap(changetype<ArrayBuffer>(archive)));
+	ERROR("extract takes a Uint8Array or an ArrayBuffer");
 	return [];
 }
 
-function unzipBytes(zip: Uint8Array): ZipEntry[] {
+// The archives extract reads, for its errors to name.
+const READS = "zip";
+
+function extractBytes(data: Uint8Array): ArchiveEntry[] {
+	const kind = archiveKind(data);
+	if (kind == "zip") return unzip(data);
+	if (kind.length > 0) throw new Error(`extract: a ${kind} archive is not read yet - extract reads ${READS}`);
+	throw new Error(`extract: this is not an archive extract reads - it reads ${READS}`);
+}
+
+/** The archive's kind by its first bytes - `"zip"`, `"rar"`, `"7z"`, `"gzip"` - or `""`. */
+function archiveKind(data: Uint8Array): string {
+	if (startsWith(data, [0x50, 0x4B, 0x03, 0x04]) || startsWith(data, [0x50, 0x4B, 0x05, 0x06])) return "zip";
+	if (startsWith(data, [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07])) return "rar";
+	if (startsWith(data, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C])) return "7z";
+	if (startsWith(data, [0x1F, 0x8B])) return "gzip";
+	return "";
+}
+
+function startsWith(data: Uint8Array, magic: u8[]): bool {
+	if (data.length < magic.length) return false;
+	for (let i = 0; i < magic.length; i++) {
+		if (data[i] != magic[i]) return false;
+	}
+	return true;
+}
+
+function unzip(zip: Uint8Array): ArchiveEntry[] {
 	const end = zipEnd(zip);
 	const count = <i32>zipShort(zip, end + 10);
 	let at = <i32>zipWord(zip, end + 16);
 
-	const entries: ZipEntry[] = [];
+	const entries: ArchiveEntry[] = [];
 	for (let i: i32 = 0; i < count; i++) {
-		if (zipWord(zip, at) != ZIP_ENTRY) throw new Error("unzip: the archive's directory is damaged");
+		if (zipWord(zip, at) != ZIP_ENTRY) throw new Error("extract: the archive's directory is damaged");
 		const flags = <i32>zipShort(zip, at + 8);
 		const method = <i32>zipShort(zip, at + 10);
 		const crc = zipWord(zip, at + 16);
@@ -477,20 +505,20 @@ function unzipBytes(zip: Uint8Array): ZipEntry[] {
 		at += 46 + nameLength + <i32>zipShort(zip, at + 30) + <i32>zipShort(zip, at + 32);
 
 		if (path.endsWith("/")) continue;
-		if (leavesFolder(path)) throw new Error(`unzip: "${path}" would leave the folder`);
-		if (flags & ZIP_ENCRYPTED) throw new Error(`unzip: "${path}" is encrypted`);
-		if (method != ZIP_STORED && method != ZIP_DEFLATED) throw new Error(`unzip: "${path}" is compressed in a way unzip does not read`);
+		if (leavesFolder(path)) throw new Error(`extract: "${path}" would leave the folder`);
+		if (flags & ZIP_ENCRYPTED) throw new Error(`extract: "${path}" is encrypted`);
+		if (method != ZIP_STORED && method != ZIP_DEFLATED) throw new Error(`extract: "${path}" is compressed in a way extract does not read`);
 
-		if (zipWord(zip, local) != ZIP_LOCAL) throw new Error(`unzip: "${path}" is damaged`);
+		if (zipWord(zip, local) != ZIP_LOCAL) throw new Error(`extract: "${path}" is damaged`);
 		const start = local + 30 + <i32>zipShort(zip, local + 26) + <i32>zipShort(zip, local + 28);
 		zipCheck(zip, start, packed);
 
 		const data = method == ZIP_STORED ? zip.slice(start, start + packed) : new Uint8Array(size);
 		if (method == ZIP_DEFLATED && size > 0 && _inflate(zip.dataStart + <usize>start, packed, data.dataStart, size) != size) {
-			throw new Error(`unzip: "${path}" is damaged`);
+			throw new Error(`extract: "${path}" is damaged`);
 		}
-		if (data.length != size || crc32(data) != crc) throw new Error(`unzip: "${path}" is damaged`);
-		entries.push(new ZipEntry(path, data));
+		if (data.length != size || crc32(data) != crc) throw new Error(`extract: "${path}" is damaged`);
+		entries.push(new ArchiveEntry(path, data));
 	}
 	return entries;
 }
@@ -501,7 +529,7 @@ function zipEnd(zip: Uint8Array): i32 {
 	for (let at = last; at >= 0 && at >= last - ZIP_COMMENT_MAX; at--) {
 		if (zipWord(zip, at) == ZIP_END) return at;
 	}
-	throw new Error("unzip: this is not a zip archive");
+	throw new Error("extract: this is not a zip archive");
 }
 
 /** An absolute path, a drive or a `..` among its parts. */
@@ -510,7 +538,7 @@ function leavesFolder(path: string): bool {
 }
 
 function zipCheck(zip: Uint8Array, at: i32, length: i32): void {
-	if (at < 0 || length < 0 || at > zip.length - length) throw new Error("unzip: the archive is cut short");
+	if (at < 0 || length < 0 || at > zip.length - length) throw new Error("extract: the archive is cut short");
 }
 
 function zipShort(zip: Uint8Array, at: i32): u32 {

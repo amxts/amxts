@@ -1,5 +1,5 @@
-// A fixture for tests/fs-bytes.test.ts: files as bytes, and a zip archive
-// unpacked into the game folder.
+// A fixture for tests/fs-bytes.test.ts: files as bytes, and an archive
+// extracted into the game folder.
 import * as fs from "@amxts/core/fs";
 
 interface CopyArgs {
@@ -12,7 +12,7 @@ interface UnzipArgs {
 }
 
 server.addCommand<CopyArgs>("fsb_copy <from> <to>", ({ player, from, to }) => copy(player, from, to));
-server.addCommand<UnzipArgs>("fsb_unzip <archive>", ({ player, archive }) => unpack(player, archive));
+server.addCommand<UnzipArgs>("fsb_extract <archive>", ({ player, archive }) => unpack(player, archive));
 server.addCommand("fsb_outside", ({ player }) => outside(player));
 
 function copy(player: Player, from: string, to: string) {
@@ -32,7 +32,7 @@ function unpack(player: Player, archive: string) {
 	if (bytes == null) return;
 
 	try {
-		const entries = fs.unzip(bytes);
+		const entries = fs.extract(bytes);
 		for (const entry of entries) {
 			const folder = entry.path.substring(0, entry.path.lastIndexOf("/"));
 			if (folder.length > 0) fs.mkdirSync(folder, { recursive: true });

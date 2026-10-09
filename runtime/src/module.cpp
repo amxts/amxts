@@ -4028,7 +4028,7 @@ static void w_rpcResult(wasm_exec_env_t env, int32_t to)
 
 // ---------------------------------------------------------------- files
 
-// @amxts/core/fs's bytes and unzip's inflate: fs_read, fs_write, zip_inflate.
+// @amxts/core/fs's bytes and extract's inflate: fs_read, fs_write, zip_inflate.
 #include "files.h"
 
 // ---------------------------------------------------------------- network

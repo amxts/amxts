@@ -81,39 +81,41 @@ export default {
 		en: `\`readBytesSync\` as a promise, rejected when the file cannot be opened.`,
 		ru: `\`readBytesSync\` в виде промиса; отклоняется, если файл не удалось открыть.`,
 	},
-	'ZipEntry': {
-		en: `A file of a zip archive, from \`unzip\`: its path inside the archive and its bytes.`,
-		ru: `Файл zip-архива из \`unzip\`: его путь внутри архива и его байты.`,
+	'ArchiveEntry': {
+		en: `A file of an archive, from \`extract\`: its path inside the archive and its bytes.`,
+		ru: `Файл архива из \`extract\`: его путь внутри архива и его байты.`,
 	},
-	'ZipEntry.path': {
+	'ArchiveEntry.path': {
 		en: `The path inside the archive, \`/\` between folders: \`"maps/de_dust2.bsp"\`.`,
 		ru: `Путь внутри архива, \`/\` между папками: \`"maps/de_dust2.bsp"\`.`,
 	},
-	'ZipEntry.data': {
+	'ArchiveEntry.data': {
 		en: `The file's bytes.`,
 		ru: `Байты файла.`,
 	},
-	'unzip': {
+	'extract': {
 		en: `
-			The files of a zip archive, stored or deflated, with their paths inside it;
-			folders are not listed. Throws an \`Error\` for data that is not a zip
-			archive it can read, an entry whose bytes do not check out, and a path
-			that would leave the folder it is unpacked into.
+			The files of an archive, with their paths inside it; folders are not
+			listed. The archive's kind is read off its first bytes: a zip archive,
+			stored or deflated. Throws an \`Error\` for a kind it does not read - naming
+			the ones it does - an entry whose bytes do not check out, and a path that
+			would leave the folder it is unpacked into.
 
 			\`\`\`ts
-			for (const entry of fs.unzip(await response.arrayBuffer())) {
+			for (const entry of fs.extract(await response.arrayBuffer())) {
 				fs.writeFileSync(entry.path, entry.data);
 			}
 			\`\`\`
 		`,
 		ru: `
-			Файлы zip-архива, сохранённые как есть или сжатые deflate, с их путями внутри
-			архива; папки не перечисляются. Бросает \`Error\` для данных, которые не
-			читаются как zip-архив, для файла, чьи байты не сходятся, и для пути, который
-			ведёт за пределы папки, куда архив распаковывается.
+			Файлы архива с их путями внутри него; папки не перечисляются. Вид архива
+			читается по его первым байтам: zip-архив, сохранённый как есть или сжатый
+			deflate. Бросает \`Error\` для вида, который не читает, — называя те, что
+			читает, — для файла, чьи байты не сходятся, и для пути, который ведёт за
+			пределы папки, куда архив распаковывается.
 
 			\`\`\`ts
-			for (const entry of fs.unzip(await response.arrayBuffer())) {
+			for (const entry of fs.extract(await response.arrayBuffer())) {
 				fs.writeFileSync(entry.path, entry.data);
 			}
 			\`\`\`

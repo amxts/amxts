@@ -67,21 +67,21 @@ test('a file is read and written as bytes, zeros and all, whole or at its end', 
 	expect(server.files.get('maps/kz_copy.bsp')).toEqual(new Uint8Array([...map, ...map]));
 });
 
-test('unzip gives the files of an archive, deflated and stored, into their folders', async () => {
+test('extract gives the files of a zip archive, deflated and stored, into their folders', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
 	const map = binary(100_000);
 	const sound = new TextEncoder().encode('RIFF');
 	server.files.set('maps/kz_map.zip', zip({ 'maps/kz_map.bsp': map, 'sound/kz/start.wav': sound, 'maps/kz_map.res': new Uint8Array(0) }, ['sound/kz/start.wav']));
 
-	alice.command('fsb_unzip maps/kz_map.zip');
+	alice.command('fsb_extract maps/kz_map.zip');
 
 	expect(alice.console).toBe('maps/kz_map.bsp:100000,sound/kz/start.wav:4,maps/kz_map.res:0');
 	expect(server.files.get('maps/kz_map.bsp')).toEqual(map);
 	expect(server.files.get('sound/kz/start.wav')).toEqual(sound);
 });
 
-test('unzip refuses a path that leaves the folder, damaged bytes and what is not a zip', async () => {
+test('extract refuses a path that leaves the folder, damaged bytes, a kind it does not read and what is no archive', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
 	const damaged = zip({ 'maps/a.bsp': binary(1000) }, ['maps/a.bsp']);
@@ -89,13 +89,15 @@ test('unzip refuses a path that leaves the folder, damaged bytes and what is not
 	server.files.set('a.zip', zip({ '../server.cfg': binary(10) }));
 	server.files.set('b.zip', damaged);
 	server.files.set('c.zip', binary(100));
+	server.files.set('d.rar', new TextEncoder().encode('Rar!\x1A\x07\x00'));
 
-	for (const name of ['a', 'b', 'c']) alice.command(`fsb_unzip ${name}.zip`);
+	for (const name of ['a.zip', 'b.zip', 'c.zip', 'd.rar']) alice.command(`fsb_extract ${name}`);
 
 	expect(alice.console.split('\n')).toEqual([
-		'unzip: "../server.cfg" would leave the folder',
-		'unzip: "maps/a.bsp" is damaged',
-		'unzip: this is not a zip archive',
+		'extract: "../server.cfg" would leave the folder',
+		'extract: "maps/a.bsp" is damaged',
+		'extract: this is not an archive extract reads - it reads zip',
+		'extract: a rar archive is not read yet - extract reads zip',
 	]);
 	expect(server.files.has('server.cfg')).toBe(false);
 });
