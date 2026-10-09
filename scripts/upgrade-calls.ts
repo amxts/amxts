@@ -193,6 +193,11 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 	for (const [name, count] of gone) dropImport(name, count);
 	return { ...applyEdits(file, text, source, edits), left };
 
+	/** Where the line at `at` ends, its line break included. */
+	function lineEnd(at: number) {
+		return text[at] === '\r' ? at + 2 : text[at] === '\n' ? at + 1 : at;
+	}
+
 	/** The core's import of a name the file used only where the rewrites took it out. */
 	function dropImport(name: string, count: number) {
 		let named = 0;
@@ -211,7 +216,9 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 			const { elements } = bindings;
 			const alone = elements.length === 1 && !statement.importClause!.name;
 			const start = alone ? statement.getStart(source) : at > 0 ? elements[at - 1].getEnd() : elements[at].getStart(source);
-			const end = alone ? statement.getEnd() + (text[statement.getEnd()] === '\r' ? 2 : text[statement.getEnd()] === '\n' ? 1 : 0) : at > 0 ? elements[at].getEnd() : elements[at + 1].getStart(source);
+			let end = alone ? lineEnd(statement.getEnd()) : at > 0 ? elements[at].getEnd() : elements[at + 1].getStart(source);
+			// A blank line after it goes too where it would be the first, or a second one.
+			if (alone && text[end] && lineEnd(end) > end && text.slice(end, lineEnd(end)).trim() === '' && /(?:^|\n\s*\n)\s*$/.test(text.slice(0, start))) end = lineEnd(end);
 			edits.push({ start, end, with: '', from: text.slice(start, end).trim() });
 		}
 	}

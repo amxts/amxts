@@ -745,6 +745,8 @@ test('calls of a changed shape: print to a player and to everyone, removeAllItem
 	const printed = 'import { print, server } from "@amxts/core";\nprint(0, "a");\nprint(player, "b");\n';
 	expect(upgradeCalls('plugins/a.ts', printed).text).toBe('import { server } from "@amxts/core";\nserver.print("a");\nplayer.print("b");\n');
 	expect(upgradeCalls('plugins/a.ts', `${printed}print(5, "c");\n`).text).toStartWith('import { print, server } from "@amxts/core";');
+	// An import alone at the top goes with the blank line under it.
+	expect(upgradeCalls('plugins/a.ts', 'import type { ItemName } from "@amxts/core";\n\nplayer.give("x" as ItemName);\n').text).toBe('player.give("x");\n');
 	const source = [
 		...imports,
 		'const points = new Storage("myplugin_points");',
