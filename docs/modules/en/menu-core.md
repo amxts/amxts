@@ -147,6 +147,13 @@ for a menu by its name.
 Keys: 1-7 choose, 8 is the next page, 9 the previous page or back to the menu
 this one was opened from, 0 closes.
 
+::: warning Showing the menu a player is on
+From a command or a timer, `show()` opens it anew, at its first page. From
+one of its own items it stays on its page - and after an item's action the
+menu is drawn again by itself. `setPage(player, page)` is the page the next
+`show()` draws.
+:::
+
 ## Names: for menu files and Pawn plugins
 
 Menu files and Pawn plugins name what they need — a condition, an action, a
