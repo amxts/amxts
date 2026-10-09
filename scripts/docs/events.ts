@@ -248,6 +248,11 @@ export const EVENTS: Record<string, EventDoc> = {
 			iparam2: { en: `The event's second whole-number parameter.`, ru: `Второй целый параметр события.` },
 			bparam1: { en: `The event's first flag parameter, \`1\` or \`0\`.`, ru: `Первый параметр-флаг события, \`1\` или \`0\`.` },
 			bparam2: { en: `The event's second flag parameter, \`1\` or \`0\`.`, ru: `Второй параметр-флаг события, \`1\` или \`0\`.` },
+			preventDefault: { en: `Stops the event: no player gets it - a shot's sound and flash with it.`, ru: `Останавливает событие: его не получает ни один игрок — вместе со звуком и вспышкой выстрела.` },
+			recipients: {
+				en: `Plays the event only to these of the players it would reach - \`event.recipients = players.filter(...)\`; the others do not hear the shot. The player who caused it is not left out by it.`,
+				ru: `Проигрывает событие только этим из игроков, до которых оно дошло бы, — \`event.recipients = players.filter(...)\`; остальные не слышат выстрела. Игрока, из-за которого оно случилось, это не исключает.`,
+			},
 		},
 	},
 };

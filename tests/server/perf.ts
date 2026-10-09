@@ -1,5 +1,5 @@
 // The speed check: what a native, a field, a vector, the HUD's money, a HUD
-// message, text, the values a plugin keeps, an event, a forward, a timer, a
+// message, text, the values a plugin keeps, an event, a shot's listener, a forward, a timer, a
 // variadic native, a command, a menu's choice, Pawn calling this plugin, whole
 // and fractional arithmetic and a real plugin's hot path cost here, against the
 // same in Pawn (perf-pawn.sma), measured in one run on one machine. It
@@ -7,14 +7,16 @@
 // best of three runs, a move of the bot the median of turns. A limit is
 // changed on purpose, with the measurement that moves it.
 import { hook, unhook } from "@amxts/core";
-import { EngFunc_RunPlayerMove, LibType_Library } from "@amxts/core/constants";
-import { engfunc, get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, server_exec, strlen } from "@amxts/core/natives";
+import { EngFunc_RunPlayerMove, Ham_Weapon_PrimaryAttack, LibType_Library } from "@amxts/core/constants";
+import { engfunc, ExecuteHamB, find_ent_by_owner, get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, server_exec, strlen } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
 const TRIES = 3;
 const MANY = 1_000_000;
 const FEW = 100_000;
 const FRAMES = 10_000;
+// The bot's knife swings a shot's listener is timed over: each swing plays the knife's event.
+const SHOTS = 20_000;
 const TIMERS = 300;
 // The turns perf-pawn.sma times an impulse listener in, and the moves of each.
 const IMPULSE_ROUNDS = 1001;
@@ -52,6 +54,7 @@ const LIMITS: Record<string, number> = {
 	"server.map": 0.5,
 	"raw hook": 1.5,
 	"event": 1.5,
+	"shot listener": 2.5,
 	"forward to a listener": 2.5,
 	"relay with no listener": 1.5,
 	"Pawn calls a plugin": 1.5,
@@ -68,6 +71,7 @@ const LIMITS: Record<string, number> = {
 let sink = 0;
 let resets = 0;
 let rawResets = 0;
+let shots = 0;
 let impulses = 0;
 let commands = 0;
 let choices = 0;
@@ -221,6 +225,10 @@ function onReset() {
 	resets++;
 }
 
+function onShot() {
+	shots++;
+}
+
 function onRawReset() {
 	rawResets++;
 }
@@ -321,6 +329,13 @@ function commandNs(bot: Player, command: string) {
 }
 
 /** Nanoseconds a reset of the player's speed - a ResetMaxSpeed hookchain - takes. */
+/** Nanoseconds a swing of the bot's knife takes: the game plays its event, which a shot's listener hears. */
+function swingNs(knife: number) {
+	return nsEach(SHOTS, () => {
+		for (let i = 0; i < SHOTS; i++) ExecuteHamB(Ham_Weapon_PrimaryAttack, knife);
+	});
+}
+
 function resetNs(id: number) {
 	return nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) rg_reset_maxspeed(id);
@@ -413,6 +428,12 @@ function measure(player: Player) {
 	ours.set("event", resetNs(id) - before);
 	game.removeEventListener("resetMaxSpeed", onReset);
 
+	const knife = find_ent_by_owner(-1, "weapon_knife", id);
+	before = swingNs(knife);
+	server.addEventListener("playbackEvent", onShot);
+	ours.set("shot listener", swingNs(knife) - before);
+	server.removeEventListener("playbackEvent", onShot);
+
 	const players = server.players;
 	let writes = 0;
 	ours.set("hot path", msBest(() => {
@@ -466,6 +487,7 @@ function compare(check: Checks, writes: number) {
 	const heard = FEW * TRIES;
 	check.expect(resets, "the listener heard every reset").toBe(heard);
 	check.expect(rawResets, "the raw hook heard every reset").toBe(heard);
+	check.expect(shots, "the listener heard every swing").toBe(SHOTS * TRIES);
 	check.expect(impulses, "the listener heard every impulse").toBe(IMPULSE_ROUNDS * IMPULSE_RUN);
 	check.expect(commands, "the handler got every command").toBe(heard);
 	check.expect(pawn.get("commands") ?? -1, "Pawn's handler got every command").toBe(heard);

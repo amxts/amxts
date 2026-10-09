@@ -4287,6 +4287,8 @@ static int32_t w_mapValid(wasm_exec_env_t env, int32_t name);
 static int32_t w_changeLevel(wasm_exec_env_t env, int32_t name);
 static void w_lightStyle(wasm_exec_env_t env, int32_t text);
 static void w_playerLightStyle(wasm_exec_env_t env, int32_t id, int32_t text);
+static void w_playbackBlock(wasm_exec_env_t env);
+static void w_playbackTo(wasm_exec_env_t env, int32_t ids, int32_t count);
 static void w_playerView(wasm_exec_env_t env, int32_t id, int32_t target);
 static int32_t w_playerViewGet(wasm_exec_env_t env, int32_t id);
 static int32_t w_pluginsCount(wasm_exec_env_t env);
@@ -4390,6 +4392,8 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "map_valid",      (void *)w_mapValid,      "(i)i", NULL },
 	{ "change_level",   (void *)w_changeLevel,   "(i)i", NULL },
 	{ "light_style",    (void *)w_lightStyle,    "(i)", NULL },
+	{ "playback_block", (void *)w_playbackBlock, "()",   NULL },
+	{ "playback_to",    (void *)w_playbackTo,    "(ii)", NULL },
 	{ "player_light_style", (void *)w_playerLightStyle, "(ii)", NULL },
 	{ "player_view",    (void *)w_playerView,    "(ii)", NULL },
 	{ "player_view_get", (void *)w_playerViewGet, "(i)i", NULL },
@@ -7027,18 +7031,100 @@ static cell PushVector(const float *v)
 	return addr;
 }
 
-/** playbackEvent: an event the engine plays to the clients - every shot - so what nobody hears costs a check. */
+// What playbackEvent's listeners asked of the event being raised: stopped
+// (event.preventDefault()), or played to the chosen players alone
+// (event.recipients).
+static bool g_playbackBlocked = false;
+static bool g_playbackChosen = false;
+static bool g_playbackTo[CLIENT_SLOTS];
+
+/** playback_block() - playbackEvent's preventDefault(). */
+static void w_playbackBlock(wasm_exec_env_t env)
+{
+	(void)env;
+	g_playbackBlocked = true;
+}
+
+/** playback_to(ids, count) - playbackEvent's recipients: the players it plays to. */
+static void w_playbackTo(wasm_exec_env_t env, int32_t ids, int32_t count)
+{
+	wasm_module_inst_t inst = Inst(env);
+	if (count < 0 || (count > 0 && !wasm_runtime_validate_app_addr(inst, (uint64_t)ids, (uint64_t)count * 4)))
+		return;
+	const int32_t *id = count > 0 ? (const int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ids) : NULL;
+	memset(g_playbackTo, 0, sizeof(g_playbackTo));
+	for (int32_t i = 0; i < count; i++)
+		if (id[i] > 0 && id[i] < CLIENT_SLOTS)
+			g_playbackTo[id[i]] = true;
+	g_playbackChosen = true;
+}
+
+// Groups for PlayToChosen: the engine skips a client whose groupinfo has no
+// bit of the invoker's, when both have one (EV_Playback).
+#define PLAYBACK_CHOSEN 0x40000000
+#define PLAYBACK_OTHER  0x20000000
+
+/**
+ * Plays an event to the chosen players alone: the engine's own call, which
+ * Metamod's hooks do not see, with the invoker and the chosen players in one
+ * group and the rest in another for that call, and every group back as it was
+ * right after - nothing else of the frame sees them. The invoker plays to
+ * itself as the game decides. An event with no invoker plays to everyone.
+ */
+static void PlayToChosen(int flags, const edict_t *invoker, unsigned short index, float delay, float *origin, float *angles,
+                         float f1, float f2, int i1, int i2, int b1, int b2)
+{
+	int groups[CLIENT_SLOTS];
+	int invokerGroup = invoker ? invoker->v.groupinfo : 0;
+	for (int id = 1; id < CLIENT_SLOTS && id <= gpGlobals->maxClients; id++) {
+		edict_t *e = INDEXENT(id);
+		groups[id] = e->v.groupinfo;
+		e->v.groupinfo = g_playbackTo[id] ? PLAYBACK_CHOSEN : PLAYBACK_OTHER;
+	}
+	if (invoker)
+		((edict_t *)invoker)->v.groupinfo = PLAYBACK_CHOSEN;
+	g_engfuncs.pfnSetGroupMask(0, GROUP_OP_AND);
+
+	PLAYBACK_EVENT_FULL(flags, invoker, index, delay, origin, angles, f1, f2, i1, i2, b1, b2);
+
+	for (int id = 1; id < CLIENT_SLOTS && id <= gpGlobals->maxClients; id++)
+		INDEXENT(id)->v.groupinfo = groups[id];
+	if (invoker)
+		((edict_t *)invoker)->v.groupinfo = invokerGroup;
+}
+
+/**
+ * playbackEvent: an event the engine plays to the clients - every shot - so
+ * what nobody hears costs a check. A listener that stops it supersedes the
+ * engine's call; one that chooses its players supersedes it with
+ * PlayToChosen. What the listeners asked is the call's own: an event played
+ * from inside a listener keeps its outer one's.
+ */
 void PlaybackEvent(int flags, const edict_t *invoker, unsigned short index, float delay, float *origin, float *angles,
                    float f1, float f2, int i1, int i2, int b1, int b2)
 {
 	if (!Heard(FORWARD_PFN_PLAYBACKEVENT))
 		RETURN_META(MRES_IGNORED);
-	ImageHeap heap;
-	cell args[12] = { flags, invoker ? (cell)ENTINDEX(invoker) : 0, index, 0, PushVector(origin), PushVector(angles), 0, 0, i1, i2, b1, b2 };
-	memcpy(&args[3], &delay, sizeof(cell));
-	memcpy(&args[6], &f1, sizeof(cell));
-	memcpy(&args[7], &f2, sizeof(cell));
-	if (Raise(FORWARD_PFN_PLAYBACKEVENT, args, 12) > 0)
+	bool outerBlocked = g_playbackBlocked, outerChosen = g_playbackChosen;
+	g_playbackBlocked = g_playbackChosen = false;
+
+	cell answer;
+	{
+		ImageHeap heap;
+		cell args[12] = { flags, invoker ? (cell)ENTINDEX(invoker) : 0, index, 0, PushVector(origin), PushVector(angles), 0, 0, i1, i2, b1, b2 };
+		memcpy(&args[3], &delay, sizeof(cell));
+		memcpy(&args[6], &f1, sizeof(cell));
+		memcpy(&args[7], &f2, sizeof(cell));
+		answer = Raise(FORWARD_PFN_PLAYBACKEVENT, args, 12);
+	}
+
+	bool blocked = answer > 0 || g_playbackBlocked;
+	bool chosen = !blocked && g_playbackChosen && invoker;
+	if (chosen)
+		PlayToChosen(flags, invoker, index, delay, origin, angles, f1, f2, i1, i2, b1, b2);
+	g_playbackBlocked = outerBlocked;
+	g_playbackChosen = outerChosen;
+	if (blocked || chosen)
 		RETURN_META(MRES_SUPERCEDE);
 	RETURN_META(MRES_IGNORED);
 }

@@ -3631,6 +3631,24 @@ export function __onDirect(event: string, fn: i32, listener: usize, view: usize,
 	_onDirect(event, fn, __callee(listener), __calleeEnv(listener), view, player ? 1 : 0);
 }
 
+// What playbackEvent's listeners ask of the event the module is raising (runtime/src/module.cpp, PlaybackEvent).
+// @ts-ignore: decorator
+@external("env", "playback_block") declare function _playbackBlock(): void;
+// @ts-ignore: decorator
+@external("env", "playback_to") declare function _playbackTo(ids: usize, count: i32): void;
+
+/** @hidden playbackEvent's `preventDefault()`: the module stops the event. */
+export function __playbackBlock(): void {
+	_playbackBlock();
+}
+
+/** @hidden playbackEvent's `recipients`: the module plays the event to these players alone. */
+export function __playbackTo(players: Player[]): void {
+	const ids = new StaticArray<i32>(players.length);
+	for (let i = 0; i < players.length; i++) unchecked(ids[i] = <i32>players[i].id);
+	_playbackTo(changetype<usize>(ids), ids.length);
+}
+
 /** @hidden The table index of a function value - what calling it calls; 0 for null. */
 // @ts-ignore: decorator
 @inline export function __callee(fn: usize): i32 {

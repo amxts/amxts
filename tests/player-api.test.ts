@@ -65,6 +65,22 @@ test('a HUD line to everyone, a hint, the message of the day in pieces under its
 	expect(alice.console).toBe('motd heard 0');
 });
 
+test('a shot is stopped, or played to some players alone', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	const bob = server.join('Bob');
+	alice.team = 'CT';
+	bob.team = 'TERRORIST';
+	const shot = [0, alice.id, 1, 0, [0, 0, 0], [0, 0, 0], 0, 0, 0, 0, 0, 0];
+
+	server.fire('pfn_playbackevent', ...shot);
+	const first = server.playback;
+	server.fire('pfn_playbackevent', ...shot);
+
+	expect(first).toEqual({ blocked: true, recipients: null });
+	expect(server.playback).toEqual({ blocked: false, recipients: [alice.id] });
+});
+
 test('a light of his own, and the server\'s back with ""', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');

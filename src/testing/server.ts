@@ -842,6 +842,12 @@ export class FakeServer {
 	readonly rules = new Map<number, number>();
 	/** The members plugins asked member_slot for, by slot: each one's reapi constant. */
 	private readonly memberSlots: number[] = [];
+	/**
+	 * What playbackEvent's listeners asked of the last event `fire` raised:
+	 * stopped (`preventDefault()`), or played only to these player ids
+	 * (`recipients`), `null` for all it reaches.
+	 */
+	playback: { blocked: boolean; recipients: number[] | null } = { blocked: false, recipients: null };
 	/** The map's light, as `server.lightStyle` last set it: `"m"` the map's own. */
 	lightStyle = 'm';
 	/** Rounds a plugin ended with rg_round_end, in order. */
@@ -1273,6 +1279,7 @@ export class FakeServer {
 	fire(name: string, ...args: ArgValue[]): number {
 		const first = typeof args[0] === 'number' || typeof args[0] === 'boolean' ? Number(args[0]) : 0;
 		if (name === 'client_connect') this.newPlayer(first);
+		if (name === 'pfn_playbackevent') this.playback = { blocked: false, recipients: null };
 		return this.withCallArgs(args, () => {
 			this.deliver(name);
 
@@ -2734,6 +2741,12 @@ export class FakeServer {
 			if (!this.maps.includes(map)) return 0;
 			this.engineCalls.push(`ChangeLevel ${map}`);
 			return 1;
+		},
+		playback_block(this: FakeServer) {
+			this.playback.blocked = true;
+		},
+		playback_to(this: FakeServer, plugin: PluginInstance, ids: number, count: number) {
+			this.playback.recipients = Array.from({ length: count }, (_, i) => plugin.memory.cell(ids + i * 4));
 		},
 		light_style(this: FakeServer, plugin: PluginInstance, text: number) {
 			this.lightStyle = plugin.memory.string(text) || 'm';

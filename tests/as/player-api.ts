@@ -15,6 +15,13 @@ server.addCommand("pl_screen", ({ player }) => {
 	player.showMotd("x".repeat(200), "Rules");
 	print(player, `motd heard ${motdHeard}`, "console");
 });
+// A shot the game plays: the first one stopped, the next played to the CTs alone.
+let shots = 0;
+server.addEventListener("playbackEvent", (event) => {
+	if (shots++ == 0) event.preventDefault();
+	else event.recipients = server.players.filter(player => player.team == "CT");
+});
+
 server.addCommand("pl_light", ({ player }) => {
 	player.screen.lightStyle("z");
 	server.lightStyle = "b";
