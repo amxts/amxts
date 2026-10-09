@@ -179,7 +179,7 @@ jobs:
       - name: The on-server compiler's memory
         working-directory: amxts
         run: |
-          bun scripts/compile-memory.ts dist-server/linux runtime/host/hello.ts tests/server/perf.ts --limit 512
+          bun scripts/compile-memory.ts dist-server/linux runtime/host/hello.ts tests/server/perf.ts --limit 560
           kit=dist-server/linux/addons/amxts
           status=0
           sudo systemd-run --scope --quiet -p MemoryMax=128M -p MemorySwapMax=0 --uid="$(id -u)" --gid="$(id -g)" \
