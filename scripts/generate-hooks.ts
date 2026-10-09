@@ -1018,32 +1018,14 @@ function hamClass(ham: HamFunction) {
  * the chain's phase, each switching its hook off with its last listener; a
  * stock hook's backend is switched off with the event's last.
  */
-/**
- * An event's object - a chain's phase, its Ham Sandwich hooks, a stock
- * hook's switch - read through `name()` and made on its first use. A
- * module-level `new` runs in the module's start, which compiles every event's
- * classes into every plugin, the ones it never listens for too.
- */
-function made(name: string, type: string, args = '') {
-	return [
-		`let ${name}Made: ${type} | null = null;`,
-		`// @ts-ignore: decorator`,
-		`@inline function ${name}(): ${type} {`,
-		`\tlet made = ${name}Made;`,
-		`\tif (made == null) ${name}Made = made = new ${type}(${args});`,
-		`\treturn made;`,
-		`}`,
-	];
-}
-
 function removal(spec: EventSpec, heard: HeardEvent | undefined) {
 	const { camel, hook, ham } = spec;
-	if (ham && !hook) return [`\t\t${camel}Hams().remove(${hamClass(ham)}, post, fn);`];
+	if (ham && !hook) return [`\t\t${camel}Hams.remove(${hamClass(ham)}, post, fn);`];
 	return [
-		...(ham ? [`\t\tif (${toHam(ham)}) { ${camel}Hams().remove(${hamOwnClass(ham)}, post, fn); return; }`] : []),
-		`\t\t(post ? ${camel}Post() : ${camel}Pre()).remove(fn);`,
-		...(heard ? [`\t\t${camel}Backend().set(${camel}Pre().entries.count + ${camel}Post().entries.count > 0);`] : []),
-		...(heard?.post ? [`\t\t${camel}PostBackend().set(${camel}Post().entries.count > 0);`] : []),
+		...(ham ? [`\t\tif (${toHam(ham)}) { ${camel}Hams.remove(${hamOwnClass(ham)}, post, fn); return; }`] : []),
+		`\t\t(post ? ${camel}Post : ${camel}Pre).remove(fn);`,
+		...(heard ? [`\t\t${camel}Backend.set(${camel}Pre.entries.count + ${camel}Post.entries.count > 0);`] : []),
+		...(heard?.post ? [`\t\t${camel}PostBackend.set(${camel}Post.entries.count > 0);`] : []),
 	];
 }
 
@@ -1122,11 +1104,11 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 				`}`,
 				`function ${camel}FireHlds(event: ${Name}, post: bool): void {`,
 				`\tevent.__hlds = true;`,
-				`\t${camel}Run(event, post ? ${camel}Post().entries : ${camel}Pre().entries, post);`,
+				`\t${camel}Run(event, post ? ${camel}Post.entries : ${camel}Pre.entries, post);`,
 				`}`,
 				`let ${camel}HldsHooked = false;`,
-				...made(`${camel}Backend`, '__Switch'),
-				...(heard.post ? [`let ${camel}PostHldsHooked = false;`, ...made(`${camel}PostBackend`, '__Switch')] : []),
+				`const ${camel}Backend = new __Switch();`,
+				...(heard.post ? [`let ${camel}PostHldsHooked = false;`, `const ${camel}PostBackend = new __Switch();`] : []),
 				`// @ts-ignore: decorator`,
 				`@inline function ${camel}Run(event: ${Name}, entries: HookEntries<${Name}, ${T}>, post: bool): void {`,
 			]
@@ -1169,16 +1151,16 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 	tables.push([
 		...(hook
 			? [
-					...made(`${camel}Pre`, `ChainPhase<${Name}, ${T}>`),
-					...made(`${camel}Post`, `ChainPhase<${Name}, ${T}>`),
+					`const ${camel}Pre = new ChainPhase<${Name}, ${T}>();`,
+					`const ${camel}Post = new ChainPhase<${Name}, ${T}>();`,
 				]
 			: []),
 		...fire,
-		...(ham ? made(`${camel}Hams`, `HamHooks<${Name}, ${T}>`, ham.ham) : []),
+		...(ham ? [`const ${camel}Hams = new HamHooks<${Name}, ${T}>(${ham.ham});`] : []),
 		...(hook
 			? [
-					`function ${camel}FirePre(a: number, b: number, c: number, d: number) { ${camel}Fire(${camel}Pre().entries, false); }`,
-					`function ${camel}FirePost(a: number, b: number, c: number, d: number) { ${camel}Fire(${camel}Post().entries, true); }`,
+					`function ${camel}FirePre(a: number, b: number, c: number, d: number) { ${camel}Fire(${camel}Pre.entries, false); }`,
+					`function ${camel}FirePost(a: number, b: number, c: number, d: number) { ${camel}Fire(${camel}Post.entries, true); }`,
 				]
 			: []),
 	].join('\n'));
@@ -1203,7 +1185,7 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 
 	// The chain is hooked on the first listener of a phase (ChainPhase); a
 	// Ham Sandwich function on the first listener for its class (HamHooks).
-	const chainHook = hook ? [`\t\t(post ? ${camel}Post() : ${camel}Pre()).add(entry, "${hook}", post ? ${camel}FirePost : ${camel}FirePre, post, changetype<usize>(${camel}Event()), ${!UNHEARD[camel]});`] : [];
+	const chainHook = hook ? [`\t\t(post ? ${camel}Post : ${camel}Pre).add(entry, "${hook}", post ? ${camel}FirePost : ${camel}FirePre, post, changetype<usize>(${camel}Event()), ${!UNHEARD[camel]});`] : [];
 	const guard = refusal(spec);
 	// A chain of ReGameDLL's or ReHLDS's own: without its API nothing delivers it, and the console says so once.
 	const chainOnly = hook && !ham && !heard ? `\t\tif (!__hasChains(${spec.rehlds})) { __sayOnce("${camel} needs ${apiOf(spec.rehlds)}, which this server does not have: its listeners are never called"); return; }` : '';
@@ -1213,11 +1195,11 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 	const hlds = heard
 		? [
 				`\t\tif (!__hasChains(${spec.rehlds})) {`,
-				`\t\t\tif (!${camel}HldsHooked) { ${camel}HldsHooked = true; ${camel}Hlds(${camel}FireHlds, ${camel}Backend()); }`,
-				...(heard.post ? [`\t\t\tif (post && !${camel}PostHldsHooked) { ${camel}PostHldsHooked = true; ${camel}PostHlds(${camel}FireHlds, ${camel}PostBackend()); }`] : []),
-				`\t\t\t(post ? ${camel}Post() : ${camel}Pre()).entries.push(entry);`,
-				`\t\t\t${camel}Backend().set(true);`,
-				...(heard.post ? [`\t\t\tif (post) ${camel}PostBackend().set(true);`] : []),
+				`\t\t\tif (!${camel}HldsHooked) { ${camel}HldsHooked = true; ${camel}Hlds(${camel}FireHlds, ${camel}Backend); }`,
+				...(heard.post ? [`\t\t\tif (post && !${camel}PostHldsHooked) { ${camel}PostHldsHooked = true; ${camel}PostHlds(${camel}FireHlds, ${camel}PostBackend); }`] : []),
+				`\t\t\t(post ? ${camel}Post : ${camel}Pre).entries.push(entry);`,
+				`\t\t\t${camel}Backend.set(true);`,
+				...(heard.post ? [`\t\t\tif (post) ${camel}PostBackend.set(true);`] : []),
 				`\t\t\treturn;`,
 				`\t\t}`,
 			]
@@ -1236,8 +1218,8 @@ for (const spec of specs.sort((a, b) => a.camel.localeCompare(b.camel))) {
 		`\t\t\tentry.source = changetype<usize>(listener);`,
 		`\t\t}`,
 		...answerBranch,
-		...(ham && hook ? [`\t\tif (${toHam(ham)}) { ${camel}Hams().add(${hamOwnClass(ham)}, post, ${camel}Fire, entry); return; }`] : []),
-		...(ham && !hook ? [`\t\t${camel}Hams().add(${hamClass(ham)}, post, ${camel}Fire, entry);`] : []),
+		...(ham && hook ? [`\t\tif (${toHam(ham)}) { ${camel}Hams.add(${hamOwnClass(ham)}, post, ${camel}Fire, entry); return; }`] : []),
+		...(ham && !hook ? [`\t\t${camel}Hams.add(${hamClass(ham)}, post, ${camel}Fire, entry);`] : []),
 		...hlds,
 		...chainHook,
 		`\t\treturn;`,

@@ -50,10 +50,10 @@ test('game.addEventListener: every chain is a key, with its event and its answer
 	// The chain is registered once per side, however many listeners it gets,
 	// and switched off with the side's last listener (ChainPhase), which also
 	// has the module call one listener itself, with the event's object.
-	expect(hooks).toContain('(post ? takeDamagePost() : takeDamagePre()).add(entry, "take_damage", post ? takeDamageFirePost : takeDamageFirePre, post, changetype<usize>(takeDamageEvent()), true);');
+	expect(hooks).toContain('(post ? takeDamagePost : takeDamagePre).add(entry, "take_damage", post ? takeDamageFirePost : takeDamageFirePre, post, changetype<usize>(takeDamageEvent()), true);');
 	// Not where the walk does more than call: playerSpawn passes over a player counted out.
 	expect(hooks).toContain('changetype<usize>(playerSpawnEvent()), false);');
-	expect(hooks).toContain('(post ? takeDamagePost() : takeDamagePre()).remove(fn);');
+	expect(hooks).toContain('(post ? takeDamagePost : takeDamagePre).remove(fn);');
 	expect(hooks).toContain(`ERROR("a playerSpawn listener cannot answer: the game's function returns nothing")`);
 });
 
@@ -148,26 +148,20 @@ test('the same function under reapi and Ham Sandwich is one event: reapi for its
 	expect(classBody('TakeDamageEvent')).toContain('private static readonly ham: i32 = Ham_TakeDamage;');
 	expect(classBody('TakeDamageEvent')).toContain('get entity(): Entity');
 	// Without ReGameDLL, the Ham Sandwich function hears the chain's own class too: "player".
-	expect(hooks).toContain('if ((classname.length > 0 && classname != "player") || !__hasChains(false)) { takeDamageHams().add(classname.length > 0 ? classname : "player", post, takeDamageFire, entry); return; }');
-	expect(hooks).toContain('if ((classname.length > 0 && classname != "player") || !__hasChains(false)) { takeDamageHams().remove(classname.length > 0 ? classname : "player", post, fn); return; }');
+	expect(hooks).toContain('if ((classname.length > 0 && classname != "player") || !__hasChains(false)) { takeDamageHams.add(classname.length > 0 ? classname : "player", post, takeDamageFire, entry); return; }');
+	expect(hooks).toContain('if ((classname.length > 0 && classname != "player") || !__hasChains(false)) { takeDamageHams.remove(classname.length > 0 ? classname : "player", post, fn); return; }');
 	// A weapon chain's own class is every weapon: a class narrows it to the Ham Sandwich function, and without ReGameDLL it hooks every weapon's.
-	expect(hooks).toContain('if ((classname.length > 0) || !__hasChains(false)) { canDeployHams().add(classname.length > 0 ? classname : EVERY_WEAPON, post, canDeployFire, entry); return; }');
+	expect(hooks).toContain('if ((classname.length > 0) || !__hasChains(false)) { canDeployHams.add(classname.length > 0 ? classname : EVERY_WEAPON, post, canDeployFire, entry); return; }');
 	// A chain of ReGameDLL's own that nothing on plain HLDS hears says so there, once, and is not added.
 	expect(hooks).toContain('if (!__hasChains(false)) { __sayOnce("fallDamage needs ReGameDLL, which this server does not have: its listeners are never called"); return; }');
 	// One a stock hook hears goes to its backend (as/hlds.ts), registered on
 	// the first listener and switched off with the event's last.
-	expect(hooks).toContain('if (!roundEndHldsHooked) { roundEndHldsHooked = true; roundEndHlds(roundEndFireHlds, roundEndBackend()); }');
-	expect(hooks).toContain('roundEndBackend().set(roundEndPre().entries.count + roundEndPost().entries.count > 0);');
-	expect(hooks).toContain('if (post && !newRoundPostHldsHooked) { newRoundPostHldsHooked = true; newRoundPostHlds(newRoundFireHlds, newRoundPostBackend()); }');
-	expect(hooks).toContain('newRoundPostBackend().set(newRoundPost().entries.count > 0);');
+	expect(hooks).toContain('if (!roundEndHldsHooked) { roundEndHldsHooked = true; roundEndHlds(roundEndFireHlds, roundEndBackend); }');
+	expect(hooks).toContain('roundEndBackend.set(roundEndPre.entries.count + roundEndPost.entries.count > 0);');
+	expect(hooks).toContain('if (post && !newRoundPostHldsHooked) { newRoundPostHldsHooked = true; newRoundPostHlds(newRoundFireHlds, newRoundPostBackend); }');
+	expect(hooks).toContain('newRoundPostBackend.set(newRoundPost.entries.count > 0);');
 	expect(hooks).toMatch(/\tspawn: SpawnEvent;/);
 	expect(hooks).not.toContain('basePlayerSpawn');
 	expect(hooks).toMatch(/\tgameThink: GameThinkEvent;/);
 	expect(hooks).toMatch(/\tthink: ThinkEvent;/);
-});
-
-test('an event\'s objects are made on its first listener, not in the module\'s start', () => {
-	// A module-level `new` would compile every event's classes into every plugin.
-	expect(hooks).not.toMatch(/^const \w+ = new (ChainPhase|HamHooks|__Switch)\b/m);
-	expect(hooks).toContain('if (made == null) takeDamagePreMade = made = new ChainPhase<TakeDamageEvent, number>();');
 });
