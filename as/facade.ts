@@ -5662,6 +5662,8 @@ export namespace lang {
 	 * `lang.languages("myplugin")` is `["en", "ru"]`. Without a name, those of
 	 * the dictionaries this plugin loaded with `lang.load` - not every
 	 * language the server's dictionaries have.
+	 *
+	 * Pawn: `get_langsnum`, `get_lang`
 	 */
 	export function languages(dictionary: string = ""): string[] {
 		const names = dictionary.length > 0 ? [dictionary] : loaded;

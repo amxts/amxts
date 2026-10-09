@@ -3277,12 +3277,16 @@ export default {
 			\`lang.languages("myplugin")\` is \`["en", "ru"]\`. Without a name, those of
 			the dictionaries this plugin loaded with \`lang.load\` - not every
 			language the server's dictionaries have.
+
+			Pawn: \`get_langsnum\`, \`get_lang\`
 		`,
 		ru: `
 			Языки словаря по их кодам, в порядке файла:
 			\`lang.languages("myplugin")\` — это \`["en", "ru"]\`. Без имени — языки
 			словарей, которые этот плагин загрузил через \`lang.load\`, а не все
 			языки словарей сервера.
+
+			Pawn: \`get_langsnum\`, \`get_lang\`
 		`,
 	},
 	'Menu.addText': {
