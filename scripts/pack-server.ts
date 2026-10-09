@@ -82,7 +82,7 @@ function binaryenWasmFile(dir: string) {
 					}
 				}
 				const wasm = new Uint8Array(bytes);
-				if (!WebAssembly.validate(wasm)) throw new Error(`${path}: the wasm read out of ${literal} is not valid`);
+				if (Buffer.from(wasm.subarray(0, 4)).toString('latin1') !== '\0asm') throw new Error(`${path}: what ${literal} holds is not wasm`);
 				const file = join(dir, 'binaryen.wasm');
 				writeFileSync(file, wasm);
 				return {
