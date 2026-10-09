@@ -736,7 +736,7 @@ test('a death message\'s flags are lowerCamelCase too', () => {
 	expect(upgradeFlags('plugins/a.ts', text).changes).toEqual([]);
 });
 
-test('calls of a changed shape: print to a player and to everyone, removeAllItems\'s suit, a Storage\'s missing value, give\'s cast', () => {
+test('calls of a changed shape: print to a player and to everyone, removeAllItems\'s suit, a Storage\'s missing value, give\'s cast, a model\'s file', () => {
 	const source = [
 		'const points = new Storage("myplugin_points");',
 		'print(0, `Round ${round}`);',
@@ -759,6 +759,8 @@ test('calls of a changed shape: print to a player and to everyone, removeAllItem
 		'player.give(<ItemName>name);',
 		'player.give(name as WeaponName);',
 		'server.vault("myplugin_points").set("STEAM_0:0:1", "6");',
+		'player.viewModel = 0;',
+		'if (weapon.weaponModel != 0) player.weaponModel = 5;',
 		'',
 	].join('\n');
 
@@ -786,11 +788,14 @@ test('calls of a changed shape: print to a player and to everyone, removeAllItem
 		'player.give(name);',
 		'player.give(name);',
 		'server.storage("myplugin_points").set("STEAM_0:0:1", "6");',
+		'player.viewModel = "";',
+		'if (weapon.weaponModel != "") player.weaponModel = 5;',
 		'',
 	]);
 	expect(left.map(each => [each.line, each.why])).toEqual([
 		[6, 'print takes a player now, and the place as its second argument: player.print(text, "center"); everyone is server.print(text, "center")'],
 		[12, 'print takes a player now: `player.print(text)`'],
+		[23, 'weaponModel is the model\'s file now, text: "models/v_knife.mdl"'],
 	]);
 	// A second run changes nothing.
 	expect(upgradeCalls('plugins/a.ts', text).text).toBe(text);

@@ -14,11 +14,16 @@ import type { Change, Edit, Left } from './upgrade';
 //   and a `| null` it was annotated with is `| undefined`.
 // - `give` takes any text: the cast to `ItemName` goes.
 // - A test's `server.vault(name)` is `server.storage(name)`: a Storage is not nVault.
+// - An entity's `viewModel` and `weaponModel` are the model's file, text: a
+//   `0` written or compared is `""`, another number is listed.
 import ts from 'typescript';
 import { applyEdits } from './upgrade';
 
 /** The words a file must have for a pass to look at it. */
-const CALL_WORDS = /\bprint\s*\(|\bremoveAllItems\s*\(|\bStorage\b|\bgive\s*\(|\.vault\s*\(/;
+const CALL_WORDS = /\bprint\s*\(|\bremoveAllItems\s*\(|\bStorage\b|\bgive\s*\(|\.vault\s*\(|\.(?:view|weapon)Model\b/;
+
+/** The fields that held a number of the engine's strings and hold the model's file. */
+const MODELS = new Set(['viewModel', 'weaponModel']);
 
 /** What `x.print(` takes as it is; anything else is wrapped in parens. */
 const PLAIN = new Set([
@@ -75,6 +80,13 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 
 	const visit = (node: ts.Node) => {
 		ts.forEachChild(node, visit);
+
+		// `player.viewModel = 0`, `weapon.weaponModel == 0`
+		if (ts.isBinaryExpression(node) && ts.isPropertyAccessExpression(node.left) && MODELS.has(node.left.name.text) && ts.isNumericLiteral(node.right)) {
+			if (node.right.text === '0') replace(node.right, '""');
+			else left.push({ file, line: lineOf(node), why: `${node.left.name.text} is the model's file now, text: "models/v_knife.mdl"` });
+			return;
+		}
 
 		// `x == null`, where x is a Storage's get or a name that holds one.
 		if (ts.isBinaryExpression(node) && NULL_COMPARISONS.has(node.operatorToken.kind)) {
