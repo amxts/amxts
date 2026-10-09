@@ -17,11 +17,19 @@ import type { Change, Edit, Left } from './upgrade';
 // - A test's `server.vault(name)` is `server.storage(name)`: a Storage is not nVault.
 // - An entity's `viewModel` and `weaponModel` are the model's file, text: a
 //   `0` written or compared is `""`, another number is listed.
+// - `cmd()` and `cmdWide()` take no `info`: the fourth argument goes.
+// - Listed: a listener of the server events `pause`, `unpause` and `modules`,
+//   which are gone; reapi's `DisableHookChain` and `EnableHookChain`, where a
+//   `hook()` handle goes to `unhook`; `cells("text")` given to a call, where
+//   a raw native takes a const string as it is.
 import ts from 'typescript';
 import { applyEdits } from './upgrade';
 
 /** The words a file must have for a pass to look at it. */
-const CALL_WORDS = /\bprint\s*\(|\bremoveAllItems\s*\(|\bStorage\b|\bgive\s*\(|\.vault\s*\(|\.(?:view|weapon)Model\b/;
+const CALL_WORDS = /\bprint\s*\(|\bremoveAllItems\s*\(|\bStorage\b|\bgive\s*\(|\.vault\s*\(|\.(?:view|weapon)Model\b|\bcmd(?:Wide)?\s*\(|HookChain\s*\(|\bcells\s*\(|["'](?:pause|unpause|modules)["']/;
+
+/** The server events AMX Mod X raises for a Pawn plugin about itself alone. */
+const GONE_EVENTS = new Set(['pause', 'unpause', 'modules']);
 
 /** The fields that held a number of the engine's strings and hold the model's file. */
 const MODELS = new Set(['viewModel', 'weaponModel']);
@@ -104,6 +112,24 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 		if (!ts.isCallExpression(node)) return;
 		const callee = node.expression;
 		const args = node.arguments;
+
+		// cmd(name, handler, flag, info) and cmdWide - no info.
+		if (ts.isIdentifier(callee) && (callee.text === 'cmd' || callee.text === 'cmdWide') && args.length === 4) {
+			edits.push({ start: args[2].getEnd(), end: args[3].getEnd(), with: '', from: text.slice(args[2].getEnd(), args[3].getEnd()) });
+			return;
+		}
+		if (ts.isIdentifier(callee) && (callee.text === 'DisableHookChain' || callee.text === 'EnableHookChain')) {
+			left.push({ file, line: lineOf(node), why: 'a hook() handle is the module\'s: take the hook off with unhook(handle), and hook() again to put it back' });
+			return;
+		}
+		if (ts.isIdentifier(callee) && callee.text === 'cells' && args.length === 1 && ts.isStringLiteral(args[0]) && ts.isCallExpression(node.parent)) {
+			left.push({ file, line: lineOf(node), why: `a raw native takes a const string as it is: ${textOf(args[0])}, not ${textOf(node)}` });
+			return;
+		}
+		if (ts.isPropertyAccessExpression(callee) && /^(?:add|remove)EventListener$/.test(callee.name.text) && args[0] && ts.isStringLiteral(args[0]) && GONE_EVENTS.has(args[0].text)) {
+			left.push({ file, line: lineOf(node), why: `the server event "${args[0].text}" is gone: AMX Mod X raises it for a Pawn plugin about itself alone - remove the listener` });
+			return;
+		}
 
 		// print(player, ...), print(0, ...) and print({ id, variant }, text)
 		// Only the callee and the first argument are rewritten, so a change

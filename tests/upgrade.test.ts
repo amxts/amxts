@@ -810,3 +810,28 @@ test('calls of a changed shape: print to a player and to everyone, removeAllItem
 	// A second run changes nothing.
 	expect(upgradeCalls('plugins/a.ts', text).text).toBe(text);
 });
+
+test('calls 0.3 changed: cmd\'s info goes; a gone event, reapi\'s hook switches and a const string\'s cells are listed', () => {
+	const source = [
+		'cmd("myplugin_go", onGo, "all", "Starts it");',
+		'cmdWide("myplugin_say", onSay, "all", "Says it");',
+		'cmd("myplugin_stop", onStop);',
+		'server.addEventListener("pause", () => {});',
+		'DisableHookChain(handle);',
+		'get_players(ids, count, cells("h"), cells(""));',
+		'',
+	].join('\n');
+	const { text, left } = upgradeCalls('plugins/a.ts', source);
+	expect(text.split('\n').slice(0, 3)).toEqual([
+		'cmd("myplugin_go", onGo, "all");',
+		'cmdWide("myplugin_say", onSay, "all");',
+		'cmd("myplugin_stop", onStop);',
+	]);
+	expect(left.map(each => [each.line, each.why])).toEqual([
+		[4, 'the server event "pause" is gone: AMX Mod X raises it for a Pawn plugin about itself alone - remove the listener'],
+		[5, 'a hook() handle is the module\'s: take the hook off with unhook(handle), and hook() again to put it back'],
+		[6, 'a raw native takes a const string as it is: "h", not cells("h")'],
+		[6, 'a raw native takes a const string as it is: "", not cells("")'],
+	]);
+	expect(upgradeCalls('plugins/a.ts', text).text).toBe(text);
+});
