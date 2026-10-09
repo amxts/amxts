@@ -35,7 +35,7 @@ test('the tasks: the build scripts with Bun, the type check with Node', async ()
 	const typecheck = api.task('typecheck');
 	expect(typecheck.runtime).toBe('node');
 	expect(existsSync(typecheck.args[0])).toBe(true);
-	expect(typecheck.args.slice(1)).toEqual(['--noEmit', '-p', '.amxts/tsconfig.json']);
+	expect(typecheck.args).toEqual([join(CORE, 'src', 'typecheck.mjs')]);
 	expect(() => api.task('deploy')).toThrow('has no task "deploy"');
 });
 
