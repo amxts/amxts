@@ -1,12 +1,13 @@
 // `amxts typecheck`: TypeScript over the project (.amxts/tsconfig.json, which
-// `prepare` writes), and what TypeScript allows and the build does not.
+// `prepare` writes), and what TypeScript allows and the build does not:
 //
-// An event or a message is named by a parameter typed `K extends keyof M`
-// (server.addEventListener, addMessageListener, ...): the build picks the
-// event's type by the name written in the call, so the name has to be a
-// string literal there. A variable - a loop over `["a", "b"] as const` - is
-// a union to TypeScript, which takes it, and stops the build; this says so
-// first.
+// - an event or a message named by a variable. A parameter typed
+//   `K extends keyof M` (server.addEventListener, addMessageListener, ...)
+//   picks the event's type by the name written in the call, so the build
+//   needs a string literal there; a loop over `["a", "b"] as const` gives
+//   TypeScript a union, which it takes;
+// - `const rows = []`: TypeScript reads the element type off the later
+//   pushes, the build needs it written.
 //
 //   node src/typecheck.mjs              in the project's folder; exits 1 on any error
 import { resolve, sep } from 'node:path';
@@ -15,15 +16,15 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 /**
- * The calls of the project's own files - in `root`, outside node_modules and
- * .amxts - whose argument for a `K extends keyof M` parameter is not a string
- * literal: each the argument's node.
+ * What the project's own files - in `root`, outside node_modules and .amxts
+ * - write that TypeScript takes and the build does not: each the node it is
+ * about and what to write instead.
  *
  * @param {ts.Program} program
  * @param {string} [root] the project's folder
- * @returns {ts.Expression[]}
+ * @returns {{ node: ts.Node, message: string }[]}
  */
-export function unwrittenNames(program, root = process.cwd()) {
+export function buildProblems(program, root = process.cwd()) {
 	const inside = resolve(root) + sep;
 	const checker = program.getTypeChecker();
 	const found = [];
@@ -33,8 +34,13 @@ export function unwrittenNames(program, root = process.cwd()) {
 			const declaration = checker.getResolvedSignature(node)?.declaration;
 			declaration?.parameters?.forEach((parameter, i) => {
 				const argument = node.arguments[i];
-				if (argument && !ts.isStringLiteral(argument) && namesAKey(parameter, declaration)) found.push(argument);
+				if (argument && !ts.isStringLiteral(argument) && namesAKey(parameter, declaration)) {
+					found.push({ node: argument, message: `'${argument.getText()}' has to be written out as a string literal - the build picks the event by the name in the call; write a call for each name.` });
+				}
 			});
+		}
+		if (ts.isVariableDeclaration(node) && !node.type && node.initializer && ts.isArrayLiteralExpression(node.initializer) && node.initializer.elements.length === 0) {
+			found.push({ node, message: `the build does not read an empty array's element type off its later use - write it: const ${node.name.getText()}: Row[] = []` });
 		}
 		ts.forEachChild(node, visit);
 	};
@@ -55,10 +61,10 @@ function namesAKey(parameter, declaration) {
 }
 
 /** `file(line,col): error amxts: ...`, as tsc writes its own. */
-function described(argument) {
-	const file = argument.getSourceFile();
-	const { line, character } = file.getLineAndCharacterOfPosition(argument.getStart());
-	return `${file.fileName}(${line + 1},${character + 1}): error amxts: '${argument.getText()}' has to be written out as a string literal - the build picks the event by the name in the call; write a call for each name.`;
+function described({ node, message }) {
+	const file = node.getSourceFile();
+	const { line, character } = file.getLineAndCharacterOfPosition(node.getStart());
+	return `${file.fileName}(${line + 1},${character + 1}): error amxts: ${message}`;
 }
 
 function main() {
@@ -77,9 +83,9 @@ function main() {
 		getNewLine: () => ts.sys.newLine,
 	}));
 
-	const names = unwrittenNames(program);
-	for (const argument of names) process.stdout.write(`${described(argument)}\n`);
-	const errors = diagnostics.filter(each => each.category === ts.DiagnosticCategory.Error).length + names.length;
+	const problems = buildProblems(program);
+	for (const problem of problems) process.stdout.write(`${described(problem)}\n`);
+	const errors = diagnostics.filter(each => each.category === ts.DiagnosticCategory.Error).length + problems.length;
 	process.exit(errors > 0 ? 1 : 0);
 }
 
