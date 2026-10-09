@@ -5,7 +5,7 @@ import type { Change, Edit, Left } from './upgrade';
 // - `print(player, text)` is `player.print(text)`, `print(0, text)` is
 //   `server.print(text)`, and `print({ id, variant }, text)` is the same with
 //   the variant last - `0` for everyone was Pawn's, and the object said what
-//   the variant says. A player's id is read off his Player:
+//   the variant says. Once no call of the free print is left, its import goes. A player's id is read off his Player:
 //   `print(player.id, ...)` is `player.print(...)`; another number is listed.
 // - `removeAllItems(true)` is `removeAllItems({ suit: true })`: a bare
 //   boolean nobody reads.
@@ -53,8 +53,10 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 	const lineOf = (node: ts.Node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
 	const textOf = (node: ts.Node) => node.getText(source);
 	const replace = (node: ts.Node, to: string) => edits.push({ start: node.getStart(source), end: node.getEnd(), with: to, from: textOf(node) });
-	// The casts give no longer needs, and how many there are of each type.
-	const casts = new Map<string, number>();
+	// The names the rewrites took out of the code - the free print, the casts
+	// give no longer needs - and how many times each.
+	const gone = new Map<string, number>();
+	const went = (name: string) => gone.set(name, (gone.get(name) ?? 0) + 1);
 
 	// The names a Storage is held by, and the names that hold what its get gave.
 	const storages = new Set<string>();
@@ -131,6 +133,7 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 
 			if (ts.isNumericLiteral(to)) head('server.print(');
 			else head(`${PLAIN.has(to.kind) ? textOf(to) : `(${textOf(to)})`}.print(`);
+			went('print');
 			if (place) edits.push({ start: args[1].getEnd(), end: args[1].getEnd(), with: place, from: '' });
 			return;
 		}
@@ -156,15 +159,15 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 			const cast = ts.isTypeAssertionExpression(item) || ts.isAsExpression(item) ? item : undefined;
 			if (cast && /^(?:ItemName|WeaponName)$/.test(textOf(cast.type))) {
 				replace(item, textOf(cast.expression));
-				casts.set(textOf(cast.type), (casts.get(textOf(cast.type)) ?? 0) + 1);
+				went(textOf(cast.type));
 			}
 		}
 	};
 	visit(source);
-	for (const [name, count] of casts) dropImport(name, count);
+	for (const [name, count] of gone) dropImport(name, count);
 	return { ...applyEdits(file, text, source, edits), left };
 
-	/** The import of a type the file names only in the casts that went. */
+	/** The core's import of a name the file used only where the rewrites took it out. */
 	function dropImport(name: string, count: number) {
 		let named = 0;
 		const countNames = (node: ts.Node) => {
@@ -174,7 +177,8 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 		countNames(source);
 		if (named > count) return;
 		for (const statement of source.statements) {
-			const bindings = ts.isImportDeclaration(statement) ? statement.importClause?.namedBindings : undefined;
+			const core = ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier) && /^(?:@amxts\/core|~\/)/.test(statement.moduleSpecifier.text);
+			const bindings = core ? statement.importClause?.namedBindings : undefined;
 			if (!bindings || !ts.isNamedImports(bindings)) continue;
 			const at = bindings.elements.findIndex(element => element.name.text === name);
 			if (at < 0) continue;

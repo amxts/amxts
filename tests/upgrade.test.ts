@@ -741,6 +741,10 @@ test('calls of a changed shape: print to a player and to everyone, removeAllItem
 		'import type { ItemName } from "@amxts/core";',
 		'import { type Player, type WeaponName, server } from "@amxts/core";',
 	];
+	// Every free print rewritten: its import goes; one left keeps it.
+	const printed = 'import { print, server } from "@amxts/core";\nprint(0, "a");\nprint(player, "b");\n';
+	expect(upgradeCalls('plugins/a.ts', printed).text).toBe('import { server } from "@amxts/core";\nserver.print("a");\nplayer.print("b");\n');
+	expect(upgradeCalls('plugins/a.ts', `${printed}print(5, "c");\n`).text).toStartWith('import { print, server } from "@amxts/core";');
 	const source = [
 		...imports,
 		'const points = new Storage("myplugin_points");',
