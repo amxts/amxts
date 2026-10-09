@@ -30,7 +30,9 @@ unions of string literals, closures, optional properties and `undefined`,
 `?.`, `??`, destructuring, `Record` and index signatures with `in`, `delete`,
 `Object.keys` and `for...in`, `try`/`catch`/`finally`, typed `JSON`, text joined
 with a number by `+`, `async`/`await`, overloads, object types in place,
-return types read off the body, `Date` in the server's time zone.
+return types read off the body (a returned literal is the interface of its
+file), `flatMap`, a handler typed `Context & Player` that takes either,
+`Date` in the server's time zone.
 
 It also tunes the runtime (`std/assembly/rt/`) for a plugin, which makes
 many small objects over a small live heap: a small block freed (up to 124

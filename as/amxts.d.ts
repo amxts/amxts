@@ -143,6 +143,13 @@ type UsageArgs<U extends string> = string extends U ? Record<string, string | un
 /** A command's arguments: the type argument's, or else the usage's, as text. */
 type CommandArgsOf<T, U extends string> = [T] extends [never] ? UsageArgs<U> : T;
 
+/**
+ * What a command's handler takes: its arguments and `player` - `({ player,
+ * target }) =>`; for a command without arguments, the player himself too -
+ * `(player) =>`, which the compiler hands `player` (`Context & Player`).
+ */
+type CommandHandlerArgs<T, U extends string> = CommandArgsOf<T, U> & { player: Player } & ([T] extends [never] ? ([RequiredNames<U> | OptionalNames<U>] extends [never] ? Player : unknown) : unknown);
+
 declare module "./facade" {
 	interface PlayerChangeEvent<F extends string = string> {
 		/** The field's value after the change; with `{ field }`, of the field's type. */
@@ -177,10 +184,13 @@ declare module "./facade" {
 		 *   target.kick(reason ?? `Kicked by ${player.name}`);
 		 * }, { access: "kick" });
 		 * server.addCommand("/hp", ({ player }) => print(player, `${player.health} HP`));
+		 * server.addCommand(["/cp", "cp"], checkpoint);   // several names; a handler of the player
 		 * ```
 		 *
 		 * A name with `/` is a chat command, one without a console command, and
-		 * `"say <phrase>"` a phrase written in chat. A `number` argument is
+		 * `"say <phrase>"` a phrase written in chat. Several names - the usage
+		 * first, then other names - are one command. A command without
+		 * arguments takes a handler of the player, `(player) => ...`. A `number` argument is
 		 * parsed, a `Player` found by `#userid`, the whole name or a part of it,
 		 * a `string` taken as it is - the last one takes the rest of the line. A
 		 * word that is not what the command takes answers the player with the
@@ -189,7 +199,7 @@ declare module "./facade" {
 		 * Pawn: `register_clcmd`
 		 */
 		// oxlint-disable-next-line typescript/method-signature-style -- the editor's signature of the class's method, which the build writes per call
-		addCommand<T extends object = never, const U extends string = string>(usage: U, handler: (args: CommandArgsOf<T, U> & { player: Player }) => void, options?: CommandOptions): void;
+		addCommand<T extends object = never, const U extends string = string>(usage: U | readonly [U, ...string[]], handler: (args: CommandHandlerArgs<T, U>) => void, options?: CommandOptions): void;
 		/**
 		 * Adds a command of the server console - typed there, sent over rcon or
 		 * run by another plugin - by its usage, its arguments read as a player's

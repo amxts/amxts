@@ -229,34 +229,36 @@ test('a menu\'s function is rewritten before the names in its body: the player i
 	].join('\n'));
 });
 
-test('a command handler takes one object: the player by name, a function by its name too; one that reads the words is left', () => {
+test('a command handler takes one object - but one of the player, in place or by name, for a command without arguments; one that reads the words is left', () => {
 	const source = [
-		'server.addCommand("/hp", (player) => print(player, "hp"));',
-		'server.addCommand("/hi", player => print(player, "hi"));',
-		'server.addCommand("/me", async (who: Player) => print(who, "me"));',
+		'server.addCommand("/hp <what>", (player) => print(player, "hp"));',
+		'server.addCommand("/hi [who]", player => print(player, "hi"));',
+		'server.addCommand<MeArgs>("/me", async (who: Player) => print(who, "me"));',
 		'server.addCommand("/rules", showRules);',
 		'server.addCommand("/give", (player, args) => print(player, args[0]));',
 		'server.addCommand("/new", ({ player }) => print(player, "new"));',
 		'server.addServerCommand("myplugin_reset", () => reset());',
 		'server.addServerCommand("myplugin_set", (args) => set(args[0]));',
 		'server.addCommand("/top", (player, args) => print(player, "top"));',
+		'server.addCommand(["/cp", "cp"], (player) => print(player, "cp"));',
 		'function showRules(player: Player) {}',
 		'',
 	].join('\n');
 	const { text, changes, left } = upgradeHandlers('plugins/a.ts', source);
 
-	expect(text.split('\n').slice(0, 9)).toEqual([
-		'server.addCommand("/hp", ({ player }) => print(player, "hp"));',
-		'server.addCommand("/hi", ({ player }) => print(player, "hi"));',
-		'server.addCommand("/me", async ({ player: who }) => print(who, "me"));',
-		'server.addCommand("/rules", ({ player }) => showRules(player));',
+	expect(text.split('\n').slice(0, 10)).toEqual([
+		'server.addCommand("/hp <what>", ({ player }) => print(player, "hp"));',
+		'server.addCommand("/hi [who]", ({ player }) => print(player, "hi"));',
+		'server.addCommand<MeArgs>("/me", async ({ player: who }) => print(who, "me"));',
+		'server.addCommand("/rules", showRules);',
 		'server.addCommand("/give", (player, args) => print(player, args[0]));',
 		'server.addCommand("/new", ({ player }) => print(player, "new"));',
 		'server.addServerCommand("myplugin_reset", () => reset());',
 		'server.addServerCommand("myplugin_set", (args) => set(args[0]));',
 		'server.addCommand("/top", ({ player }) => print(player, "top"));',
+		'server.addCommand(["/cp", "cp"], (player) => print(player, "cp"));',
 	]);
-	expect(changes.map(change => `${change.line} ${change.from} -> ${change.to}`)).toEqual(['1 player -> { player }', '2 player -> ({ player })', '3 who: Player -> { player: who }', '4 showRules -> ({ player }) => showRules(player)', '9 player, args -> { player }']);
+	expect(changes.map(change => `${change.line} ${change.from} -> ${change.to}`)).toEqual(['1 player -> { player }', '2 player -> ({ player })', '3 who: Player -> { player: who }', '9 player, args -> { player }']);
 	expect(left.map(each => each.line)).toEqual([5, 8]);
 	expect(upgradeHandlers('plugins/a.ts', text).changes).toEqual([]);
 });

@@ -1218,8 +1218,12 @@ export default {
 		`,
 	},
 	'CommandOptions': {
-		en: `The options of a command: who may use it and its description in a listing.`,
-		ru: `Параметры команды: кому она доступна и её описание в списке.`,
+		en: `The options of a command: who may use it, its description in a listing, the chat it is heard in.`,
+		ru: `Параметры команды: кому она доступна, её описание в списке, чат, в котором её слышно.`,
+	},
+	'CommandOptions.chat': {
+		en: `The chat a chat command is heard in, one of: \`"say"\` the common chat, \`"team"\` the team's, \`"both"\` either (the default).`,
+		ru: `Чат, в котором слышно команду чата, одно из: \`"say"\` — общий, \`"team"\` — командный, \`"both"\` — любой (по умолчанию).`,
 	},
 	'CommandOptions.access': {
 		en: `The admin right a player needs to use the command; left out, everyone may.`,
@@ -5161,6 +5165,10 @@ export default {
 	'CommandInfo.server': {
 		en: `Whether it is a command of the server console rather than a player's.`,
 		ru: `Команда ли это консоли сервера, а не игрока.`,
+	},
+	'CommandInfo.aliases': {
+		en: `The command's other names, as \`addCommand(["/cp", "cp"], ...)\` gave them; \`[]\` for none.`,
+		ru: `Другие имена команды, как их дал \`addCommand(["/cp", "cp"], ...)\`; \`[]\`, если их нет.`,
 	},
 	'Server.commands': {
 		en: `

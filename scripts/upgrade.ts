@@ -36,6 +36,7 @@ import ts from 'typescript';
 import { MESSAGE_NAMES } from './client-messages';
 import { CORE_ENTRIES, CORE_PLUGINS, loadProject, SERVER_FOLDER, serverDir, staleCopies } from './project';
 import { apiFiles } from './system';
+import { parseUsage } from './typed-commands';
 import { c, log } from './ui';
 import { upgradeCalls } from './upgrade-calls';
 import { upgradeMenus } from './upgrade-menus';
@@ -189,10 +190,13 @@ export function upgradeHandlers(file: string, text: string): { text: string; cha
 		const handler = node.arguments[1];
 		if (!handler) return;
 		const player = method === 'addCommand';
+		// A command without arguments takes a handler of the player as it is.
+		const ofPlayer = player && takesNoArguments(node);
 
 		if (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler)) {
 			const params = handler.parameters;
 			if (params.length === 0 || !ts.isIdentifier(params[0].name)) return;
+			if (ofPlayer && params.length === 1) return;
 			if (!player || readsWords(handler)) {
 				left.push({ file, line: lineOf(handler), why: BY_HAND });
 				return;
@@ -211,7 +215,7 @@ export function upgradeHandlers(file: string, text: string): { text: string; cha
 				left.push({ file, line: lineOf(handler), why: `${handler.getText(source)} is declared elsewhere: if it takes the player, pass ({ player }) => ${handler.getText(source)}(player)` });
 				return;
 			}
-			if (fn.parameters.length === 0) return;
+			if (fn.parameters.length === 0 || (ofPlayer && fn.parameters.length === 1)) return;
 			if (!player || fn.parameters.length > 1 || !ts.isIdentifier(fn.parameters[0].name)) {
 				left.push({ file, line: lineOf(handler), why: BY_HAND });
 				return;
@@ -221,6 +225,16 @@ export function upgradeHandlers(file: string, text: string): { text: string; cha
 	};
 	visit(source);
 	return { ...applyEdits(file, text, source, edits), left };
+}
+
+/** Whether a command's call adds one without arguments: no type argument, and none in its usage - the first name of an array of them. */
+function takesNoArguments(call: ts.CallExpression): boolean {
+	if (call.typeArguments?.length) return false;
+	const usage = call.arguments[0];
+	const first = usage && ts.isArrayLiteralExpression(usage) ? usage.elements[0] : usage;
+	if (!first || !ts.isStringLiteralLike(first)) return !first || !ts.isTemplateExpression(first);
+	const parsed = parseUsage(first.text);
+	return typeof parsed !== 'string' && parsed.args.length === 0;
 }
 
 /** A piece of a file's text to replace: where, with what, and what it was. */

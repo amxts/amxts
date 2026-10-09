@@ -147,9 +147,50 @@ describe('a command\'s arguments, read as their types say', () => {
 		const { admin, alice } = await boot();
 
 		alice.say('/help');
-		expect(alice.chat).toBe(['give <amount> [what]', '/me <text>', '/hp', 'say rules', 'cmd_reset [what]', 'cmd_login <url> <user>', '/help', 'ping', '/ping', 'cmd_bot_hp'].join('\n'));
+		expect(alice.chat).toBe(['give <amount> [what]', '/me <text>', '/hp', 'say rules', 'cmd_reset [what]', 'cmd_login <url> <user>', '/help', 'ping', '/ping', '/cp cp', '/tp tp teleport', '/go', '/all', '/mates', 'cmd_bot_hp'].join('\n'));
 		admin.say('/help');
 		expect(admin.chat.split('\n')[0]).toBe('/kick <target> [reason]');
+	});
+});
+
+describe('several names, a handler of the player, one chat', () => {
+	test('each name runs the one command; its handler gets the player, by its name or in place', async () => {
+		const { alice, heard } = await boot();
+
+		alice.say('/cp');
+		expect(heard()).toBe('Alice saves a checkpoint');
+		alice.command('cp');
+		expect(heard()).toBe('Alice saves a checkpoint');
+		for (const name of ['tp', 'teleport']) {
+			alice.command(name);
+			expect(heard()).toBe('Alice teleports');
+		}
+		alice.sayTeam('/tp');
+		expect(heard()).toBe('Alice teleports');
+		alice.say('/go');
+		expect(heard()).toBe('Alice goes');
+	});
+
+	test('chat: "say" hears the common chat only, "team" the team\'s only', async () => {
+		const { alice, heard } = await boot();
+
+		alice.sayTeam('/all');
+		expect(heard()).toBe('');
+		alice.say('/all');
+		expect(heard()).toBe('Alice to all');
+		alice.say('/mates');
+		expect(heard()).toBe('');
+		alice.sayTeam('/mates');
+		expect(heard()).toBe('Alice to the team');
+	});
+
+	test('the "command" event has the command\'s name, its words - a chat line\'s for say - and its text', async () => {
+		const { alice, heard } = await boot();
+
+		alice.sayTeam('/where are   you');
+		expect(heard()).toBe('Alice asks where: are,you | /where are   you');
+		alice.command('buyequip "vest helm" 2');
+		expect(heard()).toMatch(/^Alice buyequip vest helm,2 \| "?vest helm"? 2$/);
 	});
 });
 
@@ -184,6 +225,20 @@ describe('what does not build', () => {
 			'plugins/a.ts:6:22: server.addCommand - a command with arguments has its usage in place - "/kick <target>", or `${name} <target>` for a name made at run time: the build reads the arguments from it',
 		]);
 		expect(built('interface A {\n\tplayer: Player;\n}\nserver.addCommand<A>("/x <player>", () => {});\n').problems[0]).toContain('player - the handler gets the player who typed the command as player');
+	});
+
+	test('several names: the arguments in the first only, each name in place', () => {
+		expect(built('server.addCommand(["/kick <target>", "/k"], ({ target }) => {});\n').problems).toEqual([]);
+		expect(built('server.addCommand(["/kick <target>", "/k <target>"], () => {});\n').problems).toEqual([
+			'plugins/a.ts:2:38: server.addCommand - "/k <target>" - the arguments are written once, in the first name: ["/kick <target>", "/k"]',
+		]);
+		expect(built('const k = "/k";\nserver.addCommand(["/kick", k], () => {});\n').problems[0]).toContain('a command\'s other names are written in place');
+		expect(built('server.addServerCommand(["a", "b"], () => {});\n').problems[0]).toContain('a server command has one name');
+		// A function of the player declared by name is given the player; one of no arguments takes it as the context.
+		const direct = built('function cp(player: Player) {}\nserver.addCommand(["/cp", "cp"], cp);\n').text;
+		expect(direct).toContain('\tcp(args.player);\n');
+		expect(direct).toContain('__addCommand(usage[0], __amxtsCommandRun0, options, __amxtsCommandConsole0.index, usage.slice(1));');
+		expect(built('server.addCommand("/go", (player) => {});\n').text).toContain('handler: (args: __AmxtsCommandArgs0 & __AmxtsPlayer) => void');
 	});
 
 	test('a usage: its name, <required> and [optional] arguments; a chat phrase whole', () => {

@@ -32,6 +32,12 @@
 // - the call's `server.addCommand<KickArgs>` becomes that function's name,
 //   padded, so the rest of the line keeps its columns.
 //
+// Several names, `server.addCommand(["/cp", "cp"], ...)`, are one command:
+// the usage first, then names without arguments. A player's command without
+// arguments takes a handler of the player too, `(player) => ...`: its
+// argument's type is the class and `__AmxtsPlayer`, which the compiler hands
+// the class's `player` (`Context & Player`).
+//
 // A player's command added at the top level of the file with a function
 // declared there by name, `server.addCommand("/hp", onHp)`, gets no closure:
 // its parser is a function of its own that calls the handler by its name, and
@@ -61,6 +67,14 @@ function usageOf(node: ts.Expression, typed: boolean, file: ts.SourceFile): Usag
 	}
 	if (typed) throw new ShapeError(node, file, 'a command with arguments has its usage in place - "/kick <target>", or `${name} <target>` for a name made at run time: the build reads the arguments from it');
 	return { name: '', args: [] };
+}
+
+/** A command's other name, after its usage: a name in place, without arguments. */
+function aliasOf(node: ts.Expression, file: ts.SourceFile): string {
+	if (!ts.isStringLiteralLike(node)) throw new ShapeError(node, file, 'a command\'s other names are written in place: server.addCommand(["/cp", "cp"], ...)');
+	const usage = usageOrFail(parseUsage(node.text), node, file);
+	if (usage.args.length > 0) throw new ShapeError(node, file, `"${node.text}" - the arguments are written once, in the first name: ["/kick <target>", "/k"]`);
+	return usage.name;
 }
 
 function usageOrFail(usage: Usage | string, node: ts.Node, file: ts.SourceFile): Usage {
@@ -187,8 +201,14 @@ interface Direct {
  * that registers it; with `direct`, the parser and the console's function
  * besides, which call the handler by its name.
  */
-function commandCode(index: number, method: 'addCommand' | 'addServerCommand', args: Argument[], shape: string | undefined, kept: boolean, direct: Direct | null): string {
+function commandCode(index: number, method: 'addCommand' | 'addServerCommand', args: Argument[], shape: string | undefined, kept: boolean, direct: Direct | null, names: boolean): string {
 	const player = method === 'addCommand';
+	// A command without arguments takes a handler of the player too.
+	const takes = `__AmxtsCommandArgs${index}${player && !shape && args.length === 0 ? ' & __AmxtsPlayer' : ''}`;
+	const usage = names ? 'usage: string[]' : 'usage: string';
+	const register = (run: string, consoleIndex: string) => names
+		? `\t__amxtsServer.__addCommand(usage[0], ${run}, options, ${consoleIndex}, usage.slice(1));`
+		: `\t__amxtsServer.__addCommand(usage, ${run}, options${consoleIndex === '0' ? '' : `, ${consoleIndex}`});`;
 	const type = `__AmxtsCommandArgs${index}`;
 	const required = args.filter(arg => !arg.optional).length;
 	const lastIsText = args.length > 0 && args[args.length - 1].kind.kind === 'text';
@@ -205,12 +225,10 @@ function commandCode(index: number, method: 'addCommand' | 'addServerCommand', a
 		...(lastIsText ? [] : [`\t\tif (!words.done(${args.length})) return;`]),
 		'\t\tif (words.failed) return;',
 	];
+	const run = ['(words: __AmxtsCommandWords): void => {', ...parse, '\t\thandler(args);', '\t}'].join('\n');
 	const closure = [
-		`function __amxtsCommand${index}(usage: string, handler: (args: ${type}) => void${player ? ', options: __AmxtsCommandOptions = {}' : ''}): void {`,
-		`\t__amxtsServer.__${method}(usage, (words: __AmxtsCommandWords): void => {`,
-		...parse,
-		'\t\thandler(args);',
-		`\t}${player ? ', options' : ''});`,
+		`function __amxtsCommand${index}(${usage}, handler: (args: ${takes}) => void${player ? ', options: __AmxtsCommandOptions = {}' : ''}): void {`,
+		player ? register(run, '0') : `\t__amxtsServer.__${method}(usage, ${run});`,
 		'}',
 	];
 	return [
@@ -219,7 +237,7 @@ function commandCode(index: number, method: 'addCommand' | 'addServerCommand', a
 		...args.map(arg => `\t${arg.name}${arg.optional ? '?' : '!'}: ${typeOf(arg)};`),
 		'}',
 		...(kept ? [`const __amxtsArgs${index} = new ${type}();`] : []),
-		...(direct ? directCode(index, direct, args.length > 0, parse) : closure),
+		...(direct ? directCode(index, direct, args.length > 0, parse, usage, register) : closure),
 	].join('\n');
 }
 
@@ -229,7 +247,7 @@ function commandCode(index: number, method: 'addCommand' | 'addServerCommand', a
  * command of no words for a handler of none reads only a word too many - and
  * the one that registers them.
  */
-function directCode(index: number, direct: Direct, words: boolean, parse: string[]): string[] {
+function directCode(index: number, direct: Direct, words: boolean, parse: string[], usage: string, register: (run: string, consoleIndex: string) => string): string[] {
 	const run = `__amxtsCommandRun${index}`;
 	const entry = direct.takes == null && !words
 		? [
@@ -247,16 +265,19 @@ function directCode(index: number, direct: Direct, words: boolean, parse: string
 				`\t${run}(words);`,
 				'\t__amxtsCommandDone(words);',
 			];
+	// A handler of the player is given the player, one of the arguments the object.
+	const given = direct.takes == null ? '' : direct.takes === 'Player' ? 'args.player' : 'args';
+	const handler = direct.takes === 'Player' ? '__AmxtsPlayer' : direct.takes ?? `__AmxtsCommandArgs${index}`;
 	return [
 		`function ${run}(words: __AmxtsCommandWords): void {`,
 		...parse.map(line => line.slice(1)),
-		`\t${direct.name}(${direct.takes != null ? 'args' : ''});`,
+		`\t${direct.name}(${given});`,
 		'}',
 		`function __amxtsCommandConsole${index}(tag: i32, id: i32, access: i32, unused: i32, argc: i32): void {`,
 		...entry,
 		'}',
-		`function __amxtsCommand${index}(usage: string, handler: (args: ${direct.takes ?? `__AmxtsCommandArgs${index}`}) => void, options: __AmxtsCommandOptions = {}): void {`,
-		`\t__amxtsServer.__addCommand(usage, ${run}, options, __amxtsCommandConsole${index}.index);`,
+		`function __amxtsCommand${index}(${usage}, handler: (args: ${handler}) => void, options: __AmxtsCommandOptions = {}): void {`,
+		register(run, `__amxtsCommandConsole${index}.index`),
 		'}',
 	];
 }
@@ -293,7 +314,20 @@ function keepsNothing(handler: ts.Expression | undefined, file: ts.SourceFile): 
 		: file.statements.find((each): each is ts.FunctionDeclaration => ts.isFunctionDeclaration(each) && named != null && each.name?.text === named);
 	if (!fn) return false;
 	const first = fn.parameters[0];
-	return !first || (ts.isObjectBindingPattern(first.name) && first.name.elements.every(each => !each.dotDotDotToken));
+	return !first || takesPlayer(fn, file) || (ts.isObjectBindingPattern(first.name) && first.name.elements.every(each => !each.dotDotDotToken));
+}
+
+/**
+ * Whether a handler takes the player rather than the command's object, as
+ * the compiler decides it (`Context & Player`): its parameter is a name,
+ * written `Player` or not typed, and it never reads the name's `.player`.
+ */
+function takesPlayer(fn: ts.SignatureDeclaration, file: ts.SourceFile): boolean {
+	const first = fn.parameters[0];
+	if (!first || !ts.isIdentifier(first.name)) return false;
+	if (first.type) return first.type.getText(file) === 'Player';
+	const body = 'body' in fn && fn.body ? fn.body.getText(file) : '';
+	return !new RegExp(`(?<![\\w$])${first.name.text}\\??\\.player(?![\\w$])`).test(body);
 }
 
 export interface TypedCommands {
@@ -334,12 +368,16 @@ export function typedCommands(path: string, display: string, text: string, impor
 		try {
 			const usageNode = node.arguments[0];
 			if (!usageNode) throw new ShapeError(node, file, 'the usage is missing: server.addCommand("/hp", ({ player }) => ...)');
-			const usage = usageOf(usageNode, !!node.typeArguments?.length, file);
+			// ["/cp", "cp"]: the usage, then the command's other names.
+			const names = ts.isArrayLiteralExpression(usageNode) ? usageNode.elements : null;
+			if (names && (method !== 'addCommand' || names.length === 0)) throw new ShapeError(usageNode, file, method === 'addCommand' ? 'the names are missing: server.addCommand(["/cp", "cp"], ...)' : 'a server command has one name');
+			const usage = usageOf(names ? names[0] : usageNode, !!node.typeArguments?.length, file);
+			names?.slice(1).forEach(each => aliasOf(each, file));
 			const name = `__amxtsCommand${functions.length}`;
 			const shape = node.typeArguments?.[0]?.getText(file);
 			const args = argumentsOf(node, usage, shapes, at, method === 'addCommand');
 			const kept = !args.some(arg => arg.optional) && keepsNothing(node.arguments[1], file);
-			functions.push(commandCode(functions.length, method, args, shape, kept, directOf(node, method, file)));
+			functions.push(commandCode(functions.length, method, args, shape, kept, directOf(node, method, file), !!names));
 			const start = node.expression.getStart(file);
 			const end = node.arguments.pos - 1;
 			edits.push({ start, end, with: name.padEnd(end - start) });

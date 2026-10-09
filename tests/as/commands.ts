@@ -56,7 +56,7 @@ server.addServerCommand<Login>("cmd_login <url> <user>", login => logIn(login));
 
 server.addCommand("/help", ({ player }) => {
 	for (const command of server.commands) {
-		if (command.access == null || player.access.includes(command.access)) print(player, command.usage);
+		if (command.access == null || player.access.includes(command.access)) print(player, [command.usage, ...command.aliases].join(" "));
 	}
 });
 
@@ -81,6 +81,34 @@ function chooseTeam({ team }: TeamArgs) {
 server.addCommand("ping", ping);
 server.addCommand("/ping", ping);
 server.addCommand<TeamArgs>("team <team>", chooseTeam, { access: "kick" });
+
+// Several names, one command; a handler of the player - by its name, or in place.
+function checkpoint(player: Player) {
+	heard = `${player.name} saves a checkpoint`;
+}
+
+server.addCommand(["/cp", "cp"], checkpoint, { description: "Save a checkpoint" });
+server.addCommand(["/tp", "tp", "teleport"], (player) => {
+	heard = `${player.name} teleports`;
+});
+const goes = "goes";
+server.addCommand("/go", (player) => {
+	heard = `${player.name} ${goes}`;
+});
+
+// A chat command heard in one chat only.
+server.addCommand("/all", ({ player }) => {
+	heard = `${player.name} to all`;
+}, { chat: "say" });
+server.addCommand("/mates", (player) => {
+	heard = `${player.name} to the team`;
+}, { chat: "team" });
+
+// Any console command, with its name, words and text.
+server.addEventListener("command", (event) => {
+	if (event.command == "say_team" && event.args[0] == "/where") heard = `${event.player.name} asks where: ${event.args.slice(1).join(",")} | ${event.text}`;
+	if (event.command == "buyequip") heard = `${event.player.name} buyequip ${event.args.join(",")} | ${event.text}`;
+});
 
 // A bot's command, as one it sent.
 server.addServerCommand("cmd_bot_hp", () => {

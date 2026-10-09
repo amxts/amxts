@@ -2792,12 +2792,14 @@ export function playerIds(flags: string = "", team: string = ""): number[] {
 // says and answers the one who typed it with the usage when a word is wrong.
 // The editor's signatures of addCommand and addServerCommand are in amxts.d.ts.
 
-/** The options of a command: who may use it and its description in a listing. */
+/** The options of a command: who may use it, its description in a listing, the chat it is heard in. */
 export interface CommandOptions {
 	/** The admin right a player needs to use the command; left out, everyone may. */
 	access?: Access;
 	/** The command's description, for `server.commands` - what a `/help` prints. */
 	description?: string;
+	/** The chat a chat command is heard in, one of: `"say"` the common chat, `"team"` the team's, `"both"` either (the default). */
+	chat?: "say" | "team" | "both";
 }
 
 /** A command the plugin added, as `server.commands` lists it: what a `/help` shows. */
@@ -2810,7 +2812,9 @@ export class CommandInfo {
 		/** The admin right the command needs; `null` when everyone may use it. */
 		readonly access: Access | null,
 		/** Whether it is a command of the server console rather than a player's. */
-		readonly server: boolean
+		readonly server: boolean,
+		/** The command's other names, as `addCommand(["/cp", "cp"], ...)` gave them; `[]` for none. */
+		readonly aliases: string[] = []
 	) {}
 }
 
@@ -2997,12 +3001,17 @@ let spareWords: __CommandWords | null = null;
 	spareWords = words;
 }
 
-// The players' commands of this plugin, by name, each with its info; the
-// chat handler finds one by the name in the line. commandInfos is every
-// command, the server's too: server.commands.
+// The players' commands of this plugin, by name, each with its info - a
+// command of several names once for each; the chat handler finds one by the
+// name in the line. commandInfos is every command, the server's too:
+// server.commands.
 const commandNames: string[] = [];
 const commandRuns: ((words: __CommandWords) => void)[] = [];
 const playerCommandInfos: CommandInfo[] = [];
+// The chats a chat command is heard in: CHAT_SAY, CHAT_TEAM or both.
+const commandChats: i32[] = [];
+const CHAT_SAY: i32 = 1;
+const CHAT_TEAM: i32 = 2;
 const commandInfos: CommandInfo[] = [];
 let chatHooked = false;
 
@@ -3041,6 +3050,13 @@ function chatLine(): string {
 	return line.length >= 2 && line.startsWith("\"") && line.endsWith("\"") ? line.substring(1, line.length - 1).trim() : line;
 }
 
+/** Whether the chat command at `at` is heard in the chat the line came in; the chat is read only for one heard in a single one. */
+function heardIn(at: i32): bool {
+	const chats = commandChats[at];
+	if (chats == (CHAT_SAY | CHAT_TEAM)) return true;
+	return (chats & (read_argv(0) == "say_team" ? CHAT_TEAM : CHAT_SAY)) != 0;
+}
+
 /** say /name a b - the chat text, its first word the name; or a phrase added as "say <phrase>", the whole line. */
 function chatCommand(player: number, level: number, cid: number, unused: number): void {
 	const id = <i32>player;
@@ -3048,7 +3064,7 @@ function chatCommand(player: number, level: number, cid: number, unused: number)
 	const space = text.indexOf(" ");
 	const slash = text.startsWith("/");
 	const at = slash ? findCommand(space < 0 ? text : text.substring(0, space)) : findCommand("say " + text);
-	if (at < 0 || !mayRun(id, at)) { _outcome(0); return; }
+	if (at < 0 || !heardIn(at) || !mayRun(id, at)) { _outcome(0); return; }
 	runCommand(at, id, chatWords(__playerOf(id), playerCommandInfos[at].usage, slash && space >= 0 ? text.substring(space + 1) : ""));
 }
 
@@ -4617,29 +4633,31 @@ export class Server {
 	 * `console`: the build's function the module calls for the command typed
 	 * in the console, in consoleCommand's place; 0 for consoleCommand.
 	 */
-	__addCommand(usage: string, run: (words: __CommandWords) => void, options: CommandOptions = {}, console: i32 = 0): void {
-		const name = commandName(usage);
-		const chat = name.startsWith("/") || name.startsWith("say ");
+	__addCommand(usage: string, run: (words: __CommandWords) => void, options: CommandOptions = {}, console: i32 = 0, aliases: string[] = []): void {
 		const access = options.access;
-
-		commandNames.push(name.toLowerCase());
-		commandRuns.push(run);
-		const info = new CommandInfo(usage, options.description ?? "", access ?? null, false);
-		playerCommandInfos.push(info);
+		const chats = options.chat == "say" ? CHAT_SAY : options.chat == "team" ? CHAT_TEAM : CHAT_SAY | CHAT_TEAM;
+		const info = new CommandInfo(usage, options.description ?? "", access ?? null, false, aliases);
 		commandInfos.push(info);
 
-		if (!chat) {
-			// The module finds the command by its name and checks the right.
-			const flags = access != null ? ACCESS.bitOf(access) : 0;
-			_tag(commandRuns.length);
-			_clcmd(name, console != 0 ? console : consoleCommand.index, flags, SHAPE_WIDE);
-			return;
-		}
+		const names = [commandName(usage)].concat(aliases);
+		for (let i = 0; i < names.length; i++) {
+			const name = names[i];
+			commandNames.push(name.toLowerCase());
+			commandRuns.push(run);
+			commandChats.push(chats);
+			playerCommandInfos.push(info);
 
-		if (chatHooked) return;
-		chatHooked = true;
-		_clcmd("say", chatCommand.index, 0, SHAPE_WIDE);
-		_clcmd("say_team", chatCommand.index, 0, SHAPE_WIDE);
+			if (!name.startsWith("/") && !name.startsWith("say ")) {
+				// The module finds the command by its name and checks the right.
+				const flags = access != null ? ACCESS.bitOf(access) : 0;
+				_tag(commandRuns.length);
+				_clcmd(name, console != 0 ? console : consoleCommand.index, flags, SHAPE_WIDE);
+			} else if (!chatHooked) {
+				chatHooked = true;
+				_clcmd("say", chatCommand.index, 0, SHAPE_WIDE);
+				_clcmd("say_team", chatCommand.index, 0, SHAPE_WIDE);
+			}
+		}
 	}
 
 	/** @hidden A command of the server console, its words read by `run`, as `__addCommand`'s are. */
