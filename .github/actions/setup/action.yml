@@ -16,7 +16,8 @@ runs:
     # M > 0) or a pull request into 0.N.x - each neighbour is at its own
     # highest 0.N.x: the code released with the core's line. Anywhere else -
     # main, a pull request into it, a new minor's tag (v0.N.0, made on main)
-    # - at its default branch: main, the next version, as the core's main.
+    # - at its default branch: main, the next version, as the core's main;
+    # on the core's next, at the neighbour's next where it has one.
     - name: The command and the official modules
       shell: bash
       env:
@@ -29,6 +30,8 @@ runs:
           url="https://github.com/$OWNER/${dir#amxts-modules/}"
           branch=
           [ -z "$line" ] || branch=$(git ls-remote --heads "$url" | grep -oE '[0-9]+\.[0-9]+\.x$' | sort -V | tail -n 1)
+          # A branch of the core's name - next - takes the module's of that name, where it has one.
+          [ -n "$line" ] || ! git ls-remote --exit-code --heads "$url" "$REF" >/dev/null || branch=$REF
           echo "$dir: ${branch:-the default branch}"
           git clone -q --depth 1 ${branch:+--branch "$branch"} "$url" "$dir"
         done
