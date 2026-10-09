@@ -5366,6 +5366,10 @@ export function paint(text: string): string {
 		if (swap.length > 0 && swapTeam.length == 0) swapTeam = swap;
 	}
 
+	// The client draws no colour in a line that does not start with a colour
+	// code, and shows the codes as spaces: such a line starts yellow.
+	if (out.length > 0 && out.charCodeAt(0) > 0x04) out = "\x01" + out;
+
 	return out;
 }
 

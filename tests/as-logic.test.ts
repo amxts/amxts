@@ -134,18 +134,25 @@ describe('the colour tags', () => {
 			.toBe('\x04Green \x01Yellow');
 	});
 
+	// The client draws no colour at all in a line that does not start with a
+	// colour code, so such a line starts yellow.
+	test('start a line with yellow when it does not start with a colour', () => {
+		expect(text(exports.paint(str('KZ !yhi !gthere')))).toBe('\x01KZ \x01hi \x04there');
+		expect(text(exports.paint(str('')))).toBe('');
+	});
+
 	test('leave a tag that is not one alone', () => {
-		expect(text(exports.paint(str('!qnot a tag')))).toBe('!qnot a tag');
-		expect(text(exports.paint(str('no tags at all')))).toBe('no tags at all');
+		expect(text(exports.paint(str('!qnot a tag')))).toBe('\x01!qnot a tag');
+		expect(text(exports.paint(str('no tags at all')))).toBe('\x01no tags at all');
 	});
 
 	// One letter, one colour, in chat and in menus alike: case matters.
 	test('read a tag by its case', () => {
-		expect(text(exports.paint(str('!Gnot green, !Ynot yellow')))).toBe('!Gnot green, !Ynot yellow');
+		expect(text(exports.paint(str('!Gnot green, !Ynot yellow')))).toBe('\x01!Gnot green, !Ynot yellow');
 	});
 
 	test('drop a menu\'s tag from a chat line', () => {
-		expect(text(exports.paint(str('!wWhite !RRight')))).toBe('White Right');
+		expect(text(exports.paint(str('!wWhite !RRight')))).toBe('\x01White Right');
 	});
 
 	test('make !d grey, as in a menu', () => {

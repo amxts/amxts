@@ -116,6 +116,8 @@ function info(player: Player) {
 	print(player, `${hand} ${player.info.get("_vgui_menus")} ${player.userId > 0} ${player.isHltv} ${player.silentSteps} ${player.connectedSeconds}`, "console");
 }
 
+server.addCommand("pl_colors", ({ player }) => print(player, "KZ !yhi !gthere"));
+
 server.addCommand("pl_breaking", ({ player }) => {
 	print(0, "nobody");
 	const name: string = "weapon_ak74";

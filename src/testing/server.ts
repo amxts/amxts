@@ -188,7 +188,10 @@ export interface MenuScreen {
 /** One line a player was shown. */
 export interface Message {
 	variant: 'chat' | 'center' | 'console' | 'notify' | 'hud';
+	/** The text, colour codes taken out. */
 	text: string;
+	/** The line as the client got it, colour codes `\x01`-`\x04` kept. */
+	raw: string;
 }
 
 export interface ServerOptions {
@@ -477,6 +480,11 @@ export class FakePlayer extends FakeEntity {
 
 	/** The chat lines he was shown, one a line, colour bytes taken out. */
 	get chat(): string { return this.lines('chat'); }
+	/**
+	 * The chat lines as the client got them, colour codes `\x01`-`\x04` kept:
+	 * the client draws no colour in a line that does not start with one.
+	 */
+	get chatRaw(): string { return this.messages.filter(m => m.variant === 'chat').map(m => m.raw).join('\n'); }
 	/** What was printed in the middle of his screen. */
 	get center(): string { return this.lines('center'); }
 	/** What was printed in his console. */
@@ -492,7 +500,7 @@ export class FakePlayer extends FakeEntity {
 	show(variant: Message['variant'], text: string): void {
 		// The colour codes ^1-^4 a chat line carries are not text.
 		// oxlint-disable-next-line no-control-regex
-		this.messages.push({ variant, text: text.replace(/[\x01-\x04]/g, '') });
+		this.messages.push({ variant, text: text.replace(/[\x01-\x04]/g, ''), raw: text });
 	}
 
 	/** Forgets what he was shown, for a test that checks one step at a time. */

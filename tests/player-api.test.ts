@@ -213,6 +213,16 @@ test('a field the client learns from a message sends it: money, armour, flashlig
 	]);
 });
 
+test('a chat line that does not start with a colour starts yellow, or the client draws it in one colour', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	alice.command('pl_colors');
+
+	expect(alice.chatRaw).toBe('\x01KZ \x01hi \x04there');
+	expect(alice.chat).toBe('KZ hi there');
+});
+
 test('print(0, ...) sends nothing and says server.print; give takes any name and says once the one the game has not', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
