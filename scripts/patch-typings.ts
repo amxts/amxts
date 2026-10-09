@@ -81,6 +81,20 @@ if (!text.includes(spliceItems)) {
 	console.log('typings: Array splice takes the items to insert for the editor');
 }
 
+// flatMap is in our AssemblyScript (runtime/patches) for a function that
+// returns an array; the shipped typings have none, which the editor reports
+// as a library too old (TS2550).
+const flat = '  flat(): T extends unknown[] ? T : never;\n';
+const flatMap = '  flatMap<U>(callbackfn: (value: T, index: i32, array: Array<T>) => U[]): Array<U>;\n';
+if (!text.includes(flatMap)) {
+	if (!text.includes(flat)) {
+		process.stderr.write(`typings: the Array flat line was not found in ${typings} - AssemblyScript changed it\n`);
+		process.exit(1);
+	}
+	text = text.replace(flat, flat + flatMap);
+	console.log('typings: Array has flatMap for the editor');
+}
+
 // Date speaks number, as in JavaScript: our AssemblyScript's Date takes and
 // gives f64 milliseconds (runtime/patches), the shipped typings still say i64.
 const dateStart = text.indexOf('declare class Date');

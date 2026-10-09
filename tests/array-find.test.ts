@@ -30,3 +30,15 @@ export function text(): string {
 		});
 	});
 }
+
+test('flatMap joins the arrays a function returns, as in JavaScript', async () => {
+	const { error, exports, string } = await probe({ 'probe.ts': `
+export function text(): string {
+	const words = ["a", "bb"].flatMap(word => [word, word.toUpperCase()]);
+	const sizes = [1, 2, 3].flatMap(size => size == 2 ? [] : [size, size * 10]);
+	return words.join(",") + "|" + sizes.join(",");
+}
+` });
+	expect(error).toBe('');
+	expect(string(exports.text())).toBe('a,A,bb,BB|1,10,3,30');
+});

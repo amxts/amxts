@@ -15436,7 +15436,7 @@ index 6a07f6f..5f05683 100644
      }
      sb.push(validWat ? "%29=>" : ") => ");
 diff --git a/std/assembly/array.ts b/std/assembly/array.ts
-index faa6d9b..ca187be 100644
+index faa6d9b..6ea04ef 100644
 --- a/std/assembly/array.ts
 +++ b/std/assembly/array.ts
 @@ -22,7 +22,11 @@ function ensureCapacity(array: usize, newSize: usize, alignLog2: u32, canGrow: b
@@ -15530,7 +15530,25 @@ index faa6d9b..ca187be 100644
    findLastIndex(fn: (value: T, index: i32, array: Array<T>) => bool): i32 {
      for (let i = this.length_ - 1; i >= 0; --i) {
        if (fn(load<T>(this.dataStart + (<usize>i << alignof<T>())), i, this)) return i;
-@@ -393,28 +433,42 @@ export class Array<T> {
+@@ -294,6 +334,17 @@ export class Array<T> {
+     return out;
+   }
+ 
++  // amxts: flatMap, as in JavaScript, for a function that returns an array:
++  // its elements, one array after another.
++  flatMap<U>(fn: (value: T, index: i32, array: Array<T>) => Array<U>): Array<U> {
++    let out = changetype<Array<U>>(__newArray(0, alignof<U>(), idof<Array<U>>()));
++    for (let i = 0, len = this.length_; i < min(len, this.length_); ++i) {
++      let part = fn(load<T>(this.dataStart + (<usize>i << alignof<T>())), i, this);
++      for (let j = 0, count = part.length_; j < count; ++j) out.push(load<U>(part.dataStart + (<usize>j << alignof<U>())));
++    }
++    return out;
++  }
++
+   filter(fn: (value: T, index: i32, array: Array<T>) => bool): Array<T> {
+     let result = changetype<Array<T>>(__newArray(0, alignof<T>(), idof<Array<T>>()));
+     for (let i = 0, len = this.length_; i < min(len, this.length_); ++i) {
+@@ -393,28 +444,42 @@ export class Array<T> {
      return slice;
    }
  
