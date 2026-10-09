@@ -842,6 +842,8 @@ export class FakeServer {
 	readonly rules = new Map<number, number>();
 	/** The members plugins asked member_slot for, by slot: each one's reapi constant. */
 	private readonly memberSlots: number[] = [];
+	/** The map's light, as `server.lightStyle` last set it: `"m"` the map's own. */
+	lightStyle = 'm';
 	/** Rounds a plugin ended with rg_round_end, in order. */
 	readonly roundEnds: { status: number; event: number; delay: number; message: string; sound: string; trigger: boolean }[] = [];
 	/** Sounds played: from an entity (emit_sound, rh_emit_sound2), or to a player alone (SendAudio, rg_send_audio). */
@@ -2734,7 +2736,14 @@ export class FakeServer {
 			return 1;
 		},
 		light_style(this: FakeServer, plugin: PluginInstance, text: number) {
-			this.engineCalls.push(`LightStyle 0 ${plugin.memory.string(text)}`);
+			this.lightStyle = plugin.memory.string(text) || 'm';
+			this.engineCalls.push(`LightStyle 0 ${this.lightStyle}`);
+		},
+		// The engine's lightstyle message to one player, as a message he was sent: "" is the server's light.
+		player_light_style(this: FakeServer, plugin: PluginInstance, id: number, text: number) {
+			const player = this.player(id);
+			if (!player || player.bot) return;
+			this.userMessages.push({ name: 'LightStyle', player: id, args: [0, plugin.memory.string(text) || this.lightStyle] });
 		},
 		// HUD messages: the text to each player, as his messages' "hud" line; how it was set, in server.hud.
 		hud_line(this: FakeServer) {

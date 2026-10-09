@@ -1523,6 +1523,8 @@ function sendServerName(id: number, name: string): void {
 // @ts-ignore: decorator
 @external("env", "light_style")  declare function _lightStyle(text: string): void;
 // @ts-ignore: decorator
+@external("env", "player_light_style") declare function _playerLightStyle(id: i32, text: string): void;
+// @ts-ignore: decorator
 @external("env", "player_view")  declare function _playerView(id: i32, target: i32): void;
 // @ts-ignore: decorator
 @external("env", "player_model") declare function _playerModel(id: i32, model: string, index: i32): void;
@@ -3494,6 +3496,18 @@ export class Screen {
 		ewrite_short(fixed(seconds, 1.0));
 		if (startPercent != 0) ewrite_short(fixed(startPercent, 1.0));
 		emessage_end();
+	}
+
+	/**
+	 * The light the player sees, `"a"` the darkest to `"z"` the brightest, as
+	 * `server.lightStyle` sets it for everyone; `""` gives him the server's
+	 * again: `player.screen.lightStyle("z")` for night vision. The server's
+	 * next light and the next map reach him too.
+	 *
+	 * Pawn: `message_begin(MSG_ONE, SVC_LIGHTSTYLE, ...)`
+	 */
+	lightStyle(style: string): void {
+		_playerLightStyle(this.id, style);
 	}
 }
 

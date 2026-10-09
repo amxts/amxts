@@ -4281,6 +4281,7 @@ static int32_t w_serverText(wasm_exec_env_t env, int32_t what, int32_t out, int3
 static int32_t w_mapValid(wasm_exec_env_t env, int32_t name);
 static int32_t w_changeLevel(wasm_exec_env_t env, int32_t name);
 static void w_lightStyle(wasm_exec_env_t env, int32_t text);
+static void w_playerLightStyle(wasm_exec_env_t env, int32_t id, int32_t text);
 static void w_playerView(wasm_exec_env_t env, int32_t id, int32_t target);
 static int32_t w_playerViewGet(wasm_exec_env_t env, int32_t id);
 static int32_t w_pluginsCount(wasm_exec_env_t env);
@@ -4384,6 +4385,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "map_valid",      (void *)w_mapValid,      "(i)i", NULL },
 	{ "change_level",   (void *)w_changeLevel,   "(i)i", NULL },
 	{ "light_style",    (void *)w_lightStyle,    "(i)", NULL },
+	{ "player_light_style", (void *)w_playerLightStyle, "(ii)", NULL },
 	{ "player_view",    (void *)w_playerView,    "(ii)", NULL },
 	{ "player_view_get", (void *)w_playerViewGet, "(i)i", NULL },
 	{ "plugins_count",  (void *)w_pluginsCount,  "()i",   NULL },

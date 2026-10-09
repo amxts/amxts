@@ -15,6 +15,11 @@ server.addCommand("pl_screen", ({ player }) => {
 	player.showMotd("x".repeat(200), "Rules");
 	print(player, `motd heard ${motdHeard}`, "console");
 });
+server.addCommand("pl_light", ({ player }) => {
+	player.screen.lightStyle("z");
+	server.lightStyle = "b";
+	player.screen.lightStyle("");
+});
 server.addCommand("pl_country", ({ player }) => print(player, `${player.country ?? "none"} ${player.countryCode ?? "none"}`, "console"));
 server.addCommand("pl_lang", ({ player }) => language(player));
 server.addCommand("pl_auth", ({ player }) => print(player, `${player.authType} ${player.protocol} ${player.authKey}`, "console"));

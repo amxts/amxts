@@ -65,6 +65,16 @@ test('a HUD line to everyone, a hint, the message of the day in pieces under its
 	expect(alice.console).toBe('motd heard 0');
 });
 
+test('a light of his own, and the server\'s back with ""', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	alice.command('pl_light');
+
+	const sent = server.userMessages.filter(m => m.name === 'LightStyle').map(m => [m.player, ...m.args]);
+	expect(sent).toEqual([[alice.id, 0, 'z'], [alice.id, 0, 'b']]);
+});
+
 test('language: his setinfo lang, else the server\'s - as lang.translate picks it', async () => {
 	const server = await loadPlugin(PLUGIN, { cvars: { amx_language: 'de' } });
 	const alice = server.join('Alice');

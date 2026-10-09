@@ -1746,6 +1746,24 @@ export default {
 			Pawn: \`BarTime\`, \`BarTime2\`, \`rg_send_bartime\`, \`rg_send_bartime2\`
 		`,
 	},
+	'Screen.lightStyle': {
+		en: `
+			The light the player sees, \`"a"\` the darkest to \`"z"\` the brightest, as
+			\`server.lightStyle\` sets it for everyone; \`""\` gives him the server's
+			again: \`player.screen.lightStyle("z")\` for night vision. The server's
+			next light and the next map reach him too.
+
+			Pawn: \`message_begin(MSG_ONE, SVC_LIGHTSTYLE, ...)\`
+		`,
+		ru: `
+			Свет, который видит игрок, от \`"a"\` — самого тёмного — до \`"z"\` — самого
+			яркого, как \`server.lightStyle\` ставит его всем; \`""\` возвращает ему свет
+			сервера: \`player.screen.lightStyle("z")\` для ночного зрения. Следующий свет
+			сервера и следующая карта доходят и до него.
+
+			Pawn: \`message_begin(MSG_ONE, SVC_LIGHTSTYLE, ...)\`
+		`,
+	},
 	'PlayerChangeEvent': {
 		en: `
 			A field plugins added to \`Player\` changed on a player - written by any

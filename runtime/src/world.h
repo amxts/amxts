@@ -65,6 +65,26 @@ static void w_lightStyle(wasm_exec_env_t env, int32_t text)
 	LIGHT_STYLE(0, (char *)g_lightStyle.c_str());
 }
 
+/**
+ * player_light_style(id, text) - the light one player sees, "" for the
+ * server's: the engine's lightstyle message to him alone. The server's next
+ * light reaches him too, and the map's start sets it again.
+ */
+#define SVC_LIGHTSTYLE 12 // the engine's, which the SDK's util.h leaves out
+
+static void w_playerLightStyle(wasm_exec_env_t env, int32_t id, int32_t text)
+{
+	if (!InGame(id) || (INDEXENT(id)->v.flags & FL_FAKECLIENT))
+		return;
+	std::string style = AsString(Inst(env), text);
+	if (style.empty())
+		style = g_lightStyle.empty() ? "m" : g_lightStyle;
+	MESSAGE_BEGIN(MSG_ONE, SVC_LIGHTSTYLE, NULL, INDEXENT(id));
+	WRITE_BYTE(0);
+	WRITE_STRING(style.c_str());
+	MESSAGE_END();
+}
+
 // The entity each player sees through (player.view), with his user id, so
 // that a player who takes the slot later sees through his own eyes.
 static struct { int32_t target; int userId; } g_views[CLIENT_SLOTS];
