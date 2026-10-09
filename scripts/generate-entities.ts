@@ -1731,7 +1731,7 @@ console.log(`Entity: ${entvars.length} entvars; PlayerFields: ${members.length} 
 console.log(`${skipped.length} skipped, ${collisions.length} collisions`);
 const unexplained = collisions.filter(c => c.includes('not in SAME_NAME'));
 if (unexplained.length > 0) {
-	for (const c of unexplained) console.error(`  ${c}`);
+	for (const c of unexplained) process.stderr.write(`  ${c}\n`);
 	throw new Error('a member name is taken: give it its own in MEMBER_NAMES, or say why it is left out in SAME_NAME');
 }
 
