@@ -7,6 +7,7 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // not only to the plugin itself - makes it compile again.
 // @ts-ignore - bun:test types not available during type checking
 import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { recordReads, readdirSync as trackedReaddir, unchanged } from '../scripts/tracked-fs';
 import { compileWasmFile, forgetCompiled } from '../src/testing/compile';
 import { cacheCounts, cacheOn } from '../src/testing/compile-cache';
 
@@ -74,4 +75,15 @@ describe.skipIf(!cacheOn)('the compile cache', () => {
 		expect(await counting(load)).toEqual({ hits: 0, misses: 1 });
 		expect(await load()).toBe(`bye again ${word}`);
 	});
+});
+
+test('a folder read keeps its entry while only hidden names come into it, as node_modules/.cache does', async () => {
+	const folder = join(dir, 'listing');
+	mkdirSync(folder, { recursive: true });
+	writeFileSync(join(folder, 'a.ts'), '');
+	const { reads } = await recordReads(async () => trackedReaddir(folder));
+	mkdirSync(join(folder, '.cache'));
+	expect(unchanged(reads)).toBe(true);
+	writeFileSync(join(folder, 'b.ts'), '');
+	expect(unchanged(reads)).toBe(false);
 });

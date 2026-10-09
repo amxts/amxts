@@ -73,8 +73,17 @@ export function readdirSync(path: PathLike): string[] {
 		note('readdir', path, 'missing');
 		throw error;
 	}
-	note('readdir', path, hashOf([...names].sort().join('\n')));
+	note('readdir', path, listingOf(names));
 	return names;
+}
+
+/**
+ * What a folder's listing is noted as: its names but the hidden ones - a
+ * project's node_modules gains `.cache` with the first build's own cache,
+ * which no compile depends on.
+ */
+function listingOf(names: string[]): string {
+	return hashOf(names.filter(name => !name.startsWith('.')).sort().join('\n'));
 }
 
 /** `run`, with every file read it makes - and anything else read meanwhile - noted. */
@@ -97,7 +106,7 @@ function seenNow(op: string, path: string): string {
 			case 'read': return hashOf(fs.readFileSync(path));
 			case 'exists': return String(fs.existsSync(path));
 			case 'stat': return kindOf(fs.statSync(path));
-			case 'readdir': return hashOf(fs.readdirSync(path).sort().join('\n'));
+			case 'readdir': return listingOf(fs.readdirSync(path));
 			default: return 'unknown';
 		}
 	} catch {
