@@ -5,10 +5,15 @@ server.addCommand("pl_ammo", ({ player }) => ammo(player));
 server.addCommand("pl_slots", ({ player }) => slots(player));
 server.addCommand("pl_info", ({ player }) => info(player));
 const everyone = new HudLine();
+let motdHeard = 0;
+server.addMessageListener("motd", () => {
+	motdHeard++;
+});
 server.addCommand("pl_screen", ({ player }) => {
 	everyone.showAll("for all");
 	player.screen.hint("Plant the bomb");
 	player.showMotd("x".repeat(200), "Rules");
+	print(player, `motd heard ${motdHeard}`, "console");
 });
 server.addCommand("pl_country", ({ player }) => print(player, `${player.country ?? "none"} ${player.countryCode ?? "none"}`, "console"));
 server.addCommand("pl_lang", ({ player }) => language(player));

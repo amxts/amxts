@@ -1485,9 +1485,9 @@ const MOTD_CHUNK: i32 = 175;
 
 /** The server's name on one player's screen: the window titles read it. */
 function sendServerName(id: number, name: string): void {
-	emessage_begin(MSG_ONE, get_user_msgid("ServerName"), [0, 0, 0], <i32>id);
-	ewrite_string(name);
-	emessage_end();
+	message_begin(MSG_ONE, get_user_msgid("ServerName"), [0, 0, 0], <i32>id);
+	write_string(name);
+	message_end();
 }
 
 // The server's game, versions, map and light (runtime/src/world.h).
@@ -2488,7 +2488,8 @@ export class Player extends PlayerFields implements Client {
 	/**
 	 * Shows the message-of-the-day window: `player.showMotd("Rules: ...")`,
 	 * a page's address (`"https://my-server.com/rules"`) or HTML; `title` on
-	 * its top, the server's name when left out.
+	 * its top, the server's name when left out. The plugins' `"motd"`
+	 * listeners do not hear it, as AMX Mod X's do not hear `show_motd`.
 	 *
 	 * Pawn: `show_motd`
 	 */
@@ -2503,10 +2504,10 @@ export class Player extends PlayerFields implements Client {
 			// A chunk ends between whole characters: never inside a UTF-8 sequence.
 			while (end < size && (load<u8>(changetype<usize>(bytes) + end) & 0xC0) == 0x80) end--;
 			const chunk = String.UTF8.decodeUnsafe(changetype<usize>(bytes) + at, end - at);
-			emessage_begin(MSG_ONE, get_user_msgid("MOTD"), [0, 0, 0], this.id);
-			ewrite_byte(end >= size ? 1 : 0);
-			ewrite_string(chunk);
-			emessage_end();
+			message_begin(MSG_ONE, get_user_msgid("MOTD"), [0, 0, 0], this.id);
+			write_byte(end >= size ? 1 : 0);
+			write_string(chunk);
+			message_end();
 			at = end;
 		} while (at < size);
 		if (title.length > 0) sendServerName(this.id, name);

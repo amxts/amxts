@@ -2617,14 +2617,16 @@ export default {
 		en: `
 			Shows the message-of-the-day window: \`player.showMotd("Rules: ...")\`,
 			a page's address (\`"https://my-server.com/rules"\`) or HTML; \`title\` on
-			its top, the server's name when left out.
+			its top, the server's name when left out. The plugins' \`"motd"\`
+			listeners do not hear it, as AMX Mod X's do not hear \`show_motd\`.
 
 			Pawn: \`show_motd\`
 		`,
 		ru: `
 			Показывает окно «сообщения дня»: \`player.showMotd("Правила: ...")\`, адрес
 			страницы (\`"https://my-server.com/rules"\`) или HTML; \`title\` — сверху окна,
-			без него — имя сервера.
+			без него — имя сервера. Слушатели \`"motd"\` плагинов его не слышат, как
+			обработчики AMX Mod X не слышат \`show_motd\`.
 
 			Pawn: \`show_motd\`
 		`,

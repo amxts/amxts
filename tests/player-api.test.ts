@@ -52,7 +52,7 @@ test('country and countryCode: what the GeoIP database says of his address, null
 	expect([alice.console, bob.console]).toEqual(['Germany DE', 'none none']);
 });
 
-test('a HUD line to everyone, a hint, the message of the day in pieces under its title', async () => {
+test('a HUD line to everyone, a hint, the message of the day in pieces under its title, which the plugin\'s own listener does not hear', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
 	const bob = server.join('Bob');
@@ -62,6 +62,7 @@ test('a HUD line to everyone, a hint, the message of the day in pieces under its
 	expect([alice, bob].map(each => each.messages.filter(m => m.variant === 'hud').map(m => m.text).join())).toEqual(['for all', 'for all']);
 	const sent = server.userMessages.filter(m => ['HudTextPro', 'MOTD', 'ServerName'].includes(m.name)).map(m => `${m.name} ${m.args.map(a => String(a).length > 20 ? String(a).length : a).join(' ')}`);
 	expect(sent).toEqual(['HudTextPro Plant the bomb 1', 'ServerName Rules', 'MOTD 0 175', 'MOTD 1 25', `ServerName ${server.cvars.get('hostname') ?? ''}`]);
+	expect(alice.console).toBe('motd heard 0');
 });
 
 test('language: his setinfo lang, else the server\'s - as lang.translate picks it', async () => {
