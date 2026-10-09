@@ -154,15 +154,19 @@ restriction, and `%name%` in their text for a placeholder — and a TypeScript
 plugin answers those names with functions:
 
 ```ts
+menus.addActions({ RESET_SCORE: resetScore, SPECTATE: (player) => player.joinTeam("SPECTATOR") });
+menus.addPlaceholders({ hp: (player) => `${player.health}`, nick: ({ target }) => target.name });   // %hp%, %nick% in a menu file
 menus.addCondition("IS_ALIVE", (player) => player.isAlive);
-menus.addAction("RESET_SCORE", ({ player }) => resetScore(player));
-menus.addPlaceholder("hp", ({ player }) => `${player.health}`);   // %hp% in a menu file
 menus.addRestriction("VIP", ({ player }) => player.access.includes("reservation"), "VIP only");
 menus.setListSource("LIST_FPS_CHECK", rows);        // a list menu of the file, by name
 menus.conditionChanged("IS_ALIVE");                  // draw again the menus that use it
 ```
 
-An action, a placeholder and a restriction get the menu's context, and the
+`addActions` and `addPlaceholders` register several at once, each by its name :since{v="0.3"};
+`addAction(name, handler)` and `addPlaceholder(name, value)` one. An action or
+a placeholder is a function of the player who chose it or reads it,
+`(player) => ...` :since{v="0.3"}, or of the menu's context, `({ player, target, menu,
+name }) => ...`. An action, a placeholder and a restriction get the menu's context, and the
 `name` they are asked by — a restriction's whole `"NAME:param"`. A condition
 is a fact about a player, `(player, viewer, name)`: in a list menu it is asked
 of the row's player, with `viewer` the one who looks.
@@ -184,9 +188,9 @@ items to through `mc_*` — is one menu, and a player has one open menu
 whoever opened it.
 
 ```ts
-menus.register("MAIN_MENU");
+menus.register("MAIN_MENU", "ADMIN_MENU");
 menus.addCondition("IS_ALIVE", (player) => player.isAlive);
-menus.addAction("RESET_SCORE", ({ player }) => resetScore(player));
+menus.addActions({ RESET_SCORE: resetScore });
 menus.setListSource("LIST_FPS_CHECK", rows);   // rows({ player }) returns menus.listRow(row, text) rows
 menus.show(player, "MAIN_MENU", { resetHistory: true });
 ```
@@ -323,7 +327,7 @@ VIEW = {
 
 | YAML, JSON | INI | What it is |
 | --- | --- | --- |
-| `chatPrefix` | `[MAIN]` `PREFIX` | The chat prefix of Menu Core's messages. |
+| `chatPrefix` | `[MAIN]` `PREFIX` | The chat prefix of Menu Core's messages. The Pawn menu_core's `[Основное]` is read as `[MAIN]` :since{v="0.3"}. |
 | `labels`: `exit`, `back`, `next`, `number`, `disabled`, `page`, `time` | `[MAIN]` `KEY = { ... }` | The words of the buttons, the page and the countdown. |
 | `menus`: `{ NAME: menu }` | `[NAME]` | The menus; a name starting with `LIST_` is a list menu. |
 | `title` | `TITLE` | The title; a menu has one. |

@@ -150,15 +150,19 @@ vote.addItem({
 отвечает на эти имена функциями:
 
 ```ts
+menus.addActions({ RESET_SCORE: resetScore, SPECTATE: (player) => player.joinTeam("SPECTATOR") });
+menus.addPlaceholders({ hp: (player) => `${player.health}`, nick: ({ target }) => target.name });   // %hp%, %nick% в файле меню
 menus.addCondition("IS_ALIVE", (player) => player.isAlive);
-menus.addAction("RESET_SCORE", ({ player }) => resetScore(player));
-menus.addPlaceholder("hp", ({ player }) => `${player.health}`);   // %hp% в файле меню
 menus.addRestriction("VIP", ({ player }) => player.access.includes("reservation"), "только VIP");
 menus.setListSource("LIST_FPS_CHECK", rows);        // меню-список из файла, по имени
 menus.conditionChanged("IS_ALIVE");                  // перерисовать меню, которые его используют
 ```
 
-Действие, плейсхолдер и ограничение получают контекст меню и имя `name`, по
+`addActions` и `addPlaceholders` регистрируют несколько сразу, каждое под своим
+именем :since{v="0.3"}; `addAction(name, handler)` и `addPlaceholder(name, value)` — одно.
+Действие или плейсхолдер — функция игрока, который выбрал пункт или читает
+текст, `(player) => ...` :since{v="0.3"}, или контекста меню, `({ player, target, menu,
+name }) => ...`. Действие, плейсхолдер и ограничение получают контекст меню и имя `name`, по
 которому их спросили, — у ограничения целиком `"NAME:param"`. Условие — факт
 об игроке, `(player, viewer, name)`: в меню-списке его спрашивают об игроке
 строки, а `viewer` — тот, кто смотрит.
@@ -179,9 +183,9 @@ menus.conditionChanged("IS_ALIVE");                  // перерисовать
 меню, кто бы его ни открыл.
 
 ```ts
-menus.register("MAIN_MENU");
+menus.register("MAIN_MENU", "ADMIN_MENU");
 menus.addCondition("IS_ALIVE", (player) => player.isAlive);
-menus.addAction("RESET_SCORE", ({ player }) => resetScore(player));
+menus.addActions({ RESET_SCORE: resetScore });
 menus.setListSource("LIST_FPS_CHECK", rows);   // rows({ player }) возвращает строки menus.listRow(row, text)
 menus.show(player, "MAIN_MENU", { resetHistory: true });
 ```
@@ -318,7 +322,7 @@ VIEW = {
 
 | YAML, JSON | INI | Что это |
 | --- | --- | --- |
-| `chatPrefix` | `[MAIN]` `PREFIX` | Префикс сообщений Menu Core в чате. |
+| `chatPrefix` | `[MAIN]` `PREFIX` | Префикс сообщений Menu Core в чате. `[Основное]` из Pawn-модуля menu_core читается как `[MAIN]` :since{v="0.3"}. |
 | `labels`: `exit`, `back`, `next`, `number`, `disabled`, `page`, `time` | `[MAIN]` `KEY = { ... }` | Слова кнопок, страницы и отсчёта. |
 | `menus`: `{ NAME: меню }` | `[NAME]` | Меню; имя на `LIST_` — меню-список. |
 | `title` | `TITLE` | Заголовок; он у меню обязателен. |
