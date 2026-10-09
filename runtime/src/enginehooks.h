@@ -216,12 +216,16 @@ void MessageBegin(int dest, int type, const float *origin, edict_t *ed)
 {
 	if (g_sending || !g_messagesHooked)
 		RETURN_META(MRES_IGNORED);
-	MenuMessage(type, ed);
+	// A message held for its listeners takes a plugin's menu only once it
+	// reaches the player (MessageEnd): one they block never shows.
+	bool held = !g_holding && type > 0 && type < MESSAGE_TYPES && g_messagePoints[type].attached;
+	if (!held)
+		MenuMessage(type, ed);
 	if (g_holding) {
 		g_passing++;
 		RETURN_META(MRES_IGNORED);
 	}
-	if (type <= 0 || type >= MESSAGE_TYPES || !g_messagePoints[type].attached)
+	if (!held)
 		RETURN_META(MRES_IGNORED);
 
 	g_holding = true;
@@ -279,8 +283,10 @@ void MessageEnd()
 	HeldMessage message;
 	std::swap(message, g_held);
 	bool blocked = HearMessage(message);
-	if (message.sent && !blocked)
+	if (message.sent && !blocked) {
+		MenuMessage(message.type, message.ed);
 		SendHeld(message);
+	}
 	if (g_trace) {
 		const char *name = GET_USER_MSG_NAME(PLID, message.type, NULL);
 		MF_PrintSrvConsole("[amxts] TRACE message %s %s\n", name ? name : "?",

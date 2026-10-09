@@ -5,7 +5,8 @@
 // goes to the menu on the screen: a Pawn menu over a Menu takes it - an
 // old-style handler that lets the key pass on included - a Menu over a Pawn
 // menu takes it and closes the Pawn one, whose handler hears MENU_EXIT, and
-// the game's own menu over a Menu takes it.
+// the game's own menu over a Menu takes it - unless a listener blocks that
+// menu's message, which then never reaches the player.
 import { server_exec } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
@@ -15,6 +16,11 @@ interface ShopData {
 
 let chosen = "";
 const pawn = new Cvar("amxts_test_quick_menu_pawn", "");
+let blockMenus = false;
+
+server.addMessageListener("menu", (event) => {
+	if (blockMenus) event.preventDefault();
+});
 
 const shop = new Menu<ShopData>("!yShop");
 shop.addItem({
@@ -118,5 +124,12 @@ server.addServerCommand("amxts_test_quick_menu", () => {
 	bot.command("radio1");
 	press(bot, 1);
 	check.expect(chosen, "the game's own menu over a Menu takes the key").toBe("");
+
+	shop.show(bot, { category: "armor" });
+	blockMenus = true;
+	bot.command("radio1");
+	blockMenus = false;
+	press(bot, 1);
+	check.expect(chosen, "the game's menu a listener blocks does not take the key").toBe(`armor for ${bot.name}`);
 	check.done();
 });
