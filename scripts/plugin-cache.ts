@@ -46,6 +46,7 @@ export function pluginCache(dir: string | null, ownIncludes: string[] = []) {
 		resolve(plugin.output),
 		plugin.system ?? HOST_SYSTEM,
 		Boolean(plugin.quick),
+		Boolean(plugin.light),
 		hashed(plugin.wamrc),
 		hashed(plugin.signatures),
 	];

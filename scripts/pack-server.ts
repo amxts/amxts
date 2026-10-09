@@ -1,5 +1,4 @@
 import type { System } from './system';
-import { spawnSync } from 'node:child_process';
 // Assembles what goes on a server, into dist-server/<os>/.
 //
 //   bun run serverkit                  for a server of this machine's system
@@ -23,9 +22,10 @@ import { spawnSync } from 'node:child_process';
 //
 // All of it belongs to one build of the module: the module's thunks, a
 // plugin's imports and wamrc's signatures are three faces of one list.
-import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { buildDefines, moduleAbi, moduleBuild } from './build-identity';
+import { buildConstants, moduleAbi, moduleBuild } from './build-identity';
 import { serverFiles } from './server-files';
 import { executable, HOST_SYSTEM, MODULE_FILE, modulePath, parseSystem, SYSTEM_NAME, wamrcPath } from './system';
 
@@ -34,6 +34,68 @@ import { executable, HOST_SYSTEM, MODULE_FILE, modulePath, parseSystem, SYSTEM_N
 // program. process.stderr is the way out that keeps every script type-checked.
 function fail(message: string): void {
 	process.stderr.write(`${message}\n`);
+}
+
+/** Bun's bundler, as this script uses it: the scripts are typed for Node. */
+interface BunBuild {
+	build: (options: object) => Promise<{ success: boolean; logs: unknown[] }>;
+}
+const bun = (globalThis as unknown as { Bun: BunBuild }).Bun;
+
+interface Loading {
+	onLoad: (options: { filter: RegExp }, load: (args: { path: string }) => { loader: string; contents: string }) => void;
+}
+
+/** What an escape in a JavaScript string stands for, by the letter after the backslash. */
+const ESCAPED: Record<string, string> = { n: '\n', r: '\r', t: '\t', v: '\v', b: '\b', f: '\f', 0: '\0' };
+
+/**
+ * Binaryen's wasm as a file inside the executable rather than the string
+ * literal its JavaScript carries it in: the literal, the source around it
+ * and the string made of it stayed in memory beside the bytes, in each stage
+ * of every compile on a server. The bytes are written to `dir` for the
+ * bundler to take in.
+ */
+function binaryenWasmFile(dir: string) {
+	return {
+		name: 'binaryen-wasm',
+		setup(build: Loading) {
+			build.onLoad({ filter: /[\\/]binaryen[\\/]index\.js$/ }, ({ path }) => {
+				const source = readFileSync(path, 'latin1');
+				const literal = 'WA??=L6(`';
+				const start = source.indexOf(literal) + literal.length;
+				if (start < literal.length) throw new Error(`${path}: no ${literal} - Binaryen carries its wasm another way now`);
+				const bytes: number[] = [];
+				let at = start;
+				while (source[at] !== '`') {
+					const char = source[at++];
+					if (char !== '\\') {
+						bytes.push(char.charCodeAt(0));
+						continue;
+					}
+					const escape = source[at++];
+					if (escape === 'x') {
+						bytes.push(Number.parseInt(source.slice(at, at + 2), 16));
+						at += 2;
+					} else {
+						bytes.push((ESCAPED[escape] ?? escape).charCodeAt(0));
+					}
+				}
+				const wasm = new Uint8Array(bytes);
+				if (!WebAssembly.validate(wasm)) throw new Error(`${path}: the wasm read out of ${literal} is not valid`);
+				const file = join(dir, 'binaryen.wasm');
+				writeFileSync(file, wasm);
+				return {
+					loader: 'js',
+					contents: [
+						`import __binaryenWasm from ${JSON.stringify(file)} with { type: "file" };`,
+						`import { readFileSync as __readBinaryenWasm } from "node:fs";`,
+						`${source.slice(0, start - literal.length)}WA??=new Uint8Array(__readBinaryenWasm(__binaryenWasm))${source.slice(at + 2)}`,
+					].join('\n'),
+				};
+			});
+		},
+	};
 }
 
 const osArg = process.argv.indexOf('--os');
@@ -82,18 +144,15 @@ if (!identity || !abi) {
 
 // One executable rather than a JS runtime and a node_modules: nothing on a
 // game server should need `bun install`.
-const build = spawnSync(process.execPath, [
-	'build',
-	'--compile',
-	'scripts/compile-one.ts',
-	...buildDefines(identity, abi),
-	`--target=${BUN_TARGET[system]}`,
-	'--outfile',
-	join(out, 'addons/amxts/tools', executable('amxts-compile', system)),
-], { encoding: 'utf-8' });
+const build = await bun.build({
+	entrypoints: ['scripts/compile-one.ts'],
+	compile: { target: BUN_TARGET[system], outfile: join(out, 'addons/amxts/tools', executable('amxts-compile', system)) },
+	define: buildConstants(identity, abi),
+	plugins: [binaryenWasmFile(mkdtempSync(join(tmpdir(), 'amxts-binaryen-')))],
+});
 
-if (build.status !== 0) {
-	fail(build.stdout + build.stderr);
+if (!build.success) {
+	fail(build.logs.join('\n'));
 	process.exit(1);
 }
 
@@ -181,6 +240,13 @@ ${executable('amxts-compile', system)} turns a .ts into WebAssembly and then int
 using ${executable('wamrc', system)} and natives.txt beside it. All three belong to this module —
 replacing one without the others makes a plugin that cannot resolve its calls,
 which the compiler refuses rather than running slowly.
+
+A compile needs about 500 MB of memory beside the game, and only while it
+runs: one plugin at a time, its two steps one after the other. To fit there
+the server optimises less than npx amxts build, so a plugin it compiles runs
+slower. In a container with a memory limit too low for that the compiler is
+killed, and the console says so: build the plugins on your machine
+(npx amxts build) and put the .aot files on the server.
 
 tools/licenses/ has the licenses of what they are built from: AssemblyScript
 and WAMR, both patched by amxts (the patches are in the amxts repository,

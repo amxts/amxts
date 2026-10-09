@@ -53,7 +53,12 @@ export const moduleAbi = () => moduleDefine('AMXTS_ABI');
 
 /** The `--define`s that build amxts-compile as of `build`, stamping plugins with `abi`. */
 export function buildDefines(build: string, abi: string): string[] {
-	return [`--define=AMXTS_BUILD=${JSON.stringify(build)}`, `--define=AMXTS_ABI=${JSON.stringify(abi)}`];
+	return Object.entries(buildConstants(build, abi)).map(([name, value]) => `--define=${name}=${value}`);
+}
+
+/** buildDefines as the bundler's `define`. */
+export function buildConstants(build: string, abi: string): Record<string, string> {
+	return { AMXTS_BUILD: JSON.stringify(build), AMXTS_ABI: JSON.stringify(abi) };
 }
 
 // ---------------------------------------------------------------- the ABI

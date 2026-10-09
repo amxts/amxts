@@ -228,6 +228,11 @@ module's build fails when its own code makes a number whole through the
 x87 (`fldcw`): AMD's Zen cores stall on it at some code addresses, so a cast
 of a float or a double in the module is `Whole()`.
 
+The compiler a server runs (`amxts-compile`, `scripts/compile-one.ts`) has
+to fit a small server's memory: CI runs the Linux kit's compiler as the
+module does, stage by stage, and fails a stage over its limit
+(`scripts/compile-memory.ts`).
+
 ## Documentation
 
 The plugin author's documentation is `docs/`, raw Markdown published on

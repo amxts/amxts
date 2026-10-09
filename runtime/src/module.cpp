@@ -4990,12 +4990,66 @@ static void Teardown()
 // a plugin that does not load.
 #define COMPILE_TIMEOUT_MS 120000
 
+// What RunCompiler returns for a compiler the system killed for its memory.
+#define COMPILER_OUT_OF_MEMORY -2
+
+/**
+ * The compiler's JavaScriptCore kept small, for a game server's memory: asc
+ * runs once a compile, too short a time to pay for the optimising JIT tiers
+ * and their memory; no compiler or collector threads with heaps of their own;
+ * a heap sized as if the machine had 128 MB, so the collector runs before it
+ * grows; and freed pages given back at once.
+ */
+static const char *const COMPILER_ENV[] = {
+	"BUN_JSC_useDFGJIT=0",
+	"BUN_JSC_useFTLJIT=0",
+	"BUN_JSC_useOMGJIT=0",
+	"BUN_JSC_useConcurrentJIT=0",
+	"BUN_JSC_useConcurrentGC=0",
+	"BUN_JSC_forceRAMSize=134217728",
+	"MIMALLOC_PURGE_DELAY=0",
+};
+#define COMPILER_ENV_COUNT (sizeof(COMPILER_ENV) / sizeof(COMPILER_ENV[0]))
+
+/** Whether `entry` (NAME=value) sets a variable COMPILER_ENV sets. */
+static bool SetForCompiler(const char *entry)
+{
+	for (size_t i = 0; i < COMPILER_ENV_COUNT; i++) {
+		size_t name = strchr(COMPILER_ENV[i], '=') - COMPILER_ENV[i] + 1;
+		if (!strncmp(entry, COMPILER_ENV[i], name))
+			return true;
+	}
+	return false;
+}
+
+/** The server's environment, less what `drop` says, with COMPILER_ENV after it. */
+static std::vector<std::string> CompilerEnvironment(const std::vector<std::string> &server, bool (*drop)(const char *))
+{
+	std::vector<std::string> env;
+	for (size_t i = 0; i < server.size(); i++)
+		if (!SetForCompiler(server[i].c_str()) && !drop(server[i].c_str()))
+			env.push_back(server[i]);
+	env.insert(env.end(), COMPILER_ENV, COMPILER_ENV + COMPILER_ENV_COUNT);
+	return env;
+}
+
+static int OutOfMemory()
+{
+	MF_PrintSrvConsole("[amxts] the compiler ran out of memory (killed by the system): build on your machine with npx amxts build\n");
+	return COMPILER_OUT_OF_MEMORY;
+}
+
 /**
  * Runs `tool args...` with its output going to `log`, and waits for it.
- * Returns its exit code, or -1 when it could not start or did not finish,
- * which it has said on the console.
+ * Returns its exit code; -1 when it could not start or did not finish, or
+ * COMPILER_OUT_OF_MEMORY - each said on the console.
  */
 #ifdef _WIN32
+static bool KeepAll(const char *)
+{
+	return false;
+}
+
 static int RunCompiler(const std::string &tool, const std::vector<std::string> &args, const std::string &log)
 {
 	SECURITY_ATTRIBUTES inherit;
@@ -5028,8 +5082,20 @@ static int RunCompiler(const std::string &tool, const std::vector<std::string> &
 	PROCESS_INFORMATION process;
 	memset(&process, 0, sizeof(process));
 
+	std::vector<std::string> server;
+	char *strings = GetEnvironmentStringsA();
+	for (char *at = strings; at && *at; at += strlen(at) + 1)
+		server.push_back(at);
+	if (strings)
+		FreeEnvironmentStringsA(strings);
+	std::vector<std::string> env = CompilerEnvironment(server, KeepAll);
+	std::vector<char> block;
+	for (size_t i = 0; i < env.size(); i++)
+		block.insert(block.end(), env[i].c_str(), env[i].c_str() + env[i].size() + 1);
+	block.push_back(0);
+
 	BOOL started = CreateProcessA(NULL, &line[0], NULL, NULL, TRUE, CREATE_NO_WINDOW,
-	                              NULL, NULL, &start, &process);
+	                              &block[0], NULL, &start, &process);
 
 	if (out != INVALID_HANDLE_VALUE)
 		CloseHandle(out);
@@ -5055,10 +5121,20 @@ static int RunCompiler(const std::string &tool, const std::vector<std::string> &
 	GetExitCodeProcess(process.hProcess, &code);
 	CloseHandle(process.hProcess);
 	CloseHandle(process.hThread);
+	if (code == (DWORD)STATUS_NO_MEMORY)
+		return OutOfMemory();
 	return (int)code;
 }
 #else
 extern char **environ;
+
+// hlds_run puts the server's own folder first on LD_LIBRARY_PATH, with a
+// 32-bit libstdc++ in it; the compiler is a 64-bit program of its own and
+// has no use for the server's libraries.
+static bool ServerLibraries(const char *entry)
+{
+	return !strncmp(entry, "LD_LIBRARY_PATH=", 16) || !strncmp(entry, "LD_PRELOAD=", 11);
+}
 
 static int RunCompiler(const std::string &tool, const std::vector<std::string> &args, const std::string &log)
 {
@@ -5076,15 +5152,10 @@ static int RunCompiler(const std::string &tool, const std::vector<std::string> &
 	posix_spawn_file_actions_addopen(&files, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	posix_spawn_file_actions_adddup2(&files, 1, 2);
 
-	// hlds_run puts the server's own folder first on LD_LIBRARY_PATH, with a
-	// 32-bit libstdc++ in it; the compiler is a 64-bit program of its own and
-	// has no use for the server's libraries.
-	std::vector<std::string> keep;
-	for (char **at = environ; at && *at; at++) {
-		if (!strncmp(*at, "LD_LIBRARY_PATH=", 16) || !strncmp(*at, "LD_PRELOAD=", 11))
-			continue;
-		keep.push_back(*at);
-	}
+	std::vector<std::string> server;
+	for (char **at = environ; at && *at; at++)
+		server.push_back(*at);
+	std::vector<std::string> keep = CompilerEnvironment(server, ServerLibraries);
 	std::vector<char *> env;
 	for (size_t i = 0; i < keep.size(); i++)
 		env.push_back(&keep[i][0]);
@@ -5129,6 +5200,9 @@ static int RunCompiler(const std::string &tool, const std::vector<std::string> &
 
 	if (WIFEXITED(status))
 		return WEXITSTATUS(status);
+	// What a container's memory limit does to a process over it.
+	if (WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL)
+		return OutOfMemory();
 	MF_PrintSrvConsole("[amxts] the compiler was stopped by signal %d\n", WIFSIGNALED(status) ? WTERMSIG(status) : 0);
 	return -1;
 }
@@ -5215,13 +5289,21 @@ static bool CompilePlugin(const std::string &source, const std::string &output)
 
 	MF_PrintSrvConsole("[amxts] compiling %s\n", source.c_str());
 
-	std::vector<std::string> args;
-	args.push_back(source);
-	args.push_back(output);
-	int code = RunCompiler(tool, args, log);
+	// asc and Binaryen, then wamrc: each stage a process of its own, which
+	// gives its memory back as it exits, so a compile takes no more than its
+	// larger stage's.
+	static const char *const stages[] = { "--stage-wasm", "--stage-aot" };
+	int code = 0;
+	for (int i = 0; i < 2 && code == 0; i++) {
+		std::vector<std::string> args;
+		args.push_back(stages[i]);
+		args.push_back(source);
+		args.push_back(output);
+		code = RunCompiler(tool, args, log);
+	}
 
 	if (code < 0) {
-		g_refusal = "the compiler did not finish";
+		g_refusal = code == COMPILER_OUT_OF_MEMORY ? "the compiler ran out of memory" : "the compiler did not finish";
 		return false;
 	}
 

@@ -5,7 +5,8 @@
 # allocation (AMXTS_GC_STRESS); and the Linux module, wamrc and the server suites
 # built once, in Docker, then the suites run on a Linux test server in Docker
 # (bun run test:server --linux), on three AMX Mod X builds, on plain HLDS
-# and under sanitizers. On a tag v*, the Windows files are
+# and under sanitizers; the server kit's compiler is held to a small
+# server's memory. On a tag v*, the Windows files are
 # built too, on a Windows runner (bun run release:windows), then the nine npm
 # packages are tried end to end with both systems' files (bun run
 # test:release: a local registry, npx create-amxts, typecheck, build, test,
@@ -171,6 +172,20 @@ jobs:
       - name: The Linux server kit
         working-directory: amxts
         run: bun run serverkit --os linux
+      # The kit's compiler as the module runs it on a server, stage by stage,
+      # within a small server's memory; and a container's memory limit kills
+      # it with SIGKILL, which the module tells the console as running out
+      # of memory.
+      - name: The on-server compiler's memory
+        working-directory: amxts
+        run: |
+          bun scripts/compile-memory.ts dist-server/linux runtime/host/hello.ts tests/server/perf.ts --limit 512
+          kit=dist-server/linux/addons/amxts
+          status=0
+          sudo systemd-run --scope --quiet -p MemoryMax=128M -p MemorySwapMax=0 --uid="$(id -u)" --gid="$(id -g)" \
+            "$kit/tools/amxts-compile" --stage-wasm "$kit/plugins/hello.ts" "$RUNNER_TEMP/hello.aot" || status=$?
+          echo "over its memory limit the compiler exited with $status"
+          test "$status" -eq 137
       - name: The Linux files
         uses: actions/upload-artifact@v7
         with:

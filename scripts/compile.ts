@@ -49,6 +49,14 @@ export interface Plugin {
 	 * plugin rather than ten. It does the same, a little slower.
 	 */
 	quick?: boolean;
+	/**
+	 * Compiled on a game server (amxts-compile): Binaryen's -O1, as a quick
+	 * build's, which keeps asc and Binaryen within a small server's memory -
+	 * asc's full optimisation holds the whole program in Binaryen several
+	 * hundred MB over it - but without a quick build's stack frames, and with
+	 * wamrc at its own level.
+	 */
+	light?: boolean;
 }
 
 /** Binaryen's optimisation level: a quick build's, and a full one's - asc's own --optimize. */
@@ -83,6 +91,9 @@ export const ASYNC_EXPORTS = BASE_EXPORTS + [
 	'export function __co_restore(id: i32, lo: usize): void { __co_unpark(id, lo); }',
 	'',
 ].join('\n');
+
+/** The names ASYNC_EXPORTS exports. */
+const ASYNC_NAMES = [...ASYNC_EXPORTS.matchAll(/export function (\w+)/g)].map(match => match[1]);
 
 /**
  * A transform that moves the imports at the end of a file - the ones the
@@ -262,20 +273,25 @@ export function writeInclude(output: string, natives: PluginNative[]): void {
  * natives, listed there.
  */
 export async function compileToWasm(
-	plugin: Pick<Plugin, 'source' | 'root' | 'quick'>,
+	plugin: Pick<Plugin, 'source' | 'root' | 'quick' | 'light'>,
 	wasm: string,
 	names = false,
 	natives?: PluginNative[],
 ): Promise<string | null> {
-	// A quick build leaves the optimising to one Binaryen pass afterwards.
-	const flags = [...(plugin.quick ? [] : ['--optimize']), ...(names ? ['--debug'] : []), '--sourceMap'];
-	const level = plugin.quick ? OPTIMIZE.quick : null;
-	let made = await compileWasm(plugin, BASE_EXPORTS, flags, level, natives);
+	// A quick or a light build leaves the optimising to one Binaryen pass afterwards.
+	const lowered = plugin.quick || plugin.light;
+	const flags = [...(lowered ? [] : ['--optimize']), ...(names ? ['--debug'] : []), '--sourceMap'];
+	const level = lowered ? OPTIMIZE.quick : null;
+	// A quick or a light build compiles every plugin with the scheduler's
+	// exports, once, and one that never waits loses them (finishing).
+	const hoodExports = lowered ? ASYNC_EXPORTS : BASE_EXPORTS;
+	let made = await compileWasm(plugin, hoodExports, flags, level, natives);
 
 	// A plugin that makes a promise - an async function, fetch, sleep - has
-	// the host drive its jobs, so it is compiled again with the scheduler's
-	// exports.
-	if (typeof made !== 'string' && importsOf(made.binary).has(WAKE_IMPORT)) {
+	// the host drive its jobs, so a full build compiles it again with the
+	// scheduler's exports: asc's optimiser has the whole program, and one
+	// compiled with them would come out otherwise.
+	if (hoodExports === BASE_EXPORTS && typeof made !== 'string' && importsOf(made.binary).has(WAKE_IMPORT)) {
 		if (natives) natives.length = 0;
 		made = await compileWasm(plugin, ASYNC_EXPORTS, flags, level, natives);
 	}
@@ -305,7 +321,14 @@ export function finishing(hoodExports: string, level: number | null, done: (firs
 			const dataEnd = (binaryen.getExpressionInfo(binaryen.getGlobalInfo(module.getGlobal(DATA_END)).init) as binaryen.ConstInfo).value as number;
 			const emit = module.emitBinary.bind(module);
 			module.emitBinary = (url?: string) => {
-				const imports = new Set(functionsOf(module).map(each => each.imported));
+				let imports = new Set(functionsOf(module).map(each => each.imported));
+				// A quick or a light build's plugin that never waits, compiled
+				// with the scheduler's exports: they go, and what only they reached.
+				if (hoodExports === ASYNC_EXPORTS && level !== null && !imports.has(WAKE_IMPORT)) {
+					for (const name of ASYNC_NAMES) module.removeExport(name);
+					module.runPasses(['remove-unused-module-elements']);
+					imports = new Set(functionsOf(module).map(each => each.imported));
+				}
 				if (hoodExports === ASYNC_EXPORTS || !imports.has(WAKE_IMPORT)) {
 					exportCallGlobals(module);
 					if (level === null) {
@@ -493,8 +516,9 @@ async function compileWasm(
 	// error with nothing written to stderr.
 	if (error || !binary) return stderr.toString() || String(error?.message ?? error);
 	// A quick build is a dev build (`amxts dev`): its map names the project's
-	// folder, where the module finds the sources to show a failed line. A
-	// build to ship names none - the machine's folders are not the server's.
+	// folder, where the module finds the sources to show a failed line; so
+	// does a light one, made on the server the sources are on. A build to
+	// ship names none - the machine's folders are not the server's.
 	const root = level === null ? '' : sources.project.dir;
 	return { binary, map: pluginMap(sourceMap, file => fileName(sources, plugin.root, file), functions.first, functions.names.map(displayName), root) };
 }
