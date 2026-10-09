@@ -13092,7 +13092,7 @@ index f5d9b7c..81527b0 100644
 +  }
 +}
 diff --git a/src/resolver.ts b/src/resolver.ts
-index 9576a47..3aa2e32 100644
+index 9576a47..d457a5a 100644
 --- a/src/resolver.ts
 +++ b/src/resolver.ts
 @@ -36,7 +36,9 @@ import {
@@ -14224,7 +14224,7 @@ index 9576a47..3aa2e32 100644
          );
        }
  
-@@ -3749,6 +4395,1009 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3749,6 +4395,1070 @@ export class Resolver extends DiagnosticEmitter {
      return instance;
    }
  
@@ -14643,6 +14643,63 @@ index 9576a47..3aa2e32 100644
 +    literal.inferredType = Node.createNamedType(Node.createSimpleTypeName(className, range), [], false, range);
 +    this.hiddenLiterals.set(node, literal);
 +    return literal;
++  }
++
++  /**
++   * amxts: a function that returns an object literal - `function rowOf(name:
++   * string) { return { name }; }` - returns the interface of its file that
++   * has the literal's fields, declared there or imported, rather than a shape
++   * of them: TypeScript reads `rowOf` as a `Row` wherever one goes, a `Row[]`
++   * of `names.map(rowOf)` included, and here a shape would be no `Row`. The
++   * one interface whose fields are the shape's - the same names, each of a
++   * type the shape's converts to, an optional one maybe left out - or null
++   * when none or more than one is.
++   */
++  private interfaceOfShape(type: Type, file: File): Type | null {
++    let shape = type.classReference;
++    if (!shape || !shape.members || !(<ClassDeclaration>shape.prototype.declaration).isShape) return null;
++    let fields = new Map<string, Type>();
++    for (let _values = Map_values(shape.members), i = 0, k = _values.length; i < k; ++i) {
++      let member = _values[i];
++      if (member.kind != ElementKind.PropertyPrototype) continue;
++      let property = this.resolveProperty(<PropertyPrototype>member, ReportMode.Swallow);
++      if (!property || !property.isField) return null;
++      fields.set(member.name, property.type);
++    }
++    let found: Class | null = null;
++    let members = file.members;
++    if (!members) return null;
++    for (let _values = Map_values(members), i = 0, k = _values.length; i < k; ++i) {
++      let element = _values[i];
++      // An interface of fields is a plain object's class (Parser.parseClassOrInterface); one the parser made for a literal has no name of its own.
++      if (element.kind != ElementKind.ClassPrototype || element.name.startsWith("__")) continue;
++      let prototype = <ClassPrototype>element;
++      if (!(<ClassDeclaration>prototype.declaration).isShape || prototype.typeParameterNodes) continue;
++      let iface = this.resolveClass(prototype, null, new Map(), ReportMode.Swallow);
++      if (!iface || iface == found || !iface.members) continue;
++      let matched = 0;
++      let fits = true;
++      for (let _members = Map_values(iface.members), j = 0, l = _members.length; j < l && fits; ++j) {
++        let member = _members[j];
++        if (member.kind != ElementKind.PropertyPrototype) continue;
++        let property = this.resolveProperty(<PropertyPrototype>member, ReportMode.Swallow);
++        if (!property) {
++          fits = false;
++          continue;
++        }
++        if (!fields.has(member.name)) {
++          fits = property.presenceOffset >= 0 || property.type.isNullableReference;
++          continue;
++        }
++        fits = assert(fields.get(member.name)).isAssignableTo(property.type);
++        ++matched;
++      }
++      if (!fits || matched != fields.size) continue;
++      if (found) return null;
++      found = iface;
++    }
++    if (!found) return null;
++    return type.isNullableReference ? found.type.asNullable() : found.type;
 +  }
 +
 +  /** amxts: the shapes lateShapeOf made, by literal; null for one it could not. */
@@ -15225,6 +15282,10 @@ index 9576a47..3aa2e32 100644
 +    }
 +
 +    if (result && returnsNull) result = result.isReference ? result.asNullable() : null;
++    if (result) {
++      let written = this.interfaceOfShape(result, prototype.file);
++      if (written) result = written;
++    }
 +
 +    this.program.instancesByName.delete(probe.internalName);
 +    this.inferringReturn.delete(prototype);
@@ -15234,7 +15295,7 @@ index 9576a47..3aa2e32 100644
    ensureOneTypeArgument(
      /** The type to resolve. */
      node: NamedTypeNode,
-@@ -3769,3 +5418,55 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3769,3 +5479,55 @@ export class Resolver extends DiagnosticEmitter {
      return typeArgumentNodes[0];
    }
  }

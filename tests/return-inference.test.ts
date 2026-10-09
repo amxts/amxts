@@ -222,3 +222,34 @@ export function run(): i32 {
 	expect(error).toBe('');
 	expect(run()).toBe('RangeError'.length * 100 + 'none'.length);
 });
+
+test('an object literal returned is the interface of the file with its fields, so an array of them is one of that interface', async () => {
+	const { error, exports } = await probe({ 'probe.ts': `
+import { Row } from "./row";
+interface Named { name: string; tag?: string }
+function rowOf(name: string) { return { name, hp: name.length * 1.0 }; }
+function namedOf(name: string) { return { name }; }
+function count(rows: Row[]): i32 { return rows.length; }
+export function run(): i32 {
+	const rows: Row[] = ["a", "bb"].map(name => rowOf(name));
+	const one: Row = rowOf("ccc");
+	const names: Named[] = ["x"].map(namedOf);
+	return count(rows) + <i32>rows[1].hp * 10 + <i32>one.hp * 100 + names.length * 1000;
+}
+`, 'row.ts': 'export interface Row { name: string; hp: number }\n' });
+	expect(error).toBe('');
+	expect(exports.run()).toBe(2 + 20 + 300 + 1000);
+});
+
+test('a literal two interfaces of the file fit stays a shape', async () => {
+	const { error } = await probe({ 'probe.ts': `
+interface A { name: string }
+interface B { name: string }
+function nameOf(name: string) { return { name }; }
+export function run(): i32 {
+	const list: A[] = ["x"].map(nameOf);
+	return list.length;
+}
+` });
+	expect(error).toContain('is not assignable to type');
+});
