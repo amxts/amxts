@@ -59,3 +59,23 @@ export function shared_config() {
 	const disk = configs.read("on-disk").getString("DISK.NAME", "none");
 	return `${made}|${disk}`;
 }
+
+function actedBy(player: Player) {
+	picked = `by ${player.name}`;
+}
+
+/** Actions and placeholders by name, several at once: functions of the player or of the context, called back from the owner. */
+export function shared_named() {
+	menus.addActions({
+		VIEWER_ACT: (player) => {
+			picked = `act ${player.name}`;
+		},
+		VIEWER_BY: actedBy,
+	});
+	menus.addPlaceholders({ who: player => player.name, menu: ({ menu }) => menu.name });
+	const menu = menus.find("SHARED_SHOP");
+	if (menu == null) return false;
+	menu.addItem({ title: "Act", placeholder: "%who% %menu%", action: "VIEWER_ACT" });
+	menu.addItem({ title: "By", action: "VIEWER_BY" });
+	return true;
+}

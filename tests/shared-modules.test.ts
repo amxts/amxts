@@ -77,6 +77,20 @@ describe('one instance, two plugins', () => {
 		expect(menus.screen(bob)!.text).not.toContain('Shield'); // visible says no to Bob
 	});
 
+	test('actions and placeholders by name, several at once - functions of the player or of the context - cross as a Record', async () => {
+		const { server, menus } = await boot(BOTH);
+		expect(server.native('shared_named')).toBe(true);
+		const alice = server.join('Alice');
+
+		expect(server.native('shared_open', alice.id)).toBe(true);
+		expect(menus.screen(alice)!.text).toContain('\\y[3]\\w Act Alice SHARED_SHOP');
+		menus.press(alice, 3);
+		expect(server.native('shared_picked')).toBe('act Alice');
+		server.native('shared_open', alice.id);
+		menus.press(alice, 4);
+		expect(server.native('shared_picked')).toBe('by Alice');
+	});
+
 	test('a config one plugin writes, the other reads; the base folder is one for both', async () => {
 		const { server } = await boot(BOTH);
 		expect(server.native('shared_config')).toBe('value|disk');

@@ -18,7 +18,8 @@
 // What crosses, and how:
 //
 // - number, boolean, string (and a union of string literals, which is a
-//   string), arrays of them, `T | null`;
+//   string), arrays of them, `T | null`, a `Record<string, T>` - its keys
+//   and values in order; a rest parameter as its array;
 // - Player, by its id;
 // - an object the module hands out and takes back - it is returned by one
 //   exported function and taken by another: a config, a section - or hands
@@ -100,6 +101,7 @@ type Wire
 		| { kind: 'player' }
 		| { kind: 'null'; of: Wire }
 		| { kind: 'array'; of: Wire }
+		| { kind: 'dict'; of: Wire }
 		| { kind: 'fn'; params: Wire[]; result: Wire | null; sig: number }
 		| { kind: 'record'; cls: ClassInfo }
 		| { kind: 'handle'; cls: ClassInfo };
@@ -132,6 +134,8 @@ interface ExportedFunction {
 	paramNames: string[];
 	wires: Wire[];
 	result: Wire | null;
+	/** Its last parameter is a rest parameter, `...names: string[]`: the owner spreads the array into it. */
+	rest?: boolean;
 }
 
 export interface ModuleAnalysis {
@@ -434,6 +438,11 @@ function describe(program: any, name: string): ModuleAnalysis {
 				const of = toWire(cls.typeArguments[0], context);
 				return of ? { kind: 'array', of } : null;
 			}
+			// A Record of text keys, `{ KZ_CP: checkpoint }`: its keys and values, in order.
+			if (program.resolver.isRecordClass(cls) && String(cls.typeArguments[0]) === '~lib/string/String') {
+				const of = toWire(cls.typeArguments[1], context);
+				return of ? { kind: 'dict', of } : null;
+			}
 			if (cls.internalName === '~lib/~/facade/Player') return { kind: 'player' };
 			const info = classInfo(cls, context);
 			if (!info) return null;
@@ -459,13 +468,12 @@ function describe(program: any, name: string): ModuleAnalysis {
 		const params: string[] = [];
 		const paramNames: string[] = [];
 		const wires: Wire[] = [];
+		let rest = false;
 		declaration.signature.parameters.forEach((param: any, i: number) => {
 			const paramName = param.name.text;
 			const pcontext = where(`${context} - parameter "${paramName}"`);
-			if (param.parameterKind === as.ParameterKind.Rest) {
-				problems.push(`${pcontext}: a rest parameter cannot cross - take an array`);
-				return;
-			}
+			// A rest parameter crosses as the array it is.
+			if (param.parameterKind === as.ParameterKind.Rest) rest = true;
 			if (param.initializer && !plainDefault(param.initializer)) {
 				problems.push(`${pcontext}: its default is computed - the proxy evaluates it in the other plugin, so it has to be a literal`);
 				return;
@@ -484,7 +492,7 @@ function describe(program: any, name: string): ModuleAnalysis {
 		}
 		const result = returned === 'void' ? null : toWire(returns, where(`${context} - its result`));
 		if (returned !== 'void' && !result) return null;
-		return { name: fnName, params, paramNames, wires, result };
+		return { name: fnName, params, paramNames, wires, result, rest };
 	}
 
 	for (const { name: fnName, element, instance } of exported) {
@@ -573,6 +581,7 @@ function wireKey(wire: Wire): string {
 		case 'player': return 'player';
 		case 'null': return `${wireKey(wire.of)}?`;
 		case 'array': return `${wireKey(wire.of)}[]`;
+		case 'dict': return `{${wireKey(wire.of)}}`;
 		case 'fn': return `(${wire.params.map(wireKey).join(',')})=>${wire.result ? wireKey(wire.result) : 'void'}`;
 		case 'record': return `rec ${wire.cls.internal}`;
 		case 'handle': return `handle ${wire.cls.internal}`;
@@ -609,6 +618,7 @@ class Codec {
 			case 'player': return '__Player';
 			case 'null': return wire.of.kind === 'fn' ? `(${this.type(wire.of)}) | null` : `${this.type(wire.of)} | null`;
 			case 'array': return `Array<${this.type(wire.of)}>`;
+			case 'dict': return `Record<string, ${this.type(wire.of)}>`;
 			case 'fn': return `(${wire.params.map((p, i) => `a${i}: ${this.type(p)}`).join(', ')}) => ${wire.result ? this.type(wire.result) : 'void'}`;
 			case 'record':
 			case 'handle': return this.className(wire.cls);
@@ -675,6 +685,12 @@ class Codec {
 				const inner = this.id(wire.of);
 				lines.push(`function __w${n}(w: __Writer, v: ${T}): void {\n\tw.i32(v.length);\n\tfor (let i: i32 = 0; i < v.length; i++) __w${inner}(w, v[i]);\n}`);
 				lines.push(`function __r${n}(r: __Reader): ${T} {\n\tconst count = r.i32();\n\tconst list = new Array<${this.type(wire.of)}>();\n\tfor (let i: i32 = 0; i < count; i++) list.push(__r${inner}(r));\n\treturn list;\n}`);
+				break;
+			}
+			case 'dict': {
+				const inner = this.id(wire.of);
+				lines.push(`function __w${n}(w: __Writer, v: ${T}): void {\n\tconst keys = Object.keys(v);\n\tw.i32(keys.length);\n\tfor (let i: i32 = 0; i < keys.length; i++) {\n\t\tw.str(keys[i]);\n\t\t__w${inner}(w, v[keys[i]]);\n\t}\n}`);
+				lines.push(`function __r${n}(r: __Reader): ${T} {\n\tconst count = r.i32();\n\tconst record: ${T} = {};\n\tfor (let i: i32 = 0; i < count; i++) {\n\t\tconst key = r.str();\n\t\trecord[key] = __r${inner}(r);\n\t}\n\treturn record;\n}`);
 				break;
 			}
 			case 'fn':
@@ -875,7 +891,7 @@ export function serveSource(analysis: ModuleAnalysis): string {
 
 	/** A call of `fn` on `target` - the module, or a handle's object read first. */
 	const callCase = (op: number, fn: ExportedFunction, target: string, before: string[]) => {
-		const args = fn.paramNames.map((_, i) => `a${i}`).join(', ');
+		const args = fn.paramNames.map((_, i) => `${fn.rest && i === fn.paramNames.length - 1 ? '...' : ''}a${i}`).join(', ');
 		const lines = [
 			...before,
 			...fn.wires.map((wire, i) => `\t\t\tconst a${i} = ${codec.read(wire, 'r')};`),
