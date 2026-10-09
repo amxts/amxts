@@ -130,6 +130,15 @@ function info(player: Player) {
 
 server.addCommand("pl_colors", ({ player }) => player.print("KZ !yhi !gthere"));
 
+// One line again after another: painted once, and still itself.
+server.addCommand("pl_colors_again", ({ player }) => {
+	const line = "!gGG";
+	player.print(line);
+	player.print(`!rnot ${player.name}`);
+	player.print(line);
+	player.print("!gG" + "G");
+});
+
 server.addCommand("pl_breaking", ({ player }) => {
 	const name: string = "weapon_ak74";
 	player.print(`${player.give(name)} ${player.give(name)} ${player.give("weapon_ak47")}`, "console");

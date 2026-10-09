@@ -54,7 +54,8 @@ enum
 	ECHO_PAWN,
 	STEAM_ID,
 	MAP_NAME,
-	HUD_MESSAGE
+	HUD_MESSAGE,
+	CHAT_MESSAGE
 }
 
 new HookChain:g_hook;
@@ -63,6 +64,7 @@ new Float:g_fsink;
 new g_writes;
 new g_commands;
 new g_choices;
+new g_sayText;
 
 // The menu perf.ts's bot chooses from: its handler shows it again.
 new g_menu;
@@ -84,6 +86,7 @@ new Float:g_x[33], Float:g_y[33], Float:g_speed[33], Float:g_top[33], Float:g_tr
 public plugin_init()
 {
 	register_plugin("amxts test: perf", "1.0", "amxts");
+	g_sayText = get_user_msgid("SayText");
 	register_srvcmd("amxts_perf_pawn", "measure");
 	register_srvcmd("amxts_perf_pawn_timers", "arm_timers");
 	register_srvcmd("amxts_perf_pawn_commands", "report_commands");
@@ -344,6 +347,17 @@ run(what, id, count)
 				show_hudmessage(id, "Round 3");
 			}
 		}
+		case CHAT_MESSAGE:
+		{
+			// client_print_color skips a bot; this is what it sends a player.
+			for (new i = 0; i < count; i++)
+			{
+				message_begin(MSG_ONE, g_sayText, _, id);
+				write_byte(id);
+				write_string("^4Round ^13");
+				message_end();
+			}
+		}
 		case ORIGIN_READ:
 		{
 			for (new i = 0; i < count; i++)
@@ -417,6 +431,7 @@ public measure()
 	// Pawn writes its parameters in place at every call.
 	report_each("HUD message, options in place", HUD_MESSAGE, id, FEW);
 	report_each("HUD message, colour in place", HUD_MESSAGE, id, FEW);
+	report_each("chat message", CHAT_MESSAGE, id, FEW);
 	report_each("origin read", ORIGIN_READ, id, FEW);
 	report_each("origin into a vector", ORIGIN_READ, id, MANY);
 	report_each("string in", STRING_IN, id, FEW);

@@ -1653,11 +1653,22 @@ static AMX_NATIVE NeedsPlugin(const char *name, AMX_NATIVE fn)
 /**
  * Set by amxts_trace in the server console.
  *
- * Off costs a branch and prints nothing. On, every handler call and every
- * message written says so, which is how the crash behind a say command was
- * cornered: the last line before the silence names what was running.
+ * Off costs a branch and prints nothing. On, every handler call says so,
+ * which is how the crash behind a say command was cornered: the last line
+ * before the silence names what was running.
  */
 static bool g_trace = false;
+
+/** Every slot a client can take, 0 unused. */
+#define CLIENT_SLOTS 33
+
+/**
+ * AMX Mod X's view of each client, kept the same way: connected
+ * (CPlayer::initialized, from client_connect) and in the game (ingame, from
+ * client_putinserver), until the slot is let go.
+ */
+static bool g_connected[CLIENT_SLOTS];
+static bool g_inGame[CLIENT_SLOTS];
 
 /** The team name a player is on, as TeamInfo spells it. */
 static std::string TeamOf(int id)
@@ -1683,44 +1694,16 @@ static std::string TeamOf(int id)
 	return out;
 }
 
-/** One message of one byte and one string, to one player. */
-static bool WriteTo(int id, int message, int sender, const char *text)
+/**
+ * One message of one byte and one string, to one player, through the engine
+ * as AMX Mod X's message_begin sends it: no plugin's message hook hears it.
+ */
+static void ChatMessage(edict_t *to, int message, int sender, const char *text)
 {
-	cell mark = g_image->hea;
-
-	Args begin(4);
-	begin[1] = 1;                     // MSG_ONE
-	begin[2] = message;
-	begin[3] = 0;                     // MSG_ONE ignores the origin
-	begin[4] = id;
-
-	// If this fails - an unknown message id, a player who is not there - the
-	// writes that follow would land outside any message, and writing outside a
-	// message crashes the engine rather than failing.
-	if (g_trace) MF_PrintSrvConsole("[amxts] TRACE begin msg=%d to=%d\n", message, id);
-
-	if (!CallNative("message_begin", begin)) {
-		if (g_trace) MF_PrintSrvConsole("[amxts] TRACE begin refused\n");
-		g_image->hea = mark;
-		return false;
-	}
-
-	Args byte(1);
-	byte[1] = sender;
-	CallNative("write_byte", byte);
-	if (g_trace) MF_PrintSrvConsole("[amxts] TRACE byte written\n");
-
-	Args str(1);
-	str[1] = PushString(text);
-	CallNative("write_string", str);
-	if (g_trace) MF_PrintSrvConsole("[amxts] TRACE string written\n");
-
-	Args end(0);
-	CallNative("message_end", end);
-	if (g_trace) MF_PrintSrvConsole("[amxts] TRACE message ended\n");
-
-	g_image->hea = mark;
-	return true;
+	MESSAGE_BEGIN(MSG_ONE, message, NULL, to);
+	WRITE_BYTE(sender);
+	WRITE_STRING(text);
+	MESSAGE_END();
 }
 
 static int g_msgSayText = 0;
@@ -1746,35 +1729,93 @@ static int MessageId(const char *name)
  * Three messages for one line, and the truth has to go back or the scoreboard
  * lies for the rest of the round.
  */
-static void SendChat(int id, const std::string &line, const std::string &swapTo)
+static void SendChat(int id, const char *line, const char *swapTo)
 {
 	if (!g_msgSayText) g_msgSayText = MessageId("SayText");
 	if (!g_msgTeamInfo) g_msgTeamInfo = MessageId("TeamInfo");
 
-	if (!g_msgSayText)
+	// A message to a slot nobody holds would land in no client's stream.
+	if (!g_msgSayText || id < 1 || id >= CLIENT_SLOTS || !g_connected[id])
 		return;
 
-	// The client renders a SayText through printf, so a lone % would be
-	// swallowed as a conversion. Doubled, exactly one is shown.
-	std::string text;
-	for (size_t i = 0; i < line.size(); i++) {
-		text += line[i];
-		if (line[i] == '%') text += '%';
-	}
-
-	std::string team = swapTo.empty() ? std::string() : TeamOf(id);
+	std::string team = *swapTo ? TeamOf(id) : std::string();
 
 	// Without a team to put back there is nothing to swap safely: the client
 	// would be left believing something that is not so.
-	bool swapping = !swapTo.empty() && !team.empty() && g_msgTeamInfo != 0;
-
-	if (swapping && !WriteTo(id, g_msgTeamInfo, id, swapTo.c_str()))
-		swapping = false;
-
-	WriteTo(id, g_msgSayText, id, text.c_str());
+	bool swapping = *swapTo && !team.empty() && g_msgTeamInfo != 0;
+	edict_t *to = INDEXENT(id);
 
 	if (swapping)
-		WriteTo(id, g_msgTeamInfo, id, team.c_str());
+		ChatMessage(to, g_msgTeamInfo, id, swapTo);
+
+	ChatMessage(to, g_msgSayText, id, line);
+
+	if (swapping)
+		ChatMessage(to, g_msgTeamInfo, id, team.c_str());
+}
+
+/** The bytes a chat line is read into: more than a message to a client holds. */
+#define CHAT_ROOM 512
+
+/**
+ * The plugin's string at `ptr` in its memory (`base`, `size` bytes) as UTF-8
+ * in `out`, every % doubled - the client renders a SayText through printf,
+ * and a lone % would be swallowed as a conversion - and cut before a letter
+ * that does not fit `room`. Read in place, in one pass: "" when the pointer
+ * is not a string.
+ */
+static void ChatText(const uint8_t *base, uint64_t size, int32_t ptr, char *out, uint32_t room)
+{
+	char *dst = out, *stop = out + room - 1;
+	*dst = 0;
+	if (!base || ptr <= 4 || (uint64_t)ptr > size)
+		return;
+	// The byte length is the u32 before it, as AsString reads it.
+	uint32_t bytes = *(const uint32_t *)(base + ptr - 4);
+	if (bytes > size - (uint64_t)ptr)
+		return;
+
+	const uint16_t *chars = (const uint16_t *)(base + ptr);
+	uint32_t n = bytes / 2, i = 0;
+
+	// Most of a line is ASCII without a %: a unit a byte.
+	for (uint32_t ascii = n < room - 1 ? n : room - 1; i < ascii && chars[i] < 0x80 && chars[i] != '%'; i++)
+		*dst++ = (char)chars[i];
+
+	for (; i < n; i++) {
+		uint32_t c = chars[i];
+		if (c < 0x80) {
+			int width = c == '%' ? 2 : 1;
+			if (stop - dst < width)
+				break;
+			*dst++ = (char)c;
+			if (c == '%')
+				*dst++ = '%';
+			continue;
+		}
+
+		// A surrogate pair is one character; a lone half is not one at all.
+		if (c >= 0xD800 && c <= 0xDBFF && i + 1 < n && chars[i + 1] >= 0xDC00 && chars[i + 1] <= 0xDFFF)
+			c = 0x10000 + ((c - 0xD800) << 10) + (chars[++i] - 0xDC00);
+		else if (c >= 0xD800 && c <= 0xDFFF)
+			c = 0xFFFD;
+
+		int width = c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+		if (stop - dst < width)
+			break;
+		if (width == 2) {
+			*dst++ = (char)(0xC0 | (c >> 6));
+		} else if (width == 3) {
+			*dst++ = (char)(0xE0 | (c >> 12));
+			*dst++ = (char)(0x80 | ((c >> 6) & 0x3F));
+		} else {
+			*dst++ = (char)(0xF0 | (c >> 18));
+			*dst++ = (char)(0x80 | ((c >> 12) & 0x3F));
+			*dst++ = (char)(0x80 | ((c >> 6) & 0x3F));
+		}
+		*dst++ = (char)(0x80 | (c & 0x3F));
+	}
+	*dst = 0;
 }
 
 /**
@@ -1785,21 +1826,19 @@ static void SendChat(int id, const std::string &line, const std::string &swapTo)
  */
 static void w_say_text(wasm_exec_env_t env, int32_t id, int32_t text, int32_t swapTo)
 {
-	std::string line = AsString(Inst(env), text);
-	std::string swap = AsString(Inst(env), swapTo);
+	uint64_t size = 0;
+	const uint8_t *base = wasm_runtime_memory_view(env, &size);
+	char line[CHAT_ROOM], swap[16];
+	ChatText(base, size, text, line, sizeof line);
+	ChatText(base, size, swapTo, swap, sizeof swap);
 
 	if (id > 0) {
 		SendChat(id, line, swap);
 		return;
 	}
 
-	int players = (int)CallNative("get_maxplayers", Args(0));
-	for (int i = 1; i <= players; i++) {
-		Args connected(1);
-		connected[1] = i;
-		if (CallNative("is_user_connected", connected))
-			SendChat(i, line, swap);
-	}
+	for (int i = 1; i <= gpGlobals->maxClients && i < CLIENT_SLOTS; i++)
+		SendChat(i, line, swap);
 }
 
 static void w_print_client(wasm_exec_env_t env, int32_t id, int32_t channel, int32_t msg)
@@ -1845,17 +1884,6 @@ static int32_t w_get_name(wasm_exec_env_t env, int32_t id, int32_t out, int32_t 
 // entity and of a player in the game.
 static char *EntvarAt(int32_t id, int32_t offset);
 static char *PlayerEntvarAt(int32_t id, int32_t offset);
-
-/** Every slot a client can take, 0 unused. */
-#define CLIENT_SLOTS 33
-
-/**
- * AMX Mod X's view of each client, kept the same way: connected
- * (CPlayer::initialized, from client_connect) and in the game (ingame, from
- * client_putinserver), until the slot is let go.
- */
-static bool g_connected[CLIENT_SLOTS];
-static bool g_inGame[CLIENT_SLOTS];
 
 /** Whether the client in slot `id` is in the game, as MF_IsPlayerIngame says, without its call. */
 static bool InGame(int32_t id)

@@ -56,9 +56,9 @@ test('the module passes every parameter of a native it calls', () => {
 	const table = arities();
 	const all = SOURCES.flatMap(file => calls(readFileSync(`runtime/src/${file}`, 'utf-8')).map(call => ({ file, ...call })));
 
-	// The patterns find the calls: message_begin's takes defaults it must pass.
-	expect(all.some(call => call.native === 'message_begin')).toBe(true);
-	expect(all.length).toBeGreaterThan(10);
+	// The patterns find the calls: get_plugin's takes defaults it must pass.
+	expect(all.some(call => call.native === 'get_plugin')).toBe(true);
+	expect(all.length).toBeGreaterThan(5);
 
 	const short = all
 		.filter(call => !VARIADIC.has(call.native))

@@ -3845,8 +3845,8 @@ export default {
 		`,
 	},
 	'swapTeam': {
-		en: `The team colour the last \`paint()\` chose for the line, one of \`"TERRORIST"\` (red), \`"CT"\` (blue), \`"SPECTATOR"\` (grey), or \`""\` - the reader's own team colour. \`player.print\` reads it right after.`,
-		ru: `Цвет команды, который последний вызов \`paint()\` выбрал для строки, — одно из \`"TERRORIST"\` (красный), \`"CT"\` (синий), \`"SPECTATOR"\` (серый) или \`""\` — цвет команды читающего. \`player.print\` читает его сразу после.`,
+		en: `The team colour the last \`paint()\` chose for the line, one of \`"TERRORIST"\` (red), \`"CT"\` (blue), \`"SPECTATOR"\` (grey), or \`""\` - the reader's own team colour.`,
+		ru: `Цвет команды, который последний вызов \`paint()\` выбрал для строки, — одно из \`"TERRORIST"\` (красный), \`"CT"\` (синий), \`"SPECTATOR"\` (серый) или \`""\` — цвет команды читающего.`,
 	},
 	'lang': {
 		en: `

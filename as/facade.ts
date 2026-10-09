@@ -5377,7 +5377,10 @@ import { ET_IGNORE, ET_STOP, FP_ARRAY, FP_CELL, FP_FLOAT, FP_STRING } from "./co
 import { ROUND_NONE, ROUND_CTS_WIN, ROUND_TERRORISTS_WIN, ROUND_END_DRAW, RG_RoundEnd, print_center } from "./constants";
 import { PluginInitEvent, PluginPrecacheEvent, ServerEventMap, ServerMessageMap, ServerSendMap, __sendMessage, addServerListener, protocolMessageNames, removeServerListener } from "./events";
 
-function variantOf(variant: VariantName): number {
+function variantOf(variant: VariantName): i32 {
+	// Chat first: the default, and most messages - the default's own string,
+	// told by where it is before what it says.
+	if (changetype<usize>(variant) == changetype<usize>(Variant.chat) || variant == Variant.chat) return 3;
 	if (variant == Variant.center) return 4;
 	if (variant == Variant.console) return 2;
 	if (variant == Variant.notify) return 1;
@@ -5391,47 +5394,63 @@ const CHAT_TAGS = "yrdgbt";
 /** The colour tags a menu draws: `!y` yellow, `!r` red, `!d` grey, `!w` white, `!R` to the right edge. */
 const MENU_TAGS = "yrdwR";
 
+/** A chat tag's colour code, by its letter: `""` for a menu's tag (`!w`, `!R`), which chat drops; `null` for a letter that is no tag. */
+function chatCode(letter: i32): string | null {
+	switch (letter) {
+		case 0x79: return "\x01";                                  // y
+		case 0x67: return "\x04";                                  // g
+		case 0x72: case 0x64: case 0x62: case 0x74: return "\x03"; // r d b t: the team colour
+		case 0x77: case 0x52: return "";                           // w R
+	}
+	return null;
+}
+
+/** The team whose colour a chat tag's letter asks for: `""` for none. */
+function swapOf(letter: i32): string {
+	if (letter == 0x72) return "TERRORIST";
+	if (letter == 0x62) return "CT";
+	if (letter == 0x64) return "SPECTATOR";
+	return letter == 0x74 ? SENDER_TEAM : "";
+}
+
+// The last line painted and what it became: a plugin prints one line to
+// player after player, and send() paints it once.
+let paintedText = "";
+let painted = "";
+let paintedSwap = "";
+
 /** Turns a chat line's colour tags (`!g`, `!r`, ...) into the colour codes the client reads, and records in `swapTeam` which team colour the line needs. `player.print` calls it; exported for tests. */
 export function paint(text: string): string {
 	swapTeam = "";
 
+	// The text goes over in runs between its tags, not a letter at a time.
 	let out = "";
+	let from = 0;
 
-	for (let i = 0; i < text.length; i++) {
-		const tag = i + 1 < text.length ? text.charAt(i + 1) : "";
+	for (let at = text.indexOf("!"); at >= 0 && at + 1 < text.length; at = text.indexOf("!", at + 1)) {
+		const letter = text.charCodeAt(at + 1);
+		const code = chatCode(letter);
+		// Not a tag after all: the `!` stands for itself.
+		if (code == null) continue;
 
-		if (text.charAt(i) != "!" || tag.length == 0 || !(CHAT_TAGS.includes(tag) || MENU_TAGS.includes(tag))) {
-			// Not a tag after all: the `!` stands for itself.
-			out += text.charAt(i);
-			continue;
-		}
-
-		i++;
-
-		// A menu's tag (`!w`, `!R`) means nothing in chat: it goes.
-		if (!CHAT_TAGS.includes(tag)) continue;
-
-		let code: i32 = 0x03;
-		let swap = "";
-
-		if (tag == "g") code = 0x04;
-		else if (tag == "y") code = 0x01;
-		else if (tag == "t") swap = SENDER_TEAM;
-		else if (tag == "r") swap = "TERRORIST";
-		else if (tag == "b") swap = "CT";
-		else if (tag == "d") swap = "SPECTATOR";
-
-		out += String.fromCharCode(code);
+		out += text.substring(from, at) + code;
+		from = at + 2;
+		at++;
 
 		// The first colour that needs a swap decides it; the rest inherit,
 		// because the swap belongs to the message and not to a character.
-		if (swap.length > 0 && swapTeam.length == 0) swapTeam = swap;
+		if (swapTeam.length == 0) swapTeam = swapOf(letter);
 	}
+
+	out += text.substring(from);
 
 	// The client draws no colour in a line that does not start with a colour
 	// code, and shows the codes as spaces: such a line starts yellow.
 	if (out.length > 0 && out.charCodeAt(0) > 0x04) out = "\x01" + out;
 
+	paintedText = text;
+	painted = out;
+	paintedSwap = swapTeam;
 	return out;
 }
 
@@ -5443,11 +5462,13 @@ function send(id: i32, channel: i32, message: string): void {
 		return;
 	}
 
-	const painted = paint(message);
-	_sayText(id, painted, swapTeam);
+	// A line printed again is painted already: the same string is the same
+	// text, as a string never changes and paintedText keeps it alive.
+	if (changetype<usize>(message) != changetype<usize>(paintedText)) paint(message);
+	_sayText(id, painted, paintedSwap);
 }
 
-/** The team colour the last `paint()` chose for the line, one of `"TERRORIST"` (red), `"CT"` (blue), `"SPECTATOR"` (grey), or `""` - the reader's own team colour. `player.print` reads it right after. */
+/** The team colour the last `paint()` chose for the line, one of `"TERRORIST"` (red), `"CT"` (blue), `"SPECTATOR"` (grey), or `""` - the reader's own team colour. */
 export let swapTeam: string = "";
 
 /** `!t` asks for the sender's own team, which the module fills in. */

@@ -43,6 +43,7 @@ const LIMITS: Record<string, number> = {
 	"HUD message": 2,
 	"HUD message, options in place": 2.5,
 	"HUD message, colour in place": 2.5,
+	"chat message": 1,
 	"origin read": 1.5,
 	"origin into a vector": 1.25,
 	"string in": 3,
@@ -358,6 +359,9 @@ function measure(player: Player) {
 	}));
 	ours.set("HUD message, colour in place", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) player.showHud("Round 3", { color: [255, 40, 40], hold: 2 });
+	}));
+	ours.set("chat message", nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) player.print("!gRound !y3");
 	}));
 	ours.set("origin read", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) sink += player.origin.x;

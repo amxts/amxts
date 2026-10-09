@@ -249,6 +249,15 @@ test('a chat line that does not start with a colour starts yellow, or the client
 	expect(alice.chat).toBe('KZ hi there');
 });
 
+test('a line printed again, after another, is the same line', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	alice.command('pl_colors_again');
+
+	expect(alice.chatRaw.split('\n')).toEqual(['\x04GG', '\x03not Alice', '\x04GG', '\x04GG']);
+});
+
 test('give takes any name and says once the one the game has not', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
