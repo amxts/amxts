@@ -4282,6 +4282,7 @@ static void w_playerDrop(wasm_exec_env_t env, int32_t id, int32_t name);
 static int32_t w_playerStat(wasm_exec_env_t env, int32_t id, int32_t what);
 static int32_t w_userInfo(wasm_exec_env_t env, int32_t id, int32_t key, int32_t out, int32_t max);
 static void w_setUserInfo(wasm_exec_env_t env, int32_t id, int32_t key, int32_t value);
+static int32_t w_envGet(wasm_exec_env_t env, int32_t name, int32_t out, int32_t max);
 static int32_t w_playerSilent(wasm_exec_env_t env, int32_t id, int32_t on);
 static int32_t w_geoCountry(wasm_exec_env_t env, int32_t ip, int32_t what, int32_t out, int32_t max);
 static void w_playerSwitchTeam(wasm_exec_env_t env, int32_t id);
@@ -4393,6 +4394,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "player_drop",    (void *)w_playerDrop,    "(ii)",  NULL },
 	{ "player_stat",    (void *)w_playerStat,    "(ii)i", NULL },
 	{ "info_get",       (void *)w_userInfo,      "(iiii)i", NULL },
+	{ "env_get",        (void *)w_envGet,        "(iii)i", NULL },
 	{ "info_set",       (void *)w_setUserInfo,   "(iii)", NULL },
 	{ "player_silent",  (void *)w_playerSilent,  "(ii)i", NULL },
 	{ "geo_country",    (void *)w_geoCountry,    "(iiii)i", NULL },
@@ -5065,6 +5067,9 @@ static const char *AotBuiltForOtherSystem(const unsigned char *data, size_t size
 // The custom section that holds the ABI a plugin was compiled against
 // (scripts/build-identity.ts).
 #define ABI_SECTION "amxts.abi"
+// The custom section that lists the variables a plugin requires, a name a
+// line (scripts/server-env.ts).
+#define ENV_SECTION "amxts.env"
 
 static uint32_t ReadU32(const unsigned char *at)
 {
@@ -5072,11 +5077,12 @@ static uint32_t ReadU32(const unsigned char *at)
 }
 
 /**
- * The ABI an .aot was compiled against - its custom section amxts.abi, which
- * scripts/compile.ts writes and wamrc copies - or "" when it has none: a
- * plugin built before plugins carried one. `whole` says whether its sections
- * reach the end of the file: one read while it is still being written - an
- * upload comes in pieces - is cut short, ABI section or not.
+ * A custom section of an .aot by its name - amxts.abi, the ABI it was
+ * compiled against, or amxts.env - which scripts/compile.ts writes and wamrc
+ * copies, or "" when it has none: a plugin built before plugins carried one.
+ * `whole` says whether its sections reach the end of the file: one read
+ * while it is still being written - an upload comes in pieces - is cut
+ * short, ABI section or not.
  *
  * It is read off the file before WAMR sees it: a plugin of another ABI calls
  * imports this module does not have, or has with other types, and crashes
@@ -5086,9 +5092,9 @@ static uint32_t ReadU32(const unsigned char *at)
  * that counts the terminator, then the bytes - and its content
  * (aot_emit_custom_sections in WAMR's aot_emit_aot_file.c).
  */
-static std::string AotAbi(const unsigned char *data, size_t size, bool *whole)
+static std::string AotSection(const unsigned char *data, size_t size, const char *wanted, bool *whole)
 {
-	const size_t nameLength = sizeof(ABI_SECTION);
+	const size_t nameLength = strlen(wanted) + 1;
 	std::string abi;
 	size_t at = 8;
 	*whole = false;
@@ -5099,7 +5105,7 @@ static std::string AotAbi(const unsigned char *data, size_t size, bool *whole)
 		if (length > size - at - 8)
 			return abi;
 		if (type == 100 && length >= 6 + nameLength && ReadU32(body) == 0
-		    && (size_t)(body[4] | body[5] << 8) == nameLength && memcmp(body + 6, ABI_SECTION, nameLength) == 0)
+		    && (size_t)(body[4] | body[5] << 8) == nameLength && memcmp(body + 6, wanted, nameLength) == 0)
 			abi.assign((const char *)body + 6 + nameLength, length - 6 - nameLength);
 		at = (at + 8 + length + 3) & ~(size_t)3;
 	}
@@ -5243,6 +5249,142 @@ static void BindAll(int index)
 	BindGameHooks(index);
 }
 
+// ---------------------------------------------------------------- env()
+
+/**
+ * What env() reads where the environment has no such variable:
+ * addons/amxts/.env beside the plugin list, `KEY=value` lines read as
+ * scripts/server-env.ts's parseDotenv reads them - `#` comments, a value in
+ * quotes kept as it is, one without them cut at a ` #` comment. Read again
+ * before each plugin loads (LoadEntry), so an edit takes with amxts_reload.
+ * No value is ever printed.
+ */
+static std::map<std::string, std::string> g_dotenv;
+
+static std::string DotenvPath()
+{
+	return ListHome() + "/.env";
+}
+
+static std::string Trimmed(const std::string &text)
+{
+	size_t start = text.find_first_not_of(" \t\r");
+	return start == std::string::npos ? std::string() : text.substr(start, text.find_last_not_of(" \t\r") - start + 1);
+}
+
+static void ReadDotenv()
+{
+	g_dotenv.clear();
+	std::string text = ReadWhole(MF_BuildPathname("%s", DotenvPath().c_str()));
+	for (size_t at = 0, end; at < text.size(); at = end + 1) {
+		end = text.find('\n', at);
+		if (end == std::string::npos)
+			end = text.size();
+		std::string line = Trimmed(text.substr(at, end - at));
+		size_t equals = line.find('=');
+		if (line.empty() || line[0] == '#' || equals == std::string::npos || equals == 0)
+			continue;
+		std::string value = Trimmed(line.substr(equals + 1));
+		size_t close = !value.empty() && (value[0] == '"' || value[0] == '\'') ? value.find(value[0], 1) : std::string::npos;
+		if (close != std::string::npos) {
+			value = value.substr(1, close - 1);
+		} else {
+			for (size_t i = 1; i < value.size(); i++)
+				if (value[i] == '#' && (value[i - 1] == ' ' || value[i - 1] == '\t')) {
+					value = Trimmed(value.substr(0, i));
+					break;
+				}
+		}
+		g_dotenv[Trimmed(line.substr(0, equals))] = value;
+	}
+}
+
+/** A variable of the environment, else of .env; NULL when neither has it. */
+static const char *EnvValue(const std::string &name)
+{
+	const char *value = getenv(name.c_str());
+	if (value)
+		return value;
+	std::map<std::string, std::string>::const_iterator it = g_dotenv.find(name);
+	return it == g_dotenv.end() ? NULL : it->second.c_str();
+}
+
+/** Whether a value is a number as env() takes one: decimal, a fraction and an exponent allowed. */
+static bool EnvNumber(const char *text)
+{
+	const char *at = text + (*text == '+' || *text == '-');
+	size_t whole = strspn(at, "0123456789");
+	at += whole;
+	size_t fraction = *at == '.' ? strspn(at + 1, "0123456789") : 0;
+	if (*at == '.')
+		at += 1 + fraction;
+	if (whole + fraction == 0)
+		return false;
+	if (*at == 'e' || *at == 'E') {
+		at += 1 + (at[1] == '+' || at[1] == '-');
+		size_t digits = strspn(at, "0123456789");
+		if (digits == 0)
+			return false;
+		at += digits;
+	}
+	return *at == 0;
+}
+
+/** Whether a value is an on/off switch: 1/0, true/false, yes/no or on/off, in any case. */
+static bool EnvSwitch(const char *text)
+{
+	static const char *const WORDS[] = { "1", "0", "true", "false", "yes", "no", "on", "off" };
+	std::string word(text);
+	for (char &c : word)
+		c = (char)tolower((unsigned char)c);
+	for (const char *each : WORDS)
+		if (word == each)
+			return true;
+	return false;
+}
+
+/**
+ * What a plugin's amxts.env section - a line each: `NAME` required, or
+ * `NAME number 100`, `NAME boolean false`, `NAME string text` with its
+ * default - needs that the server has not: "A, B as a number"; "" for none.
+ */
+static std::string MissingEnv(const std::string &section)
+{
+	std::string missing;
+	for (size_t at = 0, end; at < section.size(); at = end + 1) {
+		end = section.find('\n', at);
+		if (end == std::string::npos)
+			end = section.size();
+		std::string line = section.substr(at, end - at);
+		size_t space = line.find(' ');
+		std::string name = line.substr(0, space);
+		std::string kind = space == std::string::npos ? std::string() : line.substr(space + 1, line.find(' ', space + 1) - space - 1);
+		const char *value = name.empty() ? "" : EnvValue(name);
+		std::string need = !value ? (kind.empty() ? name : std::string())
+			: kind == "number" && !EnvNumber(value) ? name + " as a number"
+			: kind == "boolean" && !EnvSwitch(value) ? name + " as a boolean"
+			: std::string();
+		if (!need.empty())
+			missing += (missing.empty() ? "" : ", ") + need;
+	}
+	return missing;
+}
+
+/** env_get(name, out, max) - a variable of the environment, else of .env: its length in bytes, of which `max` are written; -1 when neither has it. */
+static int32_t w_envGet(wasm_exec_env_t env, int32_t name, int32_t out, int32_t max)
+{
+	wasm_module_inst_t inst = Inst(env);
+	const char *value = EnvValue(AsString(inst, name));
+	if (!value)
+		return -1;
+	int32_t length = (int32_t)strlen(value);
+	if (out > 0 && max > 0 && wasm_runtime_validate_app_addr(inst, (uint64_t)out, (uint64_t)max))
+		memcpy(wasm_runtime_addr_app_to_native(inst, (uint64_t)out), value, length < max ? length : max);
+	return length;
+}
+
+static std::string Stem(const std::string &name);
+
 /**
  * Loads the .aot of the plugin at `index` - an entry of the list or of
  * amxts_load, not running - and runs its top level. false, with g_refusal
@@ -5279,7 +5421,7 @@ static bool LoadPlugin(int index)
 	}
 
 	bool whole;
-	std::string abi = AotAbi(file, got, &whole);
+	std::string abi = AotSection(file, got, ABI_SECTION, &whole);
 	if (!whole) {
 		MF_PrintSrvConsole("[amxts] %s is incomplete or unreadable - it is loaded again once it changes\n", name.c_str());
 		g_refusal = "incomplete or unreadable - loaded again once it changes";
@@ -5287,6 +5429,13 @@ static bool LoadPlugin(int index)
 	}
 	if (!OfThisAbi(name.c_str(), abi))
 		return false;
+
+	std::string missing = MissingEnv(AotSection(file, got, ENV_SECTION, &whole));
+	if (!missing.empty()) {
+		MF_PrintSrvConsole("[amxts] %s needs %s in %s\n", Stem(name).c_str(), missing.c_str(), DotenvPath().c_str());
+		g_refusal = "needs " + missing + " in " + DotenvPath();
+		return false;
+	}
 
 	char err[192];
 	wasm_module_t module = wasm_runtime_load(file, (uint32_t)got, err, sizeof(err));
@@ -5421,6 +5570,7 @@ static bool LoadEntry(int index)
 		MF_PrintSrvConsole("[amxts] %s is source: the server loads only .aot - build it on your machine with npx amxts build and upload the .aot\n", p.name.c_str());
 		g_refusal = "source - build it with npx amxts build and upload the .aot";
 	} else {
+		ReadDotenv();
 		loaded = LoadPlugin(index);
 	}
 

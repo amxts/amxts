@@ -328,6 +328,19 @@ const SANITIZER_OPTIONS = {
 };
 const SANITIZER_ENV = sanitize ? Object.entries(SANITIZER_OPTIONS).flatMap(([name, value]) => ['-e', `${name}=${value}`]) : [];
 
+// What the env suite reads (tests/server/env.ts): hlds's environment, and the
+// .env of the test's folder under it, the module's addons/amxts/.env there.
+const SERVER_ENV = { AMXTS_TEST_ENV: 'from the environment', AMXTS_TEST_BOTH: 'from the environment' };
+const SERVER_DOTENV = [
+	'# .env of the test server - scripts/test-server.ts',
+	'AMXTS_TEST_FILE="from the file # kept"',
+	'AMXTS_TEST_BOTH=from the file',
+	'AMXTS_TEST_NUMBER=42.5',
+	'AMXTS_TEST_SWITCH=On',
+	'AMXTS_TEST_LIMIT=abc',
+	'',
+].join('\r\n');
+
 /**
  * The image from docker/hlds (docker/hlds-plain): SteamCMD and the releases,
  * a few minutes the first time, the cache's answer after that - so a changed
@@ -353,7 +366,7 @@ function ensureImage(): void {
 function startContainer(argv: string[]): number {
 	ensureImage();
 	if (containerExists()) docker(['rm', '-f', CONTAINER]);
-	const created = docker(['create', '--name', CONTAINER, '--init', '-t', '-p', `127.0.0.1:${PORT}:27015/udp`, '--add-host', 'host.docker.internal:host-gateway', ...coreDumpArgs(coresDir), ...SANITIZER_ENV, IMAGE, ...argv]);
+	const created = docker(['create', '--name', CONTAINER, '--init', '-t', '-p', `127.0.0.1:${PORT}:27015/udp`, '--add-host', 'host.docker.internal:host-gateway', ...coreDumpArgs(coresDir), ...SANITIZER_ENV, ...Object.entries(SERVER_ENV).flatMap(([name, value]) => ['-e', `${name}=${value}`]), IMAGE, ...argv]);
 	if (created.status !== 0) throw new Error(`docker create failed: ${created.stderr.trim()}`);
 
 	// The configs a module reads, from the image: Linux offsets, not Windows'.
@@ -450,6 +463,7 @@ function startHidden(argv: string[]): number {
 	].join('\n');
 
 	const result = powershell(script, {
+		...SERVER_ENV,
 		AMXTS_TEST_ARGS: JSON.stringify(argv),
 		AMXTS_TEST_HLDS: hlds,
 		AMXTS_TEST_ROOT: rootDir,
@@ -561,7 +575,7 @@ async function until<T>(ms: number, ready: () => T | null | Promise<T | null>, a
 
 /** The suites to run and the files to build: with --only, those holding its suites and the ones holding none. */
 function discoverSuites(): { suites: Suite[]; plugins: string[]; pawn: string[]; unlisted: string[]; unknown: string[] } {
-	const files = readdirSync(suitesDir).filter(f => f.endsWith('.ts') || f.endsWith('.sma')).sort();
+	const files = readdirSync(suitesDir).filter(f => (f.endsWith('.ts') && !f.endsWith('.d.ts')) || f.endsWith('.sma')).sort();
 	const suites: Suite[] = [];
 	const chosen: string[] = [];
 	const names: string[] = [];
@@ -847,6 +861,7 @@ function stage(built: string[], refused: Refused[], unlisted: string[], pawn: st
 	for (const file of files) copyFileSync(join(buildDir, file), join(testDir, 'plugins', file));
 	const listed = files.filter(file => !unlisted.includes(file));
 	writeFileSync(join(testDir, 'plugins.ini'), `${listed.join('\n')}\n`);
+	writeFileSync(join(testDir, '.env'), SERVER_DOTENV);
 
 	// AMX Mod X: the Pawn suites, the modules with the amxts module under
 	// test, and the configs a suite reads.

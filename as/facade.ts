@@ -4370,6 +4370,67 @@ export class Cvar {
 	}
 }
 
+// ---------------------------------------------------------------- env
+
+// A variable of the server's environment, else of addons/amxts/.env: its
+// length in bytes, of which `max` are written; -1 when neither has it.
+// @ts-ignore: decorator
+@external("env", "env_get") declare function _envGet(name: string, out: usize, max: i32): i32;
+
+/**
+ * A setting of the server kept out of the plugin's code - a token, a password,
+ * a key in a URL: a line of the server's `addons/amxts/.env`, or a variable of
+ * its environment, which wins over the file. Without a default it is
+ * required: a plugin that reads it does not start while the server has it
+ * nowhere.
+ *
+ * ```ts
+ * const token = env("MYPLUGIN_TOKEN");
+ * ```
+ */
+export function env(name: string): string;
+/**
+ * A setting of the server, as text: `defaultValue` when the server has it
+ * nowhere.
+ *
+ * ```ts
+ * const mirror = env("MYPLUGIN_MIRROR", "https://example.com/maps");
+ * ```
+ */
+export function env(name: string, defaultValue: string): string;
+/**
+ * A setting of the server, as a number: `defaultValue` when the server has it
+ * nowhere. A plugin does not start while it is there and no number.
+ *
+ * ```ts
+ * const maxRecords = env("MYPLUGIN_MAX_RECORDS", 100);
+ * ```
+ */
+export function env(name: string, defaultValue: number): number;
+/**
+ * A setting of the server, as an on/off switch - `1`/`0`, `true`/`false`,
+ * `yes`/`no` or `on`/`off`, in any case: `defaultValue` when the server has it
+ * nowhere. A plugin does not start while it is there and none of these.
+ *
+ * ```ts
+ * const debug = env("MYPLUGIN_DEBUG", false);
+ * ```
+ */
+export function env(name: string, defaultValue: boolean): boolean;
+export function env<T = string>(name: string, defaultValue: T = changetype<T>("")): T {
+	const length = _envGet(name, 0, 0);
+	if (length < 0) return defaultValue;
+	const bytes = new ArrayBuffer(length);
+	_envGet(name, changetype<usize>(bytes), length);
+	const text = String.UTF8.decode(bytes);
+	if (isBoolean<T>()) {
+		const word = text.toLowerCase();
+		return <T>(word == "1" || word == "true" || word == "yes" || word == "on");
+	}
+	if (isFloat<T>() || isInteger<T>()) return <T>parseFloat(text);
+	return changetype<T>(text);
+}
+
 /**
  * The server, an event target like the DOM's: its events, commands, map and
  * the folders AMX Mod X keeps. Used through `server`:

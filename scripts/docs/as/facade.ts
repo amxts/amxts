@@ -1978,6 +1978,85 @@ export default {
 		en: `@internal Calls the change listeners; the server does it when the cvar changes. A plugin listens with \`addEventListener\`.`,
 		ru: `@internal Вызывает обработчики изменения; это делает сервер, когда квар меняется. Плагин слушает через \`addEventListener\`.`,
 	},
+	'env': {
+		en: `
+			A setting of the server kept out of the plugin's code - a token, a password,
+			a key in a URL: a line of the server's \`addons/amxts/.env\`, or a variable of
+			its environment, which wins over the file. Without a default it is
+			required: a plugin that reads it does not start while the server has it
+			nowhere.
+
+			\`\`\`ts
+			const token = env("MYPLUGIN_TOKEN");
+			\`\`\`
+		`,
+		ru: `
+			Настройка сервера, которой не место в коде плагина, — токен, пароль, ключ в
+			URL: строка \`addons/amxts/.env\` на сервере или переменная его окружения,
+			которая перекрывает файл. Без значения по умолчанию она обязательна: плагин,
+			который её читает, не запускается, пока её нет ни там, ни там.
+
+			\`\`\`ts
+			const token = env("MYPLUGIN_TOKEN");
+			\`\`\`
+		`,
+	},
+	'env#2': {
+		en: `
+			A setting of the server, as text: \`defaultValue\` when the server has it
+			nowhere.
+
+			\`\`\`ts
+			const mirror = env("MYPLUGIN_MIRROR", "https://example.com/maps");
+			\`\`\`
+		`,
+		ru: `
+			Настройка сервера текстом: \`defaultValue\`, если её нет ни в окружении,
+			ни в файле.
+
+			\`\`\`ts
+			const mirror = env("MYPLUGIN_MIRROR", "https://example.com/maps");
+			\`\`\`
+		`,
+	},
+	'env#3': {
+		en: `
+			A setting of the server, as a number: \`defaultValue\` when the server has it
+			nowhere. A plugin does not start while it is there and no number.
+
+			\`\`\`ts
+			const maxRecords = env("MYPLUGIN_MAX_RECORDS", 100);
+			\`\`\`
+		`,
+		ru: `
+			Настройка сервера числом: \`defaultValue\`, если её нет ни в окружении, ни в
+			файле. Плагин не запускается, пока она есть, но это не число.
+
+			\`\`\`ts
+			const maxRecords = env("MYPLUGIN_MAX_RECORDS", 100);
+			\`\`\`
+		`,
+	},
+	'env#4': {
+		en: `
+			A setting of the server, as an on/off switch - \`1\`/\`0\`, \`true\`/\`false\`,
+			\`yes\`/\`no\` or \`on\`/\`off\`, in any case: \`defaultValue\` when the server has it
+			nowhere. A plugin does not start while it is there and none of these.
+
+			\`\`\`ts
+			const debug = env("MYPLUGIN_DEBUG", false);
+			\`\`\`
+		`,
+		ru: `
+			Настройка сервера как переключатель — \`1\`/\`0\`, \`true\`/\`false\`, \`yes\`/\`no\`
+			или \`on\`/\`off\`, в любом регистре: \`defaultValue\`, если её нет ни в окружении,
+			ни в файле. Плагин не запускается, пока она есть, но это ни одно из этих слов.
+
+			\`\`\`ts
+			const debug = env("MYPLUGIN_DEBUG", false);
+			\`\`\`
+		`,
+	},
 	'Server': {
 		en: `
 			The server, an event target like the DOM's: its events, commands, map and

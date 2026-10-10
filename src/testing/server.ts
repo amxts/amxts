@@ -11,8 +11,10 @@ import type { HookShape } from './tables';
 // events registry, Fire with its outcome - and the natives in natives.ts,
 // against the players and entities below. An import neither covers throws,
 // naming itself, the first time the plugin calls it.
+import { basename } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { pawnLayout } from '../../scripts/plugin-natives';
+import { envProblems, parseDotenv } from '../../scripts/server-env';
 import { compile } from './compile';
 import { Coroutines } from './coroutines';
 import { installKitFor } from './kits';
@@ -213,6 +215,8 @@ export interface ServerOptions {
 	cvars?: Record<string, string>;
 	/** Files in the game folder before the plugin loads, by path: `{ "addons/amxmodx/configs/x.ini": "..." }`. */
 	files?: Record<string, string>;
+	/** The server's environment, which `env()` reads over `addons/amxts/.env`: `{ MYPLUGIN_TOKEN: "abc" }`. None unless said. */
+	env?: Record<string, string>;
 	/**
 	 * The system the server runs on, as `@amxts/core/os` finds it: "win32" puts the amxts
 	 * module's amxts_amxx.dll in the modules folder. "linux" unless said.
@@ -753,6 +757,8 @@ export class FakeServer {
 	readonly modules: Set<string>;
 	/** The GeoIP database, by address: `server.countries.set("1.2.3.4", { code: "DE", name: "Germany" })`. */
 	readonly countries = new Map<string, { code: string; name: string }>();
+	/** The server's environment, which `env()` reads over `addons/amxts/.env` (a file in `files`). */
+	env: Record<string, string>;
 	/** The model a plugin put on each player (player.model), by his id. */
 	readonly models = new Map<number, string>();
 	/** The entity each player sees through (player.view), by his id; 0 or none for his own eyes. */
@@ -969,6 +975,7 @@ export class FakeServer {
 		this.rules.set(constant('m_nMaxPlayers'), this.maxPlayers);
 		this.entityIds = this.maxPlayers + 1;
 		this.timeZone = options.timeZone;
+		this.env = { ...options.env };
 		// AMX Mod X's own, which a test may set: the languages; and the game's
 		// a plugin often sets, at the game's defaults.
 		const cvars = { amx_language: 'en', amx_client_languages: '1', mp_freezetime: '6', mp_round_infinite: '0', ...options.cvars };
@@ -1008,7 +1015,10 @@ export class FakeServer {
 	 */
 	async load(source: string): Promise<PluginInstance> {
 		await installKitFor(this, source);
-		const { module, natives, binary, async } = await compile(source);
+		const { module, natives, binary, async, env } = await compile(source);
+		// A variable it requires that neither the environment nor .env has, or one of another kind, keeps it from starting, as the module does.
+		const missing = envProblems(env, this.variables());
+		if (missing.length) throw new Error(`[amxts] ${basename(source, '.ts')} needs ${missing.join(', ')} in addons/amxts/.env`);
 		const plugin = new PluginInstance(this, source, module, natives, async ? binary : undefined);
 		this.plugins.push(plugin);
 		for (const native of natives) {
@@ -1051,6 +1061,13 @@ export class FakeServer {
 	/** A cvar's value, or undefined when the server has no such cvar. */
 	cvar(name: string): string | undefined {
 		return this.cvars.get(name.toLowerCase())?.value;
+	}
+
+	/** What `env()` reads: `addons/amxts/.env`, and the environment over it. @internal */
+	variables(): Map<string, string> {
+		const variables = parseDotenv(this.file('addons/amxts/.env') ?? '');
+		for (const [name, value] of Object.entries(this.env)) variables.set(name, value);
+		return variables;
 	}
 
 	/** Sets a cvar as the console would: `mp_freezetime 5`, and its change listeners hear it. */
@@ -2636,6 +2653,11 @@ export class FakeServer {
 			const target = this.player(id);
 			if (!target) return 0;
 			return what === 1 ? target.userid : what === 4 ? Math.floor((this.time - target.connectedAt) / 1000) : 0;
+		},
+		// env(): a variable's UTF-8 length, as much of it as fits into `max`; -1 for none - the module's env_get.
+		env_get(this: FakeServer, plugin: PluginInstance, name: number, out: number, max: number) {
+			const value = this.variables().get(plugin.memory.string(name));
+			return value === undefined ? -1 : plugin.memory.setUtf8(out, max, value);
 		},
 		info_get(this: FakeServer, plugin: PluginInstance, id: number, key: number, out: number, max: number) {
 			return plugin.memory.setUtf8(out, max, this.player(id)?.info.get(plugin.memory.string(key)) ?? '');

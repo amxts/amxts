@@ -6,6 +6,9 @@
 //   picks the event's type by the name written in the call, so the build
 //   needs a string literal there; a loop over `["a", "b"] as const` gives
 //   TypeScript a union, which it takes;
+// - a setting's name or default in a variable: `env(name)`. The build reads
+//   which settings a plugin needs, and of which kind, from the call
+//   (scripts/server-env.ts);
 // - `const rows = []`: TypeScript reads the element type off the later
 //   pushes, the build needs it written.
 //
@@ -32,6 +35,10 @@ export function buildProblems(program, root = process.cwd()) {
 	const visit = (node) => {
 		if (ts.isCallExpression(node)) {
 			const declaration = checker.getResolvedSignature(node)?.declaration;
+			const [name, fallback] = node.arguments;
+			if (isFacadeEnv(declaration) && ((name && !ts.isStringLiteralLike(name)) || (fallback && !writtenOut(fallback)))) {
+				found.push({ node, message: 'env() takes its name and its default written out - env("MYPLUGIN_TOKEN"), env("MYPLUGIN_LIMIT", 100), env("MYPLUGIN_DEBUG", false), env("MYPLUGIN_URL", "https://...") - the build reads what a plugin needs from the call.' });
+			}
 			declaration?.parameters?.forEach((parameter, i) => {
 				const argument = node.arguments[i];
 				if (argument && !ts.isStringLiteral(argument) && namesAKey(parameter, declaration)) {
@@ -50,6 +57,17 @@ export function buildProblems(program, root = process.cwd()) {
 		if (!file.isDeclarationFile && path.startsWith(inside) && !/[\\/](?:node_modules|\.amxts)[\\/]/.test(path)) visit(file);
 	}
 	return found;
+}
+
+/** Whether a call's function is the facade's env(). */
+function isFacadeEnv(declaration) {
+	return declaration?.name?.text === 'env' && /[\\/]facade\.ts$/.test(declaration.getSourceFile().fileName);
+}
+
+/** Whether a default is written out: text, a number, `-` a number, true or false. */
+function writtenOut(node) {
+	if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) return ts.isNumericLiteral(node.operand);
+	return ts.isStringLiteralLike(node) || ts.isNumericLiteral(node) || node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword;
 }
 
 /** Whether the parameter is typed with a type parameter of its function that is `extends keyof ...`. */

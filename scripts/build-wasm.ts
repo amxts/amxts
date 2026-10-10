@@ -46,6 +46,7 @@ import { pluginCache } from './plugin-cache';
 import { includeName } from './plugin-natives';
 import { fromRegistry, prebuiltOf, prebuiltSurface } from './prebuilt';
 import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, projectPlugins, sourcesFor, staleCopies } from './project';
+import { aotSection, ENV_SECTION, envProblems, parseDotenv } from './server-env';
 import { sharedModulesBuild } from './shared-modules';
 import { describeSystem, serverFolder, serverSystem, SYSTEM_NAME, WAMRC_PACKAGE, wamrcPath } from './system';
 import { c, live, log, progress, since } from './ui';
@@ -404,6 +405,16 @@ async function deployAndReload(built: string[], names: string): Promise<string> 
 		const before = existsSync(target) ? statSync(target) : null;
 		copyFileSync(join(outDir, file), target);
 		if (before && byRcon) utimesSync(target, before.atime, before.mtime);
+	}
+
+	// A variable a plugin requires that the server's .env has not, or has of
+	// another kind: the module refuses the plugin unless the server's
+	// environment, which this cannot see, has it (scripts/server-env.ts).
+	const dotenvPath = join(serverDir, '.env');
+	const dotenv = parseDotenv(existsSync(dotenvPath) ? readFileSync(dotenvPath, 'utf8') : '');
+	for (const file of built) {
+		const missing = envProblems((aotSection(readFileSync(join(outDir, file)), ENV_SECTION) ?? '').split('\n').filter(Boolean), dotenv);
+		if (missing.length) log.warn(`${file.replace(/\.aot$/, '')} needs ${missing.join(', ')}, which ${shown(dotenvPath)} has not: the server refuses it unless its environment has it`);
 	}
 
 	// A plugin that exports natives has an include for Pawn plugins beside it;

@@ -25,6 +25,7 @@ import { playerFieldsBuild } from './player-fields';
 import { includeName, nativeContract, nativesTransform, pawnInclude } from './plugin-natives';
 import { ascPath, sourcesFor } from './project';
 import { targetTransforms } from './reapi-events';
+import { ENV_SECTION, envBuild } from './server-env';
 import { sharedModulesBuild } from './shared-modules';
 import { displayName, MAP_SECTION, mapText, pluginMap, withSection } from './source-map';
 import { HOST_SYSTEM, TARGET_ABI } from './system';
@@ -154,11 +155,11 @@ const QUIET_IMPORTS = new Set(['env.abort', 'env.ent_vector', ...[...LEAF_NATIVE
 const STACK_FLAGS = ['--enable-dump-call-stack', '--call-stack-features=bounds-checks,ip,func-idx,trap-ip'];
 
 /**
- * The map goes into the .aot either way, and so does the ABI the plugin is
- * compiled against, which the module checks before it loads it
- * (scripts/build-identity.ts).
+ * The map goes into the .aot either way, and so do the ABI the plugin is
+ * compiled against and the variables it requires, which the module checks
+ * before it loads it (scripts/build-identity.ts, scripts/server-env.ts).
  */
-const SECTIONS = `--emit-custom-sections=${MAP_SECTION},${ABI_SECTION}`;
+const SECTIONS = `--emit-custom-sections=${MAP_SECTION},${ABI_SECTION},${ENV_SECTION}`;
 
 /**
  * The CPU the machine code is for: a Pentium 4's, SSE2. LLVM's i386 left
@@ -287,7 +288,8 @@ export async function compileToWasm(
 	}
 	if (typeof made === 'string') return made;
 	mkdirSync(dirname(resolve(wasm)), { recursive: true });
-	writeFileSync(wasm, withSection(withSection(made.binary, MAP_SECTION, mapText(made.map)), ABI_SECTION, pluginAbi(importsOf(made.binary))));
+	const sections = withSection(withSection(made.binary, MAP_SECTION, mapText(made.map)), ABI_SECTION, pluginAbi(importsOf(made.binary)));
+	writeFileSync(wasm, made.env.length ? withSection(sections, ENV_SECTION, made.env.join('\n')) : sections);
 	return null;
 }
 
@@ -415,6 +417,8 @@ function optimize(module: any, level: number) {
 interface Compiled {
 	binary: Uint8Array;
 	map: PluginMap;
+	/** Its env() calls as the section amxts.env writes them, a line a name (scripts/server-env.ts). */
+	env: string[];
 }
 
 /**
@@ -451,6 +455,9 @@ async function compileWasm(
 		return String((problem as Error).message ?? problem);
 	}
 
+	// The settings it reads with env(), from every file it reaches (scripts/server-env.ts).
+	const env = envBuild();
+
 	let binary: Uint8Array | null = null;
 	let sourceMap = '';
 	let functions = { first: 0, names: [] as string[] };
@@ -473,7 +480,10 @@ async function compileWasm(
 				// `~/` is the plugins folder: ascPath answers the alias.
 				const path = ascPath(plugin.root, filename, baseDir);
 				const text = sources.read(path);
-				return text === null ? null : shared.read(path, playerFields.read(relative('.', (sources.real(path) ?? path)), text));
+				if (text === null) return null;
+				const file = relative('.', (sources.real(path) ?? path));
+				env.read(file, text);
+				return shared.read(path, playerFields.read(file, text));
 			},
 
 			// The binary and its source map, for compileToWasm to write as one.
@@ -501,6 +511,7 @@ async function compileWasm(
 	// An import of a module the config does not list says so first: asc's
 	// "not found" after it is only the consequence.
 	if (sources.problems.length) return [...sources.problems, stderr.toString()].join('\n').trim();
+	if (env.problems.length) return env.problems.join('\n');
 
 	// A transform's refusal - a native whose signature cannot cross - is an
 	// error with nothing written to stderr.
@@ -509,7 +520,7 @@ async function compileWasm(
 	// folder, where the module finds the sources to show a failed line. A
 	// build to ship names none - the machine's folders are not the server's.
 	const root = level === null ? '' : sources.project.dir;
-	return { binary, map: pluginMap(sourceMap, file => fileName(sources, plugin.root, file), functions.first, functions.names.map(displayName), root) };
+	return { binary, env: env.entries(), map: pluginMap(sourceMap, file => fileName(sources, plugin.root, file), functions.first, functions.names.map(displayName), root) };
 }
 
 /**

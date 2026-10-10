@@ -11,6 +11,7 @@ import { playerFieldsBuild } from '../../scripts/player-fields';
 import { nativesBeside, nativesTransform, setNativesBeside } from '../../scripts/plugin-natives';
 import { ascPath, CONFIG_FILE, currentProjectDir, sourcesFor } from '../../scripts/project';
 import { targetTransforms } from '../../scripts/reapi-events';
+import { envBuild } from '../../scripts/server-env';
 import { sharedModulesBuild } from '../../scripts/shared-modules';
 import { existsSync, hashOf } from '../../scripts/tracked-fs';
 import { cached } from './compile-cache';
@@ -26,6 +27,8 @@ export interface Compiled {
 	binary: Uint8Array;
 	/** Whether it carries the coroutine scheduler's exports (as/promise.ts). */
 	async: boolean;
+	/** Its env() calls as the section amxts.env writes them, a line a name (scripts/server-env.ts). */
+	env: string[];
 }
 
 const compiled = new Map<string, Promise<Compiled>>();
@@ -140,6 +143,7 @@ async function buildWith(path: string, hoodExports: string): Promise<Omit<Compil
 	let binary: Uint8Array | undefined;
 	const natives: PluginNative[] = [];
 	const playerFields = playerFieldsBuild();
+	const env = envBuild();
 	// scripts/compile.ts's shared modules: a proxy for one another plugin owns.
 	const shared = await sharedModulesBuild(PLUGINS_ROOT, entry);
 
@@ -152,7 +156,10 @@ async function buildWith(path: string, hoodExports: string): Promise<Omit<Compil
 
 				const file = ascPath(PLUGINS_ROOT, filename, baseDir);
 				const text = sources.read(file);
-				return text === null ? null : shared.read(file, playerFields.read(relative('.', (sources.real(file) ?? file)), text));
+				if (text === null) return null;
+				const shown = relative('.', (sources.real(file) ?? file));
+				env.read(shown, text);
+				return shared.read(file, playerFields.read(shown, text));
 			},
 			// Only the binary is wanted; nothing is written to disk.
 			writeFile(_: string, contents: string | Uint8Array) {
@@ -164,12 +171,13 @@ async function buildWith(path: string, hoodExports: string): Promise<Omit<Compil
 	);
 
 	if (sources.problems.length) throw new Error(sources.problems.join('\n'));
+	if (env.problems.length) throw new Error(env.problems.join('\n'));
 
 	if (error || !binary) {
 		throw new Error(`${relative(process.cwd(), path)} does not compile:\n${stderr.toString() || String(error?.message ?? error)}`);
 	}
 
-	return { natives, binary, async: false };
+	return { natives, binary, async: false, env: env.entries() };
 }
 
 /**
