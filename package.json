@@ -72,6 +72,7 @@
 		"scripts/project.ts",
 		"scripts/reapi-events.ts",
 		"scripts/run.ts",
+		"scripts/server-env.ts",
 		"scripts/shared-modules.ts",
 		"scripts/source-map.ts",
 		"scripts/system.ts",
