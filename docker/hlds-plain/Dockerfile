@@ -1,4 +1,3 @@
-# ci-speed: a throwaway change, the key of the image.
 # A Linux test server without the ReHLDS family: Valve's HLDS (app 90) with
 # its own engine and game library, metamod-p, AMX Mod X 1.10 with its stock
 # modules (Ham Sandwich, fakemeta, engine, fun, cstrike) and YaPB - no ReHLDS,
