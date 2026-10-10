@@ -138,3 +138,14 @@ test('traceAttack: a vector argument is written back whole', async () => {
 	expect(server.log).toContain('now -1 -0.5 -0.25');
 	expect(shot.args[3]).toEqual([-1, -0.5, -0.25]);
 });
+
+test('a movement event reads what the player touched and the frame\'s seconds', async () => {
+	const server = await loadPlugin('tests/as/movement.ts');
+	const alice = server.join('Alice');
+	server.playerMove.touchCount = 2;
+	server.playerMove.frameTime = 0.01;
+
+	server.fireHook('airMove', [alice.id]);
+
+	expect(server.log).toContain('air Alice touched 2 in 0.01');
+});

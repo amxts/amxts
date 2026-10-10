@@ -4265,6 +4265,19 @@ static void MenuMessage(int type, edict_t *ed)
 // Messages, the log, cvars, touches and fakemeta's functions, through Metamod.
 #include "enginehooks.h"
 
+/**
+ * move_get(field) - the player's movement the game is running, as ReGameDLL
+ * keeps it: 0 what he has touched so far, 1 the frame's seconds. 0 outside
+ * a movement event or without ReGameDLL.
+ */
+static double w_moveGet(wasm_exec_env_t env, int32_t field)
+{
+	playermove_t *pm = g_regame ? g_regame->GetPlayerMove() : NULL;
+	if (!pm)
+		return 0;
+	return field == 0 ? pm->numtouch : field == 1 ? pm->frametime : 0;
+}
+
 static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line);
 static int32_t w_runPlayerMove(wasm_exec_env_t env, int32_t id, cell pitch, cell yaw, cell roll, cell forward, cell side, cell up, int32_t buttons, int32_t impulse, int32_t msec);
 static int32_t w_playerGive(wasm_exec_env_t env, int32_t id, int32_t name);
@@ -4406,6 +4419,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "hud_clear",      (void *)w_hudClear,      "(ii)", NULL },
 	{ "state_hook",     (void *)w_stateHook,     "(ii)i", NULL },
 	{ "state_get",      (void *)w_stateGet,      "(i)F", NULL },
+	{ "move_get",       (void *)w_moveGet,       "(i)F", NULL },
 	{ "state_set",      (void *)w_stateSet,      "(iF)", NULL },
 	{ "store_open",     (void *)w_storeOpen,     "(i)i",  NULL },
 	{ "store_get",      (void *)w_storeGet,      "(iiii)i", NULL },

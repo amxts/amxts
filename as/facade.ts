@@ -5163,6 +5163,16 @@ function touchFired(filter: TouchFilter, touched: number, toucher: number): void
 	listeners.end();
 }
 
+// The player's movement the game is running: 0 what he has touched so far,
+// 1 the frame's seconds - a movement event's touchCount and frameTime.
+// @ts-ignore: decorator
+@external("env", "move_get") declare function _moveGet(field: i32): f64;
+
+/** @hidden A field of the movement the game is running, for a movement event. */
+export function __moveGet(field: i32): f64 {
+	return _moveGet(field);
+}
+
 // What a player is sent of each entity (runtime/src/entitystate.h): the
 // listeners of a class, the state read and written while they run.
 // @ts-ignore: decorator

@@ -865,6 +865,12 @@ export class FakeServer {
 	 * went to (0 for everyone), and what was written, write_* by write_*.
 	 */
 	readonly userMessages: UserMessage[] = [];
+	/**
+	 * The player's movement a movement event (`airMove`, `jumpMovement`, ...)
+	 * reads: `event.touchCount` and `event.frameTime`. Set it before
+	 * fireHook.
+	 */
+	readonly playerMove = { touchCount: 0, frameTime: 0 };
 	/** The ids get_user_msgid handed out, by name - ShowMenu's is the game's 96. @internal */
 	readonly messageIds = new Map<string, number>([['ShowMenu', 96]]);
 	/** The message between message_begin and message_end. @internal */
@@ -2983,6 +2989,10 @@ export class FakeServer {
 			this.stateHooks.push({ classname: plugin.memory.string(classname), slot });
 			this.hookSlots.set(this.hookSlots.size + 1, slot);
 			return this.hookSlots.size;
+		},
+		// A movement event's touchCount (0) and frameTime (1), from server.playerMove.
+		move_get(this: FakeServer, plugin: PluginInstance, field: number) {
+			return field === 0 ? this.playerMove.touchCount : field === 1 ? this.playerMove.frameTime : 0;
 		},
 		state_get(this: FakeServer, plugin: PluginInstance, field: number) {
 			return this.sending?.[field] ?? 0;
