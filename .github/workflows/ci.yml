@@ -21,9 +21,9 @@
 # which puts the command and the official modules beside it. What does not
 # change from run to run is cached: node_modules and npm's downloads, the
 # 32-bit libraries, the patched AssemblyScript, each test part's compiled
-# plugins, the compiled server suites, the Docker images, the Linux build's
-# work folder (wamrc and the objects of the module) and the part of LLVM that
-# wamrc.exe links.
+# plugins, the compiled server suites, the Docker images (the test servers'
+# in the registry, built once a day), the Linux build's work folder (wamrc and
+# the objects of the module) and the part of LLVM that wamrc.exe links.
 name: CI
 
 on:
@@ -181,6 +181,67 @@ jobs:
             amxts/runtime/build/linux/wamrc
             amxts/dist-server/linux
 
+  # The test servers' images in the registry, each under a tag of what it is
+  # built from: its docker/ folder, the AMX Mod X build and the day. The
+  # day's first run builds them from scratch, with no cache of their layers -
+  # SteamCMD and the Steam client are the day's, as a server needs (a cached
+  # layer kept a steamclient.so a server exited on) - and pushes them; every
+  # other run of the day finds them there. The builds are the linux job's
+  # matrix. A pull request from a fork cannot write the registry: its server
+  # jobs build the image themselves.
+  server-images:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      day: ${{ steps.day.outputs.day }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: amxts
+      - id: day
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      # The builds run side by side; the three of docker/hlds share every
+      # layer but AMX Mod X's.
+      - name: The images the registry has not got yet
+        env:
+          DAY: ${{ steps.day.outputs.day }}
+          HLDS: ${{ hashFiles('amxts/docker/hlds/**') }}
+          PLAIN: ${{ hashFiles('amxts/docker/hlds-plain/**') }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ci-hlds"
+          build() { # folder, AMX Mod X build, the folder's hash
+            local tag="$1-$2-$DAY-$3" args=()
+            if docker manifest inspect "$image:$tag" > /dev/null 2>&1; then echo "$tag: in the registry"; return; fi
+            [ "$2" = default ] || args=(--build-arg "AMXX=$2")
+            if docker build --pull "${args[@]}" -t "$image:$tag" "amxts/docker/$1" > "$RUNNER_TEMP/$tag.log" 2>&1 && docker push -q "$image:$tag"; then
+              echo "$tag: built and pushed"
+            else
+              cat "$RUNNER_TEMP/$tag.log"; return 1
+            fi
+          }
+          build hlds default "$HLDS" & pids=($!)
+          build hlds 1.9.0-git5303 "$HLDS" & pids+=($!)
+          build hlds 1.10.0-git5486 "$HLDS" & pids+=($!)
+          build hlds-plain default "$PLAIN" & pids+=($!)
+          status=0
+          for pid in "${pids[@]}"; do wait "$pid" || status=1; done
+          exit $status
+      # Four images a day: three days of them are kept.
+      - uses: actions/delete-package-versions@v5
+        with:
+          package-name: ci-hlds
+          package-type: container
+          min-versions-to-keep: 12
+
   # The server suites run on three AMX Mod X builds, one job each: the test
   # server image's own, and with --amxx the last of 1.9 - the oldest the docs
   # promise - and the newest of 1.10. A mistake one build lives through can
@@ -198,10 +259,14 @@ jobs:
   # the last passing runs on the same CPU (scripts/perf-history.ts).
   linux:
     name: ${{ matrix.plain && 'linux (plain HLDS)' || matrix.sanitize && 'linux (sanitizers)' || matrix.amxx && format('linux (AMX Mod X {0})', matrix.amxx) || 'linux' }}
-    needs: linux-build
+    needs: [linux-build, server-images]
+    if: ${{ !cancelled() && needs.linux-build.result == 'success' && needs.server-images.result != 'failure' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     continue-on-error: ${{ matrix.sanitize }}
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -238,10 +303,24 @@ jobs:
           name: linux-suites
           path: amxts
 
-      - uses: docker/setup-buildx-action@v4
-      # Every build shares the layers under AMX Mod X: another build's image
-      # starts from the default one's cache.
+      # The leg's image from the registry, by the tag server-images gave it.
       - name: The Linux test server image
+        if: needs.server-images.result == 'success'
+        env:
+          TAG: ${{ env.HLDS_DIR }}-${{ matrix.amxx || 'default' }}-${{ needs.server-images.outputs.day }}-${{ hashFiles(format('amxts/docker/{0}/**', env.HLDS_DIR)) }}
+          TOKEN: ${{ github.token }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ci-hlds:$TAG"
+          docker pull -q "$image"
+          echo "AMXTS_TEST_IMAGE=$image" >> "$GITHUB_ENV"
+      # A pull request from a fork builds it. Every build shares the layers
+      # under AMX Mod X: another build's image starts from the default one's
+      # cache.
+      - if: needs.server-images.result != 'success'
+        uses: docker/setup-buildx-action@v4
+      - name: The Linux test server image, built
+        if: needs.server-images.result != 'success'
         uses: docker/build-push-action@v7
         with:
           context: amxts/docker/${{ env.HLDS_DIR }}
