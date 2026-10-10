@@ -20,10 +20,10 @@
 # Every job checks the core out as `amxts` and runs .github/actions/setup,
 # which puts the command and the official modules beside it. What does not
 # change from run to run is cached: node_modules and npm's downloads, the
-# 32-bit libraries, the patched AssemblyScript, each test part's compiled
-# plugins, the compiled server suites, the Docker images (the test servers'
-# in the registry, built once a day), the Linux build's work folder (wamrc and
-# the objects of the module) and the part of LLVM that wamrc.exe links.
+# patched AssemblyScript, each test part's compiled plugins, the compiled
+# server suites, the Docker images (the test servers' in the registry, built
+# once a day), the Linux build's work folder (wamrc and the objects of the
+# module) and the part of LLVM that wamrc.exe links.
 name: CI
 
 on:

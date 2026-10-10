@@ -44,43 +44,24 @@ runs:
         bun-version: 1.4.2
 
     # What the caches below are keyed by, besides their files: Node's exact
-    # version (node-version 22 takes the newest 22.x), the runner's image and
-    # its libc6, the day, and where this system's npm keeps its downloads.
+    # version (node-version 22 takes the newest 22.x), the day, and where this
+    # system's npm keeps its downloads.
     - name: The caches' keys
       id: keys
       shell: bash
       run: |
         echo "node=$(node --version)" >> "$GITHUB_OUTPUT"
-        echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
-        [ "$RUNNER_OS" != Linux ] || echo "libc6=$(dpkg-query -W -f '${Version}' libc6)" >> "$GITHUB_OUTPUT"
         echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
         echo "npm-cache=$(npm config get cache)" >> "$GITHUB_OUTPUT"
 
-    # amxxpc, AMX Mod X's Pawn compiler, is a 32-bit program. The packages apt
-    # downloads for it are kept per runner image and day: libc6-i386 must
-    # match the image's libc6 exactly, and a day later apt may have newer ones.
-    - name: Cache the 32-bit libraries
-      id: i386
-      if: runner.os == 'Linux'
-      uses: actions/cache@v6
-      with:
-        path: ~/i386-debs
-        key: i386-${{ steps.keys.outputs.image }}-libc6-${{ steps.keys.outputs.libc6 }}-${{ steps.keys.outputs.day }}
+    # amxxpc, AMX Mod X's Pawn compiler, is a 32-bit program. The runner's
+    # image has its libraries; apt is asked only when it has not.
     - name: 32-bit libraries for amxxpc
       if: runner.os == 'Linux'
       shell: bash
-      env:
-        HIT: ${{ steps.i386.outputs.cache-hit }}
       run: |
-        if [ "$HIT" != true ]; then
-          mkdir -p ~/i386-debs/partial
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --download-only -o Dir::Cache::archives="$HOME/i386-debs" libc6-i386 lib32stdc++6 lib32gcc-s1
-          sudo rm -rf ~/i386-debs/partial ~/i386-debs/lock
-        fi
-        shopt -s nullglob
-        debs=(~/i386-debs/*.deb)
-        [ ${#debs[@]} = 0 ] || sudo dpkg -i "${debs[@]}" > /dev/null
+        dpkg -s libc6-i386 lib32stdc++6 lib32gcc-s1 > /dev/null 2>&1 ||
+          { sudo apt-get update -qq && sudo apt-get install -y -qq libc6-i386 lib32stdc++6 lib32gcc-s1; }
 
     # There is no lock file (the folders are linked with --no-package-lock), so
     # an install takes the newest version each range allows that day. The
