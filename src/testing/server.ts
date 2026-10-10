@@ -152,9 +152,9 @@ export interface UserMessage {
 	player: number;
 	/** What was written, in order: bytes, shorts and longs as numbers, strings as text. */
 	args: (number | string)[];
-	/** For a temporary effect (`SVC_TEMPENTITY`): who it went to, as `MSG_*` - `0` everyone, `4` those who see `origin`, `8` one player. */
+	/** For the engine's own message (`SVC_TEMPENTITY`, `SVC_NEWMOVEVARS`, ...): who it went to, as `MSG_*` - `0` everyone, `4` those who see `origin`, `8` one player. */
 	dest?: number;
-	/** For a temporary effect: the point it is seen from, with `dest` `4`. */
+	/** For the engine's own message: the point it is seen from, with `dest` `4`. */
 	origin?: number[];
 }
 

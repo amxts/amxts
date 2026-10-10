@@ -83,3 +83,12 @@ test('an effect whose sprite is not precached is not sent, and says so', async (
 	expect(sent(server)).toEqual([]);
 	expect(server.log).toContain('effects: "sprites/never.spr" is not precached');
 });
+
+test('an engine message other than an effect is recorded by its SVC_ name', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	alice.command('fx_movevars');
+
+	expect(server.userMessages).toEqual([{ name: 'SVC_NEWMOVEVARS', player: alice.id, dest: 1, origin: [0, 0, 0], args: [1] }]);
+});

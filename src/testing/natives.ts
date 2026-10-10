@@ -281,17 +281,26 @@ function setHamReturn(call: NativeCall, value: Value): number {
 	return 1;
 }
 
-// The engine's own message for a temporary effect: it is no user message, so
-// no name get_user_msgid handed out stands for it.
-const SVC_TEMPENTITY = 23;
+// The engine's own messages, by number: below 64 no user message lives, so
+// no name get_user_msgid handed out stands for them.
+const SVC_NAMES = (
+	'BAD NOP DISCONNECT EVENT VERSION SETVIEW SOUND TIME PRINT STUFFTEXT SETANGLE SERVERINFO LIGHTSTYLE UPDATEUSERINFO'
+	+ ' DELTADESCRIPTION CLIENTDATA STOPSOUND PINGS PARTICLE DAMAGE SPAWNSTATIC EVENT_RELIABLE SPAWNBASELINE TEMPENTITY'
+	+ ' SETPAUSE SIGNONNUM CENTERPRINT KILLEDMONSTER FOUNDSECRET SPAWNSTATICSOUND INTERMISSION FINALE CDTRACK RESTORE'
+	+ ' CUTSCENE WEAPONANIM DECALNAME ROOMTYPE ADDANGLE NEWUSERMSG PACKETENTITIES DELTAPACKETENTITIES CHOKE RESOURCELIST'
+	+ ' NEWMOVEVARS RESOURCEREQUEST CUSTOMIZATION CROSSHAIRANGLE SOUNDFADE FILETXFERFAILED HLTV DIRECTOR VOICEINIT'
+	+ ' VOICEDATA SENDEXTRAINFO TIMESCALE RESOURCELOCATION SENDCVARVALUE SENDCVARVALUE2'
+).split(' ');
 
 /**
- * message_begin: a user message by its name, or a temporary effect - with
- * who it goes to (`dest`, MSG_*) and the point it is seen from.
+ * message_begin: a user message by its name, or the engine's own (a temporary
+ * effect, movevars, ...) as `SVC_<name>` - with who it goes to (`dest`,
+ * MSG_*) and the point it is seen from.
  */
 function beginMessage(call: NativeCall, dest: number, type: number, player: number, origin: number[]): number {
-	if (type === SVC_TEMPENTITY) {
-		call.server.writing = { name: 'SVC_TEMPENTITY', player, args: [], dest, origin };
+	const svc = SVC_NAMES[type];
+	if (svc) {
+		call.server.writing = { name: `SVC_${svc}`, player, args: [], dest, origin };
 		return 1;
 	}
 	const name = [...call.server.messageIds].find(([, id]) => id === type)?.[0];

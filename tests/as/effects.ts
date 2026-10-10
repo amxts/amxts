@@ -1,6 +1,9 @@
 // A fixture for tests/effects.test.ts: files precached from the top level
 // and in the precache event, and temporary effects sent to everyone, near a
-// point and to one player.
+// point and to one player; and an engine message by hand.
+
+import { MSG_ONE, SVC_NEWMOVEVARS } from "@amxts/core/constants";
+import { message_begin, message_end, write_byte } from "@amxts/core/natives";
 
 const shock = server.precache("sprites/shockwave.spr");
 const gibs = server.precache("models/glassgibs.mdl");
@@ -18,6 +21,11 @@ server.addCommand("fx_light", light);
 server.addCommand("fx_break", ({ player }) => breakGlass(player));
 server.addCommand("fx_missing", notPrecached);
 server.addCommand("fx_late", late);
+server.addCommand("fx_movevars", ({ player }) => {
+	message_begin(MSG_ONE, SVC_NEWMOVEVARS, [0, 0, 0], player.id);
+	write_byte(1);
+	message_end();
+});
 
 function indexes() {
 	console.log(`indexes ${shock.index} ${gibs.index} ${shock.path}`);
