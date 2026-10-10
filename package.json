@@ -132,7 +132,7 @@
 	"dependencies": {
 		"@amxts/cli": "file:../amxts-cli/packages/cli",
 		"bun": "^1.4.2",
-		"typescript": "^5.6.0"
+		"typescript": "^5.6.1"
 	},
 	"optionalDependencies": {
 		"@amxts/wamrc-linux-x64": "file:packages/wamrc/linux-x64",
