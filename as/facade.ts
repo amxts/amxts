@@ -7293,10 +7293,13 @@ export class Storage<T = string> {
 	private text(key: string): string | null {
 		const handle = this.open();
 		if (handle < 0) return null;
+		// The module gives a value's length only when it is longer than the room,
+		// and writes at most one byte less than the room, for its NUL: a value
+		// that fills the room exactly comes cut, so a full room is asked again.
 		let room = storeRoom;
 		let length = _storeGet(handle, key, changetype<usize>(room), room.length);
-		if (length > room.length) {
-			room = new StaticArray<u8>(length);
+		while (length >= room.length - 1) {
+			room = new StaticArray<u8>(max(length, room.length) + 2);
 			length = _storeGet(handle, key, changetype<usize>(room), room.length);
 		}
 		return length < 0 ? null : String.UTF8.decodeUnsafe(changetype<usize>(room), length);

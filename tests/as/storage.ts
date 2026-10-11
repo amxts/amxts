@@ -25,6 +25,10 @@ server.addCommand("storage_prune", ({ player }) => {
 	const deleted = names.delete("a");
 	player.print(`${removed} ${deleted} ${names.delete("a")}`, "console");
 });
+server.addCommand("storage_lengths", ({ player }) => {
+	const lengths = names.keys().map(key => `${key}:${names.get(key)!.length}`);
+	player.print(lengths.join(" "), "console");
+});
 server.addCommand("storage_bad", () => {
 	new Storage("bad/name").set("key", "value");
 });

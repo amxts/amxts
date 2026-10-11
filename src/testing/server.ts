@@ -2727,7 +2727,7 @@ export class FakeServer {
 			const value = this.storage(this.storeNames[handle]).get(plugin.memory.string(key));
 			if (value === undefined) return -1;
 			const length = Buffer.byteLength(value);
-			return length > max ? length : plugin.memory.setUtf8(out, max, value);
+			return length > max ? length : plugin.memory.setBytes(out, max, value);
 		},
 		store_set(this: FakeServer, plugin: PluginInstance, handle: number, key: number, value: number) {
 			const name = this.storeNames[handle];

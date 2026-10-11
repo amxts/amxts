@@ -32,6 +32,17 @@ test('prune removes what was set before the moment; delete tells whether the key
 	expect([...server.storage('storage_names').keys()]).toEqual(['kept']);
 });
 
+test('a value as long as the room or longer comes back whole', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	const lengths = [1022, 1023, 1024, 1025, 1034, 3000];
+	for (const length of lengths) server.storage('storage_names').set(String(length), 'x'.repeat(length));
+
+	alice.command('storage_lengths');
+
+	expect(alice.console).toBe(lengths.map(length => `${length}:${length}`).join(' '));
+});
+
 test('a name that is no file name is refused, said in the console', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
