@@ -43,19 +43,55 @@ runs:
       with:
         bun-version: 1.4.2
 
-    # amxxpc, AMX Mod X's Pawn compiler, is a 32-bit program.
+    # What the caches below are keyed by, besides their files: Node's exact
+    # version (node-version 22 takes the newest 22.x), the day, and where this
+    # system's npm keeps its downloads.
+    - name: The caches' keys
+      id: keys
+      shell: bash
+      run: |
+        echo "node=$(node --version)" >> "$GITHUB_OUTPUT"
+        echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+        echo "npm-cache=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+
+    # amxxpc, AMX Mod X's Pawn compiler, is a 32-bit program. The runner's
+    # image has its libraries; apt is asked only when it has not.
     - name: 32-bit libraries for amxxpc
       if: runner.os == 'Linux'
       shell: bash
-      run: sudo apt-get update -qq && sudo apt-get install -y -qq libc6-i386 lib32stdc++6 lib32gcc-s1
+      run: |
+        dpkg -s libc6-i386 lib32stdc++6 lib32gcc-s1 > /dev/null 2>&1 ||
+          { sudo apt-get update -qq && sudo apt-get install -y -qq libc6-i386 lib32stdc++6 lib32gcc-s1; }
 
     # There is no lock file (the folders are linked with --no-package-lock), so
-    # npm's download cache is keyed by the package.json files. It serves the
-    # packages, not the registry's lists of versions (no --prefer-offline): a
-    # cache restored from an older key would not know a version published since.
-    - uses: actions/cache@v6
+    # an install takes the newest version each range allows that day. The
+    # folders' node_modules are kept under every package.json involved, the
+    # script the core's install runs, this file (the commands), the system,
+    # Node and the day: a version published since is installed the next day,
+    # by the first run. The links npm makes to the neighbours (`file:`,
+    # @amxts/* and the command's create-amxts) are not kept - restored on
+    # Windows they would be copies of the neighbours as they were - and npm
+    # install, run every time, makes them again; on a hit that is all it does.
+    - name: Restore node_modules
+      id: modules
+      uses: actions/cache/restore@v6
       with:
-        path: ${{ runner.os == 'Windows' && '~/AppData/Local/npm-cache' || '~/.npm' }}
+        path: |
+          amxts/node_modules/*
+          amxts-cli/node_modules/*
+          amxts-modules/config-core/node_modules/*
+          amxts-modules/menu-core/node_modules/*
+          !**/node_modules/@amxts
+          !**/node_modules/create-amxts
+          !**/node_modules/.cache
+        key: node-modules-${{ runner.os }}-node${{ steps.keys.outputs.node }}-${{ steps.keys.outputs.day }}-${{ hashFiles('amxts/package.json', 'amxts/packages/*/*/package.json', 'amxts-cli/package.json', 'amxts-cli/packages/*/package.json', 'amxts-modules/*/package.json', 'amxts/scripts/patch-typings.ts', 'amxts/.github/actions/setup/action.yml') }}
+    # npm's download cache serves the packages of a miss, not the registry's
+    # lists of versions (no --prefer-offline): a cache restored from an older
+    # key would not know a version published since.
+    - if: steps.modules.outputs.cache-hit != 'true'
+      uses: actions/cache@v6
+      with:
+        path: ${{ steps.keys.outputs.npm-cache }}
         key: npm-${{ runner.os }}-${{ hashFiles('amxts/package.json', 'amxts-cli/package.json', 'amxts-cli/packages/*/package.json', 'amxts-modules/*/package.json') }}
         restore-keys: npm-${{ runner.os }}-
     - name: Install
@@ -68,6 +104,20 @@ runs:
         for module in config-core menu-core; do
           (cd amxts-modules/$module && npm install --no-package-lock --no-audit --no-fund --ignore-scripts)
         done
+    # Saved now, as npm left it: by the end of the job tests have written
+    # into node_modules.
+    - if: steps.modules.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          amxts/node_modules/*
+          amxts-cli/node_modules/*
+          amxts-modules/config-core/node_modules/*
+          amxts-modules/menu-core/node_modules/*
+          !**/node_modules/@amxts
+          !**/node_modules/create-amxts
+          !**/node_modules/.cache
+        key: ${{ steps.modules.outputs.cache-primary-key }}
 
     # The pinned includes (ReAPI, resemiclip) as they were
     # downloaded: GitHub's release downloads fail now and then for a moment.
