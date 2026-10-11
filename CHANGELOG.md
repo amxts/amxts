@@ -1,5 +1,263 @@
 # Changelog
 
+## v0.3.0
+
+### Summary
+
+amxts 0.3 is one module: the host plugin is gone, and the module itself hears the
+game, the commands, the messages and the menus - through Metamod and its own hooks,
+with or without ReAPI. Plugins run at least as fast as Pawn on every measure the suite runs, and faster on most.
+A server loads only the `.aot` a project builds; it compiles nothing.
+
+### Highlights
+
+- **One module, no plugin.** `amxts_amxx` is a Metamod plugin too and hears the
+  game, the players' commands, the messages, the cvars and the log itself. Nothing
+  goes in AMX Mod X's `plugins.ini`.
+- **Built on your machine.** The server loads only `.aot`: `npx amxts build` or
+  `amxts dev` builds them, and the server kit is a fraction of its old size.
+- **Without ReAPI.** A player's actions, `game.restartRound()`,
+  `game.checkWinConditions()`, the HUD and the text menus work on plain HLDS and
+  ReGameDLL alike.
+- **The API grew** where plugins reached for natives: `server.plugins` (stop, start,
+  reload, load, and a Pawn public through `plugin.call`), `Storage<T>` kept as JSON,
+  traces (`trace.line`, `player.aim`, `canSee`), messages sent by name
+  (`player.send`, `server.send`), `player.model`, `player.info`, `country`,
+  `"entityState"` - what each player sees -, `HudLine.showAll`, `screen.hint`,
+  `player.showMotd`, a light style for one player, shots that can be stopped or
+  played to some players, files as bytes, zip and archives, `server.print` and
+  `player.print`, and a movement event's `touchCount` and `frameTime`.
+- **Commands:** several names for one command, a handler of the player
+  (`server.addCommand(["/cp", "cp"], checkpoint)`), the `"command"` event with the
+  command's name, words and text, and `preventDefault()` to stop it; `bot.command`.
+- **Secrets and settings with `env()`.** A token or a key stays out of the `.aot`:
+  `env("KZ_MAP_TOKEN")` reads it from the server's `addons/amxts/.env`, which the
+  process's environment - a game panel's, Docker's - overrides. The default gives the
+  type - `env("KZ_MAX_RECORDS", 100)` is a number, `env("KZ_DEBUG", false)` an on/off
+  switch - and a call without one is required: a plugin does not start while a value
+  is missing or of another kind, one console line names it, and `amxts dev` warns
+  before it deploys.
+- **One line, one ABI.** A plugin built with 0.3.0 loads on every 0.3 module, and
+  the official modules' prebuilt plugins serve the whole line.
+- **Between plugins** a `Record<string, T>` and a rest parameter cross; the compiler
+  takes `Array#flatMap`, and `amxts typecheck` points at an event name in a variable
+  and at `const rows = []` without its type.
+- **The command, 0.3.0:** a panel under `amxts dev` (the server's map, players and
+  FPS, each plugin's state, the last rebuild, keys to rebuild, change the map or
+  restart the round), `amxts rcon`, and a line when a newer amxts is out.
+
+### Breaking changes
+
+Each with what to write instead; **upgrade** says what `npx amxts upgrade` does.
+
+| 0.2 | 0.3 | upgrade |
+| --- | --- | --- |
+| `print(player, text)`, `print(player.id, text)` | `player.print(text)` | rewrites it, and drops `print` from the core's import once none is left |
+| `print(0, text)` | `server.print(text)` | rewrites it |
+| `print({ id, variant }, text)` | `player.print(text, variant)` | rewrites it; another field is listed |
+| `print(5, text)` (a number) | `player.print(text)` | lists it |
+| `storage.get(key)` gives `null` for a missing key | `undefined`, as `Map.get`; a Storage is `data/amxts/storage/<name>.json`, and a new one takes AMX Mod X's nVault file of its name once | rewrites `== null` and a `string \| null` annotation of its value |
+| `player.give(name as ItemName)` | `player.give(name)`: any text | drops the cast, and its import when nothing else names the type |
+| `player.removeAllItems(true)` | `player.removeAllItems({ suit: true })` | rewrites it |
+| `viewModel` / `weaponModel` a number | the model's file, text (`"models/v_knife.mdl"`) | `0` becomes `""`; another number is listed |
+| a test's `server.vault(name)` | `server.storage(name)` | rewrites it |
+| `cmd(name, handler, flag, info)`, `cmdWide(...)` | no `info` | drops it |
+| the server events `"pause"`, `"unpause"`, `"modules"` | gone: AMX Mod X raises them for a Pawn plugin about itself alone | lists the listener |
+| reapi's `DisableHookChain(handle)` of a `hook()` handle | `unhook(handle)` | lists it |
+| a raw native's const string as `cells("h")` | the string as it is: `"h"` | lists it |
+| a raw native that registers for its calling plugin - `set_task`, `register_clcmd`, `register_event`, `register_message`, `RegisterHam`, `RegisterHookChain`, `menu_create`, `log_amx`... | answers 0 from TypeScript: use the API's timers, commands, events and `Menu` | - |
+| `.ts` files on the server, built there | `npx amxts build` and upload the `.aot`, or `build --deploy` / `amxts dev`; a `plugins.ini` line `name.ts` loads `name.aot` | builds the project; the server step puts the module in |
+| `amxts_host.amxx` in AMX Mod X | nothing: amxts is the module alone | the server step takes the line, the plugin and its list out |
+| `addons/amxts/tools/` and `build/` of an older kit | not used | - delete them |
+| the `changeYaw` event's answer | a number of degrees, a float, as the game's function returns | - |
+| a command's `description` in `amx_help` / `amxx cmds` | listed by `server.commands` alone | - |
+
+### ⬆️ Upgrade guide
+
+1. Update the command with the project's own package manager - the `amxts` of a
+   0.2 project is the one its core came with:
+
+   ```sh
+   npm install -D @amxts/cli@latest   # pnpm add -D, yarn add -D, bun add -d
+   ```
+
+2. Run `npx amxts upgrade` (`pnpm amxts upgrade`, `yarn amxts upgrade`, `bunx amxts
+   upgrade`). It moves `@amxts/core` to 0.3.0 and each official module to its version
+   for it - `menu-core` 0.3.0, `config-core` 0.2.0, `resemiclip` 0.1.3, `ftp` 0.1.1 -
+   rewrites the code (the table above), builds, and puts the 0.3.0 module on the
+   server in `AMXTS_SERVER` (stop a running Windows server first, or run
+   `npx amxts upgrade --server-only` after).
+3. Read its "to check by hand" list, then `npx amxts test`.
+4. Upload the `.aot` to a server that is not `AMXTS_SERVER` (`npx amxts build`), and
+   delete an old kit's `addons/amxts/tools/` and `addons/amxts/build/`.
+
+### Known issues
+
+- `Infinity | 0` and `Infinity >>> 0` give `-1` and `4294967295`, not `0`.
+- A plugin named like a file of the core's API (`facade.ts`, `constants.ts`,
+  `hooks.ts`...) takes that file's place in the build: name it otherwise.
+- A Pawn plugin's `amxclient_cmd` reaches no TypeScript command.
+
+
+[compare changes](https://github.com/amxts/amxts/compare/v0.2.4...v0.3.0)
+
+### 🚀 Enhancements
+
+- **abi:** A plugin loads on any patch of its line ([897763dc](https://github.com/amxts/amxts/commit/897763dc))
+- **modules:** A prebuilt module serves its whole line ([6c317ecf](https://github.com/amxts/amxts/commit/6c317ecf))
+- **runtime:** The module stays loaded as a Metamod plugin ([d60d29dc](https://github.com/amxts/amxts/commit/d60d29dc))
+- **commands:** ⚠️  Commands in the module, `bot.command` ([c1e439af](https://github.com/amxts/amxts/commit/c1e439af))
+- **forwards:** A Pawn plugin's forward reaches subscribe ([be62510d](https://github.com/amxts/amxts/commit/be62510d))
+- **events:** ⚠️  Game events through the module's own hooks ([487725b6](https://github.com/amxts/amxts/commit/487725b6))
+- **events:** ⚠️  Messages, log and cvars through the module ([277d3e96](https://github.com/amxts/amxts/commit/277d3e96))
+- **menus:** Menus dispatched by the module ([d6e302b4](https://github.com/amxts/amxts/commit/d6e302b4))
+- **runtime:** ⚠️  The module alone, without the host plugin ([289aaa59](https://github.com/amxts/amxts/commit/289aaa59))
+- **players:** A player's actions without ReAPI ([e4be9385](https://github.com/amxts/amxts/commit/e4be9385))
+- **game:** `game.restartRound`() and `checkWinConditions`() ([7c34005f](https://github.com/amxts/amxts/commit/7c34005f))
+- **api:** ⚠️  The `0.3` API - plugins, storage, traces, messages ([c4aa1d13](https://github.com/amxts/amxts/commit/c4aa1d13))
+- **api:** `player.model`, HUD from the module, `entityState` ([9fa8eee9](https://github.com/amxts/amxts/commit/9fa8eee9))
+- **abi:** A plugin checked by the imports it uses ([fb66f493](https://github.com/amxts/amxts/commit/fb66f493))
+- **compiler:** Array#`flatMap` ([9aa7d20d](https://github.com/amxts/amxts/commit/9aa7d20d))
+- **testing:** `mp_freezetime` and `mp_round_infinite` by default ([dd4143c6](https://github.com/amxts/amxts/commit/dd4143c6))
+- **events:** A console command's name, words and text ([d11b8021](https://github.com/amxts/amxts/commit/d11b8021))
+- **commands:** Several names, a handler of the player ([829ec644](https://github.com/amxts/amxts/commit/829ec644))
+- **modules:** A Record and a rest parameter cross between plugins ([06b86ef7](https://github.com/amxts/amxts/commit/06b86ef7))
+- **server:** ⚠️  A server loads only `.aot` ([b94dbe87](https://github.com/amxts/amxts/commit/b94dbe87))
+- **fs:** Files as bytes, and unzip ([f6f2d48f](https://github.com/amxts/amxts/commit/f6f2d48f))
+- **screen:** A light style for one player ([7a04a13b](https://github.com/amxts/amxts/commit/7a04a13b))
+- **cli:** Typecheck reports an event name in a variable ([8efeee8d](https://github.com/amxts/amxts/commit/8efeee8d))
+- **events:** Stop a shot, or play it to some players ([7e9d3cdf](https://github.com/amxts/amxts/commit/7e9d3cdf))
+- **fs:** Extract an archive, its kind read off its first bytes ([eae2e08a](https://github.com/amxts/amxts/commit/eae2e08a))
+- **api:** ⚠️  `player.print`, no free print ([d7fcf7a7](https://github.com/amxts/amxts/commit/d7fcf7a7))
+- **events:** `preventDefault`() stops a player's command ([9ecf3eca](https://github.com/amxts/amxts/commit/9ecf3eca))
+- **runtime:** `env`() and the server's `.env` ([db01c7d7](https://github.com/amxts/amxts/commit/db01c7d7))
+- **events:** `touchCount` and `frameTime` of the movement ([0b4d3865](https://github.com/amxts/amxts/commit/0b4d3865))
+
+### 🩹 Fixes
+
+- **natives:** Array sizes the includes name by a define ([1930200a](https://github.com/amxts/amxts/commit/1930200a))
+- **testing:** Strings cross a native as the module passes them ([4d716e0e](https://github.com/amxts/amxts/commit/4d716e0e))
+- **testing:** The fake server records every engine message ([609d07b2](https://github.com/amxts/amxts/commit/609d07b2))
+- **runtime:** A bot's command on plain HLDS for Linux ([bef4a16b](https://github.com/amxts/amxts/commit/bef4a16b))
+- **runtime:** Align the log hook's stack on Linux ([bc24500c](https://github.com/amxts/amxts/commit/bc24500c))
+- **runtime:** Keep the line a bot's command puts back ([ac4e62b8](https://github.com/amxts/amxts/commit/ac4e62b8))
+- **runtime:** Bind a hook made at a plugin's top level ([65ed6ab3](https://github.com/amxts/amxts/commit/65ed6ab3))
+- **runtime:** A bot's command reads no stale command line ([56c5dc63](https://github.com/amxts/amxts/commit/56c5dc63))
+- **runtime:** No command line from a frame that has returned ([7aa39838](https://github.com/amxts/amxts/commit/7aa39838))
+- **compiler:** Objects in a frame are no roots to visit ([84cbb7c7](https://github.com/amxts/amxts/commit/84cbb7c7))
+- **natives:** Kept literals in the image's data, not its heap ([b44f3977](https://github.com/amxts/amxts/commit/b44f3977))
+- **entities:** `viewModel` and `weaponModel` are text ([25a13ffc](https://github.com/amxts/amxts/commit/25a13ffc))
+- **compiler:** Null given to a setter runs the setter ([78e96fdb](https://github.com/amxts/amxts/commit/78e96fdb))
+- **runtime:** A plugin's cvar in the module's memory ([037babd9](https://github.com/amxts/amxts/commit/037babd9))
+- **compiler:** A closure kept in a global stays alive ([ea55f8ea](https://github.com/amxts/amxts/commit/ea55f8ea))
+- **compiler:** A returned object literal is its interface ([70c3112e](https://github.com/amxts/amxts/commit/70c3112e))
+- **entities:** `player.fallVelocity` sets the game's own too ([b2c113f9](https://github.com/amxts/amxts/commit/b2c113f9))
+- **build:** Reuse linked modules on the second build ([dcaa1352](https://github.com/amxts/amxts/commit/dcaa1352))
+- **player:** Motd listeners do not hear `showMotd` ([44e48de4](https://github.com/amxts/amxts/commit/44e48de4))
+- **cli:** `amxts` check in a project names typecheck and build ([4cab6433](https://github.com/amxts/amxts/commit/4cab6433))
+- **compiler:** A template's parts live until it is joined ([950eef68](https://github.com/amxts/amxts/commit/950eef68))
+- **messages:** A blocked menu message leaves the menu's keys ([87d2ab2a](https://github.com/amxts/amxts/commit/87d2ab2a))
+- **chat:** A line that does not start with a colour starts yellow ([47d7f4cb](https://github.com/amxts/amxts/commit/47d7f4cb))
+- **server:** A reload raises end, then the map's start ([79b23d10](https://github.com/amxts/amxts/commit/79b23d10))
+- **lang:** Sort orders by the sign of the comparator's number ([c16c50ae](https://github.com/amxts/amxts/commit/c16c50ae))
+- **server:** A `.aot` read while it is written ([a16271d2](https://github.com/amxts/amxts/commit/a16271d2))
+- **fs:** A byte write the editor reads without an error ([b83e8e32](https://github.com/amxts/amxts/commit/b83e8e32))
+- **lang:** Languages are the plugin's dictionaries' ([36879f84](https://github.com/amxts/amxts/commit/36879f84))
+- **lang:** An empty array without its type is reported ([d0046f69](https://github.com/amxts/amxts/commit/d0046f69))
+- **upgrade:** A model's 0 is the empty file name ([eb2ada5d](https://github.com/amxts/amxts/commit/eb2ada5d))
+- **upgrade:** Drop the type import a give cast no longer needs ([01fe96ca](https://github.com/amxts/amxts/commit/01fe96ca))
+- **upgrade:** Drop the core's print import once no print is left ([533ae8c5](https://github.com/amxts/amxts/commit/533ae8c5))
+- **upgrade:** Cmd's info goes; `0.3`'s other breaks are listed ([56e4ff90](https://github.com/amxts/amxts/commit/56e4ff90))
+- **upgrade:** No blank first line where an import went ([92bb4871](https://github.com/amxts/amxts/commit/92bb4871))
+
+### 🔥 Performance
+
+- **natives:** ⚠️  Strings cross a native without copies ([c0bcd0df](https://github.com/amxts/amxts/commit/c0bcd0df))
+- **events:** No list copy or new Player per dispatch ([fff7f2b7](https://github.com/amxts/amxts/commit/fff7f2b7))
+- **events:** An event's written fields made on first write ([9185dc15](https://github.com/amxts/amxts/commit/9185dc15))
+- **runtime:** Forwards and handlers by number ([c23e2fbd](https://github.com/amxts/amxts/commit/c23e2fbd))
+- **players:** `player.name` read once until it changes ([9a28e9bf](https://github.com/amxts/amxts/commit/9a28e9bf))
+- **runtime:** Timers and the frame on Metamod's StartFrame ([4c66bd65](https://github.com/amxts/amxts/commit/4c66bd65))
+- **wamrc:** A number made a cell through SSE2 on i386 ([1edfe6f9](https://github.com/amxts/amxts/commit/1edfe6f9))
+- **runtime:** Client and server events from Metamod ([ef0751f5](https://github.com/amxts/amxts/commit/ef0751f5))
+- **natives:** Exported natives are the module's own ([c5e2c6bf](https://github.com/amxts/amxts/commit/c5e2c6bf))
+- **runtime:** Call a plugin's handler directly ([6560dbea](https://github.com/amxts/amxts/commit/6560dbea))
+- **runtime:** Bind a timer's function once ([0627a22d](https://github.com/amxts/amxts/commit/0627a22d))
+- **runtime:** Optimise the module and WAMR as one ([784095e8](https://github.com/amxts/amxts/commit/784095e8))
+- **events:** One object a game event, its walk inlined ([321eccfb](https://github.com/amxts/amxts/commit/321eccfb))
+- **timers:** A timer is its handler, no object ([999c0e7a](https://github.com/amxts/amxts/commit/999c0e7a))
+- **vector:** X, y and z as loads and stores ([e27e692f](https://github.com/amxts/amxts/commit/e27e692f))
+- **entities:** A vector field in one call into the module ([1e8f8ea1](https://github.com/amxts/amxts/commit/1e8f8ea1))
+- **players:** A kept name read without a call ([451efb0f](https://github.com/amxts/amxts/commit/451efb0f))
+- **natives:** A buffer takes the AMX heap without a call ([25b4d13d](https://github.com/amxts/amxts/commit/25b4d13d))
+- **natives:** Text a native gives again is one string ([8f13bf70](https://github.com/amxts/amxts/commit/8f13bf70))
+- **build:** A full build inlines small functions ([8a5c996b](https://github.com/amxts/amxts/commit/8a5c996b))
+- **build:** The engine hooks' imports as direct calls ([4bd58373](https://github.com/amxts/amxts/commit/4bd58373))
+- **players:** A field's HUD message without AMX Mod X's natives ([2e0492d0](https://github.com/amxts/amxts/commit/2e0492d0))
+- **runtime:** Small blocks on free lists, rarer collections ([37c7d0cf](https://github.com/amxts/amxts/commit/37c7d0cf))
+- **timers:** A timer is a slot the module hands out ([22c2beea](https://github.com/amxts/amxts/commit/22c2beea))
+- **players:** Health read without AMX Mod X's call ([8e3307f1](https://github.com/amxts/amxts/commit/8e3307f1))
+- **natives:** Thunks hand their cells straight on ([e256878d](https://github.com/amxts/amxts/commit/e256878d))
+- **compiler:** Calls keep only the frames and checks they need ([ee0d89d8](https://github.com/amxts/amxts/commit/ee0d89d8))
+- **runtime:** Less between a hooked call and the plugin ([1f689378](https://github.com/amxts/amxts/commit/1f689378))
+- **events:** A server event is one object, read from its call ([1f5132d4](https://github.com/amxts/amxts/commit/1f5132d4))
+- **natives:** Text comes back counted, a field's message in one call ([1067755b](https://github.com/amxts/amxts/commit/1067755b))
+- **compiler:** A vector in one allocation, in its frame ([b91d8d11](https://github.com/amxts/amxts/commit/b91d8d11))
+- **natives:** Text crosses a native four bytes at a time ([62e6db69](https://github.com/amxts/amxts/commit/62e6db69))
+- **commands:** A command's words read when asked ([6111021a](https://github.com/amxts/amxts/commit/6111021a))
+- **menus:** The page drawn last is sent again ([c525a0ea](https://github.com/amxts/amxts/commit/c525a0ea))
+- **fields:** A vector read in a call that collects nothing ([dfa33ca0](https://github.com/amxts/amxts/commit/dfa33ca0))
+- **compiler:** An empty frame dropped, objects zeroed once ([4973eb28](https://github.com/amxts/amxts/commit/4973eb28))
+- **natives:** Leaf natives take literals as kept cells ([9bdebb4b](https://github.com/amxts/amxts/commit/9bdebb4b))
+- **commands:** A command found and run with less work ([90ad0b6a](https://github.com/amxts/amxts/commit/90ad0b6a))
+- **module:** A forward's one listener called from its hook ([bf797e65](https://github.com/amxts/amxts/commit/bf797e65))
+- **natives:** Variadic calls built without allocating ([588cd96e](https://github.com/amxts/amxts/commit/588cd96e))
+- **commands:** A command run without its closure or `read_argc` ([78b635b2](https://github.com/amxts/amxts/commit/78b635b2))
+- **api:** Text the game cannot have changed is kept ([aa375be4](https://github.com/amxts/amxts/commit/aa375be4))
+- **commands:** A handler declared by name called directly ([02b17048](https://github.com/amxts/amxts/commit/02b17048))
+- **wamr:** A whole-number check as one cvttsd2si ([2259e9c5](https://github.com/amxts/amxts/commit/2259e9c5))
+- **compiler:** An options literal in the caller's frame ([70d16418](https://github.com/amxts/amxts/commit/70d16418))
+- **compiler:** A literal's fields stored, its object zeroed in part ([4d1b0c76](https://github.com/amxts/amxts/commit/4d1b0c76))
+- **linux:** The module optimised across files, as on Windows ([825e3211](https://github.com/amxts/amxts/commit/825e3211))
+- **menus:** A Menu shown again rebuilds nothing ([84cbace4](https://github.com/amxts/amxts/commit/84cbace4))
+- **compiler:** Whole numbers kept in i32 ([6820f5a6](https://github.com/amxts/amxts/commit/6820f5a6))
+- **menus:** A Menu's key read off its page ([ea50e297](https://github.com/amxts/amxts/commit/ea50e297))
+- **linux:** Numbers made whole without the x87's rounding ([79fa59be](https://github.com/amxts/amxts/commit/79fa59be))
+- **hooks:** An event's objects made on its first listener ([ec5b0684](https://github.com/amxts/amxts/commit/ec5b0684))
+- **api:** A chat message through the engine ([74163bbe](https://github.com/amxts/amxts/commit/74163bbe))
+
+### 💅 Refactors
+
+- **natives:** A bot's move crosses as cells ([c914f9ad](https://github.com/amxts/amxts/commit/c914f9ad))
+
+### 📖 Documentation
+
+- One module, no host plugin ([98990e6a](https://github.com/amxts/amxts/commit/98990e6a))
+- **pawn:** The "From Pawn" page ([b3cc7fc7](https://github.com/amxts/amxts/commit/b3cc7fc7))
+- **api:** The Pawn natives `trace.line` and `plugin.call` stand for ([f4236f44](https://github.com/amxts/amxts/commit/f4236f44))
+- **players:** `authKey` through Reunion's API ([c0d96c9f](https://github.com/amxts/amxts/commit/c0d96c9f))
+- **menus:** Several menus, actions and placeholders at once ([2714a170](https://github.com/amxts/amxts/commit/2714a170))
+- **menus:** Showing the menu a player is on ([51a6b9d3](https://github.com/amxts/amxts/commit/51a6b9d3))
+- **menus:** ADMIN and `ACCESS_ADMIN` are built in ([434c1803](https://github.com/amxts/amxts/commit/434c1803))
+- **pawn:** The From Pawn pages as the coverage writes them ([9cba3b49](https://github.com/amxts/amxts/commit/9cba3b49))
+- **cli:** The dev panel, `amxts` rcon and the update line ([eea6c15f](https://github.com/amxts/amxts/commit/eea6c15f))
+- **modules:** A Record and a rest parameter cross between plugins ([b605647a](https://github.com/amxts/amxts/commit/b605647a))
+
+#### ⚠️ Breaking Changes
+
+- **commands:** ⚠️  Commands in the module, `bot.command` ([c1e439af](https://github.com/amxts/amxts/commit/c1e439af))
+- **events:** ⚠️  Game events through the module's own hooks ([487725b6](https://github.com/amxts/amxts/commit/487725b6))
+- **events:** ⚠️  Messages, log and cvars through the module ([277d3e96](https://github.com/amxts/amxts/commit/277d3e96))
+- **runtime:** ⚠️  The module alone, without the host plugin ([289aaa59](https://github.com/amxts/amxts/commit/289aaa59))
+- **api:** ⚠️  The `0.3` API - plugins, storage, traces, messages ([c4aa1d13](https://github.com/amxts/amxts/commit/c4aa1d13))
+- **server:** ⚠️  A server loads only `.aot` ([b94dbe87](https://github.com/amxts/amxts/commit/b94dbe87))
+- **api:** ⚠️  `player.print`, no free print ([d7fcf7a7](https://github.com/amxts/amxts/commit/d7fcf7a7))
+- **natives:** ⚠️  Strings cross a native without copies ([c0bcd0df](https://github.com/amxts/amxts/commit/c0bcd0df))
+
+### ❤️ Contributors
+
+- Ernest Manukyan ([@kukson777](https://github.com/kukson777))
+
 ## v0.2.4
 
 [compare changes](https://github.com/amxts/amxts/compare/v0.2.3...v0.2.4)
