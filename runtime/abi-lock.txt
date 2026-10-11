@@ -64,6 +64,7 @@ player_remove_slot (ii)i
 player_drop (ii)
 player_stat (ii)i
 info_get (iiii)i
+env_get (iii)i
 info_set (iii)
 player_silent (ii)i
 geo_country (iiii)i
@@ -75,6 +76,7 @@ hud_show (iiii)
 hud_clear (ii)
 state_hook (ii)i
 state_get (i)F
+move_get (i)F
 state_set (iF)
 store_open (i)i
 store_get (iiii)i
