@@ -2,53 +2,164 @@
 
 ## v0.3.0
 
-### Summary
+> v0.3.0 is the next minor release.
 
-amxts 0.3 is one module: the host plugin is gone, and the module itself hears the
-game, the commands, the messages and the menus - through Metamod and its own hooks,
-with or without ReAPI. Plugins run at least as fast as Pawn on every measure the suite runs, and faster on most.
-A server loads only the `.aot` a project builds; it compiles nothing.
+### 📣 Some news
 
-### Highlights
+#### 🧱 amxts is one module now
 
-- **One module, no plugin.** `amxts_amxx` is a Metamod plugin too and hears the
-  game, the players' commands, the messages, the cvars and the log itself. Nothing
-  goes in AMX Mod X's `plugins.ini`.
-- **Built on your machine.** The server loads only `.aot`: `npx amxts build` or
-  `amxts dev` builds them, and the server kit is a fraction of its old size.
-- **Without ReAPI.** A player's actions, `game.restartRound()`,
-  `game.checkWinConditions()`, the HUD and the text menus work on plain HLDS and
-  ReGameDLL alike.
-- **The API grew** where plugins reached for natives: `server.plugins` (stop, start,
-  reload, load, and a Pawn public through `plugin.call`), `Storage<T>` kept as JSON,
-  traces (`trace.line`, `player.aim`, `canSee`), messages sent by name
-  (`player.send`, `server.send`), `player.model`, `player.info`, `country`,
-  `"entityState"` - what each player sees -, `HudLine.showAll`, `screen.hint`,
-  `player.showMotd`, a light style for one player, shots that can be stopped or
-  played to some players, files as bytes, zip and archives, `server.print` and
-  `player.print`, and a movement event's `touchCount` and `frameTime`.
-- **Commands:** several names for one command, a handler of the player
-  (`server.addCommand(["/cp", "cp"], checkpoint)`), the `"command"` event with the
-  command's name, words and text, and `preventDefault()` to stop it; `bot.command`.
-- **Secrets and settings with `env()`.** A token or a key stays out of the `.aot`:
-  `env("KZ_MAP_TOKEN")` reads it from the server's `addons/amxts/.env`, which the
-  process's environment - a game panel's, Docker's - overrides. The default gives the
-  type - `env("KZ_MAX_RECORDS", 100)` is a number, `env("KZ_DEBUG", false)` an on/off
-  switch - and a call without one is required: a plugin does not start while a value
-  is missing or of another kind, one console line names it, and `amxts dev` warns
-  before it deploys.
-- **One line, one ABI.** A plugin built with 0.3.0 loads on every 0.3 module, and
-  the official modules' prebuilt plugins serve the whole line.
-- **Between plugins** a `Record<string, T>` and a rest parameter cross; the compiler
-  takes `Array#flatMap`, and `amxts typecheck` points at an event name in a variable
-  and at `const rows = []` without its type.
-- **The command, 0.3.0:** a panel under `amxts dev` (the server's map, players and
-  FPS, each plugin's state, the last rebuild, keys to rebuild, change the map or
-  restart the round), `amxts rcon`, and a line when a newer amxts is out.
+In 0.2, amxts was two pieces: the `amxts_amxx` module, and a host plugin, `amxts_host.amxx`, that sat in AMX Mod X's `plugins.ini` and passed the game's events on to TypeScript. Every event took a detour through Pawn on its way to your plugin.
 
-### Breaking changes
+👉 **In 0.3, the host plugin is gone.**
 
-Each with what to write instead; **upgrade** says what `npx amxts upgrade` does.
+The module is a Metamod plugin as well, and it hears the game itself: the players' commands, the messages, the cvars, the log, the menus, and ReGameDLL's and ReHLDS's hookchains through its own hooks. Nothing goes in `plugins.ini` any more, and there is no Pawn between the game and your code.
+
+It made amxts faster, too. I check every release against Pawn twins of the same plugins, measure by measure, and **a TypeScript plugin now runs at least as fast as Pawn on every measure the suite runs, and faster on most.**
+
+#### 🚫 No ReAPI needed
+
+What ReAPI's `rg_*` natives did for the API, the module now does itself, through ReGameDLL's own API, and through the game's functions on Valve's HLDS. Giving and taking weapons, switching teams, respawning, models, the HUD, text menus, `game.restartRound()` and `game.checkWinConditions()` all work the same on:
+
+- ReHLDS + ReGameDLL, with or without ReAPI;
+- Valve's own HLDS with metamod-p.
+
+ReAPI's natives are still there in `@amxts/core/natives`, for when your server has it and you want one.
+
+#### 🖥️ The server only loads, your machine builds
+
+A server never compiles anything now: it loads the `.aot` files a project builds. You build with `npx amxts build` and upload, or let `amxts dev` / `build --deploy` do it, the same way a `.sma` is compiled at home and an `.amxx` uploaded. The server kit is a fraction of its old size as a result, and a `plugins.ini` line that says `name.ts` simply loads `name.aot`.
+
+#### 🔗 One line, one ABI
+
+A plugin built with 0.3.0 loads on every 0.3 module: 0.3.1, 0.3.2 and so on. The official modules ship prebuilt plugins that serve the whole line, so a patch release of the core never makes you (or a module's author) rebuild.
+
+### 👀 Highlights
+
+#### 🔐 Secrets with `env()`
+
+A token or an API key shouldn't be in your code, and it shouldn't be in the `.aot` either: anything compiled into a plugin can be read back out of it. `env()` reads it on the server instead:
+
+```ts
+const token = env("MYPLUGIN_TOKEN");          // required: text
+const maxRecords = env("MYPLUGIN_MAX", 100);  // a number
+const debug = env("MYPLUGIN_DEBUG", false);   // on/off: 1/0, true/false, yes/no, on/off
+```
+
+The values live in the server's `addons/amxts/.env`, and the server process's environment wins over the file, so a game panel or Docker can pass them without any file on the server at all. The default gives the type. A call without one is required: the plugin doesn't start until the value is there, and the console says which one it needs, in one line. `amxts dev` warns you before it deploys.
+
+#### 💬 `player.print` and `server.print`
+
+Printing to one player or to everyone reads the way it says:
+
+```ts
+player.print(`Welcome back, ${player.name}!`);
+player.print("Round restarted", "center");
+server.print("Map changes in 30 seconds");
+```
+
+Chat goes through the engine directly, so a chat message is as cheap as in Pawn.
+
+#### ⌨️ Commands, the way you'd write them
+
+One command can have several names, and its handler gets the player:
+
+```ts
+function checkpoint(player: Player) {
+	player.print("Checkpoint saved");
+}
+
+server.addCommand(["/cp", "cp"], checkpoint);   // in chat and in the console
+server.addCommand(["/kz", "chooseteam"], (player) => openMenu(player));
+```
+
+And every command a player types reaches the `"command"` event, with its name, words and text, where `preventDefault()` stops it:
+
+```ts
+server.addEventListener("command", (event) => {
+	if (event.command == "chooseteam" && !event.player.isAlive) event.preventDefault();
+});
+```
+
+#### 👁️ What each player sees
+
+`"entityState"` is what the server sends one player about one entity, every frame. Change it, and only that player sees the change:
+
+```ts
+game.addEventListener("entityState", (event) => {
+	if (event.player.team != "CT") {
+		event.preventDefault();              // a marker only the CTs see
+		return;
+	}
+	event.renderFx = "glowShell";            // and it glows for them
+	event.renderColor = [0, 160, 255];
+}, { classname: "myplugin_marker" });
+```
+
+#### 🧩 Plugins that manage plugins
+
+`server.plugins` lists every plugin on the server, TypeScript and Pawn alike, and lets you stop, start and reload one, load one the list doesn't name, or call a Pawn plugin's public function:
+
+```ts
+const shop = server.plugins.find(plugin => plugin.file == "shop.aot");
+shop?.reload();
+```
+
+#### 💾 Storage that keeps your types
+
+`new Storage<T>(name)` keeps any interface, saved as JSON, and a missing key reads as `undefined`, the same as `Map.get`:
+
+```ts
+interface Profile { kills: number; title: string }
+
+const profiles = new Storage<Profile>("myplugin_profiles");
+profiles.set(player.steamId, { kills: 10, title: "Rookie" });
+```
+
+A new Storage takes over AMX Mod X's nVault file of the same name once, so nothing is lost when you move a Pawn plugin over.
+
+#### 📦 Files, downloads and archives
+
+Files can be read and written as bytes, and `fs.extract` unpacks a zip archive, so a plugin can download a map and put it in place:
+
+```ts
+import * as fs from "@amxts/core/fs";
+
+const response = await fetch(`https://maps.example.com/${name}.zip`);
+for (const entry of fs.extract(await response.arrayBuffer())) {
+	fs.writeFileSync(entry.path, entry.data);
+}
+```
+
+#### 🏃 Movement events: touches and frame time
+
+The player's movement events (`move`, `airMove`, `jumpMovement`, `duckMovement`, `ladderMove` and the rest) have `event.touchCount` and `event.frameTime`. That's enough for jump stats without ReAPI's `get_pmove`.
+
+#### 🛠️ And more
+
+- **traces:** `trace.line`, `player.aim` (what a player is aiming at), `canSee`;
+- **messages by name:** `player.send` and `server.send`;
+- **player:** `player.model`, `player.info`, `player.country`, `player.showMotd`, and a light style for one player;
+- **screen:** `player.screen.hint` and `HudLine.showAll`;
+- **shots:** stop a shot, or play it to only some players;
+- **between plugins:** a `Record<string, T>` and a rest parameter can cross, and `Array#flatMap` compiles;
+- **typecheck:** `amxts typecheck` points at an event name kept in a variable, and at `const rows = []` without its element type.
+
+#### 🖥️ The command, 0.3.0
+
+`amxts dev` has a panel: the server's map, players and FPS, each plugin's state and the last rebuild, with keys to rebuild, change the map or restart the round. `amxts rcon` sends a command to the server, and the command tells you when a newer amxts is out.
+
+### 🩹 Important fixes
+
+- A template string's parts stay alive until they are joined, so a collection in the middle of one no longer corrupts the heap ([950eef68](https://github.com/amxts/amxts/commit/950eef68)), and a closure kept in a global stays alive ([ea55f8ea](https://github.com/amxts/amxts/commit/ea55f8ea)).
+- A menu message a plugin blocks leaves the menu's keys working ([87d2ab2a](https://github.com/amxts/amxts/commit/87d2ab2a)).
+- A `.aot` uploaded while the server reads it is no longer loaded half-written ([a16271d2](https://github.com/amxts/amxts/commit/a16271d2)).
+- A bot's command works on plain HLDS for Linux, and never reads a stale command line ([bef4a16b](https://github.com/amxts/amxts/commit/bef4a16b), [56c5dc63](https://github.com/amxts/amxts/commit/56c5dc63)).
+- `viewModel` and `weaponModel` are the model's file, as text ([25a13ffc](https://github.com/amxts/amxts/commit/25a13ffc)).
+- The fake server records every engine message (`SVC_NEWMOVEVARS`, `SVC_LIGHTSTYLE`, …), not only temporary effects ([609d07b2](https://github.com/amxts/amxts/commit/609d07b2)).
+
+### ⚠️ Breaking changes
+
+Each with what to write instead; **upgrade** says what `npx amxts upgrade` does for you.
 
 | 0.2 | 0.3 | upgrade |
 | --- | --- | --- |
@@ -72,32 +183,28 @@ Each with what to write instead; **upgrade** says what `npx amxts upgrade` does.
 | the `changeYaw` event's answer | a number of degrees, a float, as the game's function returns | - |
 | a command's `description` in `amx_help` / `amxx cmds` | listed by `server.commands` alone | - |
 
-### ⬆️ Upgrade guide
+### ✅ Upgrading
 
-1. Update the command with the project's own package manager - the `amxts` of a
-   0.2 project is the one its core came with:
+First update the command with your project's own package manager. A 0.2 project's `amxts` is the one its core came with:
 
-   ```sh
-   npm install -D @amxts/cli@latest   # pnpm add -D, yarn add -D, bun add -d
-   ```
+```sh
+npm install -D @amxts/cli@latest   # pnpm add -D, yarn add -D, bun add -d
+```
 
-2. Run `npx amxts upgrade` (`pnpm amxts upgrade`, `yarn amxts upgrade`, `bunx amxts
-   upgrade`). It moves `@amxts/core` to 0.3.0 and each official module to its version
-   for it - `menu-core` 0.3.0, `config-core` 0.2.0, `resemiclip` 0.1.3, `ftp` 0.1.1 -
-   rewrites the code (the table above), builds, and puts the 0.3.0 module on the
-   server in `AMXTS_SERVER` (stop a running Windows server first, or run
-   `npx amxts upgrade --server-only` after).
-3. Read its "to check by hand" list, then `npx amxts test`.
-4. Upload the `.aot` to a server that is not `AMXTS_SERVER` (`npx amxts build`), and
-   delete an old kit's `addons/amxts/tools/` and `addons/amxts/build/`.
+Then run:
 
-### Known issues
+```sh
+npx amxts upgrade
+```
 
-- `Infinity | 0` and `Infinity >>> 0` give `-1` and `4294967295`, not `0`.
-- A plugin named like a file of the core's API (`facade.ts`, `constants.ts`,
-  `hooks.ts`...) takes that file's place in the build: name it otherwise.
-- A Pawn plugin's `amxclient_cmd` reaches no TypeScript command.
+It moves `@amxts/core` to 0.3.0 and each official module to its version for it (`menu-core` 0.3.0, `config-core` 0.2.0, `resemiclip` 0.1.3, `ftp` 0.1.1), rewrites your code (the table above), builds, and puts the 0.3.0 module on the server in `AMXTS_SERVER`. Stop a running Windows server first, or run `npx amxts upgrade --server-only` after.
 
+Then read its "to check by hand" list and run `npx amxts test`. For any other server, upload the `.aot` files, and delete an old kit's `addons/amxts/tools/` and `addons/amxts/build/`.
+
+> [!NOTE]
+> Known issues: `Infinity | 0` and `Infinity >>> 0` give `-1` and `4294967295` instead of `0`. A plugin named like a file of the core's API (`facade.ts`, `constants.ts`, `hooks.ts`, …) takes that file's place in the build, so name it otherwise. A Pawn plugin's `amxclient_cmd` reaches no TypeScript command.
+
+### 👉 Changelog
 
 [compare changes](https://github.com/amxts/amxts/compare/v0.2.4...v0.3.0)
 
