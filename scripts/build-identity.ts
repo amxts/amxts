@@ -113,8 +113,12 @@ export function abiIdentity(): string {
  */
 export function pluginAbi(imports: Iterable<string>): string {
 	const shapes = importShapes();
-	const used = [...imports].filter(each => each.startsWith('env.')).map(each => shapes.get(each.slice(4)) ?? each.slice(4));
-	return [abiIdentity(), ...used.sort()].join('\n');
+	const used = [...imports].filter(each => each.startsWith('env.')).map(each => each.slice(4));
+	// A table older than the facade lacks its new imports: a plugin carrying
+	// a bare name is refused by every module, so the build stops here.
+	const missing = used.filter(name => !shapes.has(name));
+	if (missing.length > 0) throw new Error(`the natives table has no ${missing.join(', ')}: it is older than the core's code - run bun run generate`);
+	return [abiIdentity(), ...used.map(name => shapes.get(name)!).sort()].join('\n');
 }
 
 /**

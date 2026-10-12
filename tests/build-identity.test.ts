@@ -79,6 +79,10 @@ test('an import is its line of the natives table: its name, its types, how its a
 	expect(pluginAbi(['env.add', 'env.abort'])).toBe([abiIdentity(), shapes.get('abort'), shapes.get('add')].join('\n'));
 });
 
+test('an import the natives table lacks stops the build: the table is older than the code', () => {
+	expect(() => pluginAbi(['env.add', 'env.no_such_import'])).toThrow('the natives table has no no_such_import: it is older than the core\'s code - run bun run generate');
+});
+
 test('within a line a released import keeps its shape, and is not taken away', () => {
 	const lock = ['# a comment', '0.3.0', 'add (iiii)i s', 'ent_get (ii)i', ''].join('\n');
 	const natives = ['# GENERATED', 'add (iiii)i s', 'ent_get (ii)i', 'ent_get2 (iii)i', ''].join('\n');
