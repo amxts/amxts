@@ -24,7 +24,16 @@ const CASES: Case[] = [
 	{ value: 4294967301, int32: 5, uint32: 5 },
 	{ value: -4294967301, int32: -5, uint32: 4294967291 },
 	{ value: 1e18, int32: -1486618624, uint32: 2808348672 },
+	{ value: 2 ** 53 + 2, int32: 2, uint32: 2 },
+	{ value: 2 ** 63, int32: 0, uint32: 0 },
+	{ value: -(2 ** 63), int32: 0, uint32: 0 },
+	{ value: 2 ** 63 + 2048, int32: 2048, uint32: 2048 },
+	{ value: -(2 ** 63) - 2048, int32: -2048, uint32: 4294965248 },
+	{ value: 2 ** 64 + 4096, int32: 4096, uint32: 4096 },
+	{ value: 1e300, int32: 0, uint32: 0 },
+	{ value: -0.5, int32: 0, uint32: 0 },
 	{ value: NaN, int32: 0, uint32: 0 },
+	{ value: Infinity, int32: 0, uint32: 0 },
 	{ value: -Infinity, int32: 0, uint32: 0 },
 ];
 
