@@ -222,6 +222,15 @@ describe('semantics', () => {
 		expect(host.log).toEqual(['counter 2']);
 	});
 
+	test('an object with __promise() is sent only when awaited, alone or in Promise.all', () => {
+		const host = run('lazy');
+		expect(host.log.splice(0)).toEqual(['made', 'one sent', 'one start']);
+		host.advance(10);
+		expect(host.log.splice(0)).toEqual(['one after 10', 'one 20', 'two sent', 'two start', 'three sent', 'three start']);
+		host.advance(10);
+		expect(host.log.splice(0)).toEqual(['two after 10', 'three after 10', 'two 20, three 20']);
+	});
+
 	test('an async game listener answers the chain only before its first await', () => {
 		const host = run('answerEarly');
 		host.fireHooks();

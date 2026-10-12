@@ -19,8 +19,8 @@
 import * as impl from "./promise";
 
 declare global {
-	/** The value a promise gives, or the value itself. */
-	type __PromiseValue<T> = T extends impl.Promise<infer U> ? U : T;
+	/** The value a promise gives - or a database query, which the compiler awaits by its `__promise()` - or the value itself. */
+	type __PromiseValue<T> = T extends impl.Promise<infer U> ? U : T extends { __promise: () => impl.Promise<infer U> } ? U : T;
 
 	/** The value `await` gives of a promise or of a plain value - TypeScript's own name for it, which `await 5` and `for await` look up. */
 	type Awaited<T> = __PromiseValue<T>;

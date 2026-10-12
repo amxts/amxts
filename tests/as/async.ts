@@ -454,3 +454,25 @@ export function executorClosure(): void {
 	});
 	promise.then(value => console.log(`resolved ${value}`));
 }
+
+/** A thenable of the hood - a database query - sent only when awaited: `await` takes its `__promise()`. */
+class Lazy {
+	constructor(public label: string) {}
+
+	__promise(): Promise<string> {
+		console.log(`${this.label} sent`);
+		return tick(this.label, 10).then(ms => `${this.label} ${ms}`);
+	}
+}
+
+async function awaitsLazy() {
+	const made = new Lazy("one");
+	console.log("made");
+	console.log(await made);
+	const both = await Promise.all([new Lazy("two"), new Lazy("three")]);
+	console.log(`${both[0]}, ${both[1]}`);
+}
+
+export function lazy(): void {
+	awaitsLazy();
+}
