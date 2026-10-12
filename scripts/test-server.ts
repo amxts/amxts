@@ -255,6 +255,30 @@ async function startFtp(suites: Suite[]): Promise<void> {
 	ftpServers = { ftp, sftp };
 }
 
+// The core's database suite (tests/server/database.ts) talks to a MySQL and a
+// MariaDB of the runner's own, tests/database-servers.ts: containers on ports
+// Docker picks, reached as the web server is. Without Docker on this machine
+// it is skipped, and says so; in CI Docker is there, and a failure to start
+// them fails the suite.
+let databases: { mysql: string; mariadb: string; stop: () => void } | null = null;
+let databasesSkipped = '';
+
+async function startDatabases(suites: Suite[]): Promise<void> {
+	const file = join(CORE_DIR, 'tests/database-servers.ts');
+	if (!suites.some(suite => suite.name === 'database') || !existsSync(file)) return;
+	const { dockerRunning, startTestDatabases } = await import(file);
+	if (!process.env.CI && !dockerRunning()) {
+		databasesSkipped = 'skipped: no Docker on this machine (CI runs it)';
+		return;
+	}
+	try {
+		databases = await startTestDatabases(...HOST_ADDRESSES);
+	} catch (error) {
+		// The suite then fails, saying it was given none.
+		console.log(`the database suite's servers did not start: ${(error as Error).message}`);
+	}
+}
+
 // What a suite is given after its command.
 const SUITE_ARGS: Record<string, () => string> = {
 	'time': () => String(Date.now()),
@@ -263,6 +287,7 @@ const SUITE_ARGS: Record<string, () => string> = {
 	// Quoted: the engine's console splits a word at a colon.
 	'fetch': () => (web ? `"${web.http}" "${web.https}"` : ''),
 	'net-request': () => (ftpServers ? `"${ftpServers.ftp.url}" "${ftpServers.sftp.url}" "${ftpServers.sftp.hostKey}"` : ''),
+	'database': () => (databases ? `"${databases.mysql}" "${databases.mariadb}"` : ''),
 };
 
 const START_TIMEOUT = 90_000;
@@ -1073,7 +1098,7 @@ async function main(): Promise<number> {
 	if (!built) return 1;
 	console.log(`${prebuilt ? 'took' : 'built'} ${built.length} plugins and ${pawn.length} Pawn suite(s) (${((performance.now() - started) / 1000).toFixed(1)}s)`);
 	if (buildOnly) return 0;
-	await startWeb(suites);
+	await Promise.all([startWeb(suites), startDatabases(suites)]);
 
 	const password = `amxts-${Math.random().toString(36).slice(2, 12)}`;
 	const refused = refusedCopies(built);
@@ -1172,6 +1197,10 @@ async function main(): Promise<number> {
 		for (const suite of suites) {
 			if (!alive()) break;
 			progress.start(suite.name);
+			if (suite.name === 'database' && databasesSkipped) {
+				progress.end(suite.name, true, databasesSkipped);
+				continue;
+			}
 			const result = await runSuite(suite, password, alive);
 			results.push(result);
 			for (const line of [...result.lines.filter(one => one.includes(' FAIL ')), ...(result.problem ? [`[${suite.name}] ${result.problem}`] : [])]) progress.fail(line);
@@ -1183,6 +1212,7 @@ async function main(): Promise<number> {
 		return report(results, problems);
 	} finally {
 		web?.stop();
+		databases?.stop();
 		await Promise.all([ftpServers?.ftp.stop(), ftpServers?.sftp.stop()]);
 		if (keep && isAlive(pid)) {
 			console.log(`\nleft running: ${linux ? `container ${CONTAINER}` : `pid ${pid}`}, 127.0.0.1:${PORT}, rcon_password "${password}"`);

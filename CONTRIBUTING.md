@@ -146,6 +146,11 @@ bun run test:server --only cvar,player   # only these suites, beside what every 
 bun run test:release          # the npm packages end to end: a local registry, npx create-amxts, a server in Docker
 ```
 
+The `database` suite checks `Database` against a MySQL and a MariaDB the
+runner starts in Docker (`amxts-test-mysql`, `amxts-test-mariadb`, removed
+after the run). Without Docker on the machine it is skipped and says so;
+CI runs it on every Linux server.
+
 `--amxx <build>` runs the Linux server on another AMX Mod X build, any one
 whose packages' sha256 are in `docker/hlds/amxmodx.sha256`. CI runs the
 server suites on three: the image's own (1.10.0-git5474), 1.9.0-git5303 and

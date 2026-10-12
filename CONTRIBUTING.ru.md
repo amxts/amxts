@@ -146,6 +146,11 @@ bun run test:server --only cvar,player   # only these suites, beside what every 
 bun run test:release          # пакеты npm от начала до конца: локальный реестр, npx create-amxts, сервер в Docker
 ```
 
+Набор `database` проверяет `Database` на MySQL и MariaDB, которые раннер
+запускает в Docker (`amxts-test-mysql`, `amxts-test-mariadb`, удаляются после
+прогона). Без Docker на машине он пропускается и говорит об этом; CI гоняет
+его на каждом Linux-сервере.
+
 `--amxx <build>` запускает сервер под Linux на другой сборке AMX Mod X —
 любой, чьи пакеты с sha256 есть в `docker/hlds/amxmodx.sha256`. CI гоняет
 серверные наборы на трёх: своей сборке образа (1.10.0-git5474),
