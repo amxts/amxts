@@ -82,7 +82,7 @@ async function check(checks: Checks, label: string, url: string) {
 	await db.execute("DROP TABLE IF EXISTS amxts_runs");
 	await db.execute(
 		"CREATE TABLE amxts_runs (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(64) NOT NULL UNIQUE, time DOUBLE NOT NULL, "
-		+ "finished TINYINT(1) NOT NULL, price DECIMAL(10,3) NOT NULL, born DATETIME NULL) CHARACTER SET utf8mb4",
+		+ "finished TINYINT(1) NOT NULL, price DECIMAL(10,3) NOT NULL, born DATETIME NULL, mask BIT(3) NOT NULL DEFAULT b'101') CHARACTER SET utf8mb4",
 	);
 
 	const inserted = await db.execute("INSERT INTO amxts_runs (name, time, finished, price, born) VALUES (?, ?, ?, ?, ?)", [NAME, 61.25, true, 12.5, null]);
@@ -101,7 +101,7 @@ async function check(checks: Checks, label: string, url: string) {
 
 	const typed = await db.query<Typed>(
 		"SELECT CAST(-5 AS SIGNED) AS small, CAST(9007199254740991 AS UNSIGNED) AS big, CAST(1.5 AS FLOAT) AS single, "
-		+ "DATE('2026-10-12') AS day, CAST('-27:05:01' AS TIME) AS clock, b'101' AS bits, NULL AS missing FROM amxts_runs WHERE id = ?",
+		+ "DATE('2026-10-12') AS day, CAST('-27:05:01' AS TIME) AS clock, mask AS bits, NULL AS missing FROM amxts_runs WHERE id = ?",
 		[1],
 	);
 	const t = typed[0];
@@ -140,6 +140,15 @@ async function check(checks: Checks, label: string, url: string) {
 	checks.expect(await code(wrong.execute("SELECT 1")), `${label}: a wrong password`).toBe("1045 28000");
 }
 
+/** The checks of one server; an error that escapes them is a failed check, not a suite that never ends. */
+async function guarded(checks: Checks, label: string, url: string) {
+	try {
+		await check(checks, label, url);
+	} catch (error) {
+		checks.expect(`${error.name}: ${error.message}`, `${label}: ran to the end`).toBe("no error");
+	}
+}
+
 async function run(mysql: string, mariadb: string) {
 	const checks = new Checks("database");
 	checks.expect(mysql.length > 0 && mariadb.length > 0, "the runner's MySQL and MariaDB (Docker is needed)").toBe(true);
@@ -149,9 +158,9 @@ async function run(mysql: string, mariadb: string) {
 	}
 
 	// First without TLS: the user's first sign-in is the full one, the password encrypted with the server's RSA key.
-	await check(checks, "MySQL without TLS", `${mysql}?ssl-mode=disabled`);
-	await check(checks, "MySQL over TLS", `${mysql}?ssl-mode=required`);
-	await check(checks, "MariaDB", mariadb);
+	await guarded(checks, "MySQL without TLS", `${mysql}?ssl-mode=disabled`);
+	await guarded(checks, "MySQL over TLS", `${mysql}?ssl-mode=required`);
+	await guarded(checks, "MariaDB", mariadb);
 
 	const offline = new Database("mysql://amxts:secret@127.0.0.1:1/amxts");
 	checks.expect((await failure(offline.execute("SELECT 1"))).startsWith("0  could not connect to 127.0.0.1:1"), "no server").toBe(true);
