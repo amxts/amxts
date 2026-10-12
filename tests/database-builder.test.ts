@@ -37,10 +37,12 @@ function sent(from: number) {
 describe('query builder', () => {
 	test('select every column, read into the row by the schema', async () => {
 		const from = server.database(URL).queries.length;
+		// Cyrillic on purpose: the rows cross as UTF-8.
 		server.database(URL).answer(/^SELECT `id`/, [
 			{ id: 1, steam_id: 'STEAM_0:1:2', map: 'kz_a', time: 61.5, bonus: null, checkpoints: 3, vip: 1, Nick: 'Ёжик', settings: '{"sound":true}', big: '9007199254740993' },
 			{ id: 2, steam_id: 'STEAM_0:1:3', map: 'kz_a', time: 62, bonus: 4, checkpoints: 0, vip: null, Nick: null, settings: null, big: null },
 		]);
+		// Cyrillic on purpose: and back.
 		expect(await run('b_select')).toEqual([
 			'select 1 STEAM_0:1:2 kz_a 61.5 null true 3 true false Ёжик true 9007199254740993',
 			'select 2 STEAM_0:1:3 kz_a 62 4 false 0 null true null none null',
@@ -72,6 +74,7 @@ describe('query builder', () => {
 		const from = server.database(URL).queries.length;
 		server.database(URL).answer(/^INSERT INTO `records`/, { insertId: 43, affectedRows: 2 });
 		expect(await run('b_insert_many')).toEqual(['many 2']);
+		// Cyrillic on purpose: the values cross as UTF-8.
 		expect(sent(from)).toEqual([[
 			'INSERT INTO `records` (`steam_id`, `map`, `time`, `bonus`, `vip`, `Nick`, `settings`) VALUES (?, ?, ?, DEFAULT, ?, ?, DEFAULT), (?, ?, ?, ?, DEFAULT, DEFAULT, ?)',
 			['STEAM_0:1:3', 'kz_b', 70, true, 'Ёжик', 'STEAM_0:1:4', 'kz_b', 71, null, '{"sound":true}'],

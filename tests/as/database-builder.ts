@@ -76,6 +76,7 @@ server.addServerCommand("b_insert", async () => {
 });
 
 server.addServerCommand("b_insert_many", async () => {
+	// Cyrillic on purpose: the values cross as UTF-8.
 	const row: typeof records.$inferInsert = { steamId: "STEAM_0:1:3", map: "kz_b", time: 70, nick: "Ёжик", vip: true };
 	const { affectedRows } = await db.insert(records).values([row, { steamId: "STEAM_0:1:4", map: "kz_b", time: 71, bonus: null, settings: { sound: true } }]);
 	console.log(`many ${affectedRows}`);

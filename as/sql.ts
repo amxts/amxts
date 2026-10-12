@@ -130,6 +130,7 @@ export function __numberValue(value: f64): DatabaseValue {
 /** @hidden What a condition compares a column with: another column, or a value - JSON's text for an object. */
 function __operand<V>(value: V): __Sql {
 	if (isFloat<V>()) return new __Param(__numberValue(<f64>value));
+	// @ts-ignore: text or a boolean, boxed where the value goes
 	if (isString<V>() || isBoolean<V>()) return new __Param(value);
 	if (isReference<V>()) {
 		if (value instanceof __Sql) return changetype<__Sql>(value);
@@ -816,6 +817,7 @@ export class InsertBuilder<R, I, U> {
 
 	/** The row to insert, or the rows. */
 	values(rows: I | I[]): InsertQuery<R, I, U> {
+		// @ts-ignore: `I | I[]` is held as the list
 		return new InsertQuery<R, I, U>(this.__queries, this.__table, rows);
 	}
 }
@@ -843,6 +845,7 @@ export class InsertQuery<R, I, U> {
 
 	/** Leaves a row out when its key is taken already. */
 	onConflictDoNothing(config: ConflictTarget): InsertQuery<R, I, U> {
+		// @ts-ignore: `T | T[]` is held as the list
 		this.__target = config.target;
 		this.__set = null;
 		return this;
@@ -850,6 +853,7 @@ export class InsertQuery<R, I, U> {
 
 	/** Changes `set` on the row there instead when the row's key is taken already. */
 	onConflictDoUpdate(config: ConflictUpdate<U>): InsertQuery<R, I, U> {
+		// @ts-ignore: `T | T[]` is held as the list
 		this.__target = config.target;
 		this.__set = __assignments<R, I, U>(this.__table, config.set);
 		return this;

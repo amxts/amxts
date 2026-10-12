@@ -57,7 +57,10 @@ type ColumnsOf<C> = { readonly [K in keyof C]: Column<ColumnValue<C[K]>> };
 
 type InferSelect<C> = { [K in keyof C]: ColumnValue<C[K]> };
 
-type InferInsert<C> = Simplify<{ [K in RequiredColumn<C>]: ColumnValue<C[K]> } & { [K in Exclude<keyof C, RequiredColumn<C>>]?: ColumnValue<C[K]> }>;
+/** The columns an insert may leave out. */
+type OptionalColumn<C> = { [K in keyof C]: C[K] extends ColumnBuilder<unknown, true, false> ? never : K }[keyof C];
+
+type InferInsert<C> = Simplify<{ [K in RequiredColumn<C>]: ColumnValue<C[K]> } & { [K in OptionalColumn<C>]?: ColumnValue<C[K]> }>;
 
 type InferUpdate<C> = { [K in keyof C]?: ColumnValue<C[K]> };
 
