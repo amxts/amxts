@@ -68,3 +68,14 @@ test('a reload removes the timers of the plugin it replaces', async () => {
 	server.advance(45_000);
 	expect(alice.chat).toBe('Say /tour to see what this plugin can do');
 });
+
+test('a timer armed with no delay while timers fire waits for a later frame', async () => {
+	const server = await loadPlugin('tests/as/timer-chain.ts');
+	const alice = server.join('Alice');
+	alice.command('chain_start');
+
+	server.advance(10);
+	alice.command('chain_count');
+
+	expect(alice.console).toBe('11');
+});

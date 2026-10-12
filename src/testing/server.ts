@@ -974,6 +974,8 @@ export class FakeServer {
 	private outcome = 0;
 	private outcomeSaid = false;
 	private taskOrder = 0;
+	/** The time advance() is firing timers at, else -1: what they arm waits for a later frame. */
+	private firingAt = -1;
 	/** The slots of RegisterHookChain's and RegisterHam's handles, which DisableHookChain and the rest take. */
 	private readonly hookSlots = new Map<number, Slot>();
 	private entityIds: number;
@@ -1303,7 +1305,10 @@ export class FakeServer {
 
 	/**
 	 * Moves the clock forward and runs every timer that comes due on the way,
-	 * in order - a repeating one as many times as it fits.
+	 * in order - a repeating one as many times as it fits. As on the server,
+	 * a timer armed or repeated while timers fire waits for a later frame, a
+	 * millisecond on: `setTimeout(fn, 0)` from a handler never fires in the
+	 * same moment.
 	 */
 	advance(ms: number): void {
 		const until = this.time + ms;
@@ -1314,11 +1319,15 @@ export class FakeServer {
 				.sort((a, b) => a.due - b.due || a.order - b.order)[0];
 			if (!due) break;
 
-			this.time = due.due;
-			if (due.repeat) due.due += due.interval;
+			this.time = this.firingAt = due.due;
+			if (due.repeat) due.due += Math.max(due.interval, 1);
 			else this.tasks.splice(this.tasks.indexOf(due), 1);
 
-			this.withCallArgs([due.timer], () => this.call(due.slot, [due.timer], 0));
+			try {
+				this.withCallArgs([due.timer], () => this.call(due.slot, [due.timer], 0));
+			} finally {
+				this.firingAt = -1;
+			}
 		}
 
 		this.time = until;
@@ -2923,7 +2932,8 @@ export class FakeServer {
 			const interval = Math.round(bitsFloat(secondsBits) * 1000);
 			let timer = 0;
 			while (this.tasks.some(task => task.timer === timer)) timer++;
-			this.tasks.push({ slot, timer, interval, due: this.time + interval, repeat: repeat !== 0, order: this.taskOrder++ });
+			const due = this.time + interval;
+			this.tasks.push({ slot, timer, interval, due: due <= this.firingAt ? this.firingAt + 1 : due, repeat: repeat !== 0, order: this.taskOrder++ });
 			return timer;
 		},
 
