@@ -6311,6 +6311,9 @@ static cell AMX_NATIVE_CALL n_executeForward(AMX *amx, cell *params)
 // AMX Mod X's own show_menu and menu_display.
 static AMX_NATIVE g_showMenu = NULL;
 static AMX_NATIVE g_menuDisplay = NULL;
+// AMX Mod X's own amxclient_cmd, which the module's runs (n_amxclientCmd).
+static AMX_NATIVE g_amxclientCmd = NULL;
+static cell AMX_NATIVE_CALL n_amxclientCmd(AMX *amx, cell *params);
 
 // show_menu(index, keys, const menu[], time = -1, const title[] = "") - a
 // menu over the player's Menu, or every player's for 0: it takes the keys,
@@ -6336,13 +6339,13 @@ static cell AMX_NATIVE_CALL n_menuDisplay(AMX *amx, cell *params)
 }
 
 /**
- * Stands in for CreateMultiForward, PrepareArray and ExecuteForward, and for
- * show_menu and menu_display, in the native table of every script but the
- * image's, whose natives the module calls itself (Forward.emit reaches its
- * TypeScript subscribers through emit_local; the image's show_menu is the
- * module's own, g_ownNatives). Every map, in AMXX_PluginsLoaded: AMX Mod X loads the plugins
- * anew and has bound their natives, and they make their forwards from
- * plugin_precache on. A call instruction reads the entry on every call, with
+ * Stands in for CreateMultiForward, PrepareArray and ExecuteForward, for
+ * show_menu and menu_display, and for amxclient_cmd, in the native table of
+ * every script but the image's, whose natives the module calls itself
+ * (Forward.emit reaches its TypeScript subscribers through emit_local; the
+ * image's show_menu and amxclient_cmd are the module's own, g_ownNatives).
+ * Every map, in AMXX_PluginsLoaded: AMX Mod X loads the plugins anew and has
+ * bound their natives, and they make their forwards from plugin_precache on. A call instruction reads the entry on every call, with
  * the JIT too.
  */
 static void InterposeNatives()
@@ -6353,6 +6356,7 @@ static void InterposeNatives()
 		{ "ExecuteForward",     &g_executeForward,     n_executeForward     },
 		{ "show_menu",          &g_showMenu,           n_showMenu           },
 		{ "menu_display",       &g_menuDisplay,        n_menuDisplay        },
+		{ "amxclient_cmd",      &g_amxclientCmd,       n_amxclientCmd       },
 	};
 
 	for (int i = 0; AMX *amx = MF_GetScriptAmx(i); i++) {
@@ -6926,6 +6930,7 @@ static const OwnNativeInfo g_ownNatives[] = {
 	{ "register_cvar",    n_createCvar,      NULL },
 	{ "register_menucmd", n_registerMenucmd, NULL },
 	{ "show_menu",        n_showMenu,        &g_showMenu },
+	{ "amxclient_cmd",    n_amxclientCmd,    &g_amxclientCmd },
 	{ "get_func_id",         n_getFuncId,         NULL },
 	{ "callfunc_begin_i",    n_callfuncBeginI,    &g_callfuncBeginI },
 	{ "callfunc_push_int",   n_callfuncPushInt,   &g_callfuncPushInt },
@@ -7380,20 +7385,16 @@ static int MenuKey(int id, ShownMenu &menu)
  * commands of its name, then a key of the menu a plugin shows him - unless a
  * Pawn plugin took it, in client_command, a register_clcmd handler or a menu
  * of its own. `say` and `say_team` are commands like any other; the facade
- * reads the chat line.
+ * reads the chat line. True when a plugin took it from the game.
  */
-void ClientCommand(edict_t *e)
+static inline bool RunClientCommand(int id, bool pawnTook)
 {
-	InCommand dispatch;
-	int id = ClientId(e);
-	if (!id)
-		RETURN_META(MRES_IGNORED);
 	ShownMenu menu;
 	int key = MenuKey(id, menu);
-	if (META_RESULT_STATUS >= MRES_SUPERCEDE)
-		RETURN_META(MRES_IGNORED);
+	if (pawnTook)
+		return false;
 	if (RaiseFor(FORWARD_CLIENT_COMMAND, id) > 0)
-		RETURN_META(MRES_SUPERCEDE);
+		return true;
 
 	// A key of a plugin's menu is a `menuselect`, whose commands are kept.
 	Forward *commands = key >= 0 ? g_menuselect : NULL;
@@ -7402,12 +7403,21 @@ void ClientCommand(edict_t *e)
 		commands = it != g_clientCommands.end() ? &it->second : NULL;
 	}
 	if (commands && RunCommand(*commands, id))
-		RETURN_META(MRES_SUPERCEDE);
+		return true;
 	if (key < 0)
-		RETURN_META(MRES_IGNORED);
+		return false;
 	uint32_t argv[MAX_EVENT_ARGS] = { (uint32_t)id, (uint32_t)key, 0, 0 };
 	Fire(menu, argv, MAX_EVENT_ARGS, 0);
-	RETURN_META(MRES_SUPERCEDE);
+	return true;
+}
+
+void ClientCommand(edict_t *e)
+{
+	InCommand dispatch;
+	int id = ClientId(e);
+	if (id && RunClientCommand(id, META_RESULT_STATUS >= MRES_SUPERCEDE))
+		RETURN_META(MRES_SUPERCEDE);
+	RETURN_META(MRES_IGNORED);
 }
 
 /**
@@ -7637,6 +7647,99 @@ static void ClientCommandLine(int32_t id, const std::string &line)
 static void w_botCmd(wasm_exec_env_t env, int32_t id, int32_t line)
 {
 	ClientCommandLine(id, AsString(Inst(env), line));
+}
+
+/**
+ * AMX Mod X's amxclient_cmd runs client_command and the Pawn plugins'
+ * handlers itself, then calls the game's ClientCommand straight from its own
+ * copy of the game's table, past every Metamod plugin. While it runs, the
+ * game's function starts with a jump to the module's (g_gameCommand): what
+ * the Pawn handlers let through reaches the module's commands and the
+ * command event, and the game after them unless one took it. AMX Mod X
+ * answers the command's words to the game alone, through Metamod's engine
+ * functions; the module and the plugins read the engine's, so the engine
+ * splits the command's line for them while they run. Without the engine's
+ * tokenizer (plain HLDS on Windows) the command goes to the game alone.
+ */
+static EntryHook   g_gameCommand = { NULL, NULL, { 0 }, { 0 }, false };
+static bool        g_amxclientCommand = false;
+static std::string g_amxclientLine;
+
+/** The engine's words as a line it splits back into them: each quoted, its own copies read, never Cmd_Args. */
+static std::string EngineLine()
+{
+	std::string line;
+	for (int i = 0, n = CMD_ARGC(); i < n; i++)
+		line.append(i ? " \"" : "\"").append(CMD_ARGV(i)).append("\"");
+	return line;
+}
+
+/** amxclient_cmd's command for player `id`, the engine's line its words while the plugins hear it: true when one took it. */
+static bool HearFakeCommand(int id)
+{
+	// The engine's Cmd_Args points into the line it split: two lines a
+	// depth, in a deque, whose strings stay where they are as it grows.
+	static std::deque<std::string> lines;
+	static size_t depth = 0;
+	if (lines.size() < 2 * depth + 2)
+		lines.resize(2 * depth + 2);
+	std::string &line = lines[2 * depth], &outer = lines[2 * depth + 1];
+	outer = EngineLine();
+	line = g_amxclientLine;
+	g_tokenize(&line[0]);
+	depth++;
+	bool taken;
+	{
+		InCommand dispatch;
+		taken = RunClientCommand(id, false);
+	}
+	depth--;
+	g_tokenize(&outer[0]);
+	return taken;
+}
+
+static void FakeCommand_Hooked(edict_t *e)
+{
+	bool fake = g_amxclientCommand;
+	// A command a handler sends is the game's own.
+	g_amxclientCommand = false;
+	int id = ClientId(e);
+	if (!fake || !id || !HearFakeCommand(id))
+		CALL_ORIGINAL(g_gameCommand, ClientCommandFn, e);
+	// amxclient_cmd(0, ...) comes back for the next player.
+	g_amxclientCommand = fake;
+}
+
+// amxclient_cmd(index, const command[], const arg1[] = "", const arg2[] = "")
+static cell AMX_NATIVE_CALL n_amxclientCmd(AMX *amx, cell *params)
+{
+	if (!g_gameCommand.at && gpGamedllFuncs && gpGamedllFuncs->dllapi_table) {
+		g_gameCommand.at = (unsigned char *)gpGamedllFuncs->dllapi_table->pfnClientCommand;
+		g_gameCommand.to = (void *)FakeCommand_Hooked;
+	}
+	if (!g_image || !g_tokenize || !g_gameCommand.at)
+		return g_amxclientCmd(amx, params);
+
+	// The line as a player's game sends it: an argument with a space quoted.
+	// AMX Mod X leaves out an empty argument.
+	std::string line;
+	int length = 0;
+	for (int i = 2; i <= 4 && i <= (int)(params[0] / sizeof(cell)); i++) {
+		std::string word = MF_GetAmxString(amx, params[i], 0, &length);
+		bool spaced = word.find_first_of(" \t") != std::string::npos;
+		if (i == 2 || !word.empty())
+			line.append(i == 2 ? "" : " ").append(spaced ? "\"" + word + "\"" : word);
+	}
+	g_amxclientLine.swap(line);
+	bool outer = g_amxclientCommand, on = g_gameCommand.on;
+	g_amxclientCommand = true;
+	HookOn(g_gameCommand);
+	cell sent = g_amxclientCmd(amx, params);
+	if (!on)
+		HookOff(g_gameCommand);
+	g_amxclientCommand = outer;
+	g_amxclientLine.swap(line);
+	return sent;
 }
 
 // What a player is given and does, the game rules' actions: ReGameDLL's API, or the game's own functions.

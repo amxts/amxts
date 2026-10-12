@@ -147,7 +147,7 @@ describe('a command\'s arguments, read as their types say', () => {
 		const { admin, alice } = await boot();
 
 		alice.say('/help');
-		expect(alice.chat).toBe(['give <amount> [what]', '/me <text>', '/hp', 'say rules', 'cmd_reset [what]', 'cmd_login <url> <user>', '/help', 'ping', '/ping', '/cp cp', '/tp tp teleport', '/go', '/all', '/mates', 'cmd_bot_hp'].join('\n'));
+		expect(alice.chat).toBe(['give <amount> [what]', '/me <text>', '/hp', 'say rules', 'cmd_reset [what]', 'cmd_login <url> <user>', '/help', 'ping', '/ping', '/cp cp', '/tp tp teleport', '/go', '/all', '/mates', 'cmd_bot_hp', 'cmd_amxclient <command> [arg]'].join('\n'));
 		admin.say('/help');
 		expect(admin.chat.split('\n')[0]).toBe('/kick <target> [reason]');
 	});
@@ -191,6 +191,16 @@ describe('several names, a handler of the player, one chat', () => {
 		expect(heard()).toBe('Alice asks where: are,you | /where are   you');
 		alice.command('buyequip "vest helm" 2');
 		expect(heard()).toMatch(/^Alice buyequip vest helm,2 \| "?vest helm"? 2$/);
+	});
+
+	test('a command a Pawn plugin sends with amxclient_cmd: the commands hear it, the game gets what they leave', async () => {
+		const { server, alice, heard } = await boot();
+
+		server.serverCommand('cmd_amxclient say "/me waves"');
+		expect(heard()).toBe('Alice waves');
+		server.serverCommand('cmd_amxclient buyequip');
+		expect(heard()).toBe('Alice buyequip  | ');
+		expect(alice.commands).toEqual(['buyequip']);
 	});
 });
 

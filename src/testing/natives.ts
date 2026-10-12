@@ -674,6 +674,12 @@ export const NATIVES: Record<string, Native> = {
 	engclient_cmd: (c, [id, command, arg1, arg2]) => {
 		clientCommand(player(c, id), [command, arg1, arg2].map(p => c.memory.text(p)).filter(Boolean).join(' '));
 	},
+	// The plugins hear it as the player's command, then the game gets it unless one took it.
+	amxclient_cmd: (c, [id, command, arg1, arg2]) => {
+		const target = player(c, id);
+		const argv = [command, arg1, arg2].map(p => c.memory.text(p)).filter(Boolean);
+		if (target && !c.server.clientCommand(target, argv)) clientCommand(target, argv.join(' '));
+	},
 	rg_reset_maxspeed: () => {},
 
 	// ------------------------------------------------------------ entities

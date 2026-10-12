@@ -2,6 +2,8 @@
 // them, and the build reads each word as its type says - a number, a player
 // by #userid or a part of his name, one of some words, the rest of the line
 // (tests/commands.test.ts).
+import { amxclient_cmd } from "@amxts/core/natives";
+
 interface KickArgs {
 	target: Player;
 	reason?: string;
@@ -65,6 +67,11 @@ server.addCommand("kick_all", ({ player }) => {
 	heard = `${player.name} kicks everyone`;
 }, { access: "kick" });
 
+interface AmxclientArgs {
+	command: string;
+	arg?: string;
+}
+
 interface TeamArgs {
 	team: "t" | "ct";
 }
@@ -113,6 +120,12 @@ server.addEventListener("command", (event) => {
 // A bot's command, as one it sent.
 server.addServerCommand("cmd_bot_hp", () => {
 	server.players.find(player => player.isBot)?.command("say /hp");
+});
+
+// Alice's command sent with amxclient_cmd, as a Pawn plugin sends one.
+server.addServerCommand<AmxclientArgs>("cmd_amxclient <command> [arg]", ({ command, arg }) => {
+	const alice = server.players.find(player => player.name == "Alice");
+	if (alice != null) amxclient_cmd(alice.id, command, arg ?? "");
 });
 
 export function cmd_heard() {
