@@ -41,31 +41,42 @@ const TEXT_STATE: i32 = 1;
 /** A value of a query's `?`: text, a number, a boolean or `null`. */
 export type DatabaseValue = string | number | boolean | null;
 
-/** What `execute` gives: the id the row it inserted got, and how many rows it changed. */
+/** The outcome of `execute`: the id the row it inserted got, and how many rows it changed. */
 export interface ExecuteResult {
 	/** The `AUTO_INCREMENT` id of the row inserted; `0` when there was none. */
 	insertId: number;
-	/** How many rows the statement inserted, changed or deleted - for `UPDATE`, the rows it matched. */
+	/** The number of rows the statement inserted, changed or deleted - for `UPDATE`, the rows it matched. */
 	affectedRows: number;
 }
 
 /** Why a query failed: the database's message, with its error code and SQLSTATE when the server refused it. */
 export class DatabaseError extends Error {
-	constructor(message: string, public code: number = 0, public sqlState: string = "") {
+	/** The server's error number, such as `1062` for a duplicate key; `0` when the query did not reach the server. */
+	code: number;
+	/** The error's SQLSTATE, such as `"23000"`; `""` when the query did not reach the server. */
+	sqlState: string;
+
+	constructor(message: string, code: number = 0, sqlState: string = "") {
 		super(message);
 		this.name = "DatabaseError";
+		this.code = code;
+		this.sqlState = sqlState;
 	}
 }
 
-/** What a query runs on: a connection, or a transaction of one. Rows are JSON text, an array of objects. */
+/** The side a query runs on: a connection, or a transaction of one. Rows are JSON text, an array of objects. */
 export interface DatabaseQueries {
+	/** Runs a statement that reads rows; gives them as JSON text, `[{"name":"a"}]`. */
 	query(sql: string, params: DatabaseValue[]): Promise<string>;
+	/** Runs a statement that changes rows; gives `{ insertId, affectedRows }`. */
 	execute(sql: string, params: DatabaseValue[]): Promise<ExecuteResult>;
 }
 
 /** A transaction a provider began: its queries, and how it ends. */
 export interface DatabaseTransaction extends DatabaseQueries {
+	/** Keeps what the transaction changed. */
 	commit(): Promise<void>;
+	/** Undoes what the transaction changed. */
 	rollback(): Promise<void>;
 }
 
@@ -74,7 +85,9 @@ export interface DatabaseTransaction extends DatabaseQueries {
  * Its queries run in the order they are given.
  */
 export interface DatabaseConnection extends DatabaseQueries {
+	/** Begins a transaction; rejects when the database has none. */
 	begin(): Promise<DatabaseTransaction>;
+	/** Lets the connection go. */
 	close(): void;
 }
 

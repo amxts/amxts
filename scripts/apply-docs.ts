@@ -372,6 +372,7 @@ export const CORE_API = [
 	'as/amxts.d.ts',
 	'as/lib/check.ts',
 	'as/fetch.ts',
+	'as/database.ts',
 ];
 
 export function docsFileOf(root: string, file: string): string {

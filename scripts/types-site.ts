@@ -48,7 +48,7 @@ const tsc = createRequire(import.meta.url).resolve('typescript/bin/tsc');
 // The files in as/ that are the hood rather than a plugin (scripts/project.ts
 // has the same list, NOT_PLUGINS): anything else there would be a plugin,
 // not API.
-const HOOD = new Set(['facade', 'kit', 'promise', 'vector', 'effects', 'fetch', 'fs', 'os', 'natives', 'constants', 'events', 'entities', 'flags', 'hooks', 'remote', 'hlds']);
+const HOOD = new Set(['facade', 'kit', 'promise', 'vector', 'effects', 'fetch', 'database', 'fs', 'os', 'natives', 'constants', 'events', 'entities', 'flags', 'hooks', 'remote', 'hlds']);
 const API_FOLDERS = new Set(['lib']);
 
 function emit(project: string, outDir: string, rootDir?: string) {

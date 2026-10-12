@@ -6,16 +6,16 @@ export default {
 		ru: `Значение для \`?\` запроса: текст, число, логическое или \`null\`.`,
 	},
 	'ExecuteResult': {
-		en: `What \`execute\` gives: the id the row it inserted got, and how many rows it changed.`,
-		ru: `Что отдаёт \`execute\`: номер вставленной строки и сколько строк изменено.`,
+		en: `The outcome of \`execute\`: the id the row it inserted got, and how many rows it changed.`,
+		ru: `Итог \`execute\`: номер вставленной строки и сколько строк изменено.`,
 	},
 	'ExecuteResult.insertId': {
 		en: `The \`AUTO_INCREMENT\` id of the row inserted; \`0\` when there was none.`,
 		ru: `\`AUTO_INCREMENT\`-номер вставленной строки; \`0\`, если вставки не было.`,
 	},
 	'ExecuteResult.affectedRows': {
-		en: `How many rows the statement inserted, changed or deleted - for \`UPDATE\`, the rows it matched.`,
-		ru: `Сколько строк запрос вставил, изменил или удалил; для \`UPDATE\` — сколько подошло под условие.`,
+		en: `The number of rows the statement inserted, changed or deleted - for \`UPDATE\`, the rows it matched.`,
+		ru: `Число строк, которые запрос вставил, изменил или удалил; для \`UPDATE\` — подошедших под условие.`,
 	},
 	'DatabaseError': {
 		en: `Why a query failed: the database's message, with its error code and SQLSTATE when the server refused it.`,
@@ -30,7 +30,7 @@ export default {
 		ru: `SQLSTATE ошибки, например \`"23000"\`; \`""\`, если запрос не дошёл до сервера.`,
 	},
 	'DatabaseQueries': {
-		en: `What a query runs on: a connection, or a transaction of one. Rows are JSON text, an array of objects.`,
+		en: `The side a query runs on: a connection, or a transaction of one. Rows are JSON text, an array of objects.`,
 		ru: `На чём выполняется запрос: соединение или его транзакция. Строки — JSON-текст, массив объектов.`,
 	},
 	'DatabaseQueries.query': {
