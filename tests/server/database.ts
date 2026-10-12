@@ -111,15 +111,16 @@ async function check(checks: Checks, label: string, url: string) {
 	// Sent at once, they run in order on the one connection.
 	const sent: Promise<ExecuteResult>[] = [];
 	for (let i = 0; i < 5; i++) sent.push(db.execute("INSERT INTO amxts_runs (name, time, finished, price) VALUES (?, ?, ?, ?)", [`run ${i}`, i, false, 0]));
+	// A failed INSERT takes an id too, as InnoDB counts: the order is read from the first.
 	const ids = (await Promise.all(sent)).map(result => result.insertId);
-	checks.expect(ids.join(","), `${label}: queries in the order sent`).toBe("2,3,4,5,6");
+	checks.expect(ids.map(id => id - ids[0]).join(","), `${label}: queries in the order sent`).toBe("0,1,2,3,4");
 
 	const committed = await db.transaction(async (tx) => {
 		const { insertId } = await tx.execute("INSERT INTO amxts_runs (name, time, finished, price) VALUES (?, ?, ?, ?)", ["kept", 1, true, 0]);
 		await tx.execute("UPDATE amxts_runs SET time = time + 1 WHERE id = ?", [insertId]);
 		return insertId;
 	});
-	checks.expect(`${committed} ${await count(db)}`, `${label}: a transaction committed`).toBe("7 7");
+	checks.expect(`${committed > ids[4]} ${await count(db)}`, `${label}: a transaction committed`).toBe("true 7");
 
 	let thrown = "none";
 	try {
