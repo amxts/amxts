@@ -6,6 +6,7 @@
 // mysql_native_password. The runner gives both addresses:
 // amxts_test_database <mysql> <mariadb>.
 import { Checks } from "@amxts/core/check";
+import { and, asc, bigint, boolean, count, desc, double, eq, gt, inArray, int, isNull, json, max, table, text, unique, varchar } from "@amxts/core/database";
 
 interface DatabaseArgs {
 	mysql?: string;
@@ -72,7 +73,7 @@ function row(rows: Run[]): string {
 	return `${rows.length} ${first.name} ${first.time} ${first.finished} ${first.price} ${first.born} ${first.note}`;
 }
 
-async function count(db: Database): Promise<number> {
+async function countRuns(db: Database): Promise<number> {
 	const rows = await db.query<Counted>("SELECT COUNT(*) AS count FROM amxts_runs");
 	return rows[0].count;
 }
@@ -120,7 +121,7 @@ async function check(checks: Checks, label: string, url: string) {
 		await tx.execute("UPDATE amxts_runs SET time = time + 1 WHERE id = ?", [insertId]);
 		return insertId;
 	});
-	checks.expect(`${committed > ids[4]} ${await count(db)}`, `${label}: a transaction committed`).toBe("true 7");
+	checks.expect(`${committed > ids[4]} ${await countRuns(db)}`, `${label}: a transaction committed`).toBe("true 7");
 
 	let thrown = "none";
 	try {
@@ -131,20 +132,84 @@ async function check(checks: Checks, label: string, url: string) {
 	} catch (error) {
 		thrown = error.message;
 	}
-	checks.expect(`${thrown} ${await count(db)}`, `${label}: a transaction rolled back`).toBe("changed my mind 7");
+	checks.expect(`${thrown} ${await countRuns(db)}`, `${label}: a transaction rolled back`).toBe("changed my mind 7");
 
 	// The connection killed under it: that query fails, the next opens it again.
 	checks.expect(await failure(db.execute("KILL CONNECTION_ID()")) != "none", `${label}: a lost connection fails the query`).toBe(true);
-	checks.expect(await count(db), `${label}: the next query connects again`).toBe(7);
+	checks.expect(await countRuns(db), `${label}: the next query connects again`).toBe(7);
 
 	const wrong = new Database(url.replace(":secret@", ":wrong@"));
 	checks.expect(await code(wrong.execute("SELECT 1")), `${label}: a wrong password`).toBe("1045 28000");
+}
+
+interface Options {
+	sound: boolean;
+}
+
+/** The query builder's table: created by `create`, every kind of column. */
+const builderRuns = table("amxts_builder_runs", {
+	id: int().primaryKey().autoincrement(),
+	steamId: varchar(32).notNull(),
+	map: varchar(64).notNull(),
+	time: double().notNull(),
+	bonus: int(),
+	vip: boolean().notNull().default(false),
+	nick: text("Nick"),
+	options: json<Options>(),
+	big: bigint({ mode: "string" }),
+}, t => [unique().on(t.steamId, t.map)]);
+
+type BuilderRun = typeof builderRuns.$inferSelect;
+
+function builderRow(run: BuilderRun): string {
+	return `${run.steamId} ${run.map} ${run.time} ${run.bonus} ${run.vip} ${run.nick} ${run.options ? `${run.options!.sound}` : "none"} ${run.big}`;
+}
+
+/** The query builder against the server: create, insert, upsert, select, update, delete, a transaction. */
+async function builder(checks: Checks, label: string, url: string) {
+	const db = new Database(url);
+	await db.execute("DROP TABLE IF EXISTS amxts_builder_runs");
+	await db.create(builderRuns);
+	await db.create(builderRuns);
+
+	const first = await db.insert(builderRuns).values({ steamId: "STEAM_0:1:1", map: "kz_a", time: 61.5, nick: NAME, options: { sound: true }, big: "9007199254740993" });
+	checks.expect(`${first.insertId} ${first.affectedRows}`, `${label}: builder insert`).toBe("1 1");
+	const many = await db.insert(builderRuns).values([
+		{ steamId: "STEAM_0:1:2", map: "kz_a", time: 70, vip: true },
+		{ steamId: "STEAM_0:1:3", map: "kz_b", time: 80, bonus: 2 },
+	]);
+	checks.expect(many.affectedRows, `${label}: builder insert of rows`).toBe(2);
+
+	const top = await db.select().from(builderRuns).where(eq(builderRuns.map, "kz_a")).orderBy(asc(builderRuns.time));
+	checks.expect(top.map(builderRow).join(" | "), `${label}: builder select`)
+		.toBe(`STEAM_0:1:1 kz_a 61.5 null false ${NAME} true 9007199254740993 | STEAM_0:1:2 kz_a 70 null true null none null`);
+
+	await db.insert(builderRuns).values({ steamId: "STEAM_0:1:1", map: "kz_a", time: 59 }).onConflictDoUpdate({ target: [builderRuns.steamId, builderRuns.map], set: { time: 59, nick: null } });
+	await db.insert(builderRuns).values({ steamId: "STEAM_0:1:2", map: "kz_a", time: 1 }).onConflictDoNothing({ target: [builderRuns.steamId, builderRuns.map] });
+	const best = await db.select({ map: builderRuns.map, runs: count(), worst: max(builderRuns.time) })
+		.from(builderRuns)
+		.where(gt(builderRuns.time, 0))
+		.groupBy(builderRuns.map)
+		.orderBy(desc(count()));
+	checks.expect(best.map(run => `${run.map} ${run.runs} ${run.worst}`).join(" | "), `${label}: builder upsert, aggregates`).toBe("kz_a 2 70 | kz_b 1 80");
+
+	const changed = await db.update(builderRuns).set({ bonus: 5, vip: false }).where(and(eq(builderRuns.map, "kz_a"), isNull(builderRuns.bonus)));
+	checks.expect(changed.affectedRows, `${label}: builder update`).toBe(2);
+	const kept = await db.transaction(async (tx) => {
+		await tx.delete(builderRuns).where(inArray(builderRuns.steamId, ["STEAM_0:1:3"]));
+		const left = await tx.select({ runs: count() }).from(builderRuns);
+		return left[0].runs;
+	});
+	const after = await db.select().from(builderRuns).orderBy(builderRuns.id);
+	checks.expect(`${kept} ${after.map(builderRow).join(" | ")}`, `${label}: builder delete in a transaction`)
+		.toBe("2 STEAM_0:1:1 kz_a 59 5 false null true 9007199254740993 | STEAM_0:1:2 kz_a 70 5 false null none null");
 }
 
 /** The checks of one server; an error that escapes them is a failed check, not a suite that never ends. */
 async function guarded(checks: Checks, label: string, url: string) {
 	try {
 		await check(checks, label, url);
+		await builder(checks, label, url);
 	} catch (error) {
 		checks.expect(`${error.name}: ${error.message}`, `${label}: ran to the end`).toBe("no error");
 	}
