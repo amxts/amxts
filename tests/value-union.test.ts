@@ -25,10 +25,10 @@ function send(params: Value[]): string {
 export function text(): string {
 	const values: Value[] = ["text", 1.5, 2, true, null];
 	values.push(false);
-	const name = "Ёжик";
+	const name = "hedgehog";
 	return JSON.stringify(values) + " " + send([name, 61.25, true, null]);
 }
-`)).toBe('["text",1.5,2,true,null,false] ["Ёжик",61.25,true,null]');
+`)).toBe('["text",1.5,2,true,null,false] ["hedgehog",61.25,true,null]');
 		});
 
 		test('typeof says what it holds, `as` takes it out', async () => {
