@@ -40,7 +40,7 @@ function docker(args: string[]): void {
 	if (result.status !== 0) fail(`docker ${args[0]} failed (exit ${result.status})`);
 }
 
-for (const [file, step] of [['runtime/src/natives.h', 'generate'], ['runtime/src/forwards.h', 'generate'], ['runtime/src/embedded.h', 'generate'], ['runtime/src/image.h', 'image']]) {
+for (const [file, step] of [['runtime/src/natives.h', 'generate'], ['runtime/src/forwards.h', 'generate'], ['runtime/src/embedded.h', 'generate'], ['runtime/src/version.h', 'generate'], ['runtime/src/image.h', 'image']]) {
 	if (!existsSync(join(CORE, file))) fail(`${file} is missing - run bun run ${step} first`);
 }
 

@@ -22,6 +22,7 @@ runtime/src/forwards.h
 runtime/src/hookchains.h
 runtime/src/hookchains-api.h
 runtime/src/embedded.h
+runtime/src/version.h
 runtime/src/image.h
 runtime/natives.txt
 runtime/host/amxts_natives.sma
