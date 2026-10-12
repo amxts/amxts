@@ -15,3 +15,5 @@ as/amxts.d.ts filter=amxts-docs
 as/lib/check.ts filter=amxts-docs
 as/fetch.ts filter=amxts-docs
 as/database.ts filter=amxts-docs
+as/sql.ts filter=amxts-docs
+as/sql.types.d.ts filter=amxts-docs

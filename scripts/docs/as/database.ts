@@ -33,6 +33,10 @@ export default {
 		en: `The side a query runs on: a connection, or a transaction of one. Rows are JSON text, an array of objects.`,
 		ru: `На чём выполняется запрос: соединение или его транзакция. Строки — JSON-текст, массив объектов.`,
 	},
+	'DatabaseQueries.dialect': {
+		en: `The dialect the database writes SQL in: what the query builder writes its statements in.`,
+		ru: `Диалект, на котором база пишет SQL: на нём построитель запросов пишет свои запросы.`,
+	},
 	'DatabaseQueries.query': {
 		en: `Runs a statement that reads rows; gives them as JSON text, \`[{"name":"a"}]\`.`,
 		ru: `Выполняет запрос, который читает строки; отдаёт их JSON-текстом, \`[{"name":"a"}]\`.`,
@@ -88,6 +92,26 @@ export default {
 	'__Queries.execute': {
 		en: `Runs a statement that changes rows - \`INSERT\`, \`UPDATE\`, \`DELETE\` - with the values of its \`?\`.`,
 		ru: `Выполняет запрос, который меняет строки, — \`INSERT\`, \`UPDATE\`, \`DELETE\` — со значениями для его \`?\`.`,
+	},
+	'__Queries.select': {
+		en: `Starts a query of rows: \`db.select().from(records)\`, every column - or \`db.select({ time: records.time })\`, the ones chosen.`,
+		ru: `Начинает запрос строк: \`db.select().from(records)\` — все колонки, или \`db.select({ time: records.time })\` — выбранные.`,
+	},
+	'__Queries.insert': {
+		en: `Starts an insert into the table: \`db.insert(records).values({ ... })\`.`,
+		ru: `Начинает вставку в таблицу: \`db.insert(records).values({ ... })\`.`,
+	},
+	'__Queries.update': {
+		en: `Starts an update of the table's rows: \`db.update(records).set({ ... }).where(...)\`.`,
+		ru: `Начинает изменение строк таблицы: \`db.update(records).set({ ... }).where(...)\`.`,
+	},
+	'__Queries.delete': {
+		en: `Starts a delete of the table's rows: \`db.delete(records).where(...)\` - every row without \`where\`.`,
+		ru: `Начинает удаление строк таблицы: \`db.delete(records).where(...)\` — без \`where\` все строки.`,
+	},
+	'__Queries.create': {
+		en: `Creates the table, with its keys, unless the database has it already: \`CREATE TABLE IF NOT EXISTS\`.`,
+		ru: `Создаёт таблицу с её ключами, если в базе её ещё нет: \`CREATE TABLE IF NOT EXISTS\`.`,
 	},
 	'Transaction': {
 		en: `The queries of a transaction: \`db.transaction(async (tx) => { await tx.execute(...); })\`.`,

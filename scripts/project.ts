@@ -61,6 +61,7 @@ import { includeDirs } from './includes';
 import { existsSync, readdirSync, readFileSync, statSync } from './tracked-fs';
 import { typedCommands } from './typed-commands';
 import { typedConfigs } from './typed-configs';
+import { typedTables } from './typed-tables';
 
 /** The core's folder: the package this file ships in. */
 export const CORE_DIR = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -637,7 +638,7 @@ export function optionsOf(project: Project, definition: ModuleDefinition): Optio
  * Everything in the core's as/ that is not a plugin: the facade a plugin
  * imports, the kit a module imports and the generated native layer under them.
  */
-export const NOT_PLUGINS = new Set(['facade.ts', 'kit.ts', 'promise.ts', 'vector.ts', 'effects.ts', 'fetch.ts', 'database.ts', 'fs.ts', 'os.ts', 'natives.ts', 'remote.ts', 'constants.ts', 'events.ts', 'entities.ts', 'flags.ts', 'hooks.ts', 'hlds.ts']);
+export const NOT_PLUGINS = new Set(['facade.ts', 'kit.ts', 'promise.ts', 'vector.ts', 'effects.ts', 'fetch.ts', 'database.ts', 'sql.ts', 'fs.ts', 'os.ts', 'natives.ts', 'remote.ts', 'constants.ts', 'events.ts', 'entities.ts', 'flags.ts', 'hooks.ts', 'hlds.ts']);
 
 /**
  * The core's API a plugin imports, by the package's name, and its file in
@@ -650,6 +651,7 @@ export const CORE_ENTRIES: Record<string, string> = {
 	'@amxts/core/constants': 'constants.ts',
 	'@amxts/core/fs': 'fs.ts',
 	'@amxts/core/os': 'os.ts',
+	'@amxts/core/database': 'sql.ts',
 	'@amxts/core/kit': 'kit.ts',
 	'@amxts/core/check': 'lib/check.ts',
 };
@@ -953,7 +955,7 @@ export class Sources {
 		return this.rel(this.place(real));
 	}
 
-	/** Each file's typed configs and commands, made once a compile (scripts/typed-configs.ts, scripts/typed-commands.ts). */
+	/** Each file's typed configs, commands and tables, made once a compile (scripts/typed-configs.ts, scripts/typed-commands.ts, scripts/typed-tables.ts). */
 	private typed = new Map<string, { text: string; out: string }>();
 
 	/**
@@ -975,8 +977,9 @@ export class Sources {
 			return file && found !== null ? { path: file, text: found } : null;
 		};
 		const configs = typedConfigs(at, display, text, reader);
-		const made = typedCommands(at, display, configs.text, reader);
-		for (const problem of [...configs.problems, ...made.problems]) this.problem(problem);
+		const commands = typedCommands(at, display, configs.text, reader);
+		const made = typedTables(at, display, commands.text, reader);
+		for (const problem of [...configs.problems, ...commands.problems, ...made.problems]) this.problem(problem);
 		this.typed.set(at, { text, out: made.text });
 		return made.text;
 	}

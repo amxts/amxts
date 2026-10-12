@@ -101,6 +101,7 @@
 		"as/effects.ts",
 		"as/fetch.ts",
 		"as/database.ts",
+		"as/sql.ts",
 		"as/hlds.ts",
 		".superpowers/**"
 	],

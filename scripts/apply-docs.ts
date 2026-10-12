@@ -373,6 +373,8 @@ export const CORE_API = [
 	'as/lib/check.ts',
 	'as/fetch.ts',
 	'as/database.ts',
+	'as/sql.ts',
+	'as/sql.types.d.ts',
 ];
 
 export function docsFileOf(root: string, file: string): string {

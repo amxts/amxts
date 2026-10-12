@@ -11,12 +11,14 @@
 //
 // A provider gives rows as JSON text - a method of an interface cannot be
 // generic over the row's type - and Database reads them into `T` with
-// JSON.parse, as useFetch reads a response.
+// JSON.parse, as useFetch reads a response. It names its dialect too: the
+// query builder (as/sql.ts) writes its statements in it.
 //
 // The facade exports all of it, so a plugin uses these names without an
 // import, as globals.
 
 import "./promise";
+import { ChangeQuery, InsertBuilder, mysql, SelectBuilder, SelectFieldsBuilder, SqlDialect, Table, UpdateBuilder, __Reader, __Sql } from "./sql";
 
 // @ts-ignore: decorator
 @external("env", "db_open") declare function _open(url: usize, length: i32): i32;
@@ -66,6 +68,8 @@ export class DatabaseError extends Error {
 
 /** The side a query runs on: a connection, or a transaction of one. Rows are JSON text, an array of objects. */
 export interface DatabaseQueries {
+	/** The dialect the database writes SQL in: what the query builder writes its statements in. */
+	readonly dialect: SqlDialect;
 	/** Runs a statement that reads rows; gives them as JSON text, `[{"name":"a"}]`. */
 	query(sql: string, params: DatabaseValue[]): Promise<string>;
 	/** Runs a statement that changes rows; gives `{ insertId, affectedRows }`. */
@@ -109,6 +113,37 @@ abstract class __Queries {
 	/** Runs a statement that changes rows - `INSERT`, `UPDATE`, `DELETE` - with the values of its `?`. */
 	execute(sql: string, params: DatabaseValue[] = []): Promise<ExecuteResult> {
 		return this.__queries.execute(sql, params);
+	}
+
+	/** Starts a query of rows: `db.select().from(records)`, every column - or `db.select({ time: records.time })`, the ones chosen. */
+	select(): SelectBuilder {
+		return new SelectBuilder(this.__queries);
+	}
+
+	/** @hidden `select({ ... })` as the build writes it, with the row's reader (scripts/typed-tables.ts). */
+	__selectFields<S>(reader: __Reader<S>, names: string[], fields: __Sql[]): SelectFieldsBuilder<S> {
+		return new SelectFieldsBuilder<S>(this.__queries, reader, names, fields);
+	}
+
+	/** Starts an insert into the table: `db.insert(records).values({ ... })`. */
+	insert<R, I, U>(table: Table<R, I, U>): InsertBuilder<R, I, U> {
+		return new InsertBuilder<R, I, U>(this.__queries, table);
+	}
+
+	/** Starts an update of the table's rows: `db.update(records).set({ ... }).where(...)`. */
+	update<R, I, U>(table: Table<R, I, U>): UpdateBuilder<R, I, U> {
+		return new UpdateBuilder<R, I, U>(this.__queries, table);
+	}
+
+	/** Starts a delete of the table's rows: `db.delete(records).where(...)` - every row without `where`. */
+	delete<R, I, U>(table: Table<R, I, U>): ChangeQuery {
+		return new ChangeQuery(this.__queries, table.__name, null);
+	}
+
+	/** Creates the table, with its keys, unless the database has it already: `CREATE TABLE IF NOT EXISTS`. */
+	async create<R, I, U>(table: Table<R, I, U>): Promise<void> {
+		const statements = this.__queries.dialect.createTable<R, I, U>(table);
+		for (let i = 0; i < statements.length; i++) await this.__queries.execute(statements[i], []);
 	}
 }
 
@@ -205,6 +240,10 @@ function __builtInProviders(): Map<string, (url: string) => DatabaseConnection> 
 class __NoProvider implements DatabaseConnection {
 	constructor(public scheme: string) {}
 
+	get dialect(): SqlDialect {
+		return mysql;
+	}
+
 	error(): DatabaseError {
 		const known = __providers.keys().join(", ");
 		return new DatabaseError(this.scheme.length > 0
@@ -275,6 +314,10 @@ function __dbDone(id: i32): void {
 class __MysqlConnection implements DatabaseConnection {
 	pool: i32;
 
+	get dialect(): SqlDialect {
+		return mysql;
+	}
+
 	constructor(url: string) {
 		const bytes = String.UTF8.encode(url);
 		this.pool = _open(changetype<usize>(bytes), bytes.byteLength);
@@ -300,6 +343,10 @@ class __MysqlConnection implements DatabaseConnection {
 /** A transaction on a connection of its own the module holds for it. */
 class __MysqlTransaction implements DatabaseTransaction {
 	constructor(public pool: i32, public id: i32) {}
+
+	get dialect(): SqlDialect {
+		return mysql;
+	}
 
 	query(sql: string, params: DatabaseValue[]): Promise<string> {
 		return __send(this.pool, this.id, KIND_QUERY, sql, params);

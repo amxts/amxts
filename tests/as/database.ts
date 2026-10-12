@@ -1,6 +1,7 @@
 // Database, as a plugin writes it. Each command sends its queries and logs
 // what came back; tests/database.test.ts sets the fake database up and reads
 // the lines.
+import { mysql, SqlDialect } from "@amxts/core/database";
 
 interface Record {
 	name: string;
@@ -73,6 +74,10 @@ server.addServerCommand("db_rollback", async () => {
 /** A provider of the plugin's own: rows from memory, saying what it was given. */
 class MemoryConnection implements DatabaseConnection {
 	constructor(public url: string) {}
+
+	get dialect(): SqlDialect {
+		return mysql;
+	}
 
 	query(sql: string, params: DatabaseValue[]): Promise<string> {
 		return Promise.resolve<string>(`[{"name":${JSON.stringify(this.url)},"time":${params.length},"note":${JSON.stringify(JSON.stringify(params))}}]`);
