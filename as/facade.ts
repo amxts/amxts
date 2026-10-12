@@ -7344,6 +7344,9 @@ export * from "./vector";
 export * from "./effects";
 // fetch, URL and useFetch, over the module's network client.
 export * from "./fetch";
+
+// Database, over the module's MySQL client and the providers a library registers.
+export * from "./database";
 export { EntityFilter } from "./entities";
 
 // =============================================================================

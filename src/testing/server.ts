@@ -1,4 +1,5 @@
 import type { PluginNative } from '../../scripts/plugin-natives';
+import type { FakeDatabase } from './database';
 import type { Native, NativeCall } from './natives';
 import type { HookShape } from './tables';
 // A game server in TypeScript, standing where runtime/src/module.cpp and AMX
@@ -17,6 +18,7 @@ import { pawnLayout } from '../../scripts/plugin-natives';
 import { envProblems, parseDotenv } from '../../scripts/server-env';
 import { compile } from './compile';
 import { Coroutines } from './coroutines';
+import { FakeDatabases } from './database';
 import { installKitFor } from './kits';
 import { bitsFloat, floatBits, Memory, utf8Fit } from './memory';
 import { AUTH_TYPES, clientCommand, fieldCell, giveWeapon, NATIVES, setFieldCell, switchTo, WEAPON_NAMES } from './natives';
@@ -56,6 +58,11 @@ function gamePath(path: string): string | null {
 	const normal = normalizePath(path);
 	if (normal === '' || path.startsWith('/') || path.startsWith('\\') || path.includes(':') || normal.split('/').includes('..')) return null;
 	return normal;
+}
+
+/** `length` bytes of a plugin's memory at `pointer`, read as UTF-8: what a native given bytes and their length reads. */
+function utf8(plugin: PluginInstance, pointer: number, length: number): string {
+	return length > 0 ? new TextDecoder().decode(new Uint8Array(plugin.instance.exports.memory.buffer, pointer, length)) : '';
 }
 
 /** A parameter's include default as the value Pawn passes when the call leaves it out. */
@@ -1257,6 +1264,22 @@ export class FakeServer {
 	/** The module's network client: the requests plugins sent with fetch. @internal */
 	readonly network = new FakeNetwork(this);
 
+	/** The module's database client: the queries plugins sent with Database. @internal */
+	readonly databases = new FakeDatabases(this);
+
+	/**
+	 * The database at `url` - every address when it is left out - that the
+	 * plugins' `Database` reaches: what the test answers its queries with,
+	 * and what they sent.
+	 *
+	 * ```ts
+	 * server.database("mysql://kz@127.0.0.1/kz").answer("SELECT name FROM records", [{ name: "Alice" }]);
+	 * ```
+	 */
+	database(url?: string): FakeDatabase {
+		return this.databases.database(url);
+	}
+
 	/**
 	 * Waits for the responses to the requests the plugins sent with `fetch`,
 	 * and hands each to its plugin as the server's next frame would; a
@@ -1269,7 +1292,13 @@ export class FakeServer {
 	 * ```
 	 */
 	async responses(): Promise<void> {
-		await this.network.settle();
+		do {
+			await this.network.settle();
+			this.databases.frame();
+		} while (this.databases.busy || this.network.busy);
+		const problem = this.databases.problem;
+		this.databases.problem = null;
+		if (problem) throw problem;
 	}
 
 	/**
@@ -2435,6 +2464,23 @@ export class FakeServer {
 		},
 		net_reply(this: FakeServer, plugin: PluginInstance, id: number) {
 			return this.network.reply(plugin, id);
+		},
+
+		// The database client: module.cpp's w_db_*, answered from server.database() (database.ts).
+		db_open(this: FakeServer, plugin: PluginInstance, url: number, length: number) {
+			return this.databases.openPool(utf8(plugin, url, length));
+		},
+		db_query(this: FakeServer, plugin: PluginInstance, pool: number, tx: number, kind: number, sql: number, sqlLength: number, params: number, paramsLength: number, fn: number) {
+			return this.databases.query(plugin, pool, tx, kind, utf8(plugin, sql, sqlLength), utf8(plugin, params, paramsLength), fn);
+		},
+		db_status(this: FakeServer, plugin: PluginInstance, id: number) {
+			return this.databases.status(plugin, id);
+		},
+		db_text(this: FakeServer, plugin: PluginInstance, id: number, what: number, out: number, max: number) {
+			return this.databases.text(plugin, id, what, out, max);
+		},
+		db_close(this: FakeServer, plugin: PluginInstance, id: number) {
+			this.databases.close(plugin, id);
 		},
 
 		abort(this: FakeServer, plugin: PluginInstance, message: number, file: number, line: number, column: number) {

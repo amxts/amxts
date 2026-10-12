@@ -4064,6 +4064,11 @@ static void w_rpcResult(wasm_exec_env_t env, int32_t to)
 // fetch's and the kit's requests, run on a worker thread: net_open and the rest, and NetFrame.
 #include "network.h"
 
+// ---------------------------------------------------------------- database
+
+// Database's MySQL client, a thread a connection: db_open and the rest, and DbFrame.
+#include "database.h"
+
 // ---------------------------------------------------------------- fields
 
 // Entity fields and the game's members, read in memory: ent_get and the rest.
@@ -4499,7 +4504,12 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "fs_write",      (void *)w_fs_write,      "(iiii)i", NULL },
 	{ "zip_inflate",   (void *)w_zip_inflate,   "(iiii)i", NULL },
 	{ "net_read",      (void *)w_net_read,      "(iii)i",  NULL },
-	{ "net_reply",     (void *)w_net_reply,     "(i)i",    NULL }
+	{ "net_reply",     (void *)w_net_reply,     "(i)i",    NULL },
+	{ "db_open",       (void *)w_db_open,       "(ii)i",   NULL },
+	{ "db_query",      (void *)w_db_query,      "(iiiiiiii)i", NULL },
+	{ "db_status",     (void *)w_db_status,     "(i)i",    NULL },
+	{ "db_text",       (void *)w_db_text,       "(iiii)i", NULL },
+	{ "db_close",      (void *)w_db_close,      "(i)",     NULL }
 };
 
 // ---------------------------------------------------------------- pawn -> wasm
@@ -4897,6 +4907,7 @@ static void ReleasePlugin(int index)
 	p.run = 0;
 	if (p.inst) {
 		NetForget(p.inst);
+		DbForget(p.inst);
 		KeptForget(p.env);
 	}
 	DropTimers(index);
@@ -4989,8 +5000,8 @@ static void Teardown()
 {
 	for (size_t i = 0; i < g_plugins.size(); i++) {
 		Plugin &p = g_plugins[i];
-		// Their requests are let go; the worker goes on for the next map.
-		if (p.inst)   NetForget(p.inst), KeptForget(p.env);
+		// Their requests and queries are let go; the network worker and the database connections go on for the next map.
+		if (p.inst)   NetForget(p.inst), DbForget(p.inst), KeptForget(p.env);
 		if (p.env)    wasm_runtime_destroy_exec_env(p.env);
 		if (p.inst)   wasm_runtime_deinstantiate(p.inst);
 		if (p.module) wasm_runtime_unload(p.module);
@@ -7779,6 +7790,7 @@ void StartFrame_Post()
 	if (g_namesChanging)
 		NamesChanged();
 	NetFrame();
+	DbFrame();
 	RunTimers();
 	ConfigTick();
 	CompareCvars();
@@ -7969,7 +7981,8 @@ void OnAmxxDetach()
 	UnhookDrops();
 	FieldsDetach();
 	Teardown();
-	// The worker stops before WAMR goes; its requests are deleted with it.
+	// The worker and the database threads stop before WAMR goes; their requests are deleted with them.
 	NetShutdown();
+	DbShutdown();
 	wasm_runtime_destroy();
 }
