@@ -13289,7 +13289,7 @@ index f5d9b7c..81527b0 100644
 +  }
 +}
 diff --git a/src/resolver.ts b/src/resolver.ts
-index 9576a47..d457a5a 100644
+index 9576a47..4d36044 100644
 --- a/src/resolver.ts
 +++ b/src/resolver.ts
 @@ -36,7 +36,9 @@ import {
@@ -14113,7 +14113,7 @@ index 9576a47..d457a5a 100644
        let parameters = signature.parameters;
        // return type of resolveFunctionType should have same parameter length with signature
        assert(signatureReference.parameterTypes.length == parameters.length);
-@@ -2756,16 +3250,57 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2756,16 +3250,64 @@ export class Resolver extends DiagnosticEmitter {
          const type = signatureReference.parameterTypes[i];
          tempFlow.addScopedDummyLocal(parameter.name.text, type, parameter);
        }
@@ -14140,6 +14140,13 @@ index 9576a47..d457a5a 100644
 +      if (type && signature.isAsync) {
 +        let typeClass = type.classReference;
 +        if (!typeClass || !this.isPromisePrototype(typeClass.prototype)) type = this.promiseTypeOf(type, expr, reportMode);
++      }
++      // amxts: `(name) => ({ name })` returns the interface of its file with
++      // those fields, as a declared function does (inferReturnType): the
++      // `Row[]` of `names.map((name) => ({ name }))` is a Row[].
++      if (type) {
++        let written = this.interfaceOfShape(type, ctxFlow.sourceFunction.file);
++        if (written) type = written;
 +      }
        if (type) {
 -        functionType.signatureReference = Signature.create(
@@ -14174,7 +14181,7 @@ index 9576a47..d457a5a 100644
        }
      }
      return functionType;
-@@ -2870,13 +3405,17 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2870,13 +3412,17 @@ export class Resolver extends DiagnosticEmitter {
          }
          return null;
        }
@@ -14199,7 +14206,7 @@ index 9576a47..d457a5a 100644
        if (!parameterType) return null;
        if (parameterType == Type.void) {
          if (reportMode == ReportMode.Report) {
-@@ -2891,14 +3430,73 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2891,14 +3437,73 @@ export class Resolver extends DiagnosticEmitter {
      }
  
      // resolve return type
@@ -14275,7 +14282,7 @@ index 9576a47..d457a5a 100644
          if (reportMode == ReportMode.Report) {
            this.error(
              DiagnosticCode.Type_expected,
-@@ -2906,7 +3504,7 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2906,7 +3511,7 @@ export class Resolver extends DiagnosticEmitter {
            );
          }
          return null;
@@ -14284,7 +14291,7 @@ index 9576a47..d457a5a 100644
        let type = this.resolveType(
          typeNode,
          null,
-@@ -2916,6 +3514,7 @@ export class Resolver extends DiagnosticEmitter {
+@@ -2916,6 +3521,7 @@ export class Resolver extends DiagnosticEmitter {
        );
        if (!type) return null;
        returnType = type;
@@ -14292,7 +14299,7 @@ index 9576a47..d457a5a 100644
      }
  
      let signature = Signature.create(this.program, parameterTypes, returnType, thisType, requiredParameters, hasRest);
-@@ -3041,7 +3640,8 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3041,7 +3647,8 @@ export class Resolver extends DiagnosticEmitter {
          ctxElement,
          ctxTypes, // update
          reportNode,
@@ -14302,7 +14309,7 @@ index 9576a47..d457a5a 100644
        );
        if (!resolvedTypeArguments) return null;
  
-@@ -3089,7 +3689,7 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3089,7 +3696,7 @@ export class Resolver extends DiagnosticEmitter {
        for (let _values = Map_values(classInstances), j = 0, l = _values.length; j < l; ++j) {
          let classInstance = _values[j];
          // Check if the parent class is a subtype of instance's class
@@ -14311,7 +14318,7 @@ index 9576a47..d457a5a 100644
          let overrideInstance: Function | null = null;
          if (instance.isAny(CommonFlags.Get | CommonFlags.Set)) {
            let propertyName = instance.declaration.name.text;
-@@ -3125,6 +3725,21 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3125,6 +3732,21 @@ export class Resolver extends DiagnosticEmitter {
      return Set_values(overrides);
    }
  
@@ -14333,7 +14340,7 @@ index 9576a47..d457a5a 100644
    /** Currently resolving classes. */
    private resolveClassPending: Set<Class> = new Set();
  
-@@ -3139,6 +3754,13 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3139,6 +3761,13 @@ export class Resolver extends DiagnosticEmitter {
      /** How to proceed with eventual diagnostics. */
      reportMode: ReportMode = ReportMode.Report
    ): Class | null {
@@ -14347,7 +14354,7 @@ index 9576a47..d457a5a 100644
      let instanceKey = typeArguments ? typesToString(typeArguments) : "";
  
      // Do not attempt to resolve the same class twice. This can return a class
-@@ -3416,6 +4038,10 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3416,6 +4045,10 @@ export class Resolver extends DiagnosticEmitter {
      }
  
      // Resolve instance members
@@ -14358,7 +14365,7 @@ index 9576a47..d457a5a 100644
      let prototype = instance.prototype;
      let instanceMemberPrototypes = prototype.instanceMembers;
      if (instanceMemberPrototypes) {
-@@ -3465,18 +4091,12 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3465,18 +4098,12 @@ export class Resolver extends DiagnosticEmitter {
                          break; // keep existing
                        }
                        boundInstance.memoryOffset = existingProperty.memoryOffset;
@@ -14379,7 +14386,7 @@ index 9576a47..d457a5a 100644
                  boundPrototype.instance = boundInstance;
                  instance.add(boundPrototype.name, boundPrototype); // reports
                  // field materializes here, so check for supported type early
-@@ -3500,6 +4120,31 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3500,6 +4127,31 @@ export class Resolver extends DiagnosticEmitter {
        }
      }
  
@@ -14411,7 +14418,7 @@ index 9576a47..d457a5a 100644
      if (instance.kind != ElementKind.Interface) {
  
        // Check that all required members are implemented
-@@ -3675,7 +4320,8 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3675,7 +4327,8 @@ export class Resolver extends DiagnosticEmitter {
            ctxElement,
            ctxTypes, // update
            reportNode,
@@ -14421,7 +14428,7 @@ index 9576a47..d457a5a 100644
          );
        }
  
-@@ -3749,6 +4395,1070 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3749,6 +4402,1070 @@ export class Resolver extends DiagnosticEmitter {
      return instance;
    }
  
@@ -15492,7 +15499,7 @@ index 9576a47..d457a5a 100644
    ensureOneTypeArgument(
      /** The type to resolve. */
      node: NamedTypeNode,
-@@ -3769,3 +5479,55 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3769,3 +5486,55 @@ export class Resolver extends DiagnosticEmitter {
      return typeArgumentNodes[0];
    }
  }

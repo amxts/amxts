@@ -253,3 +253,18 @@ export function run(): i32 {
 ` });
 	expect(error).toContain('is not assignable to type');
 });
+
+test('an arrow that returns an object literal returns the interface of the file with its fields', async () => {
+	const { error, exports } = await probe({ 'probe.ts': `
+interface TopRow { name: string; time: number; rank: number }
+function topOf(names: string[]) { return names.map((name, i) => ({ name, time: i * 1.5, rank: i + 1 })); }
+function count(rows: TopRow[]): i32 { return rows.length; }
+export function run(): i32 {
+	const top: TopRow[] = topOf(["a", "b"]);
+	const more: TopRow[] = ["c"].map(name => ({ name, time: 0.0, rank: 0.0 }));
+	return count(top) + <i32>top[1].rank * 10 + <i32>(top[1].time * 100) + more.length * 1000;
+}
+` });
+	expect(error).toBe('');
+	expect(exports.run()).toBe(2 + 20 + 150 + 1000);
+});
