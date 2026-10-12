@@ -35,7 +35,9 @@
 //
 // The tree asc reads is virtual. `~/` is the core's as/ folder, and over it:
 //
-//   ~/<file>                    the project's plugins folder first, then the core's
+//   ~/<file>                    the core's file, else the project's plugins folder's
+//   ~/<file>~.ts                the project's <file>.ts where the core has one:
+//                               plugins/hooks.ts is ~/hooks~.ts
 //   ~/modules/<name>.ts         a module package's module file
 //   ~/modules/<name>/<path>     any other file of that package
 //   ~/<name>.ts                 the module's owner: its natives file, or one
@@ -845,10 +847,41 @@ export class Sources {
 		return this.project.modules.find(pkg => path === pkg.module || path === pkg.natives || ofPackage(pkg, path)) ?? null;
 	}
 
-	/** The project's own file at this place under its plugins folder, or null: an old copy of the core's API is not one. */
+	/** Whether the core's as/ has a file at this place. */
+	private coreHas(place: string): boolean {
+		return existsSync(join(this.root, place));
+	}
+
+	/**
+	 * The project's own file at this place in the tree, or null: an old copy
+	 * of the core's API is not one. A place the core has is the core's; the
+	 * project's file of that name is at `<name>~.ts` (`place`).
+	 */
 	ownFile(place: string): string | null {
-		const own = join(this.project.pluginsDir, place);
+		const moved = /^(.+)~\.ts$/.exec(place)?.[1];
+		const file = moved && this.coreHas(`${moved}.ts`) ? `${moved}.ts` : place;
+		if (file === place && this.coreHas(place)) return null;
+		const own = join(this.project.pluginsDir, file);
 		return existsSync(own) && !this.stale.has(own) ? own : null;
+	}
+
+	/** Whether a file on disk is the project's own, in its plugins folder over the core's as/. */
+	private isOwn(real: string): boolean {
+		return resolve(this.project.pluginsDir) !== resolve(this.root) && inside(this.project.pluginsDir, real) && !this.packageOf(real);
+	}
+
+	/**
+	 * An own file's import of the project's file at a place the core has -
+	 * `./hooks`, `~/hooks` - as that file's place, `~/hooks~`; null for any
+	 * other import.
+	 */
+	private ownMoved(real: string, spec: string): string | null {
+		if (!this.isOwn(real)) return null;
+		const base = spec.startsWith('~/') ? join(this.project.pluginsDir, spec.slice(2)) : spec.startsWith('.') ? resolve(dirname(real), spec) : null;
+		const file = base && [base.endsWith('.ts') ? base : `${base}.ts`, join(base, 'index.ts')].find(each => existsSync(each) && !this.stale.has(each));
+		if (!file || !inside(this.project.pluginsDir, file)) return null;
+		const place = posix(relative(this.project.pluginsDir, file));
+		return this.coreHas(place) ? `~/${place.replace(/\.ts$/, '~')}` : null;
 	}
 
 	/** The file on disk at this place in the tree, or null. */
@@ -909,7 +942,8 @@ export class Sources {
 			if (ofPackage(pkg, path)) return join(this.root, 'modules', pkg.short, relative(pkg.dir, path));
 		}
 		if (this.project.pluginsDir !== resolve(this.root) && inside(this.project.pluginsDir, path)) {
-			return join(this.root, relative(this.project.pluginsDir, path));
+			const place = relative(this.project.pluginsDir, path);
+			return join(this.root, this.coreHas(place) ? place.replace(/\.ts$/, '~.ts') : place);
 		}
 		return path;
 	}
@@ -1013,6 +1047,9 @@ export class Sources {
 			return spec;
 		}
 
+		const moved = this.ownMoved(real, spec);
+		if (moved) return moved;
+
 		if (spec.startsWith('~/')) {
 			const instead = this.isCore(real) ? null : this.notOwn(real, spec);
 			if (instead !== null) this.problem(`${display()}: ${spec} is not a file of the project - \`~/\` is the plugins folder; import ${instead || 'the module by its package name'} (npx amxts upgrade rewrites these imports)`);
@@ -1044,7 +1081,7 @@ export class Sources {
 	}
 
 	rewrite(real: string, text: string): string {
-		if (!text.includes('@') && !text.includes('~/') && !(this.packageOf(real) && /["']\.\.?\//.test(text))) return text;
+		if (!text.includes('@') && !text.includes('~/') && !((this.packageOf(real) || this.isOwn(real)) && /["']\.\.?\//.test(text))) return text;
 		return text.replace(IMPORT, (whole, head: string, quote: string, spec: string) => {
 			const next = this.specifier(real, spec);
 			return next === spec ? whole : `${head}${quote}${next}${quote}`;

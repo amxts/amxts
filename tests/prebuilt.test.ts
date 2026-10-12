@@ -186,10 +186,13 @@ describe.skipIf(!existsSync(wamrcPath()))('a module that comes compiled', () => 
 		expect(use()).toEqual({ why: 'greeter 1.2.3 was built with its default options, and amxts.config.ts sets greeter' });
 		config();
 
+		write('plugins/modules/greeter.ts', 'export const x = 1;\n');
+		expect(use()).toEqual({ why: 'plugins/modules/greeter.ts takes the place of a file greeter 1.2.3 was built from' });
+		rmSync(join(dir, 'plugins/modules/greeter.ts'));
+		// A file named like one of the core's is the project's own, at a place of its own.
 		write('plugins/facade.ts', 'export const x = 1;\n');
-		expect(use()).toEqual({ why: 'plugins/facade.ts takes the place of a file greeter 1.2.3 was built from' });
-		rmSync(join(dir, 'plugins/facade.ts'));
 		expect(use()).toHaveProperty('aot');
+		rmSync(join(dir, 'plugins/facade.ts'));
 	});
 
 	test('its surface is taken on the same terms, but the system and the forwards, which only its machine code depends on', async () => {

@@ -554,6 +554,21 @@ test('copies of the core\'s API an older amxts left in plugins/ are not plugins;
 	expect(projectPlugins(loadProject(dir)).sort()).toEqual([join(own.pluginsDir, 'constants.ts'), join(own.pluginsDir, 'myplugin.ts')]);
 });
 
+test('a plugin or a file named like one of the core\'s API is the project\'s own', async () => {
+	const dir = project({
+		'amxts.config.ts': 'export default defineConfig({ modules: [] });\n',
+		'plugins/constants.ts': 'export const ANSWER = 40;\n\nexport function my_constant(): number {\n\treturn ANSWER;\n}\n',
+		'plugins/lib/check.ts': 'export function twice(value: number): number {\n\treturn value * 2;\n}\n',
+		'plugins/hooks.ts': 'import { ANSWER } from "./constants";\nimport { twice } from "./lib/check";\n\nexport function my_hook(): number {\n\treturn twice(ANSWER) + server.players.length + 2;\n}\n',
+		'plugins/facade.ts': 'import { server } from "@amxts/core";\nimport { ANSWER } from "~/constants";\n\nexport function my_facade(): number {\n\treturn server.players.length + ANSWER + 1;\n}\n',
+	});
+	const server = await setup({ rootDir: dir });
+	expect(loaded(server).sort()).toEqual(['constants.ts', 'facade.ts', 'hooks.ts']);
+	expect(server.native('my_constant')).toBe(40);
+	expect(server.native('my_hook')).toBe(82);
+	expect(server.native('my_facade')).toBe(41);
+});
+
 test('the test server lays the game folders of a project out as the amxts-server image does', () => {
 	const image = readFileSync('docker/server/start.sh', 'utf8').match(/for dir in ([\w ]+); do/)![1].split(' ');
 
