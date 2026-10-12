@@ -119,8 +119,9 @@ export default {
 	},
 	'Database': {
 		en: `
-			A database at an address - \`mysql://user:password@host:3306/database\` -
-			that a plugin sends SQL to. The queries run in the background, in the order
+			A database at an address - \`mysql://user:password@host:3306/database\`, or
+			the same with \`jdbc:\` before it, as a game panel gives it - that a plugin
+			sends SQL to. The queries run in the background, in the order
 			sent; each promise settles on a later server frame.
 
 			\`\`\`ts
@@ -129,8 +130,9 @@ export default {
 			\`\`\`
 		`,
 		ru: `
-			База по адресу — \`mysql://user:password@host:3306/database\`, — которой
-			плагин отправляет SQL. Запросы идут в фоне, в порядке отправки; каждый
+			База по адресу — \`mysql://user:password@host:3306/database\` или тот же
+			с \`jdbc:\` впереди, как его даёт игровая панель, — которой плагин
+			отправляет SQL. Запросы идут в фоне, в порядке отправки; каждый
 			промис выполняется на одном из следующих кадров сервера.
 
 			\`\`\`ts

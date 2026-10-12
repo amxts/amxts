@@ -13,7 +13,8 @@ const URL = 'mysql://kz:secret@127.0.0.1:3306/kz';
 let server: FakeServer;
 
 beforeAll(async () => {
-	server = await loadPlugin('tests/as/database.ts', { env: { TEST_DB: URL } });
+	// As a game panel gives it: the provider gets the address without jdbc:.
+	server = await loadPlugin('tests/as/database.ts', { env: { TEST_DB: `jdbc:${URL}` } });
 });
 
 /** Runs a command and lets its queries come back; the lines it logged. */

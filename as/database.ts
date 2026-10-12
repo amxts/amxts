@@ -160,8 +160,9 @@ export class Transaction extends __Queries {
 }
 
 /**
- * A database at an address - `mysql://user:password@host:3306/database` -
- * that a plugin sends SQL to. The queries run in the background, in the order
+ * A database at an address - `mysql://user:password@host:3306/database`, or
+ * the same with `jdbc:` before it, as a game panel gives it - that a plugin
+ * sends SQL to. The queries run in the background, in the order
  * sent; each promise settles on a later server frame.
  *
  * ```ts
@@ -174,9 +175,11 @@ export class Database extends __Queries {
 
 	constructor(url: string) {
 		super();
-		const scheme = __schemeOf(url);
+		// A game panel shows the address for Java: jdbc:mysql://...
+		const address = url.toLowerCase().startsWith("jdbc:") ? url.substring(5) : url;
+		const scheme = __schemeOf(address);
 		const connect = __providers.has(scheme) ? __providers.get(scheme) : null;
-		this.__connection = connect ? connect(url) : new __NoProvider(scheme);
+		this.__connection = connect ? connect(address) : new __NoProvider(scheme);
 	}
 
 	/** @hidden */
