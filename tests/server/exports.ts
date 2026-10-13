@@ -89,3 +89,16 @@ fromPawn.subscribe((id, word, speed, list) => {
 export function xt_heard_from_pawn() {
 	return heardFromPawn;
 }
+
+// A forward natives.sma stops in its own public for 1 (ET_STOP).
+const stopped = new Forward<number>("xt_stopped");
+let heardStopped = "";
+
+stopped.subscribe((n) => {
+	heardStopped += `${n}`;
+});
+
+/** What the subscriber of natives.sma's forward xt_stopped heard, into out[]. */
+export function xt_heard_stopped() {
+	return heardStopped;
+}

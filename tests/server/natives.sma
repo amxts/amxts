@@ -16,11 +16,15 @@ new g_fwId, g_fwWord[32], g_fwCount, Float:g_fwSpeed, bool:g_fwFlag, g_fwList[3]
 // A forward of this plugin's own, which exports.ts subscribes to.
 new g_fromPawn;
 
+// A forward of this plugin's own that its public xt_stopped stops.
+new g_stopped;
+
 public plugin_init()
 {
 	register_plugin("amxts test: natives", "1.0", "amxts");
 	register_srvcmd("amxts_test_natives", "run");
 	g_fromPawn = CreateMultiForward("xt_from_pawn", ET_IGNORE, FP_CELL, FP_STRING, FP_FLOAT, FP_ARRAY);
+	g_stopped = CreateMultiForward("xt_stopped", ET_STOP, FP_CELL);
 }
 
 public run()
@@ -105,6 +109,18 @@ forwardFromPawn()
 	xt_heard_from_pawn(heard, charsmax(heard));
 	// Cyrillic on purpose: the forward's strings are UTF-8.
 	expect_text("a Pawn plugin's forward reaches a TypeScript subscriber", heard, "9 слово 1.5 4,5,6");
+
+	// xt_stopped stops 1 and lets 2 through: the subscriber hears 2 alone.
+	ExecuteForward(g_stopped, ret, 1);
+	expect_int("a stopped forward answers what stopped it", ret, PLUGIN_HANDLED);
+	ExecuteForward(g_stopped, ret, 2);
+	xt_heard_stopped(heard, charsmax(heard));
+	expect_text("a forward a Pawn public stops does not reach a TypeScript subscriber", heard, "2");
+}
+
+public xt_stopped(n)
+{
+	return n == 1 ? PLUGIN_HANDLED : PLUGIN_CONTINUE;
 }
 
 public xt_on_many(id, const word[], count, Float:speed, bool:flag, const list[], const Float:at[], const long[])

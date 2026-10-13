@@ -651,10 +651,13 @@ static const AMX_NATIVE *const g_exportedEntries = ExportedEntries(std::make_ind
  * every Pawn plugin's native table (InterposeNatives): CreateMultiForward
  * notes the forward by its id, PrepareArray where an array lies, and
  * ExecuteForward, once AMX Mod X has run the Pawn plugins' publics, hands the
- * call to the TypeScript subscribers. A forward lives one map, as AMX Mod X's.
+ * call to the TypeScript subscribers - unless a public stopped it. A forward
+ * lives one map, as AMX Mod X's.
  */
 struct PawnForward {
 	std::string name;
+	// ET_*: what stops it.
+	cell et = ET_IGNORE;
 	// FP_* for each parameter.
 	std::vector<cell> types;
 	// The forward's TypeScript subscribers, NULL for none, as g_subscriptions
@@ -6288,6 +6291,7 @@ static cell AMX_NATIVE_CALL n_createMultiForward(AMX *amx, cell *params)
 	PawnForward forward;
 	int len = 0;
 	forward.name = MF_GetAmxString(amx, params[1], 0, &len);
+	forward.et = params[2];
 	for (int i = 3, count = (int)(params[0] / sizeof(cell)); i <= count; i++) {
 		cell *type = MF_GetAmxAddr(amx, params[i]);
 		forward.types.push_back(type ? *type : 0);
@@ -6312,9 +6316,19 @@ static cell AMX_NATIVE_CALL n_prepareArray(AMX *amx, cell *params)
 }
 
 /**
+ * Whether a forward's publics answered `result` by stopping it, as AMX Mod X
+ * reads the answers (CForward::execute): ET_STOP stops on the first answer
+ * above 0 and answers it, ET_STOP2 on PLUGIN_HANDLED.
+ */
+static bool Stopped(cell et, cell result)
+{
+	return (et == ET_STOP && result > 0) || (et == ET_STOP2 && result == 1);
+}
+
+/**
  * ExecuteForward(forward, &ret, ...) - the Pawn plugins' publics first, as
  * AMX Mod X runs them, then the TypeScript subscribers of the forward's
- * name. Pawn passes every argument after `ret` by its address: a number is
+ * name, unless a public stopped it. Pawn passes every argument after `ret` by its address: a number is
  * read through it, a string stays the address it is, an array is the one its
  * PrepareArray handle names.
  */
@@ -6331,7 +6345,8 @@ static cell AMX_NATIVE_CALL n_executeForward(AMX *amx, cell *params)
 		forward.subscribers = it == g_subscriptions.end() ? NULL : &it->second;
 		forward.seen = g_subscriptionNames;
 	}
-	if (!forward.subscribers || forward.subscribers->empty())
+	cell *result = MF_GetAmxAddr(amx, params[2]);
+	if (!forward.subscribers || forward.subscribers->empty() || (result && Stopped(forward.et, *result)))
 		return sent;
 
 	const std::vector<cell> &types = forward.types;
