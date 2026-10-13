@@ -393,7 +393,7 @@ static void w_entityTouch(wasm_exec_env_t env, int32_t touched, int32_t toucher)
 	edict_t *b = (edict_t *)EdictOf(toucher);
 	if (!a || !b || !a->pvPrivateData || !b->pvPrivateData || ((a->v.flags | b->v.flags) & FL_KILLME))
 		return;
-	if (!TouchHeard(a, b) || (slot < 0 && !HamOffset("touch", &slot)))
+	if (!TouchHeard(a, b, touched, toucher) || (slot < 0 && !HamOffset("touch", &slot)))
 		return;
 	CALL_TOUCH(VtableOfObject(a->pvPrivateData)[slot], a->pvPrivateData, b->pvPrivateData);
 }

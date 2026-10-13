@@ -753,18 +753,26 @@ static int ClassNumber(const std::string &name)
 	return g_classNumbers.emplace(name, (int)g_classNumbers.size() + 1).first->second;
 }
 
-/** The entity's class number: a lookup by its classname only when that changed. */
-static int ClassOf(edict_t *e)
+/** The entity's class number read from its classname, and kept: ClassOf's seldom part. */
+static NEVER_INLINE int ReadClass(edict_t *e, int index)
 {
-	int index = IndexOf(e);
 	if (index >= (int)g_entityClasses.size())
 		g_entityClasses.resize(index + 1, std::make_pair((string_t)0, -1));
 	std::pair<string_t, int> &known = g_entityClasses[index];
-	if (known.second < 0 || known.first != e->v.classname) {
-		known.first = e->v.classname;
-		known.second = ClassNumber(STRING(e->v.classname));
-	}
+	known.first = e->v.classname;
+	known.second = ClassNumber(STRING(e->v.classname));
 	return known.second;
+}
+
+/** The entity's class number, by its index: read again only when its classname changed. */
+static ALWAYS_INLINE int ClassOf(edict_t *e, int index)
+{
+	if (index < (int)g_entityClasses.size()) {
+		const std::pair<string_t, int> &known = g_entityClasses[index];
+		if (known.second >= 0 && known.first == e->v.classname)
+			return known.second;
+	}
+	return ReadClass(e, index);
 }
 
 /** touch_hook(touched, toucher, handler) - a handler of a touch of these classes. */
@@ -787,18 +795,15 @@ static int32_t w_touch_hook(wasm_exec_env_t env, int32_t touched, int32_t touche
 	return AddOtherHook(p.point, fn, 0);
 }
 
-/** The touch handlers of these two, (touched, toucher): false when one blocked it with handled(). */
-static bool TouchHeard(edict_t *touched, edict_t *other)
+/**
+ * The touch handlers whose classes match, `a` the touched entity's class:
+ * TouchHeard's seldom part, out of line, so that its callers - every touch
+ * of the game - carry no handler call's frame.
+ */
+static NEVER_INLINE bool TouchListeners(edict_t *touched, edict_t *other, int a, int otherIndex)
 {
-	if (!g_touchesHooked)
-		return true;
-
-	int a = ClassOf(touched);
-	if (!g_anyTouched && (a >= (int)g_touchedClasses.size() || !g_touchedClasses[a]))
-		return true;
-
 	static const unsigned char roles[2] = { ROLE_EDICT, ROLE_EDICT };
-	int b = ClassOf(other);
+	int b = ClassOf(other, otherIndex);
 	bool blocked = false;
 	for (size_t i = 0, end = g_touchPoints.size(); i < end; i++) {
 		TouchPoint &p = g_touchPoints[i];
@@ -813,6 +818,17 @@ static bool TouchHeard(edict_t *touched, edict_t *other)
 	return !blocked;
 }
 
+/** The touch handlers of these two, (touched, toucher), with their indexes: false when one blocked it with handled(). */
+static ALWAYS_INLINE bool TouchHeard(edict_t *touched, edict_t *other, int touchedIndex, int otherIndex)
+{
+	if (!g_touchesHooked)
+		return true;
+	int a = ClassOf(touched, touchedIndex);
+	if (!g_anyTouched && (a >= (int)g_touchedClasses.size() || !g_touchedClasses[a]))
+		return true;
+	return TouchListeners(touched, other, a, otherIndex);
+}
+
 /**
  * The game's DispatchTouch: `other` moved into `touched`. The handlers
  * get (touched, toucher) and block it with handled(). The engine module,
@@ -820,7 +836,7 @@ static bool TouchHeard(edict_t *touched, edict_t *other)
  */
 void DispatchTouch(edict_t *touched, edict_t *other)
 {
-	if (!touched || !other || TouchHeard(touched, other))
+	if (!touched || !other || TouchHeard(touched, other, IndexOf(touched), IndexOf(other)))
 		RETURN_META(MRES_IGNORED);
 	RETURN_META(MRES_SUPERCEDE);
 }

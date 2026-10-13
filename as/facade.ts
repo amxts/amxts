@@ -5263,12 +5263,15 @@ export interface ActionOptions {
  * Pawn: `register_touch`
  */
 export class TouchEvent {
-	constructor(
-		/** The entity that moved into the other. */
-		public toucher: Entity,
-		/** The entity it touched. */
-		public touched: Entity
-	) {}
+	// The entities' ids: one event object is reused touch after touch.
+	__toucher: i32 = 0;
+	__touched: i32 = 0;
+
+	/** The entity that moved into the other. */
+	get toucher(): Entity { return new Entity(this.__toucher); }
+
+	/** The entity it touched. */
+	get touched(): Entity { return new Entity(this.__touched); }
 
 	/** Blocks the touch: the game does not act on it. */
 	preventDefault(): void {
@@ -5315,8 +5318,16 @@ function registerTouch(filter: TouchFilter): void {
 }
 
 /** A touch's listeners: (touched, toucher). */
+// The touch event's one object: a touch inside a listener's (entity.touch)
+// gives it its ids and the outer touch's back after.
+const touchEvent = new TouchEvent();
+
 function touchFired(filter: TouchFilter, touched: number, toucher: number): void {
-	const event = new TouchEvent(new Entity(toucher), new Entity(touched));
+	const event = touchEvent;
+	const outerToucher = event.__toucher;
+	const outerTouched = event.__touched;
+	event.__toucher = <i32>toucher;
+	event.__touched = <i32>touched;
 	const listeners = filter.listeners;
 	const n = listeners.begin();
 	for (let i = 0; i < n; i++) {
@@ -5324,6 +5335,8 @@ function touchFired(filter: TouchFilter, touched: number, toucher: number): void
 		if (listener) listener(event);
 	}
 	listeners.end();
+	event.__toucher = outerToucher;
+	event.__touched = outerTouched;
 }
 
 // The player's movement the game is running: 0 what he has touched so far,
