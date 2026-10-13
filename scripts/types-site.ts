@@ -38,17 +38,16 @@ import { dirname, join, relative, resolve } from 'node:path';
 import process from 'node:process';
 import { applyTable, docsLang, loadTable } from './apply-docs';
 import { coreImports, importsDeclaration, importTable } from './auto-imports';
-import { loadProject, readPackage } from './project';
+import { loadProject, NOT_PLUGINS, readPackage } from './project';
 
 const langAt = process.argv.indexOf('--lang');
 const lang = docsLang(langAt >= 0 ? process.argv[langAt + 1] : 'en');
 const out = join('dist-docs-types', lang);
 const tsc = createRequire(import.meta.url).resolve('typescript/bin/tsc');
 
-// The files in as/ that are the hood rather than a plugin (scripts/project.ts
-// has the same list, NOT_PLUGINS): anything else there would be a plugin,
-// not API.
-const HOOD = new Set(['facade', 'kit', 'promise', 'vector', 'effects', 'fetch', 'database', 'fs', 'os', 'natives', 'constants', 'events', 'entities', 'flags', 'hooks', 'remote', 'hlds']);
+// The files in as/ that are the hood rather than a plugin - the build's own
+// list: anything else there would be a plugin, not API.
+const HOOD = new Set([...NOT_PLUGINS].map(file => file.replace(/\.ts$/, '')));
 const API_FOLDERS = new Set(['lib']);
 
 function emit(project: string, outDir: string, rootDir?: string) {
