@@ -590,10 +590,22 @@ static int32_t AddHook(HookPoint &point, int32_t fn, int32_t post)
 	return h.reg;
 }
 
+static bool RulesHookable(int rules);
+
+/** The game rules' function of the original game a chain is (g_rulesInfo), -1 for none. */
+static int RulesOf(int chain)
+{
+	for (int i = 0; i < RULES_COUNT; i++)
+		if (g_rulesInfo[i].chain == chain)
+			return i;
+	return -1;
+}
+
 /**
  * hook(chain, handler, post) - a handler of a ReGameDLL or ReHLDS hookchain,
- * by reapi's number of it (as/constants.ts). 0 when the server has not the
- * API the chain is of.
+ * by reapi's number of it (as/constants.ts); without ReGameDLL a game rules'
+ * chain is hooked in the original game's table where it can be. 0 when the
+ * server has not the API the chain is of.
  */
 static int32_t w_hook(wasm_exec_env_t env, int32_t id, int32_t fn, int32_t post)
 {
@@ -601,12 +613,16 @@ static int32_t w_hook(wasm_exec_env_t env, int32_t id, int32_t fn, int32_t post)
 	for (int i = 0; i < CHAIN_COUNT; i++) {
 		if (g_chainInfo[i].id != id)
 			continue;
-		if (!(g_chainInfo[i].rehlds ? (void *)g_rehldsChains : (void *)g_regameChains)) {
-			TakeTag();
-			return 0;
+		if (g_chainInfo[i].rehlds ? (void *)g_rehldsChains : (void *)g_regameChains) {
+			g_chainPoints[i].attach = g_chainInfo[i].attach;
+			return AddHook(g_chainPoints[i], fn, post);
 		}
-		g_chainPoints[i].attach = g_chainInfo[i].attach;
-		return AddHook(g_chainPoints[i], fn, post);
+		int rules = g_chainInfo[i].rehlds ? -1 : RulesOf(i);
+		if (rules >= 0 && RulesHookable(rules)) {
+			g_chainPoints[i].attach = g_rulesInfo[rules].attach;
+			return AddHook(g_chainPoints[i], fn, post);
+		}
+		break;
 	}
 	TakeTag();
 	return 0;
@@ -749,11 +765,16 @@ static int32_t w_chain_dispatch(wasm_exec_env_t env, int32_t id, int32_t post, i
 	return (call.superceded ? 1 : 0) | (call.broken ? 2 : 0);
 }
 
-/** game_api() - what the server has: 1 ReGameDLL's hookchains, 2 ReHLDS's. */
+static bool OriginalRulesHooked();
+
+/**
+ * game_api() - what the server has: 1 ReGameDLL's hookchains, 2 ReHLDS's,
+ * 4 the original game's rules, whose questions the module hooks in their table.
+ */
 static int32_t w_game_api(wasm_exec_env_t env)
 {
 	(void)env;
-	return (g_regameChains ? 1 : 0) | (g_rehldsChains ? 2 : 0);
+	return (g_regameChains ? 1 : 0) | (g_rehldsChains ? 2 : 0) | (OriginalRulesHooked() ? 4 : 0);
 }
 
 /** The running hooked call's answer as a cell (arg(-1)). */

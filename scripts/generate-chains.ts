@@ -259,8 +259,33 @@ const AROUND: Record<string, { before: string; next: string; after: string }> = 
 	RH_SV_StartSound: { before: 'SoundChoice choice;', next: 'choice.Play(a1);', after: 'choice.Back();' },
 };
 
+/**
+ * The game rules' functions whose chains are heard on Valve's game too: the
+ * module hooks the slot of each in the table of CHalfLifeMultiplay. The slot
+ * is the function's place in CGameRules as regamedll/dlls/gamerules.h
+ * declares it, without the destructor the original's table has not, then
+ * CHalfLifeMultiplay's own (CleanUpMap is 63). `args` are its arguments as
+ * GCC names them: on Linux the slot is checked against the function's name
+ * before it is hooked.
+ */
+const RULES: Record<string, { slot: number; args: string }> = {
+	CSGameRules_FShouldSwitchWeapon: { slot: 4, args: 'P11CBasePlayerP15CBasePlayerItem' },
+	CSGameRules_GetNextBestWeapon: { slot: 5, args: 'P11CBasePlayerP15CBasePlayerItem' },
+	CSGameRules_FlPlayerFallDamage: { slot: 15, args: 'P11CBasePlayer' },
+	CSGameRules_FPlayerCanTakeDamage: { slot: 16, args: 'P11CBasePlayerP11CBaseEntity' },
+	CSGameRules_FPlayerCanRespawn: { slot: 20, args: 'P11CBasePlayer' },
+	CSGameRules_GetPlayerSpawnSpot: { slot: 22, args: 'P11CBasePlayer' },
+	CSGameRules_CanHavePlayerItem: { slot: 30, args: 'P11CBasePlayerP15CBasePlayerItem' },
+	CSGameRules_DeadPlayerWeapons: { slot: 48, args: 'P11CBasePlayer' },
+	CSGameRules_CheckMapConditions: { slot: 62, args: 'v' },
+	CSGameRules_CheckWinConditions: { slot: 65, args: 'v' },
+	CSGameRules_RemoveGuns: { slot: 66, args: 'v' },
+};
+
 const chainBlocks: string[] = [];
 const chainTable: string[] = [];
+const rulesBlocks: string[] = [];
+const rulesTable: string[] = [];
 
 chains.forEach((chain, index) => {
 	const { name, ret, params, cells } = chain;
@@ -284,22 +309,28 @@ chains.forEach((chain, index) => {
 		const cell = cellOf.get(i);
 		return cell === undefined ? `a${i}` : pass(p.role, cell, `a${i}`, p.decl);
 	});
-	const call = `chain->callNext(${next.join(', ')})`;
 	const around = AROUND[chain.constant];
-	const callNext = ret.decl === 'void' ? `${call};` : kept(ret, call);
+	const retDecl = ret.decl === 'void' ? 'void ' : ret.decl.endsWith('*') ? ret.decl : `${ret.decl} `;
+	/** The hook's body around the call of what it hooks, `call` with the arguments the listeners left. */
+	const body = (call: string) => {
+		const callNext = ret.decl === 'void' ? `${call};` : kept(ret, call);
+		return [
+			`{`,
+			`\tstatic const unsigned char roles[] = { ${roles || '0'} };`,
+			...(around ? [`\t${around.before}`] : []),
+			`\tChainCall call(g_chainPoints[${index}], roles, ${cells.length});`,
+			...pushes.map(line => `\t${line}`),
+			...(around ? [`\tif (call.Pre()) {`, `\t\t${around.next}`, `\t\t${callNext}`, `\t\t${around.after}`, `\t}`] : [`\tif (call.Pre())`, `\t\t${callNext}`]),
+			`\tcall.Post();`,
+			...(ret.decl === 'void' ? [] : [`\treturn ${answer(ret)};`]),
+			`}`,
+		];
+	};
 	chainBlocks.push([
 		`// ${chain.constant}`,
 		`typedef ${registryType} ChainRegistry_${index};`,
-		`NO_STACK_COOKIE static ${ret.decl === 'void' ? 'void ' : ret.decl.endsWith('*') ? ret.decl : `${ret.decl} `}Chain_${index}(${[`${chainType} *chain`, ...declared].join(', ')})`,
-		`{`,
-		`\tstatic const unsigned char roles[] = { ${roles || '0'} };`,
-		...(around ? [`\t${around.before}`] : []),
-		`\tChainCall call(g_chainPoints[${index}], roles, ${cells.length});`,
-		...pushes.map(line => `\t${line}`),
-		...(around ? [`\tif (call.Pre()) {`, `\t\t${around.next}`, `\t\t${callNext}`, `\t\t${around.after}`, `\t}`] : [`\tif (call.Pre())`, `\t\t${callNext}`]),
-		`\tcall.Post();`,
-		...(ret.decl === 'void' ? [] : [`\treturn ${answer(ret)};`]),
-		`}`,
+		`NO_STACK_COOKIE static ${retDecl}Chain_${index}(${[`${chainType} *chain`, ...declared].join(', ')})`,
+		...body(`chain->callNext(${next.join(', ')})`),
 		`static void Attach_${index}(bool on)`,
 		`{`,
 		`\tChainRegistry_${index} *registry = (ChainRegistry_${index} *)${chain.rehlds ? 'g_rehldsChains' : 'g_regameChains'}->${name}();`,
@@ -308,7 +339,23 @@ chains.forEach((chain, index) => {
 		`}`,
 	].join('\n'));
 	chainTable.push(`\t{ ${chain.id}, "${chain.constant}", ${chain.rehlds ? 'true' : 'false'}, Attach_${index} },`);
+
+	// The same hook in the original game rules' table: the next is what its slot held.
+	const rules = RULES[name];
+	if (!rules) return;
+	const fn = name.slice('CSGameRules_'.length);
+	rulesBlocks.push([
+		`// ${chain.constant} in the original game rules' table`,
+		`NO_STACK_COOKIE static ${retDecl}HAM_CC Rules_${index}(${['HAM_SELF', ...declared].join(', ')})`,
+		...body(`((${ret.decl} (HAM_CC *)(${['HAM_SELF', ...args].join(', ')}))g_chainPoints[${index}].original)(${['HAM_PASS', ...next].join(', ')})`),
+		`static void AttachRules_${index}(bool on)`,
+		`{`,
+		`\tRulesAttach(${rulesTable.length}, on);`,
+		`}`,
+	].join('\n'));
+	rulesTable.push(`\t{ ${index}, ${rules.slot}, "_ZN18CHalfLifeMultiplay${fn.length}${fn}E${rules.args}", (void *)Rules_${index}, AttachRules_${index} },`);
 });
+if (rulesTable.length !== Object.keys(RULES).length) throw new Error('a function of RULES has no hookchain in as/constants.ts');
 
 // ---------------------------------------------------------------- Ham Sandwich
 
@@ -585,6 +632,27 @@ struct HamInfo {
 
 static const HamInfo g_hamInfo[HAM_COUNT] = {
 ${hamTable.join('\n')}
+};
+
+// The game rules' hookchains in the original game's table of
+// CHalfLifeMultiplay: on Valve's game, which has no hookchains, the module
+// writes its hook over the function's slot (RulesAttach).
+#define RULES_COUNT ${rulesTable.length}
+
+static void RulesAttach(int rules, bool on);
+
+${rulesBlocks.join('\n\n')}
+
+struct RulesInfo {
+	int         chain;     // its place in g_chainInfo
+	int         slot;      // its place in the original game rules' table
+	const char *symbol;    // its name in the game library on Linux
+	void       *hook;
+	void      (*attach)(bool on);
+};
+
+static const RulesInfo g_rulesInfo[RULES_COUNT] = {
+${rulesTable.join('\n')}
 };
 `);
 

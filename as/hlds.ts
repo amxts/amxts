@@ -1087,6 +1087,25 @@ export function setMaxPlayersHlds(cell: i32): void {
 	readOnly("maxPlayers");
 }
 
+/** Whether the game waits for players: ReGameDLL sets it as its win check finds a side with none to spawn. */
+export function neededPlayersHlds(): i32 {
+	return game.spawnableTerrorists == 0 || game.spawnableCts == 0 ? 1 : 0;
+}
+
+export function setNeededPlayersHlds(cell: i32): void {
+	readOnly("neededPlayers");
+}
+
+/** The share of the escaping terrorists who escaped, as ReGameDLL divides them. */
+export function escapeRatioHlds(): i32 {
+	const escapers = game.numEscapers;
+	return <i32>floatCell(escapers > 0 ? game.haveEscaped / escapers : 0);
+}
+
+export function setEscapeRatioHlds(cell: i32): void {
+	readOnly("escapeRatio");
+}
+
 function readOnly(name: string): void {
 	__sayOnce(`game.${name} is read from the server without ReAPI here, and writing it does nothing`);
 }

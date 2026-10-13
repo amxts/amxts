@@ -879,6 +879,84 @@ static void w_playerSwitchTeam(wasm_exec_env_t env, int32_t id)
 
 // ---------------------------------------------------------------- the game rules' actions
 
+/** The function in a slot of the original game rules' table: the one under the module's hook, where it hooks the slot. */
+static void *RulesSlotFunction(void **table, int slot)
+{
+	for (int i = 0; i < RULES_COUNT; i++)
+		if (g_rulesInfo[i].slot == slot && table[slot] == g_rulesInfo[i].hook)
+			return g_chainPoints[g_rulesInfo[i].chain].original;
+	return table[slot];
+}
+
+/**
+ * Whether the module hooks the original game's rules in their table: on
+ * Linux, where each slot is checked against its function's name first
+ * (RulesHookable). A Windows game has no names to check a slot by, and a
+ * wrong one would crash the server, so its rules are not hooked.
+ */
+static bool OriginalRulesHooked()
+{
+#ifdef _WIN32
+	return false;
+#else
+	return !g_regameChains && g_rulesAddress;
+#endif
+}
+
+/**
+ * Whether the original game rules' function g_rulesInfo[rules] can be
+ * hooked: its slot holds the function its name in the game library says.
+ * All are checked at once, the first time, on the rules the game has then;
+ * one that is not where it is expected is said in the console and never
+ * hooked.
+ */
+static bool RulesHookable(int rules)
+{
+#ifdef _WIN32
+	(void)rules;
+	return false;
+#else
+	static signed char checked[RULES_COUNT]; // 1 hookable, -1 not, 0 not checked yet
+	re::OriginalRules *object = OriginalRulesHooked() ? OriginalRulesObject() : NULL;
+	if (!checked[rules] && object) {
+		void **table = *(void ***)object;
+		const char *names[RULES_COUNT];
+		void *named[RULES_COUNT];
+		for (int i = 0; i < RULES_COUNT; i++)
+			names[i] = g_rulesInfo[i].symbol;
+		LibrarySymbols(table, names, named, RULES_COUNT);
+		for (int i = 0; i < RULES_COUNT; i++) {
+			bool same = named[i] && RulesSlotFunction(table, g_rulesInfo[i].slot) == named[i];
+			checked[i] = same ? 1 : -1;
+			g_chainPoints[g_rulesInfo[i].chain].vtable = table;
+			if (!same)
+				MF_PrintSrvConsole("[amxts] the game rules' %s is not where amxts expects it in this game: it is not hooked\n", names[i]);
+		}
+	}
+	return checked[rules] > 0;
+#endif
+}
+
+/** The module's hook in a slot of the original game rules' table, or what was there back (a hookchain's attach). */
+static void RulesAttach(int rules, bool on)
+{
+	const RulesInfo &info = g_rulesInfo[rules];
+	HookPoint &point = g_chainPoints[info.chain];
+	void **slot = point.vtable + info.slot;
+	if (on) {
+		if (*slot != info.hook)
+			point.original = *slot;
+		WriteSlot(slot, info.hook);
+	}
+	// Only the module's own function goes: one written over it since calls it as its original.
+	else if (*slot == info.hook) {
+		WriteSlot(slot, point.original);
+	}
+	else {
+		point.attached = true;
+	}
+}
+
 #ifndef _WIN32
 /** A virtual function's place in its class's table, from a pointer to it: GCC keeps 1 + its offset there. */
 template <typename Method>
@@ -911,7 +989,7 @@ static bool OriginalSlotChecked(re::OriginalRules *rules, Method method, const c
 		return it->second;
 	void **table = *(void ***)rules;
 	void *named = LibrarySymbol(table, symbol);
-	bool same = !named || table[VirtualIndex(method)] == named;
+	bool same = !named || RulesSlotFunction(table, VirtualIndex(method)) == named;
 	checked[symbol] = same;
 	if (!same)
 		MF_PrintSrvConsole("[amxts] the game rules' %s is not where amxts expects it in this game: it is not called\n", symbol);

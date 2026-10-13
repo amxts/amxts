@@ -6767,13 +6767,20 @@ export function __chainSetText(index: i32, text: string): void {
 }
 
 // What the server has of ReGameDLL's and ReHLDS's hookchains: 1 the game's,
-// 2 the engine's, asked once; -1 not asked yet.
+// 2 the engine's, 4 the original game's rules the module hooks itself;
+// asked once, -1 not asked yet.
 let gameApi: i32 = -1;
 
 /** @hidden Whether the server has the hookchains of ReHLDS (`rehlds`) or of ReGameDLL. */
 export function __hasChains(rehlds: bool): bool {
 	if (gameApi < 0) gameApi = _gameApi();
 	return (gameApi & (rehlds ? 2 : 1)) != 0;
+}
+
+/** @hidden Whether the module hooks the game rules' questions of the original game (Valve's, on Linux). */
+export function __hasRules(): bool {
+	if (gameApi < 0) gameApi = _gameApi();
+	return (gameApi & 4) != 0;
 }
 
 // AMX Mod X has no entry for an amxts plugin, so this is the only place

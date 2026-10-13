@@ -240,6 +240,12 @@ export interface ServerOptions {
 	 * reapi (`modules`) unless said: a server without reapi is plain HLDS's model.
 	 */
 	chains?: boolean;
+	/**
+	 * Without the hookchains, whether the module hooks the original game's
+	 * rules, so the game rules' questions are heard as their chains: Valve's
+	 * game on Linux. Not unless said.
+	 */
+	originalRules?: boolean;
 }
 
 export type TeamName = 'UNASSIGNED' | 'TERRORIST' | 'CT' | 'SPECTATOR';
@@ -806,6 +812,8 @@ export class FakeServer {
 	readonly reunion: boolean;
 	/** Whether the module finds ReGameDLL's and ReHLDS's hookchains (game_api). */
 	readonly chains: boolean;
+	/** Whether, without them, it hooks the original game's rules (game_api). */
+	readonly originalRules: boolean;
 	/** Milliseconds since the map started; advance() moves it. */
 	time = 0;
 	/** Date.now() when the map started. */
@@ -1018,6 +1026,7 @@ export class FakeServer {
 		this.modules = new Set(options.modules ?? ['reapi', 'cstrike', 'fun', 'hamsandwich', 'engine', 'fakemeta', 'nvault', 'resemiclip']);
 		this.reunion = options.reunion ?? false;
 		this.chains = options.chains ?? this.modules.has('reapi');
+		this.originalRules = !this.chains && (options.originalRules ?? false);
 		// The voice manager counts the server's slots, as the game sets it up.
 		this.rules.set(constant('m_nMaxPlayers'), this.maxPlayers);
 		this.entityIds = this.maxPlayers + 1;
@@ -3191,7 +3200,7 @@ export class FakeServer {
 		},
 
 		game_api(this: FakeServer, _plugin: PluginInstance) {
-			return this.chains ? 3 : 0;
+			return this.chains ? 3 : this.originalRules ? 4 : 0;
 		},
 
 		// One phase of a chain's listeners for game.endRound's dispatch, as module.cpp's chain_dispatch.

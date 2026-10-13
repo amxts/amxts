@@ -40,7 +40,17 @@ test('without reapi a player\'s event is Ham Sandwich\'s on "player", a weapon\'
 test('an event nothing on plain HLDS hears says so once, and is not listened for', async () => {
 	const server = await loadPlugin(PLUGIN, PLAIN);
 	const said = server.logLines.filter(line => line.includes('needs ReGameDLL'));
-	expect(said).toEqual(['warning: fallDamage needs ReGameDLL, which this server does not have: its listeners are never called']);
+	expect(said).toEqual(['warning: fallDamage needs ReGameDLL, or Valve\'s game on Linux, which this server does not have: its listeners are never called']);
+});
+
+test('where the module hooks the original game\'s rules, a game rules\' question is heard as its chain', async () => {
+	const server = await loadPlugin(PLUGIN, { ...PLAIN, originalRules: true });
+	expect(server.log).not.toContain('needs ReGameDLL');
+	const alice = server.join('Alice');
+
+	const fall = server.fireHook('fallDamage', [alice.id], { result: 40.0 });
+
+	expect(fall.result).toBe(20);
 });
 
 test('without reapi a player spawns through Ham Sandwich\'s Spawn, after the game: preventDefault() is said once', async () => {
@@ -202,7 +212,9 @@ test('each of them is heard on plain HLDS, fully or with its gaps, or is not, wi
 	expect(said).toEqual([]);
 	expect([...unheardEvents()].sort()).toEqual(Object.keys(NOT_HEARD).sort());
 	for (const event of ['playerSpawn', 'roundEnd', 'newRound', 'roundStart', 'addMoney', 'plantBomb']) expect(HEARD[event]?.class).toBe('B');
-	for (const event of ['fallDamage', 'airMove', 'canHaveItem']) expect(NOT_HEARD[event]).toBeString();
+	for (const event of ['teamFull', 'airMove', 'giveDefaultItems']) expect(NOT_HEARD[event]).toBeString();
+	// A game rules' question, through the module's hook of the original rules' table.
+	for (const event of ['fallDamage', 'canHaveItem']) expect(HEARD[event]?.rules).toBe(true);
 	// A player's move, through the module's own hook of PM_Move.
 	expect(HEARD.move?.class).toBe('A');
 });
@@ -250,13 +262,13 @@ test('a project for plain HLDS does not build a listener for an event nothing th
 		'plugins/rounds.ts': [
 			'game.addEventListener("takeDamage", (event) => console.log(`${event.damage}`));',
 			'game.addEventListener("roundEnd", (event) => console.log(event.winner));',
-			'game.addEventListener("fallDamage", (event) => event.result / 2, true);',
+			'game.addEventListener("teamFull", (event) => event.team == 1);',
 			'',
 		].join('\n'),
 	});
 
 	const failed = await setup({ rootDir: dir }).then(() => '', (error: Error) => error.message);
-	expect(failed).toMatch(/rounds\.ts:3: "fallDamage" is ReGameDLL's or ReHLDS's own, and amxts\.config\.ts's target is "hlds" - nothing on plain HLDS hears it/);
+	expect(failed).toMatch(/rounds\.ts:3: "teamFull" is ReGameDLL's or ReHLDS's own, and amxts\.config\.ts's target is "hlds" - nothing on plain HLDS hears it/);
 	// takeDamage is Ham Sandwich's there, roundEnd the game's log line: both build.
 	expect(failed).not.toContain('takeDamage');
 	expect(failed).not.toContain('roundEnd');

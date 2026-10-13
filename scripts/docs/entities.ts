@@ -1858,8 +1858,8 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		ru: `\`true\`, если следующий раунд начнётся, не возрождая игроков.`,
 	},
 	m_bSkipShowMenu: {
-		en: `\`true\` while a joining player is not shown the team menu.`,
-		ru: `\`true\`, пока входящему игроку не показывается меню выбора команды.`,
+		en: `\`true\` while a joining player takes a side by \`mp_auto_join_team\`, without the team menu.`,
+		ru: `\`true\`, пока входящий игрок занимает сторону по \`mp_auto_join_team\`, без меню выбора команды.`,
 	},
 	m_bNeededPlayers: {
 		en: `\`true\` while the game waits for players because a side is empty.`,
@@ -1878,8 +1878,8 @@ export const ENTITY_FIELDS: Record<string, Text> = {
 		ru: `Игровое время, когда началась игра, после «Game Commencing».`,
 	},
 	m_bTeamBalanced: {
-		en: `\`true\` when the sides were balanced at this round's start.`,
-		ru: `\`true\`, если стороны уравнивались в начале этого раунда.`,
+		en: `\`true\` while the game moves a player to the other side to even the sides.`,
+		ru: `\`true\`, пока игра переводит игрока на другую сторону, уравнивая стороны.`,
 	},
 };
 

@@ -14,7 +14,9 @@
 // An A or B event's backend is `<event>Hlds` in as/hlds.ts, which
 // scripts/generate-hooks.ts registers on the event's first listener, once,
 // when the server has no reapi; `post` adds `<event>PostHlds` for the first
-// listener after the game.
+// listener after the game. A game rules' question (`rules`) has none: the
+// module hooks the original game's function in the rules' table on Linux,
+// and hook() takes its chain as on ReGameDLL.
 import type { Text } from './docs/events';
 
 export interface HeardEvent {
@@ -25,6 +27,8 @@ export interface HeardEvent {
 	gaps?: Text;
 	/** A backend of its own for the listeners after the game. */
 	post?: boolean;
+	/** A game rules' question, heard through hook() itself: no backend in as/hlds.ts. */
+	rules?: boolean;
 }
 
 const after: Text = {
@@ -51,6 +55,17 @@ function buy(en: string, ru: string): Text {
 function thrown(en: string, ru: string): Text {
 	return afterAnd(`it is heard as the grenade gets its model${en}`, `слышно, когда граната получает модель${ru}`);
 }
+
+/** A game rules' question, which the module hooks in the original game's table on Linux. */
+const rules: HeardEvent = {
+	class: 'B',
+	backend: 'the original game rules\' virtual function, hooked in their table after its name is checked',
+	gaps: {
+		en: 'heard on Linux as with ReGameDLL; on Windows nothing hears it',
+		ru: 'слышно на Linux, как с ReGameDLL; на Windows его ничто не слышит',
+	},
+	rules: true,
+};
 
 const precached: Text = {
 	en: '`preventDefault()` skips the precache, which answers 0; returning an answer or changing `file` does nothing',
@@ -240,6 +255,17 @@ export const HEARD: Record<string, HeardEvent> = {
 	precacheFile: { class: 'B', backend: 'FM_PrecacheGeneric', gaps: precached },
 	// The player's movement.
 	move: { class: 'A', backend: 'the module\'s Metamod hook of PM_Move', post: true },
+	canHaveItem: rules,
+	canRespawn: rules,
+	canTakeDamage: rules,
+	checkMapConditions: rules,
+	checkWinConditions: rules,
+	dropWeaponsOnDeath: rules,
+	fallDamage: rules,
+	getNextBestWeapon: rules,
+	removeGuns: rules,
+	shouldSwitchWeapon: rules,
+	spawnSpot: rules,
 };
 
 /**
@@ -254,18 +280,14 @@ export const NOT_HEARD: Record<string, string> = {
 	airAccelerate: 'player movement inside the game\'s PM_Move; no stock hook',
 	airMove: 'player movement inside the game\'s PM_Move; no stock hook',
 	applyMultiDamage: 'a global function of the game, called inside an attack; no stock hook',
-	balanceTeams: 'game rules code inside the round\'s restart; no stock hook',
-	canHaveItem: 'a game rules virtual: Ham Sandwich hooks entities only',
+	balanceTeams: 'a non-virtual function of the game rules, called inside the round\'s restart; no stock hook',
 	canSwitchTeam: 'ReGameDLL\'s own function',
-	checkMapConditions: 'game rules code at the map\'s start, before the plugins',
 	checkTimeBasedDamage: 'inside the player\'s PreThink; no stock hook',
 	checkUserInfo: 'the engine\'s own check of a connecting client',
 	checkWaterJump: 'player movement inside the game\'s PM_Move; no stock hook',
-	checkWinConditions: 'a game rules virtual: Ham Sandwich hooks entities only',
 	clearMultiDamage: 'a global function of the game, called inside an attack; no stock hook',
 	consoleMessage: 'the engine\'s own console text to a client',
 	createWeaponBox: 'a weaponbox is heard only as it gets its model (setModel); its arguments are gone by then',
-	dropWeaponsOnDeath: 'a game rules virtual: Ham Sandwich hooks entities only',
 	defaultDeploy: 'a non-virtual helper inside a weapon\'s Deploy: the deploy event is the weapon\'s',
 	defaultReload: 'a non-virtual helper inside a weapon\'s Reload: the reload event is the weapon\'s',
 	defaultShotgunReload: 'a non-virtual helper inside a shotgun\'s Reload',
@@ -280,14 +302,8 @@ export const NOT_HEARD: Record<string, string> = {
 	shootBuckshot: 'a non-virtual function inside a weapon\'s attack',
 	fireBullets: 'a non-virtual function inside a weapon\'s attack',
 	shoot: 'a non-virtual function inside a weapon\'s attack',
-	fallDamage: 'a game rules virtual: Ham Sandwich hooks entities only',
-	canRespawn: 'a game rules virtual: Ham Sandwich hooks entities only',
-	canTakeDamage: 'a game rules virtual: Ham Sandwich hooks entities only',
-	shouldSwitchWeapon: 'a game rules virtual: Ham Sandwich hooks entities only',
 	getForceCamera: 'a global function of the game; no stock hook',
 	getIntoGame: 'a non-virtual function of the player; no stock hook',
-	getNextBestWeapon: 'a game rules virtual: Ham Sandwich hooks entities only',
-	spawnSpot: 'a game rules virtual: Ham Sandwich hooks entities only',
 	giveDefaultItems: 'inside the game rules\' PlayerSpawn, for a player who did not survive and a map without game_player_equip; no stock hook',
 	giveItem: 'a non-virtual function of the player; fakemeta\'s CreateNamedEntity hears every entity made by name',
 	giveShield: 'a non-virtual function of the player; no stock hook',
@@ -309,7 +325,6 @@ export const NOT_HEARD: Record<string, string> = {
 	printf: 'the engine\'s own console',
 	radio: 'a non-virtual function of the player; its SendAudio goes to each teammate, and to nobody without one',
 	removeAllItems: 'a non-virtual function of the player; no stock hook',
-	removeGuns: 'game rules code inside the round\'s restart; no stock hook',
 	removeSpawnProtection: 'ReGameDLL\'s own function',
 	resetSequenceInfo: 'a non-virtual function of an animating entity',
 	chatMessage: 'ReGameDLL\'s own function; the say command and the SayText message are the plugin\'s to hear',
@@ -324,8 +339,8 @@ export const NOT_HEARD: Record<string, string> = {
 	startSpectating: 'a non-virtual function of the player; no stock hook',
 	switchTeam: 'a non-virtual function of the player; its TeamInfo message is every team change\'s',
 	takeDamageImpulse: 'ReGameDLL\'s own function',
-	teamFull: 'a game rules virtual: Ham Sandwich hooks entities only',
-	teamStacked: 'a game rules virtual: Ham Sandwich hooks entities only',
+	teamFull: 'a non-virtual function of the game rules; no stock hook',
+	teamStacked: 'a non-virtual function of the game rules; no stock hook',
 	traceLine: 'a trace inside the flashbang\'s explosion',
 	unDuck: 'player movement inside the game\'s PM_Move; no stock hook',
 	updateStatusBar: 'a non-virtual function of the player; no stock hook',
@@ -360,12 +375,26 @@ export const HEARD_FIELDS: Record<string, HeardField> = {
 		},
 	},
 	maxPlayers: { class: 'B', backend: 'get_maxplayers', gaps: { en: 'the server\'s slots; writing it does nothing', ru: 'слоты сервера; запись ничего не делает' } },
+	neededPlayers: {
+		class: 'B',
+		backend: 'the spawnable players the game counted, as ReGameDLL sets it from them',
+		gaps: {
+			en: 'read from `spawnableTerrorists` and `spawnableCts`, as the game counted them last; writing it does nothing',
+			ru: 'читается из `spawnableTerrorists` и `spawnableCts`, как игра посчитала их последний раз; запись ничего не делает',
+		},
+	},
+	escapeRatio: {
+		class: 'B',
+		backend: 'the escaped and escaping terrorists the game counts, as ReGameDLL divides them',
+		gaps: {
+			en: 'read from `haveEscaped` and `numEscapers`; writing it does nothing',
+			ru: 'читается из `haveEscaped` и `numEscapers`; запись ничего не делает',
+		},
+	},
 };
 
 export const FIELDS_NOT_HEARD: Record<string, string> = {
-	teamBalanced: 'ReGameDLL\'s own state of the round\'s balance',
-	neededPlayers: 'ReGameDLL\'s own flag; the original keeps it in no member the gamedata has',
-	skipShowMenu: 'ReGameDLL\'s own option',
-	escapeRatio: 'ReGameDLL\'s own count of the escaped terrorists',
+	teamBalanced: 'ReGameDLL\'s own flag, set only while its BalanceTeams moves a player; the original has no member for it',
+	skipShowMenu: 'ReGameDLL\'s own flag, set only while a player joins by its mp_auto_join_team; the original has neither',
 	updateInterval: 'the voice manager\'s own timer, which the gamedata does not have',
 };

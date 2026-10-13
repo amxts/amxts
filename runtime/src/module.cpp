@@ -7486,19 +7486,21 @@ static DLL_FUNCTIONS *g_entityApi = NULL;
 
 #ifndef _WIN32
 /**
- * The address of a symbol of the engine's own table (.symtab): plain HLDS
- * keeps Cmd_TokenizeString and gEntityInterface local, so dlsym does not see
- * them. The file is the one the engine's functions were loaded from, the
- * address its load base plus the symbol's value. NULL when it is not there.
+ * The addresses of symbols of a library's own table (.symtab), read in one
+ * pass: plain HLDS keeps Cmd_TokenizeString and gEntityInterface local, so
+ * dlsym does not see them, and names the game rules' functions only there.
+ * The file is the one `inLibrary` was loaded from, an address its load base
+ * plus the symbol's value; NULL for a name that is not there.
  */
-static void *LibrarySymbol(const void *inLibrary, const char *name)
+static void LibrarySymbols(const void *inLibrary, const char *const *names, void **found, int count)
 {
+	std::fill(found, found + count, (void *)NULL);
 	Dl_info info;
 	if (!dladdr(inLibrary, &info) || !info.dli_fname)
-		return NULL;
+		return;
 	FILE *f = fopen(info.dli_fname, "rb");
 	if (!f)
-		return NULL;
+		return;
 	std::vector<char> file;
 	fseek(f, 0, SEEK_END);
 	file.resize((size_t)ftell(f));
@@ -7506,25 +7508,37 @@ static void *LibrarySymbol(const void *inLibrary, const char *name)
 	bool read = !file.empty() && fread(&file[0], 1, file.size(), f) == file.size();
 	fclose(f);
 	if (!read || file.size() < sizeof(Elf32_Ehdr))
-		return NULL;
+		return;
 
 	const Elf32_Ehdr *header = (const Elf32_Ehdr *)&file[0];
 	if (header->e_shoff + (size_t)header->e_shnum * sizeof(Elf32_Shdr) > file.size())
-		return NULL;
+		return;
 	const Elf32_Shdr *sections = (const Elf32_Shdr *)&file[header->e_shoff];
 	for (int i = 0; i < header->e_shnum; i++) {
 		if (sections[i].sh_type != SHT_SYMTAB || sections[i].sh_link >= header->e_shnum)
 			continue;
 		const Elf32_Shdr &strings = sections[sections[i].sh_link];
-		size_t count = sections[i].sh_size / sizeof(Elf32_Sym);
+		size_t symbolCount = sections[i].sh_size / sizeof(Elf32_Sym);
 		if (sections[i].sh_offset + sections[i].sh_size > file.size() || strings.sh_offset + strings.sh_size > file.size())
-			return NULL;
+			return;
 		const Elf32_Sym *symbols = (const Elf32_Sym *)&file[sections[i].sh_offset];
-		for (size_t k = 0; k < count; k++)
-			if (symbols[k].st_name < strings.sh_size && !strcmp(&file[strings.sh_offset + symbols[k].st_name], name))
-				return (char *)info.dli_fbase + symbols[k].st_value;
+		for (size_t k = 0; k < symbolCount; k++) {
+			if (symbols[k].st_name >= strings.sh_size)
+				continue;
+			const char *name = &file[strings.sh_offset + symbols[k].st_name];
+			for (int n = 0; n < count; n++)
+				if (!found[n] && !strcmp(name, names[n]))
+					found[n] = (char *)info.dli_fbase + symbols[k].st_value;
+		}
 	}
-	return NULL;
+}
+
+/** One symbol of a library's own table (LibrarySymbols); NULL when it is not there. */
+static void *LibrarySymbol(const void *inLibrary, const char *name)
+{
+	void *found;
+	LibrarySymbols(inLibrary, &name, &found, 1);
+	return found;
 }
 
 /** A symbol of the engine's library, local ones too (EngineSymbol's caller says why). */
