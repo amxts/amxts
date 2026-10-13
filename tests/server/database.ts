@@ -6,7 +6,7 @@
 // mysql_native_password. The runner gives both addresses:
 // amxts_test_database <mysql> <mariadb>.
 import { Checks } from "@amxts/core/check";
-import { and, asc, bigint, boolean, count, desc, double, eq, gt, inArray, int, isNull, json, max, table, text, unique, varchar } from "@amxts/core/database";
+import { and, asc, bigint, binary, boolean, count, desc, double, eq, gt, inArray, int, isNull, json, longblob, max, table, text, unique, varbinary, varchar } from "@amxts/core/database";
 
 interface DatabaseArgs {
 	mysql?: string;
@@ -205,11 +205,80 @@ async function builder(checks: Checks, label: string, url: string) {
 		.toBe("2 STEAM_0:1:1 kz_a 59 5 false null true 9007199254740993 | STEAM_0:1:2 kz_a 70 5 false null none null");
 }
 
+/** Bytes of every kind of binary column, as a recording or a file is kept. */
+const blobs = table("amxts_blobs", {
+	id: int().primaryKey(),
+	data: longblob(),
+	code: binary(4),
+	tag: varbinary(16).notNull(),
+});
+
+interface RawBlob {
+	data: Uint8Array | null;
+	size: number;
+}
+
+interface Found {
+	id: number;
+}
+
+interface AsText {
+	tag: string;
+}
+
+/** Every byte value once, 0 to 255. */
+function everyByte(): Uint8Array {
+	const bytes = new Uint8Array(256);
+	for (let i = 0; i < bytes.length; i++) bytes[i] = i;
+	return bytes;
+}
+
+/** Whether two arrays hold the same bytes. */
+function same(a: Uint8Array | null, b: Uint8Array): boolean {
+	if (a == null || a.length != b.length) return false;
+	for (let i = 0; i < b.length; i++) {
+		if (a[i] != b[i]) return false;
+	}
+	return true;
+}
+
+/** Bytes to the server and back: every value, none, a megabyte; raw queries in both protocols, and the builder. */
+async function bytes(checks: Checks, label: string, url: string) {
+	const db = new Database(url);
+	await db.execute("DROP TABLE IF EXISTS amxts_blobs");
+	await db.create(blobs);
+	const every = everyByte();
+	const tail = every.slice(250);
+	await db.execute("INSERT INTO amxts_blobs (id, data, code, tag) VALUES (?, ?, ?, ?)", [1, every, every.slice(252), tail]);
+	await db.execute("INSERT INTO amxts_blobs (id, data, code, tag) VALUES (?, ?, ?, ?)", [2, new Uint8Array(0), null, new Uint8Array(0)]);
+
+	const prepared = await db.query<RawBlob>("SELECT data, LENGTH(data) AS size FROM amxts_blobs WHERE id = ?", [1]);
+	checks.expect(`${same(prepared[0].data, every)} ${prepared[0].size}`, `${label}: every byte value, with values`).toBe("true 256");
+	const plain = await db.query<RawBlob>("SELECT data, LENGTH(data) AS size FROM amxts_blobs WHERE id = 1");
+	checks.expect(same(plain[0].data, every), `${label}: every byte value, without values`).toBe(true);
+	const empty = await db.query<RawBlob>("SELECT data, LENGTH(data) AS size FROM amxts_blobs WHERE id = ?", [2]);
+	checks.expect(`${empty[0].data != null} ${empty[0].data!.length} ${empty[0].size}`, `${label}: an empty blob`).toBe("true 0 0");
+	const found = await db.query<Found>("SELECT id FROM amxts_blobs WHERE tag = ?", [tail]);
+	checks.expect(found.map(each => each.id).join(","), `${label}: bytes in WHERE`).toBe("1");
+	const text = await db.query<AsText>("SELECT tag FROM amxts_blobs WHERE id = 1");
+	checks.expect(text[0].tag, `${label}: a binary column read as text is base64`).toBe("+vv8/f7/");
+
+	const large = new Uint8Array(1 << 20);
+	for (let i = 0; i < large.length; i++) large[i] = (i * 7 + (i >> 8)) & 255;
+	await db.insert(blobs).values({ id: 3, data: large, code: every.slice(0, 4), tag: tail });
+	const read = await db.select().from(blobs).where(eq(blobs.id, 3));
+	checks.expect(`${same(read[0].data, large)} ${same(read[0].code, every.slice(0, 4))} ${same(read[0].tag, tail)}`, `${label}: a megabyte through the builder`)
+		.toBe("true true true");
+	const byCode = await db.select({ id: blobs.id }).from(blobs).where(eq(blobs.code, every.slice(252)));
+	checks.expect(byCode.map(each => each.id).join(","), `${label}: the builder's bytes in WHERE`).toBe("1");
+}
+
 /** The checks of one server; an error that escapes them is a failed check, not a suite that never ends. */
 async function guarded(checks: Checks, label: string, url: string) {
 	try {
 		await check(checks, label, url);
 		await builder(checks, label, url);
+		await bytes(checks, label, url);
 	} catch (error) {
 		checks.expect(`${error.name}: ${error.message}`, `${label}: ran to the end`).toBe("no error");
 	}

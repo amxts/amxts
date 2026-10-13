@@ -121,6 +121,22 @@ describe('query builder', () => {
 		]]);
 	});
 
+	test('bytes: binary columns created, written and read as Uint8Array', async () => {
+		const from = server.database(URL).queries.length;
+		server.database(URL).answer(/^CREATE TABLE IF NOT EXISTS `recordings`/, { affectedRows: 0 });
+		server.database(URL).answer(/^INSERT INTO `recordings`/, { insertId: 0, affectedRows: 1 });
+		const hash = new Uint8Array(32).fill(255);
+		server.database(URL).answer(/^SELECT .* FROM `recordings`/, [{ id: 1, frames: new Uint8Array([0, 1, 255]), thumb: null, icon: null, hash, tag: null }]);
+		expect(await run('b_bytes')).toEqual(['bytes 0,1,255 true 32 true']);
+		const queries = sent(from);
+		expect(queries[0]).toEqual([
+			'CREATE TABLE IF NOT EXISTS `recordings` (`id` INT NOT NULL, `frames` LONGBLOB NOT NULL, `thumb` MEDIUMBLOB, `icon` BLOB, `hash` BINARY(32) NOT NULL, `tag` VARBINARY(16), PRIMARY KEY (`id`))',
+			[],
+		]);
+		expect(queries[1][1]).toEqual([1, new Uint8Array([0, 1, 255]), hash]);
+		expect(queries[2][1]).toEqual([hash]);
+	});
+
 	test('a transaction: the builder on tx, committed', async () => {
 		const db = server.database(URL);
 		db.answer(/^INSERT INTO `records`/, { insertId: 9, affectedRows: 1 }).answer(/^SELECT COUNT/, [{ runs: 1 }]);

@@ -48,6 +48,18 @@ describe('Database', () => {
 		expect(given).toEqual(['text', 1.5, 2, true, null, false]);
 	});
 
+	test('bytes: a Uint8Array goes as a value and a binary column reads back as one', async () => {
+		let given: unknown[] = [];
+		server.database(URL).answer(/^INSERT INTO recordings/, (params) => {
+			given = params;
+			return { affectedRows: 1 };
+		});
+		const every = new Uint8Array(256).map((_, i) => i);
+		server.database(URL).answer('SELECT name, frames, thumb FROM recordings', [{ name: 'run', frames: every, thumb: null }]);
+		expect(await run('db_bytes')).toEqual(['bytes object 256 256 0 255 true']);
+		expect(given).toEqual(['run', every, new Uint8Array(0)]);
+	});
+
 	test('a refused statement rejects with a DatabaseError of its code and SQLSTATE', async () => {
 		server.database(URL).fail(/^INSERT INTO records \(name\)/, { code: 1062, sqlState: '23000', message: 'Duplicate entry \'taken\' for key \'name\'' });
 		expect(await run('db_error')).toEqual(['error DatabaseError 1062 23000 Duplicate entry \'taken\' for key \'name\'']);

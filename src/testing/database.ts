@@ -21,10 +21,10 @@ const CLIENT_ERROR = -1;
 const SHAPE_NARROW = 0;
 
 /** A value of a query's `?`, as the plugin gave it. */
-export type DatabaseValue = string | number | boolean | null;
+export type DatabaseValue = string | number | boolean | Uint8Array | null;
 
-/** A row a query gives: its columns by name. */
-export type DatabaseRow = Record<string, string | number | boolean | null>;
+/** A row a query gives: its columns by name - a `Uint8Array` is a BLOB's, `BINARY`'s or `VARBINARY`'s bytes. */
+export type DatabaseRow = Record<string, DatabaseValue>;
 
 /** What an `execute` gives; a field left out is `0`. */
 export interface DatabaseExecuted {
@@ -107,8 +107,19 @@ export class FakeDatabase {
 			const counts = Array.isArray(answer) ? {} : answer;
 			return { status: 0, text: JSON.stringify({ insertId: counts.insertId ?? 0, affectedRows: counts.affectedRows ?? 0 }), state: '' };
 		}
-		return { status: 0, text: JSON.stringify(Array.isArray(answer) ? answer : []), state: '' };
+		return { status: 0, text: JSON.stringify(Array.isArray(answer) ? answer : [], bytesAsBase64), state: '' };
 	}
+}
+
+/** Bytes in the rows as the module writes them: base64 text, which the plugin reads into a Uint8Array. */
+function bytesAsBase64(key: string, value: unknown): unknown {
+	return value instanceof Uint8Array ? Buffer.from(value).toString('base64') : value;
+}
+
+/** Bytes among a query's values as the plugin sends them, `{"$bytes":"<base64>"}`: a Uint8Array again. */
+function bytesOfBase64(key: string, value: unknown): unknown {
+	const bytes = value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as { $bytes?: unknown }).$bytes : undefined;
+	return typeof bytes === 'string' ? new Uint8Array(Buffer.from(bytes, 'base64')) : value;
 }
 
 /** A query a plugin holds, as the module keeps one. */
@@ -174,7 +185,7 @@ export class FakeDatabases {
 		const database = this.byUrl.get(url) ?? this.byUrl.get('');
 		if (!database) throw new Error(`[amxts] a plugin queried ${url.replace(/\/\/[^@/]*@/, '//')}, which the test did not set up - server.database(url).answer(sql, rows)`);
 
-		const params = paramsJson ? JSON.parse(paramsJson) as DatabaseValue[] : [];
+		const params = paramsJson ? JSON.parse(paramsJson, bytesOfBase64) as DatabaseValue[] : [];
 		let outcome = { status: 0, text: '', state: '' };
 		if (kind === KIND_BEGIN) {
 			const transaction: SentTransaction = { id, queries: [], committed: null };

@@ -30,6 +30,7 @@
 #include <chrono>
 #include <deque>
 
+#include <mbedtls/base64.h>
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/error.h>
@@ -126,10 +127,15 @@ typedef int DbSocket;
 #define DB_TYPE_TIME        11
 #define DB_TYPE_DATETIME    12
 #define DB_TYPE_YEAR        13
+#define DB_TYPE_VARCHAR     15
 #define DB_TYPE_BIT         16
 #define DB_TYPE_NEWDECIMAL  246
+#define DB_TYPE_TINY_BLOB   249
+#define DB_TYPE_BLOB        252
 #define DB_TYPE_VAR_STRING  253
+#define DB_TYPE_STRING      254
 #define DB_UNSIGNED_FLAG    0x0020
+#define DB_BINARY_CHARSET   63   // the character set of bytes: BLOB, BINARY, VARBINARY
 
 // The commands sent.
 #define DB_COM_QUIT         0x01
@@ -181,6 +187,7 @@ struct DbStatement {
 struct DbColumn {
 	std::string key;   // `"name":`, written before each of its values
 	uint8_t     type;
+	uint16_t    charset;
 	uint16_t    flags;
 	uint8_t     decimals;
 };
@@ -263,6 +270,17 @@ static void DbJsonText(std::string &out, const char *text, size_t length)
 		}
 		else out += (char)c;
 	}
+	out += '"';
+}
+
+/** Appends bytes as a JSON string of their base64: how the facade reads a Uint8Array. */
+static void DbJsonBytes(std::string &out, const char *bytes, size_t length)
+{
+	size_t at = out.size() + 1, written = 0;
+	out.resize(at + (length + 2) / 3 * 4 + 2);
+	mbedtls_base64_encode((unsigned char *)&out[at], out.size() - at, &written, (const unsigned char *)bytes, length);
+	out[at - 1] = '"';
+	out.resize(at + written);
 	out += '"';
 }
 
@@ -949,7 +967,7 @@ static bool DbConnect(DbConn *c)
 
 /** A value of a query's `?`: what the JSON array of them holds. */
 struct DbParam {
-	int         kind;   // 0 null, 1 boolean, 2 integer, 3 fraction, 4 text
+	int         kind;   // 0 null, 1 boolean, 2 integer, 3 fraction, 4 text, 5 bytes
 	int64_t     integer;
 	double      fraction;
 	std::string text;
@@ -1008,7 +1026,27 @@ static bool DbJsonString(const std::string &json, size_t &at, std::string &out)
 	return false;
 }
 
-/** The values of a JSON array of text, numbers, booleans and nulls - what the facade writes; false when it is not one. */
+/**
+ * Bytes as the facade writes them among the values, `{"$bytes":"<base64>"}`,
+ * at `at` (on its `{`), into `out`; false when it is not that.
+ */
+static bool DbJsonBytesParam(const std::string &json, size_t &at, std::string &out)
+{
+	static const char opening[] = "{\"$bytes\":\"";
+	size_t start = at + sizeof(opening) - 1;
+	size_t end = json.find('"', start);
+	if (json.compare(at, sizeof(opening) - 1, opening) != 0 || end == std::string::npos || end + 1 >= json.size() || json[end + 1] != '}')
+		return false;
+	size_t length = 0;
+	out.resize((end - start) / 4 * 3 + 3);
+	if (mbedtls_base64_decode((unsigned char *)&out[0], out.size(), &length, (const unsigned char *)json.data() + start, end - start) != 0)
+		return false;
+	out.resize(length);
+	at = end + 2;
+	return true;
+}
+
+/** The values of a JSON array of text, numbers, booleans, bytes and nulls - what the facade writes; false when it is not one. */
 static bool DbParseParams(const std::string &json, std::vector<DbParam> &params)
 {
 	size_t at = json.find('[');
@@ -1031,6 +1069,11 @@ static bool DbParseParams(const std::string &json, std::vector<DbParam> &params)
 			at++;
 			p.kind = 4;
 			if (!DbJsonString(json, at, p.text))
+				return false;
+		}
+		else if (c == '{') {
+			p.kind = 5;
+			if (!DbJsonBytesParam(json, at, p.text))
 				return false;
 		}
 		else if (json.compare(at, 4, "null") == 0) at += 4;
@@ -1056,6 +1099,12 @@ static bool DbParseParams(const std::string &json, std::vector<DbParam> &params)
 		if (at < json.size() && json[at] == ',')
 			at++;
 	}
+}
+
+/** Whether a column holds bytes - BLOB, BINARY, VARBINARY - which go to JSON as base64. */
+static bool DbIsBytes(const DbColumn &column)
+{
+	return column.charset == DB_BINARY_CHARSET && (column.type == DB_TYPE_VARCHAR || (column.type >= DB_TYPE_TINY_BLOB && column.type <= DB_TYPE_STRING));
 }
 
 /** Appends a value of a binary row as JSON, by its column's type. */
@@ -1149,6 +1198,7 @@ static void DbBinaryValue(DbReader &r, const DbColumn &column, std::string &out)
 		snprintf(text, sizeof(text), "%llu", (unsigned long long)v);
 		out += text;
 	}
+	else if (DbIsBytes(column)) DbJsonBytes(out, bytes.data(), bytes.size());
 	else DbJsonText(out, bytes.data(), bytes.size());
 }
 
@@ -1173,7 +1223,8 @@ static void DbTextValue(const std::string &value, const DbColumn &column, std::s
 			return;
 		}
 	}
-	DbJsonText(out, value.data(), value.size());
+	if (DbIsBytes(column)) DbJsonBytes(out, value.data(), value.size());
+	else DbJsonText(out, value.data(), value.size());
 }
 
 // ---------------------------------------------------------------- queries
@@ -1223,7 +1274,7 @@ static bool DbReadResults(DbConn *c, DbQuery *q, bool binary)
 				std::string name = def.text();
 				def.text();      // the column's original name
 				def.lenenc();    // the length of what follows
-				def.fixed(2);    // its character set
+				columns[i].charset = (uint16_t)def.fixed(2);
 				def.fixed(4);    // its length
 				columns[i].type = (uint8_t)def.fixed(1);
 				columns[i].flags = (uint16_t)def.fixed(2);
@@ -1380,6 +1431,11 @@ static bool DbRunPrepared(DbConn *c, DbQuery *q, const std::vector<DbParam> &par
 					DbPutFixed(values, bits, 8);
 					break;
 				}
+				case 5:
+					types += (char)DB_TYPE_BLOB;
+					DbPutLenenc(values, p.text.size());
+					values += p.text;
+					break;
 				default:
 					types += (char)DB_TYPE_VAR_STRING;
 					DbPutLenenc(values, p.text.size());

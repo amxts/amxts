@@ -145,6 +145,18 @@ declare module "./sql" {
 	export function datetime(name?: string): ColumnBuilder<string>;
 	/** A value of `T` kept as JSON: `JSON`. */
 	export function json<T>(name?: string): ColumnBuilder<T>;
+	/** Bytes, exactly `length` of them: `BINARY(length)`. */
+	export function binary(length: number): ColumnBuilder<Uint8Array>;
+	export function binary(name: string, length: number): ColumnBuilder<Uint8Array>;
+	/** Bytes, at most `length` of them: `VARBINARY(length)`. */
+	export function varbinary(length: number): ColumnBuilder<Uint8Array>;
+	export function varbinary(name: string, length: number): ColumnBuilder<Uint8Array>;
+	/** Bytes, up to 64 KB: `BLOB`. */
+	export function blob(name?: string): ColumnBuilder<Uint8Array>;
+	/** Bytes, up to 16 MB: `MEDIUMBLOB`. */
+	export function mediumblob(name?: string): ColumnBuilder<Uint8Array>;
+	/** Bytes, as many as the server takes in one query: `LONGBLOB`. */
+	export function longblob(name?: string): ColumnBuilder<Uint8Array>;
 
 	/** A unique key of several columns, for `table`'s third argument: `unique().on(t.steamId, t.map)`. */
 	export function unique(name?: string): KeyBuilder;

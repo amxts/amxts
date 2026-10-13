@@ -2,8 +2,8 @@
 // one AMXTS_DOCS_LANG picks into the JSDoc above each element.
 export default {
 	'DatabaseValue': {
-		en: `A value of a query's \`?\`: text, a number, a boolean or \`null\`.`,
-		ru: `Значение для \`?\` запроса: текст, число, логическое или \`null\`.`,
+		en: `A value of a query's \`?\`: text, a number, a boolean, bytes or \`null\`.`,
+		ru: `Значение для \`?\` запроса: текст, число, логическое, байты или \`null\`.`,
 	},
 	'ExecuteResult': {
 		en: `The outcome of \`execute\`: the id the row it inserted got, and how many rows it changed.`,
@@ -30,8 +30,8 @@ export default {
 		ru: `SQLSTATE ошибки, например \`"23000"\`; \`""\`, если запрос не дошёл до сервера.`,
 	},
 	'DatabaseQueries': {
-		en: `The side a query runs on: a connection, or a transaction of one. Rows are JSON text, an array of objects.`,
-		ru: `На чём выполняется запрос: соединение или его транзакция. Строки — JSON-текст, массив объектов.`,
+		en: `The side a query runs on: a connection, or a transaction of one. Rows are JSON text, an array of objects; bytes in them are base64 text, as \`JSON.stringify\` writes a Uint8Array.`,
+		ru: `На чём выполняется запрос: соединение или его транзакция. Строки — JSON-текст, массив объектов; байты в них — текст base64, как \`JSON.stringify\` пишет Uint8Array.`,
 	},
 	'DatabaseQueries.dialect': {
 		en: `The dialect the database writes SQL in: what the query builder writes its statements in.`,

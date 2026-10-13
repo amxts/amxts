@@ -27,6 +27,22 @@ server.addServerCommand("db_execute", async () => {
 	console.log(`execute ${insertId} ${affectedRows}`);
 });
 
+interface Recording {
+	name: string;
+	frames: Uint8Array;
+	thumb: Uint8Array | null;
+}
+
+server.addServerCommand("db_bytes", async () => {
+	const frames = new Uint8Array(256);
+	for (let i = 0; i < frames.length; i++) frames[i] = i;
+	const value: DatabaseValue = frames;
+	await db.execute("INSERT INTO recordings (name, frames, thumb) VALUES (?, ?, ?)", ["run", value, new Uint8Array(0)]);
+	const rows = await db.query<Recording>("SELECT name, frames, thumb FROM recordings");
+	const read = rows[0].frames;
+	console.log(`bytes ${typeof value} ${(value as Uint8Array).length} ${read.length} ${read[0]} ${read[255]} ${rows[0].thumb == null}`);
+});
+
 server.addServerCommand("db_values", async () => {
 	const values: DatabaseValue[] = ["text", 1.5, 2, true, null];
 	values.push(false);

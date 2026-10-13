@@ -6,6 +6,8 @@ import {
 	asc,
 	between,
 	bigint,
+	binary,
+	blob,
 	boolean,
 	count,
 	desc,
@@ -18,8 +20,10 @@ import {
 	isNull,
 	json,
 	like,
+	longblob,
 	lt,
 	max,
+	mediumblob,
 	ne,
 	not,
 	or,
@@ -27,6 +31,7 @@ import {
 	table,
 	text,
 	unique,
+	varbinary,
 	varchar,
 } from "@amxts/core/database";
 
@@ -48,6 +53,16 @@ export const records = table("records", {
 }, t => [unique().on(t.steamId, t.map)]);
 
 type Record = typeof records.$inferSelect;
+
+/** A table of bytes: a recording, kept whole. */
+const recordings = table("recordings", {
+	id: int().primaryKey(),
+	frames: longblob().notNull(),
+	thumb: mediumblob(),
+	icon: blob(),
+	hash: binary(32).notNull(),
+	tag: varbinary(16),
+});
 
 const db = new Database(env("TEST_DB", ""));
 
@@ -111,6 +126,18 @@ server.addServerCommand("b_delete", async () => {
 server.addServerCommand("b_create", async () => {
 	await db.create(records);
 	console.log("created");
+});
+
+server.addServerCommand("b_bytes", async () => {
+	await db.create(recordings);
+	const hash = new Uint8Array(32).fill(255);
+	const frames = new Uint8Array(3);
+	frames[1] = 1;
+	frames[2] = 255;
+	await db.insert(recordings).values({ id: 1, frames, hash });
+	const rows = await db.select().from(recordings).where(eq(recordings.hash, hash));
+	const row = rows[0];
+	console.log(`bytes ${row.frames.join(",")} ${row.thumb == null} ${row.hash.length} ${row.tag == null}`);
 });
 
 server.addServerCommand("b_transaction", async () => {

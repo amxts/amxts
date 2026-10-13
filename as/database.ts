@@ -40,8 +40,8 @@ const KIND_ROLLBACK: i32 = 4;
 const TEXT_RESULT: i32 = 0;
 const TEXT_STATE: i32 = 1;
 
-/** A value of a query's `?`: text, a number, a boolean or `null`. */
-export type DatabaseValue = string | number | boolean | null;
+/** A value of a query's `?`: text, a number, a boolean, bytes or `null`. */
+export type DatabaseValue = string | number | boolean | Uint8Array | null;
 
 /** The outcome of `execute`: the id the row it inserted got, and how many rows it changed. */
 export interface ExecuteResult {
@@ -66,7 +66,7 @@ export class DatabaseError extends Error {
 	}
 }
 
-/** The side a query runs on: a connection, or a transaction of one. Rows are JSON text, an array of objects. */
+/** The side a query runs on: a connection, or a transaction of one. Rows are JSON text, an array of objects; bytes in them are base64 text, as `JSON.stringify` writes a Uint8Array. */
 export interface DatabaseQueries {
 	/** The dialect the database writes SQL in: what the query builder writes its statements in. */
 	readonly dialect: SqlDialect;
@@ -280,12 +280,27 @@ function __send(pool: i32, tx: i32, kind: i32, sql: string, params: DatabaseValu
 		return Promise.reject<string>(new DatabaseError("the database address is not mysql://user:password@host:port/database, with ?ssl-mode=... at most"));
 	}
 	const text = String.UTF8.encode(sql);
-	const values = String.UTF8.encode(params.length > 0 ? JSON.stringify(params) : "");
+	const values = String.UTF8.encode(__paramsJson(params));
 	const id = _query(pool, tx, kind, changetype<usize>(text), text.byteLength, changetype<usize>(values), values.byteLength, __dbDone.index);
 	if (id == 0) return Promise.reject<string>(new DatabaseError("the database client did not take the query"));
 	const promise = __co_promise<string>();
 	__pending.set(id, promise);
 	return promise;
+}
+
+/**
+ * The values of a query's `?` as the module reads them: a JSON array, bytes
+ * in it as `{"$bytes":"<base64>"}` - base64 text alone would be text.
+ */
+function __paramsJson(params: DatabaseValue[]): string {
+	if (params.length == 0) return "";
+	const parts = new Array<string>(params.length);
+	for (let i = 0; i < params.length; i++) {
+		const value = params[i];
+		const json = JSON.stringify(value);
+		parts[i] = value !== null && typeof value == "object" ? `{"$bytes":${json}}` : json;
+	}
+	return `[${parts.join(",")}]`;
 }
 
 /** A text of an ended query: its result or error message, or its SQLSTATE. */

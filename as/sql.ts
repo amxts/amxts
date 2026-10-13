@@ -35,6 +35,11 @@ import { DatabaseError, DatabaseQueries, DatabaseValue, ExecuteResult } from "./
 /** @hidden */ export const __BOOLEAN: i32 = 6;
 /** @hidden */ export const __DATETIME: i32 = 7;
 /** @hidden */ export const __JSON: i32 = 8;
+/** @hidden */ export const __BINARY: i32 = 9;
+/** @hidden */ export const __VARBINARY: i32 = 10;
+/** @hidden */ export const __BLOB: i32 = 11;
+/** @hidden */ export const __MEDIUMBLOB: i32 = 12;
+/** @hidden */ export const __LONGBLOB: i32 = 13;
 /** @hidden */ export const __NOT_NULL: i32 = 1;
 /** @hidden */ export const __PRIMARY_KEY: i32 = 2;
 /** @hidden */ export const __AUTOINCREMENT: i32 = 4;
@@ -127,12 +132,14 @@ export function __numberValue(value: f64): DatabaseValue {
 	return value;
 }
 
-/** @hidden What a condition compares a column with: another column, or a value - JSON's text for an object. */
+/** @hidden What a condition compares a column with: another column, or a value - JSON's text for an object, bytes as they are. */
 function __operand<V>(value: V): __Sql {
 	if (isFloat<V>()) return new __Param(__numberValue(<f64>value));
 	// @ts-ignore: text or a boolean, boxed where the value goes
 	if (isString<V>() || isBoolean<V>()) return new __Param(value);
 	if (isReference<V>()) {
+		// @ts-ignore: bytes, boxed where the value goes
+		if (idof<V>() == idof<Uint8Array>()) return new __Param(value);
 		if (value instanceof __Sql) return changetype<__Sql>(value);
 		return new __Param(JSON.stringify(value));
 	}
@@ -631,6 +638,11 @@ class __MysqlDialect extends SqlDialect {
 			case __TEXT: return "TEXT";
 			case __BOOLEAN: return "BOOLEAN";
 			case __DATETIME: return "DATETIME";
+			case __BINARY: return `BINARY(${column.__length})`;
+			case __VARBINARY: return `VARBINARY(${column.__length})`;
+			case __BLOB: return "BLOB";
+			case __MEDIUMBLOB: return "MEDIUMBLOB";
+			case __LONGBLOB: return "LONGBLOB";
 		}
 		return "JSON";
 	}

@@ -43,7 +43,7 @@ export const DATABASE_ENTRY = '~/sql';
 const NS = '__amxtsSql';
 
 /** What a column holds, by its builder. Must match __INT... in as/sql.ts. */
-const KIND = { int: 0, bigint: 1, double: 2, decimal: 3, varchar: 4, text: 5, boolean: 6, datetime: 7, json: 8 } as const;
+const KIND = { int: 0, bigint: 1, double: 2, decimal: 3, varchar: 4, text: 5, boolean: 6, datetime: 7, json: 8, binary: 9, varbinary: 10, blob: 11, mediumblob: 12, longblob: 13 } as const;
 type Kind = keyof typeof KIND;
 
 /** Must match __NOT_NULL... in as/sql.ts. */
@@ -64,7 +64,7 @@ interface ColumnSpec {
 	field: string;
 	name: string;
 	kind: Kind;
-	/** What the row's field holds: `number`, `string`, `boolean` or the JSON's type. */
+	/** What the row's field holds: `number`, `string`, `boolean`, `Uint8Array` or the JSON's type. */
 	type: string;
 	length: number;
 	scale: number;
@@ -190,6 +190,16 @@ function columnOf(node: ts.Expression, field: string, builders: Map<string, stri
 			column.length = number(0, 'the length', null);
 			column.type = 'string';
 			break;
+		case 'binary':
+		case 'varbinary':
+			column.length = number(0, 'the length', null);
+			column.type = 'Uint8Array';
+			break;
+		case 'blob':
+		case 'mediumblob':
+		case 'longblob':
+			column.type = 'Uint8Array';
+			break;
 		case 'decimal':
 			column.length = number(0, 'the precision', 10);
 			column.scale = number(1, 'the scale', 0);
@@ -251,7 +261,9 @@ function columnOf(node: ts.Expression, field: string, builders: Map<string, stri
 
 /** A default as code: a literal of the column's type. */
 function defaultOf(node: ts.Expression | undefined, column: ColumnSpec, fail: (at: ts.Node, message: string) => ShapeError): string {
-	const wanted = column.kind === 'json' ? 'nothing - a JSON column has no default' : `a ${column.type} written out`;
+	const wanted = column.kind === 'json'
+		? 'nothing - a JSON column has no default'
+		: column.type === 'Uint8Array' ? 'null - bytes have no default written out' : `a ${column.type} written out`;
 	if (!node) throw fail({ getStart: () => 0 } as unknown as ts.Node, `the default is ${wanted}`);
 	const ok = column.kind !== 'json' && (
 		(column.type === 'number' && (ts.isNumericLiteral(node) || (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken && ts.isNumericLiteral(node.operand))))
@@ -292,6 +304,7 @@ function keysOf(node: ts.Expression, spec: TableSpec, builders: Map<string, stri
 /** What the raw row holds of a column, as the database's JSON gives it. */
 function rawType(column: ColumnSpec): string {
 	if (column.kind === 'boolean') return VALUE_UNION;
+	if (column.type === 'Uint8Array') return 'Uint8Array | null';
 	return column.type === 'number' ? 'number | null' : 'string | null';
 }
 
@@ -314,6 +327,7 @@ function rowField(field: string, type: string, nullable: boolean, kind: Kind): s
 	if (type === 'number') return `${field}: number = 0;`;
 	if (type === 'string') return `${field}: string = "";`;
 	if (type === 'boolean') return `${field}: boolean = false;`;
+	if (type === 'Uint8Array') return `${field}: Uint8Array = new Uint8Array(0);`;
 	return kind === 'json' ? `${field}!: ${type};` : `${field}: ${type} = 0;`;
 }
 
