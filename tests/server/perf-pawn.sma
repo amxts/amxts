@@ -12,6 +12,7 @@
 #include <engine>
 #include <fakemeta>
 #include <fun>
+#include <hamsandwich>
 #include <reapi>
 #include <perf>
 
@@ -40,6 +41,7 @@ enum
 	MONEY_HUD,
 	ORIGIN_READ,
 	RESET,
+	RESET_HAM,
 	REMAINDER,
 	DIVISORS,
 	POWERS,
@@ -367,6 +369,7 @@ run(what, id, count)
 			}
 		}
 		case RESET: for (new i = 0; i < count; i++) rg_reset_maxspeed(id);
+		case RESET_HAM: for (new i = 0; i < count; i++) ExecuteHam(Ham_CS_Player_ResetMaxSpeed, id);
 		case REMAINDER: g_sink += count_primes(200000);
 		case DIVISORS: g_sink += sum_divisors(700);
 		case POWERS: g_sink += sum_powers(2000, 2000);
@@ -440,6 +443,8 @@ public measure()
 	report_each("player.name", STRING_OUT, id, FEW);
 	report_each("player.steamId", STEAM_ID, id, FEW);
 	report_each("server.map", MAP_NAME, id, FEW);
+	// The hookchain below is still off.
+	report_each("player.resetMaxSpeed", RESET_HAM, id, FEW);
 	report_each("timer armed", TIMER_ARMED, id, FEW);
 
 	report_each("relay with no listener", FORWARD_NOBODY, id, FEW);

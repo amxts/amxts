@@ -170,12 +170,12 @@ typedef void (*VoidMethod)(void *self);
  * key for it in the gamedata (cstrike_roundrespawn): through the object's
  * table, so whatever hooks the slot - a plugin's listener, Ham Sandwich, the
  * game's chain - hears it as it hears the game's own call. false when the
- * gamedata has no such function.
+ * gamedata has no such function. `slot` keeps the table's slot found the
+ * first time (-1 before): the gamedata is not searched again at each call.
  */
-static bool RunVirtual(void *object, const char *key)
+static bool RunVirtual(void *object, const char *key, int &slot)
 {
-	int slot = 0;
-	if (!object || !HamOffset(key, &slot))
+	if (!object || (slot < 0 && !HamOffset(key, &slot)))
 		return false;
 	CALL_VOID(VtableOfObject(object)[slot], object);
 	return true;
@@ -328,7 +328,8 @@ static void w_playerStrip(wasm_exec_env_t env, int32_t id, int32_t suit)
 static void w_playerRespawn(wasm_exec_env_t env, int32_t id)
 {
 	(void)env;
-	if (InGame(id) && !RunVirtual(ObjectOf(id), "cstrike_roundrespawn"))
+	static int slot = -1;
+	if (InGame(id) && !RunVirtual(ObjectOf(id), "cstrike_roundrespawn", slot))
 		SayOnce("respawn", "player.respawn() needs the game's RoundRespawn, which this server's gamedata does not have");
 }
 
@@ -336,7 +337,8 @@ static void w_playerRespawn(wasm_exec_env_t env, int32_t id)
 static void w_playerSpeed(wasm_exec_env_t env, int32_t id)
 {
 	(void)env;
-	if (InGame(id) && !RunVirtual(ObjectOf(id), "cstrike_player_resetmaxspeed"))
+	static int slot = -1;
+	if (InGame(id) && !RunVirtual(ObjectOf(id), "cstrike_player_resetmaxspeed", slot))
 		SayOnce("speed", "player.resetMaxSpeed() needs the game's ResetMaxSpeed, which this server's gamedata does not have");
 }
 
@@ -523,7 +525,8 @@ static bool RemoveItemHere(int32_t id, char *player, char *item)
 	}
 	e->v.weapons &= ~(1u << *(int *)(item + idOffset));
 	bool removed = CALL_ITEM(VtableOfObject(player)[remove], player, item) != 0;
-	RunVirtual(item, "item_kill");
+	static int kill = -1;
+	RunVirtual(item, "item_kill", kill);
 	return removed;
 }
 

@@ -50,6 +50,7 @@ const LIMITS: Record<string, number> = {
 	"string out": 6,
 	"player.name": 1,
 	"player.steamId": 1,
+	"player.resetMaxSpeed": 1,
 	"server.map": 0.5,
 	"raw hook": 1.5,
 	"event": 1.5,
@@ -385,6 +386,10 @@ function measure(player: Player) {
 	}));
 	ours.set("server.map", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) sink += server.map.length;
+	}));
+	// Before any hook of the chain below: the game's ResetMaxSpeed alone.
+	ours.set("player.resetMaxSpeed", nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) player.resetMaxSpeed();
 	}));
 	timeMoves(id);
 	ours.set("timer armed", nsEach(FEW, () => {
