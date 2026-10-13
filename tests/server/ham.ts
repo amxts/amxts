@@ -3,6 +3,8 @@
 // chain hears it - and his knife drawn again, heard on the knife's class and
 // blocked by the listener's answer.
 import { Checks } from "@amxts/core/check";
+import { Ham_DeathSound } from "@amxts/core/constants";
+import { ExecuteHam, is_user_alive } from "@amxts/core/natives";
 
 const thought: number[] = [];
 let jumps = 0;
@@ -68,6 +70,11 @@ function run() {
 	check.expect(knife != null, "the bot has a knife").toBe(true);
 	const drawn = deploys;
 	if (knife != null) check.expect(`${knife.deploy()} ${deploys - drawn}`, "drawing it is heard on its class, and the answer is the game's").toBe("false 1");
+
+	// A function this game's gamedata has no offset for: Ham Sandwich refuses
+	// the call, and the plugin goes on calling natives.
+	check.expect(ExecuteHam(Ham_DeathSound, bot.id), "Ham_DeathSound, not in the game's gamedata, is refused").toBe(0);
+	check.expect(is_user_alive(bot.id), "the natives work after it").toBe(1);
 
 	check.done();
 }

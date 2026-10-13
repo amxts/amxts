@@ -7243,6 +7243,42 @@ static cell AMX_NATIVE_CALL n_createCvar(AMX *amx, cell *params)
 	return (cell)(size_t)cvar;
 }
 
+// Ham Sandwich's ExecuteHam and ExecuteHamB, which the module's stand in for (g_ownNatives).
+static AMX_NATIVE g_executeHam, g_executeHamB;
+
+/**
+ * Whether Ham Sandwich runs its function `func`, as IsHamValid answers, asked
+ * once a function. For one it does not - out of its range, or not in this
+ * game's gamedata (Ham_DeathSound in Counter-Strike) - Ham Sandwich fails the
+ * calling plugin, which it looks up by the AMX, and the image is no plugin:
+ * AMX Mod X crashes. Such a call answers 0, said once.
+ */
+static bool HamRuns(AMX *amx, cell *params)
+{
+	static signed char known[512]; // above the largest Ham_* constant: 1 runs, -1 does not
+	cell func = params[0] >= (cell)sizeof(cell) ? params[1] : -1;
+	if (func < 0 || func >= 512)
+		return false;
+	if (!known[func]) {
+		Resolved valid = FindNative("IsHamValid");
+		cell ask[2] = { (cell)sizeof(cell), func };
+		known[func] = valid.fn && valid.fn(amx, ask) ? 1 : -1;
+		if (known[func] < 0)
+			MF_PrintSrvConsole("[amxts] Ham Sandwich has no function %d on this game (not in its gamedata): ExecuteHam and ExecuteHamB of it answer 0\n", (int)func);
+	}
+	return known[func] > 0;
+}
+
+static cell AMX_NATIVE_CALL n_executeHam(AMX *amx, cell *params)
+{
+	return HamRuns(amx, params) ? g_executeHam(amx, params) : 0;
+}
+
+static cell AMX_NATIVE_CALL n_executeHamB(AMX *amx, cell *params)
+{
+	return HamRuns(amx, params) ? g_executeHamB(amx, params) : 0;
+}
+
 /**
  * Natives of the image's table the module does itself, in place of the
  * module that registers them: what they work on is the module's event now,
@@ -7277,6 +7313,8 @@ static const OwnNativeInfo g_ownNatives[] = {
 	{ "callfunc_push_str",   n_callfuncPushStr,   &g_callfuncPushStr },
 	{ "callfunc_push_array", n_callfuncPushArray, &g_callfuncPushArray },
 	{ "callfunc_end",        n_callfuncEnd,       &g_callfuncEnd },
+	{ "ExecuteHam",          n_executeHam,        &g_executeHam },
+	{ "ExecuteHamB",         n_executeHamB,       &g_executeHamB },
 };
 
 static AMX_NATIVE OwnNative(const char *name, AMX_NATIVE fn)
