@@ -151,13 +151,19 @@ function step(title: string, cwd: string, file: string, argv: string[], env: Nod
 	}
 }
 
-/** The end of npm's own log of a failed install: its error alone names no file or package. */
+/**
+ * npm's own logs of a failed step - npx's and the install's it runs - around
+ * each one's error: the error alone names no file or package.
+ */
 function npmLogTail(since: number) {
 	const logs = join(caches.npm_config_cache, '_logs');
 	if (!existsSync(logs)) return;
 	const after = performance.timeOrigin + since;
-	const newest = readdirSync(logs).map(name => join(logs, name)).filter(file => statSync(file).mtimeMs >= after).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
-	if (newest) console.log(`\n-- the end of ${newest}\n${readFileSync(newest, 'utf8').split('\n').slice(-60).join('\n')}`);
+	for (const file of readdirSync(logs).map(name => join(logs, name)).filter(each => statSync(each).mtimeMs >= after)) {
+		const lines = readFileSync(file, 'utf8').split('\n');
+		const stack = lines.findIndex(line => / verbose stack /.test(line));
+		if (stack >= 0) console.log(`\n-- ${file}\n${lines.slice(Math.max(0, stack - 40), stack + 15).join('\n')}`);
+	}
 }
 
 function docker(argv: string[]) {
