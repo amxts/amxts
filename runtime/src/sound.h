@@ -113,9 +113,14 @@ struct SoundChoice {
 /**
  * sound_emit(entity, channel, sample, volume, attenuation, pitch, to) - a
  * sound from the entity: to everyone near, or (`to` a player) to him alone.
+ * The volume and the attenuation come as an f32's bits: the natives table
+ * takes a double only last.
  */
-static void w_soundEmit(wasm_exec_env_t env, int32_t entity, int32_t channel, int32_t sample, double volume, double attenuation, int32_t pitch, int32_t to)
+static void w_soundEmit(wasm_exec_env_t env, int32_t entity, int32_t channel, int32_t sample, int32_t volumeBits, int32_t attenuationBits, int32_t pitch, int32_t to)
 {
+	float volume, attenuation;
+	memcpy(&volume, &volumeBits, sizeof(float));
+	memcpy(&attenuation, &attenuationBits, sizeof(float));
 	edict_t *e = (edict_t *)EdictOf(entity);
 	if (!e)
 		return;
@@ -126,5 +131,5 @@ static void w_soundEmit(wasm_exec_env_t env, int32_t entity, int32_t channel, in
 		chosen[to] = true;
 		groups.Set(chosen, e);
 	}
-	g_engfuncs.pfnEmitSound(e, channel, path.c_str(), (float)volume, (float)attenuation, 0, pitch);
+	g_engfuncs.pfnEmitSound(e, channel, path.c_str(), volume, attenuation, 0, pitch);
 }

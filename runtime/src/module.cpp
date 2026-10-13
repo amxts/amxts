@@ -4469,7 +4469,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "playback_block", (void *)w_playbackBlock, "()",   NULL },
 	{ "playback_to",    (void *)w_playbackTo,    "(ii)", NULL },
 	{ "sound_to",       (void *)w_soundTo,       "(ii)", NULL },
-	{ "sound_emit",     (void *)w_soundEmit,     "(iiiFFii)", NULL },
+	{ "sound_emit",     (void *)w_soundEmit,     "(iiiiiii)", NULL },
 	{ "player_light_style", (void *)w_playerLightStyle, "(ii)", NULL },
 	{ "intermission",   (void *)w_intermission,  "()",   NULL },
 	{ "player_movement", (void *)w_playerMovement, "(iiF)", NULL },

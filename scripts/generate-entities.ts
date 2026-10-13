@@ -1130,9 +1130,9 @@ const USE_TYPES: UseType[] = ["off", "on", "set", "toggle"];
 // The engine's DropToFloor: 1 landed, 0 nothing under it, -1 stuck.
 // @ts-ignore: decorator
 @external("env", "entity_drop") declare function _entityDrop(id: i32): i32;
-// A sound from the entity, to everyone near or (to) one player.
+// A sound from the entity, to everyone near or (to) one player; the volume and the attenuation as an f32's bits.
 // @ts-ignore: decorator
-@external("env", "sound_emit") declare function _soundEmit(id: i32, channel: i32, sample: string, volume: f64, attenuation: f64, pitch: i32, to: i32): void;
+@external("env", "sound_emit") declare function _soundEmit(id: i32, channel: i32, sample: string, volume: i32, attenuation: i32, pitch: i32, to: i32): void;
 // The entity's own function of no arguments, by its Ham_* constant, through its table.
 // @ts-ignore: decorator
 @external("env", "entity_run") declare function _entityRun(id: i32, fn: i32): void;
@@ -1670,7 +1670,9 @@ export class Entity {
 	emitSound(sample: string, options: SoundOptions = {}): void {
 		const channel = max(SOUND_CHANNELS.indexOf(options.channel ?? "auto"), 0);
 		const to = options.to;
-		_soundEmit(this.id, channel, sample, options.volume ?? 1.0, options.attenuation ?? 0.8, <i32>(options.pitch ?? 100.0), to != null ? <i32>to.id : 0);
+		const volume = reinterpret<i32>(<f32>(options.volume ?? 1.0));
+		const attenuation = reinterpret<i32>(<f32>(options.attenuation ?? 0.8));
+		_soundEmit(this.id, channel, sample, volume, attenuation, <i32>(options.pitch ?? 100.0), to != null ? <i32>to.id : 0);
 	}
 
 ${entityBody}
