@@ -10,7 +10,6 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import pkg from '../package.json';
 import * as tracked from './tracked-fs';
 
 /**
@@ -20,7 +19,9 @@ import * as tracked from './tracked-fs';
  * for a server that runs their plugins, are of that version only with it set.
  */
 export function coreVersion(): string {
-	return process.env.AMXTS_AS_VERSION || pkg.version;
+	// Through the tracked reads: a compile cached before a version bump
+	// carries the old version in its ABI, so it is made again.
+	return process.env.AMXTS_AS_VERSION || (JSON.parse(tracked.readFileSync(join(CORE, 'package.json'), 'utf8')) as { version: string }).version;
 }
 
 /** This checkout's build: the version, and the commit when git knows it. */
