@@ -4277,12 +4277,16 @@ static void MenuMessage(int type, edict_t *ed)
 
 /**
  * move_get(field) - the player's movement the game is running, as ReGameDLL
- * keeps it: 0 what he has touched so far, 1 the frame's seconds. 0 outside
- * a movement event or without ReGameDLL.
+ * keeps it, or as PM_Move gave it without ReGameDLL: 0 what he has touched
+ * so far, 1 the frame's seconds. 0 outside a movement event.
  */
 static double w_moveGet(wasm_exec_env_t env, int32_t field)
+// The playermove of the move PM_Move is running while the plain-HLDS move
+// event is heard (movement.h); NULL otherwise.
+static playermove_t *g_pmoveHeard;
+
 {
-	playermove_t *pm = g_regame ? g_regame->GetPlayerMove() : NULL;
+	playermove_t *pm = g_regame ? g_regame->GetPlayerMove() : g_pmoveHeard;
 	if (!pm)
 		return 0;
 	return field == 0 ? pm->numtouch : field == 1 ? pm->frametime : 0;
@@ -4348,6 +4352,10 @@ static int32_t w_playerViewGet(wasm_exec_env_t env, int32_t id);
 static int32_t w_pluginsCount(wasm_exec_env_t env);
 static int32_t w_pluginText(wasm_exec_env_t env, int32_t index, int32_t what, int32_t out, int32_t max);
 static int32_t w_pluginState(wasm_exec_env_t env, int32_t index);
+static void w_intermission(wasm_exec_env_t env);
+static void w_playerMovement(wasm_exec_env_t env, int32_t id, int32_t field, double value);
+static double w_playerMovementGet(wasm_exec_env_t env, int32_t id, int32_t field);
+static void ResetMovement(int id);
 static void w_pluginAction(wasm_exec_env_t env, int32_t name, int32_t action);
 static int32_t w_pawnPluginsCount(wasm_exec_env_t env);
 static int32_t w_pawnPluginText(wasm_exec_env_t env, int32_t index, int32_t what, int32_t out, int32_t max);
@@ -4463,6 +4471,9 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "pawn_plugin_text",   (void *)w_pawnPluginText,   "(iiii)i", NULL },
 	{ "pawn_plugin_pause",  (void *)w_pawnPluginPause,  "(ii)i", NULL },
 	{ "reunion_key",    (void *)w_reunionKey,    "(iii)i", NULL },
+	{ "intermission",   (void *)w_intermission,  "()",   NULL },
+	{ "player_movement", (void *)w_playerMovement, "(iiF)", NULL },
+	{ "player_movement_get", (void *)w_playerMovementGet, "(ii)F", NULL },
 	{ "task",         (void *)w_task,         "(iii)i",  NULL },
 	{ "stop_task",    (void *)w_stopTask,     "(i)i", NULL },
 	{ "tag",          (void *)w_tag,          "(i)",  NULL },
@@ -6648,6 +6659,7 @@ static int ClientId(const edict_t *e)
 /**
  * client_disconnected, then the player's fields go - after every plugin has
  * heard him go, so a listener of the leave can still read them.
+	ResetMovement(id);
  */
 static void Disconnected(int id, bool dropped, const char *reason)
 {
@@ -7781,6 +7793,9 @@ static cell AMX_NATIVE_CALL n_amxclientCmd(AMX *amx, cell *params)
 
 // Traces through the world, and what is at a point.
 #include "traces.h"
+// A player's own movement variables.
+#include "movement.h"
+
 
 // The server's game, versions, map and light.
 #include "world.h"
@@ -7809,6 +7824,7 @@ void StartFrame_Post()
 	NetFrame();
 	JobsFrame();
 	DbFrame();
+	MovementFrame();
 	RunTimers();
 	ConfigTick();
 	CompareCvars();

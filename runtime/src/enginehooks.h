@@ -803,6 +803,7 @@ enum StockFunction {
 	STOCK_PRECACHE_GENERIC,
 	STOCK_GAME_DESCRIPTION,
 	STOCK_CVAR_ANSWER,
+	STOCK_PM_MOVE, // movement.h's
 	STOCK_COUNT
 };
 
@@ -818,6 +819,7 @@ static void StockAttach(bool on)
 static void (*const g_stockAttach[STOCK_COUNT])(bool) = {
 	StockAttach<0>, StockAttach<1>, StockAttach<2>, StockAttach<3>,
 	StockAttach<4>, StockAttach<5>, StockAttach<6>, StockAttach<7>,
+	StockAttach<8>,
 };
 
 /** stock_hook(function, handler, post) - a handler of one of the functions above, before the game's or after it. */

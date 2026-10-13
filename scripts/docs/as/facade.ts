@@ -1047,6 +1047,161 @@ export default {
 		en: `The player's screen effects: \`player.screen.fade({ ... })\`, \`.shake(...)\`, \`.statusIcon(...)\` — see Screen.`,
 		ru: `Эффекты на экране игрока: \`player.screen.fade({ ... })\`, \`.shake(...)\`, \`.statusIcon(...)\` — см. Screen.`,
 	},
+	'Player.movement': {
+		en: `
+			The player's own movement variables - his acceleration and friction:
+			\`player.movement.airAccelerate = 100\`. The server moves him by them and
+			his game predicts his move by them; each is the server's cvar until set,
+			and again after \`player.movement.reset()\`. They last until the map
+			changes or the player leaves.
+		`,
+		ru: `
+			Собственные переменные движения игрока — его ускорение и трение:
+			\`player.movement.airAccelerate = 100\`. Сервер двигает его по ним, и его
+			игра предсказывает по ним его движение; каждая равна квару сервера, пока
+			не задана, и снова после \`player.movement.reset()\`. Они действуют, пока
+			не сменится карта или игрок не уйдёт.
+		`,
+	},
+	'Player.jumpSlowdown': {
+		en: `
+			The player's slowdown after a jump, in milliseconds left: the game sets
+			it as he jumps, and a jump while it lasts is slower. \`0\` for none:
+			\`player.jumpSlowdown = 0\` with \`player.slowdown = 1\` gives him full
+			speed at once.
+
+			Pawn: \`pev->fuser2\`
+		`,
+		ru: `
+			Замедление игрока после прыжка, в оставшихся миллисекундах: игра ставит
+			его при прыжке, и прыжок, пока оно длится, медленнее. \`0\` — замедления
+			нет: \`player.jumpSlowdown = 0\` вместе с \`player.slowdown = 1\` сразу
+			возвращают ему полную скорость.
+
+			Pawn: \`pev->fuser2\`
+		`,
+	},
+	'Movement': {
+		en: `
+			A player's own movement variables: the server moves him by them, and his
+			game predicts his move by them. Each is the server's cvar until set.
+
+			\`\`\`ts
+			player.movement.airAccelerate = 100;
+			player.movement.reset();   // the server's again
+			\`\`\`
+		`,
+		ru: `
+			Собственные переменные движения игрока: сервер двигает его по ним, и его
+			игра предсказывает по ним его движение. Каждая равна квару сервера, пока
+			не задана.
+
+			\`\`\`ts
+			player.movement.airAccelerate = 100;
+			player.movement.reset();   // снова серверные
+			\`\`\`
+		`,
+	},
+	'Movement.accelerate': {
+		en: `
+			The player's acceleration on the ground, \`10\` by default.
+
+			Pawn: \`sv_accelerate\`
+		`,
+		ru: `
+			Ускорение игрока на земле, по умолчанию \`10\`.
+
+			Pawn: \`sv_accelerate\`
+		`,
+	},
+	'Movement.airAccelerate': {
+		en: `
+			The player's acceleration in the air: \`10\` by default, \`100\` for strafes that gain speed easily.
+
+			Pawn: \`sv_airaccelerate\`
+		`,
+		ru: `
+			Ускорение игрока в воздухе: по умолчанию \`10\`, \`100\` — для стрейфов, которые легко набирают скорость.
+
+			Pawn: \`sv_airaccelerate\`
+		`,
+	},
+	'Movement.waterAccelerate': {
+		en: `
+			The player's acceleration in water, \`10\` by default.
+
+			Pawn: \`sv_wateraccelerate\`
+		`,
+		ru: `
+			Ускорение игрока в воде, по умолчанию \`10\`.
+
+			Pawn: \`sv_wateraccelerate\`
+		`,
+	},
+	'Movement.friction': {
+		en: `
+			The player's friction on the ground: how fast he slows down, \`4\` by default.
+
+			Pawn: \`sv_friction\`
+		`,
+		ru: `
+			Трение игрока о землю: как быстро он тормозит, по умолчанию \`4\`.
+
+			Pawn: \`sv_friction\`
+		`,
+	},
+	'Movement.edgeFriction': {
+		en: `
+			The player's friction at a ledge, a multiple of \`friction\`: \`2\` by default.
+
+			Pawn: \`edgefriction\`
+		`,
+		ru: `
+			Трение игрока у края обрыва, кратное \`friction\`: по умолчанию \`2\`.
+
+			Pawn: \`edgefriction\`
+		`,
+	},
+	'Movement.waterFriction': {
+		en: `
+			The player's friction in water, \`1\` by default.
+
+			Pawn: \`sv_waterfriction\`
+		`,
+		ru: `
+			Трение игрока в воде, по умолчанию \`1\`.
+
+			Pawn: \`sv_waterfriction\`
+		`,
+	},
+	'Movement.stopSpeed': {
+		en: `
+			The player's speed below which friction stops him at once, \`75\` by default.
+
+			Pawn: \`sv_stopspeed\`
+		`,
+		ru: `
+			Скорость игрока, ниже которой трение останавливает его сразу, по умолчанию \`75\`.
+
+			Pawn: \`sv_stopspeed\`
+		`,
+	},
+	'Movement.stepSize': {
+		en: `
+			The highest step the player walks up without a jump, \`18\` units by default.
+
+			Pawn: \`sv_stepsize\`
+		`,
+		ru: `
+			Самая высокая ступенька, на которую игрок поднимается без прыжка, по умолчанию \`18\` единиц.
+
+			Pawn: \`sv_stepsize\`
+		`,
+	},
+	'Movement.reset': {
+		en: `Gives the player the server's movement variables again.`,
+		ru: `Возвращает игроку переменные движения сервера.`,
+	},
 	'Player.give': {
 		en: `
 			Gives the player a weapon or an item: \`player.give("weapon_flashbang")\`.
@@ -3335,6 +3490,28 @@ export default {
 			Свет карты, от \`"a"\`, самого тёмного, до \`"z"\`, самого яркого; \`"m"\` —
 			свет самой карты: \`server.lightStyle = "b"\`. Держится до смены карты.
 
+	'Server.intermission': {
+		en: `
+			Shows every player the intermission: the scoreboard, their view still.
+			It lasts until the map changes:
+
+			\`\`\`ts
+			server.intermission();
+			setTimeout(() => server.changeLevel("de_dust2"), 5000);
+			\`\`\`
+			Pawn: \`message_begin(MSG_ALL, SVC_INTERMISSION)\`
+		`,
+		ru: `
+			Показывает всем игрокам антракт: таблицу счёта, их взгляд замирает.
+			Он длится до смены карты:
+
+			\`\`\`ts
+			server.intermission();
+			setTimeout(() => server.changeLevel("de_dust2"), 5000);
+			\`\`\`
+			Pawn: \`message_begin(MSG_ALL, SVC_INTERMISSION)\`
+		`,
+	},
 			Pawn: \`set_lights\`, \`engfunc(EngFunc_LightStyle, 0, ...)\`
 		`,
 	},

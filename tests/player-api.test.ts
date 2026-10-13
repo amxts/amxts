@@ -91,6 +91,38 @@ test('a light of his own, and the server\'s back with ""', async () => {
 	expect(sent).toEqual([[alice.id, 0, 'z'], [alice.id, 0, 'b']]);
 });
 
+test('movement: the server\'s cvar until set, his own after, the server\'s again after reset()', async () => {
+	const server = await loadPlugin(PLUGIN, { cvars: { sv_airaccelerate: '10' } });
+	const alice = server.join('Alice');
+
+	alice.command('pl_movement');
+
+	expect(alice.console).toBe('10 100 5 75 10');
+	expect(alice.movement).toEqual({});
+
+	alice.command('pl_air');
+
+	expect(alice.movement).toEqual({ airAccelerate: 100 });
+});
+
+test('jumpSlowdown is the slowdown a jump leaves, 0 for none', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	alice.command('pl_unslow');
+
+	expect(alice.console).toBe('1315 0');
+});
+
+test('intermission: everyone sees it, through the engine', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+
+	alice.command('pl_intermission');
+
+	expect(server.engineCalls).toContain('Intermission');
+});
+
 test('language: his setinfo lang, else the server\'s - as lang.translate picks it', async () => {
 	const server = await loadPlugin(PLUGIN, { cvars: { amx_language: 'de' } });
 	const alice = server.join('Alice');

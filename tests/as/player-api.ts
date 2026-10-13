@@ -27,6 +27,24 @@ server.addCommand("pl_light", ({ player }) => {
 	server.lightStyle = "b";
 	player.screen.lightStyle("");
 });
+server.addCommand("pl_movement", ({ player }) => {
+	const before = player.movement.airAccelerate;
+	player.movement.airAccelerate = 100;
+	player.movement.friction = 5;
+	const own = `${player.movement.airAccelerate} ${player.movement.friction} ${player.movement.stopSpeed}`;
+	player.movement.reset();
+	player.print(`${before} ${own} ${player.movement.airAccelerate}`, "console");
+});
+server.addCommand("pl_air", ({ player }) => {
+	player.movement.airAccelerate = 100;
+});
+server.addCommand("pl_unslow", ({ player }) => {
+	player.jumpSlowdown = 1315;
+	const jumped = player.fuser2;
+	player.jumpSlowdown = 0;
+	player.print(`${jumped} ${player.jumpSlowdown}`, "console");
+});
+server.addCommand("pl_intermission", () => server.intermission());
 server.addCommand("pl_country", ({ player }) => player.print(`${player.country ?? "none"} ${player.countryCode ?? "none"}`, "console"));
 server.addCommand("pl_lang", ({ player }) => language(player));
 server.addCommand("pl_auth", ({ player }) => player.print(`${player.authType} ${player.protocol} ${player.authKey}`, "console"));

@@ -412,6 +412,20 @@ function slotOf(kind: string): number {
 }
 
 /** A player: what the natives read, and what he was shown. */
+/** The fields of `player.movement`, in the module's order, with the cvar each is the server's of and its default. */
+const MOVEMENT_FIELDS = [
+	['accelerate', 'sv_accelerate', 10],
+	['airAccelerate', 'sv_airaccelerate', 10],
+	['waterAccelerate', 'sv_wateraccelerate', 10],
+	['friction', 'sv_friction', 4],
+	['edgeFriction', 'edgefriction', 2],
+	['waterFriction', 'sv_waterfriction', 1],
+	['stopSpeed', 'sv_stopspeed', 75],
+	['stepSize', 'sv_stepsize', 18],
+] as const;
+
+export type MovementField = typeof MOVEMENT_FIELDS[number][0];
+
 export class FakePlayer extends FakeEntity {
 	connected = true;
 	alive: boolean;
@@ -433,6 +447,11 @@ export class FakePlayer extends FakeEntity {
 	readonly commands: string[] = [];
 	/** Whether his steps make no sound (player_silent). */
 	silentSteps = false;
+	/**
+	 * His own movement variables, as `player.movement` set them:
+	 * `{ airAccelerate: 100 }`. One he has none of is the server's cvar.
+	 */
+	readonly movement: Partial<Record<MovementField, number>> = {};
 	/** When he connected, by the server's clock (`server.time`, milliseconds). */
 	readonly connectedAt: number;
 	/** His userinfo keys - `lang` says his language. */
@@ -2718,6 +2737,18 @@ export class FakeServer {
 			this.engineCalls.push(`Touch ${touched} ${toucher}`);
 			this.touch(b, a);
 		},
+		// The module sends his game the set the next frame; here the set is what he has.
+		player_movement(this: FakeServer, plugin: PluginInstance, id: number, field: number, value: number) {
+			const player = this.player(id);
+			const name = MOVEMENT_FIELDS[field]?.[0];
+			if (!player || !name) return;
+			if (Number.isNaN(value)) delete player.movement[name];
+			else player.movement[name] = value;
+		},
+		player_movement_get(this: FakeServer, plugin: PluginInstance, id: number, field: number) {
+			const [name, cvar, value] = MOVEMENT_FIELDS[field] ?? ['', '', 0];
+			return this.player(id)?.movement[name as MovementField] ?? Number(this.cvar(cvar) ?? value);
+		},
 		player_switch(this: FakeServer, plugin: PluginInstance, id: number, name: number) {
 			return switchTo(this.player(id), plugin.memory.string(name));
 		},
@@ -2906,6 +2937,9 @@ export class FakeServer {
 			}
 		},
 		hud_clear(this: FakeServer, plugin: PluginInstance, id: number, line: number) {
+		intermission(this: FakeServer) {
+			this.engineCalls.push('Intermission');
+		},
 			this.engineCalls.push(`HudClear ${id} ${line}`);
 		},
 		// The model a plugin put on each player, by his id: written into his userinfo as the module does.

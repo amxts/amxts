@@ -40,6 +40,9 @@
 // The players' commands: the `command` event and the plugins' commands.
 #define FN_ClientCommand ClientCommand
 #define FN_CmdStart_Post CmdStart_Post
+// A player's own movement variables, around his move (movement.h).
+#define FN_PM_Move PM_Move
+#define FN_PM_Move_Post PM_Move_Post
 #define FN_ChangeLevel ChangeLevel
 // The engine module's forwards and a client's file that differs; the log's
 // hook goes into Metamod's table at attach (AlertMessage in module.cpp).

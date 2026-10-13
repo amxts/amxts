@@ -1526,6 +1526,13 @@ function sendServerName(id: number, name: string): void {
 // @ts-ignore: decorator
 @external("env", "player_light_style") declare function _playerLightStyle(id: i32, text: string): void;
 // @ts-ignore: decorator
+@external("env", "intermission") declare function _intermission(): void;
+// A player's own movement variables (runtime/src/movement.h): NaN is the server's.
+// @ts-ignore: decorator
+@external("env", "player_movement") declare function _playerMovement(id: i32, field: i32, value: f64): void;
+// @ts-ignore: decorator
+@external("env", "player_movement_get") declare function _playerMovementGet(id: i32, field: i32): f64;
+// @ts-ignore: decorator
 @external("env", "player_view")  declare function _playerView(id: i32, target: i32): void;
 // @ts-ignore: decorator
 @external("env", "player_model") declare function _playerModel(id: i32, model: string, index: i32): void;
@@ -2254,6 +2261,26 @@ export class Player extends PlayerFields implements Client {
 
 	/** The player's screen effects: `player.screen.fade({ ... })`, `.shake(...)`, `.statusIcon(...)` — see Screen. */
 	get screen(): Screen { return new Screen(this.id); }
+
+	/**
+	 * The player's own movement variables - his acceleration and friction:
+	 * `player.movement.airAccelerate = 100`. The server moves him by them and
+	 * his game predicts his move by them; each is the server's cvar until set,
+	 * and again after `player.movement.reset()`. They last until the map
+	 * changes or the player leaves.
+	 */
+	get movement(): Movement { return new Movement(this.id); }
+
+	/**
+	 * The player's slowdown after a jump, in milliseconds left: the game sets
+	 * it as he jumps, and a jump while it lasts is slower. `0` for none:
+	 * `player.jumpSlowdown = 0` with `player.slowdown = 1` gives him full
+	 * speed at once.
+	 *
+	 * Pawn: `pev->fuser2`
+	 */
+	get jumpSlowdown(): number { return this.fuser2; }
+	set jumpSlowdown(value: number) { this.fuser2 = value; }
 
 	// ------------------------------------------------------------ actions
 	//
@@ -3558,6 +3585,99 @@ export interface SoundOptions {
 	attenuation?: number;
 	/** The pitch in percent: `100` (the default) as recorded, `50` an octave lower, up to `255`. */
 	pitch?: number;
+// The fields of player.movement, in runtime/src/movement.h's order.
+const MOVEMENT_ACCELERATE: i32 = 0;
+const MOVEMENT_AIR_ACCELERATE: i32 = 1;
+const MOVEMENT_WATER_ACCELERATE: i32 = 2;
+const MOVEMENT_FRICTION: i32 = 3;
+const MOVEMENT_EDGE_FRICTION: i32 = 4;
+const MOVEMENT_WATER_FRICTION: i32 = 5;
+const MOVEMENT_STOP_SPEED: i32 = 6;
+const MOVEMENT_STEP_SIZE: i32 = 7;
+const MOVEMENT_FIELDS: i32 = 8;
+
+/**
+ * A player's own movement variables: the server moves him by them, and his
+ * game predicts his move by them. Each is the server's cvar until set.
+ *
+ * ```ts
+ * player.movement.airAccelerate = 100;
+ * player.movement.reset();   // the server's again
+ * ```
+ */
+export class Movement {
+	constructor(private id: i32) {}
+
+	/**
+	 * The player's acceleration on the ground, `10` by default.
+	 *
+	 * Pawn: `sv_accelerate`
+	 */
+	get accelerate(): number { return _playerMovementGet(this.id, MOVEMENT_ACCELERATE); }
+	set accelerate(value: number) { _playerMovement(this.id, MOVEMENT_ACCELERATE, value); }
+
+	/**
+	 * The player's acceleration in the air: `10` by default, `100` for strafes that gain speed easily.
+	 *
+	 * Pawn: `sv_airaccelerate`
+	 */
+	get airAccelerate(): number { return _playerMovementGet(this.id, MOVEMENT_AIR_ACCELERATE); }
+	set airAccelerate(value: number) { _playerMovement(this.id, MOVEMENT_AIR_ACCELERATE, value); }
+
+	/**
+	 * The player's acceleration in water, `10` by default.
+	 *
+	 * Pawn: `sv_wateraccelerate`
+	 */
+	get waterAccelerate(): number { return _playerMovementGet(this.id, MOVEMENT_WATER_ACCELERATE); }
+	set waterAccelerate(value: number) { _playerMovement(this.id, MOVEMENT_WATER_ACCELERATE, value); }
+
+	/**
+	 * The player's friction on the ground: how fast he slows down, `4` by default.
+	 *
+	 * Pawn: `sv_friction`
+	 */
+	get friction(): number { return _playerMovementGet(this.id, MOVEMENT_FRICTION); }
+	set friction(value: number) { _playerMovement(this.id, MOVEMENT_FRICTION, value); }
+
+	/**
+	 * The player's friction at a ledge, a multiple of `friction`: `2` by default.
+	 *
+	 * Pawn: `edgefriction`
+	 */
+	get edgeFriction(): number { return _playerMovementGet(this.id, MOVEMENT_EDGE_FRICTION); }
+	set edgeFriction(value: number) { _playerMovement(this.id, MOVEMENT_EDGE_FRICTION, value); }
+
+	/**
+	 * The player's friction in water, `1` by default.
+	 *
+	 * Pawn: `sv_waterfriction`
+	 */
+	get waterFriction(): number { return _playerMovementGet(this.id, MOVEMENT_WATER_FRICTION); }
+	set waterFriction(value: number) { _playerMovement(this.id, MOVEMENT_WATER_FRICTION, value); }
+
+	/**
+	 * The player's speed below which friction stops him at once, `75` by default.
+	 *
+	 * Pawn: `sv_stopspeed`
+	 */
+	get stopSpeed(): number { return _playerMovementGet(this.id, MOVEMENT_STOP_SPEED); }
+	set stopSpeed(value: number) { _playerMovement(this.id, MOVEMENT_STOP_SPEED, value); }
+
+	/**
+	 * The highest step the player walks up without a jump, `18` units by default.
+	 *
+	 * Pawn: `sv_stepsize`
+	 */
+	get stepSize(): number { return _playerMovementGet(this.id, MOVEMENT_STEP_SIZE); }
+	set stepSize(value: number) { _playerMovement(this.id, MOVEMENT_STEP_SIZE, value); }
+
+	/** Gives the player the server's movement variables again. */
+	reset(): void {
+		for (let field = 0; field < MOVEMENT_FIELDS; field++) _playerMovement(this.id, field, NaN);
+	}
+}
+
 }
 
 // A precached file's index lives in the module's store of player fields, in
@@ -4696,6 +4816,20 @@ export class Server {
 	/**
 	 * Runs a command in the server console, as if typed there:
 	 * `server.command("changelevel de_dust2")`. The text goes as it is: a `%` stays a `%`.
+	/**
+	 * Shows every player the intermission: the scoreboard, their view still.
+	 * It lasts until the map changes:
+	 *
+	 * ```ts
+	 * server.intermission();
+	 * setTimeout(() => server.changeLevel("de_dust2"), 5000);
+	 * ```
+	 * Pawn: `message_begin(MSG_ALL, SVC_INTERMISSION)`
+	 */
+	intermission(): void {
+		_intermission();
+	}
+
 	 *
 	 * Pawn: `server_cmd`
 	 */

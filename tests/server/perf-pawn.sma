@@ -42,6 +42,10 @@ enum
 	ORIGIN_READ,
 	RESET,
 	RESET_HAM,
+	MOVE_VARS,
+	UNSLOW,
+	TOUCH,
+	RESTART,
 	REMAINDER,
 	DIVISORS,
 	POWERS,
@@ -67,6 +71,8 @@ new g_writes;
 new g_commands;
 new g_choices;
 new g_sayText;
+// The entity TOUCH and RESTART run on, made for the measure.
+new g_target;
 
 // The menu perf.ts's bot chooses from: its handler shows it again.
 new g_menu;
@@ -370,6 +376,17 @@ run(what, id, count)
 		}
 		case RESET: for (new i = 0; i < count; i++) rg_reset_maxspeed(id);
 		case RESET_HAM: for (new i = 0; i < count; i++) ExecuteHam(Ham_CS_Player_ResetMaxSpeed, id);
+		case MOVE_VARS: for (new i = 0; i < count; i++) send_move_vars(id, 100.0);
+		case UNSLOW:
+		{
+			for (new i = 0; i < count; i++)
+			{
+				set_member(id, m_flVelocityModifier, 1.0);
+				set_entvar(id, var_fuser2, 0.0);
+			}
+		}
+		case TOUCH: for (new i = 0; i < count; i++) ExecuteHamB(Ham_Touch, g_target, id);
+		case RESTART: for (new i = 0; i < count; i++) ExecuteHamB(Ham_CS_Restart, g_target);
 		case REMAINDER: g_sink += count_primes(200000);
 		case DIVISORS: g_sink += sum_divisors(700);
 		case POWERS: g_sink += sum_powers(2000, 2000);
@@ -395,6 +412,41 @@ run(what, id, count)
 }
 
 // The best of three runs, in milliseconds.
+// A player's own movement variables, as a Pawn plugin sends them: svc_newmovevars
+// in the engine's order, a float as its four bytes. The server's values are
+// constants here, which spares Pawn the cvars' reads.
+send_move_vars(id, Float:air)
+{
+	message_begin(MSG_ONE, SVC_NEWMOVEVARS, _, id);
+	write_long(_:800.0);	// gravity
+	write_long(_:75.0);		// stopspeed
+	write_long(_:320.0);	// maxspeed
+	write_long(_:500.0);	// spectatormaxspeed
+	write_long(_:5.0);		// accelerate
+	write_long(_:air);		// airaccelerate
+	write_long(_:10.0);		// wateraccelerate
+	write_long(_:4.0);		// friction
+	write_long(_:2.0);		// edgefriction
+	write_long(_:1.0);		// waterfriction
+	write_long(_:1.0);		// entgravity
+	write_long(_:1.0);		// bounce
+	write_long(_:18.0);		// stepsize
+	write_long(_:2000.0);	// maxvelocity
+	write_long(_:4096.0);	// zmax
+	write_long(_:0.0);		// waveHeight
+	write_byte(1);			// footsteps
+	write_long(_:0.0);		// rollangle
+	write_long(_:0.0);		// rollspeed
+	write_long(_:0.0);		// skycolor_r
+	write_long(_:0.0);		// skycolor_g
+	write_long(_:0.0);		// skycolor_b
+	write_long(_:0.0);		// skyvec_x
+	write_long(_:0.0);		// skyvec_y
+	write_long(_:0.0);		// skyvec_z
+	write_string("desert");
+	message_end();
+}
+
 Float:best(what, id, count)
 {
 	new Float:fastest = 1000000.0;
@@ -445,6 +497,12 @@ public measure()
 	report_each("server.map", MAP_NAME, id, FEW);
 	// The hookchain below is still off.
 	report_each("player.resetMaxSpeed", RESET_HAM, id, FEW);
+	report_each("player.movement", MOVE_VARS, id, FEW);
+	report_each("player.slowdown", UNSLOW, id, FEW);
+	g_target = rg_create_entity("info_target");
+	report_each("entity.touch", TOUCH, id, FEW);
+	report_each("entity.restart", RESTART, id, FEW);
+	engfunc(EngFunc_RemoveEntity, g_target);
 	report_each("timer armed", TIMER_ARMED, id, FEW);
 
 	report_each("relay with no listener", FORWARD_NOBODY, id, FEW);

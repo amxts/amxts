@@ -1,7 +1,7 @@
 // The server's own: the game's folder, the versions it runs, the map to go
 // to and the light of the map - server.game, server.versions,
-// server.changeLevel, server.mapExists, server.lightStyle - and what a
-// player sees through, player.view.
+// server.changeLevel, server.mapExists, server.lightStyle,
+// server.intermission() - and what a player sees through, player.view.
 //
 // Included by module.cpp, after the client helpers and the hookchains.
 
@@ -82,6 +82,14 @@ static void w_playerLightStyle(wasm_exec_env_t env, int32_t id, int32_t text)
 	MESSAGE_BEGIN(MSG_ONE, SVC_LIGHTSTYLE, NULL, INDEXENT(id));
 	WRITE_BYTE(0);
 	WRITE_STRING(style.c_str());
+	MESSAGE_END();
+}
+
+/** intermission() - every player sees the intermission: the scoreboard, his view still. */
+static void w_intermission(wasm_exec_env_t env)
+{
+	(void)env;
+	MESSAGE_BEGIN(MSG_ALL, SVC_INTERMISSION);
 	MESSAGE_END();
 }
 

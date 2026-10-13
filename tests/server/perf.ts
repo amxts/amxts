@@ -51,6 +51,10 @@ const LIMITS: Record<string, number> = {
 	"player.name": 1,
 	"player.steamId": 1,
 	"player.resetMaxSpeed": 1,
+	"player.movement": 0.25,
+	"player.slowdown": 0.75,
+	"entity.touch": 1,
+	"entity.restart": 1,
 	"server.map": 0.5,
 	"raw hook": 1.5,
 	"event": 1.5,
@@ -391,6 +395,25 @@ function measure(player: Player) {
 	ours.set("player.resetMaxSpeed", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) player.resetMaxSpeed();
 	}));
+	// What a plugin pays at the call: the module sends his set once, the next frame.
+	ours.set("player.movement", nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) player.movement.airAccelerate = 100;
+	}));
+	player.movement.reset();
+	ours.set("player.slowdown", nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) {
+			player.slowdown = 1;
+			player.jumpSlowdown = 0;
+		}
+	}));
+	const target = Entity.create("info_target")!;
+	ours.set("entity.touch", nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) target.touch(player);
+	}));
+	ours.set("entity.restart", nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) target.restart();
+	}));
+	target.remove();
 	timeMoves(id);
 	ours.set("timer armed", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) clearTimeout(setTimeout(idle, 1000));
