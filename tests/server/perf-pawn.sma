@@ -20,6 +20,8 @@
 #define MANY 1000000
 #define FEW 100000
 #define FRAMES 10000
+#define BYTES 16384
+#define BYTE_RUNS 30
 #define TIMERS 300
 #define TASK_ID 7300
 // The turns impulse_listener_ns takes, and the moves of each, as perf.ts's.
@@ -53,6 +55,7 @@ enum
 	DIVISORS,
 	POWERS,
 	FRACTIONS,
+	BYTES_READ,
 	HOT_PATH,
 	STRING_IN,
 	STRING_OUT,
@@ -94,6 +97,9 @@ new g_fired;
 new Float:g_firstFired;
 new Float:g_firing = 1000000.0;
 
+// A buffer of bytes, a byte a cell, and the table of CRC-32 by its bytes.
+new g_bytes[BYTES], g_crcTable[256];
+
 // What the hot path keeps about each player between frames.
 new Float:g_x[33], Float:g_y[33], Float:g_speed[33], Float:g_top[33], Float:g_travelled[33];
 
@@ -107,6 +113,13 @@ public on_touch(entity, other)
 public plugin_init()
 {
 	register_plugin("amxts test: perf", "1.0", "amxts");
+	for (new i = 0; i < BYTES; i++) g_bytes[i] = (i * 7 + 3) & 0xFF;
+	for (new n = 0; n < 256; n++)
+	{
+		new c = n;
+		for (new k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+		g_crcTable[n] = c;
+	}
 	g_sayText = get_user_msgid("SayText");
 	register_srvcmd("amxts_perf_pawn", "measure");
 	register_srvcmd("amxts_perf_pawn_timers", "arm_timers");
@@ -287,6 +300,21 @@ Float:sum_distances(count)
 	return total;
 }
 
+// The buffer's CRC-32 and the sum of its little-endian 32-bit words, `runs` times over: a file's bytes read.
+read_bytes(runs)
+{
+	new total = 0;
+	for (new run = 0; run < runs; run++)
+	{
+		new crc = -1;
+		for (new i = 0; i < BYTES; i++) crc = g_crcTable[(crc ^ g_bytes[i]) & 0xFF] ^ (crc >>> 8);
+		new words = 0;
+		for (new i = 0; i + 3 < BYTES; i += 4) words += g_bytes[i] | (g_bytes[i + 1] << 8) | (g_bytes[i + 2] << 16) | (g_bytes[i + 3] << 24);
+		total += (crc ^ -1) + words;
+	}
+	return total;
+}
+
 hot_path()
 {
 	arrayset(g_x, 0, sizeof(g_x));
@@ -409,6 +437,7 @@ run(what, id, count)
 		case DIVISORS: g_sink += sum_divisors(700);
 		case POWERS: g_sink += sum_powers(2000, 2000);
 		case FRACTIONS: g_fsink += sum_distances(MANY);
+		case BYTES_READ: g_sink += read_bytes(BYTE_RUNS);
 		case HOT_PATH: g_writes = hot_path();
 		case STRING_IN: for (new i = 0; i < count; i++) g_sink += strlen("hello, world");
 		case STRING_OUT: for (new i = 0; i < count; i++) g_sink += get_user_name(id, name, charsmax(name));
@@ -549,6 +578,7 @@ public measure()
 	perf_report("remainder: divisors", best(DIVISORS, id, 1));
 	perf_report("remainder: powers", best(POWERS, id, 1));
 	perf_report("fractions", best(FRACTIONS, id, 1));
+	perf_report("bytes", best(BYTES_READ, id, 1));
 	perf_report("hot path", best(HOT_PATH, id, 1));
 	perf_report("hot path writes", float(g_writes));
 }

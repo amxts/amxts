@@ -1,7 +1,7 @@
 // The speed check: what a native, a field, a vector, the HUD's money, a HUD
 // message, text, the values a plugin keeps, an event, a forward, a timer, a
 // variadic native, a command, a menu's choice, Pawn calling this plugin, whole
-// and fractional arithmetic and a real plugin's hot path cost here, against the
+// and fractional arithmetic, work over bytes and a real plugin's hot path cost here, against the
 // same in Pawn (perf-pawn.sma), measured in one run on one machine. It
 // checks ratios, not times, so it holds on any machine; most figures are the
 // best of three runs, a move of the bot the median of turns. A limit is
@@ -21,6 +21,8 @@ const TRIES = 3;
 const MANY = 1_000_000;
 const FEW = 100_000;
 const FRAMES = 10_000;
+const BYTES = 16_384;
+const BYTE_RUNS = 30;
 const TIMERS = 300;
 // The turns perf-pawn.sma times an impulse listener in, and the moves of each.
 const IMPULSE_ROUNDS = 1001;
@@ -79,6 +81,10 @@ const LIMITS: Record<string, number> = {
 	"menu choice": 1.5,
 	"remainder": 1.25,
 	"fractions": 0.5,
+	// Known to trail Pawn: a loop's counter over a Uint8Array stays a double
+	// in a function of two loops, and each read checks its bounds. To come
+	// down when that is lifted.
+	"bytes": 5,
 	"hot path": 1.5,
 };
 
@@ -194,6 +200,29 @@ function sumDistances(count: number) {
 		const dy = i * 0.25 + 3;
 		const dz = 64 - i * 0.125;
 		total += Math.sqrt(dx * dx + dy * dy + dz * dz);
+	}
+	return total;
+}
+
+/** A buffer of bytes, and the table of CRC-32 by its bytes. */
+const bytes = new Uint8Array(BYTES);
+const crcTable = new Int32Array(256);
+for (let i = 0; i < BYTES; i++) bytes[i] = (i * 7 + 3) & 0xFF;
+for (let n = 0; n < 256; n++) {
+	let c = n;
+	for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+	crcTable[n] = c;
+}
+
+/** The buffer's CRC-32 and the sum of its little-endian 32-bit words, `runs` times over: a file's bytes read. */
+function readBytes(runs: number) {
+	let total = 0;
+	for (let run = 0; run < runs; run++) {
+		let crc = -1;
+		for (let i = 0; i < bytes.length; i++) crc = crcTable[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+		let words = 0;
+		for (let i = 0; i + 3 < bytes.length; i += 4) words += bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16) | (bytes[i + 3] << 24);
+		total += (crc ^ -1) + words;
 	}
 	return total;
 }
@@ -462,6 +491,9 @@ function measure(player: Player) {
 	}));
 	ours.set("fractions", msBest(() => {
 		sink += sumDistances(MANY);
+	}));
+	ours.set("bytes", msBest(() => {
+		sink += readBytes(BYTE_RUNS);
 	}));
 
 	// The bridge alone: a raw hook on the post side, so it is not the
