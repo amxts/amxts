@@ -145,7 +145,19 @@ function step(title: string, cwd: string, file: string, argv: string[], env: Nod
 	const started = performance.now();
 	const result = spawnSync(file, argv, { cwd, env, stdio: 'inherit', shell: WINDOWS && !/[\\/]/.test(file) });
 	timings.push([title, performance.now() - started]);
-	if (result.status !== 0) throw new CheckError(`${title} (exit ${result.status ?? result.error?.message})`);
+	if (result.status !== 0) {
+		npmLogTail(started);
+		throw new CheckError(`${title} (exit ${result.status ?? result.error?.message})`);
+	}
+}
+
+/** The end of npm's own log of a failed install: its error alone names no file or package. */
+function npmLogTail(since: number) {
+	const logs = join(caches.npm_config_cache, '_logs');
+	if (!existsSync(logs)) return;
+	const after = performance.timeOrigin + since;
+	const newest = readdirSync(logs).map(name => join(logs, name)).filter(file => statSync(file).mtimeMs >= after).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+	if (newest) console.log(`\n-- the end of ${newest}\n${readFileSync(newest, 'utf8').split('\n').slice(-60).join('\n')}`);
 }
 
 function docker(argv: string[]) {
