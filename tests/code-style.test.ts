@@ -363,6 +363,10 @@ function scan(file: string): Finding[] {
 	for (const m of code.matchAll(/\bplayer\s*\[\s*["'`]/g)) {
 		at(m.index!, '16: player[...] - a field on Player is read by its name: player.ghost');
 	}
+	// What plugins share about any entity is a field on Entity, not a spare entvar.
+	for (const m of code.matchAll(/\b[gs]et_entvar\s*\([^;\n]*\bvar_[fie]user[1-4]\b/g)) {
+		at(m.index!, '16: a spare entvar - what plugins share about an entity is a field on Entity: declare module "@amxts/core" { interface Entity { bhopBlock: "held" | "free" } }');
+	}
 
 	// 17. An object built with `new` - a player, a cvar - goes into a
 	// variable first and is used from there: not built inside a call, an

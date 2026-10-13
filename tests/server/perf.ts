@@ -11,6 +11,12 @@ import { EngFunc_RunPlayerMove, LibType_Library } from "@amxts/core/constants";
 import { engfunc, get_user_name, is_user_alive, LibraryExists, rg_reset_maxspeed, server_exec, strlen } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
+declare module "@amxts/core" {
+	interface Entity {
+		perfMark: number;
+	}
+}
+
 const TRIES = 3;
 const MANY = 1_000_000;
 const FEW = 100_000;
@@ -39,6 +45,8 @@ const LIMITS: Record<string, number> = {
 	"money read": 1,
 	"health read": 2,
 	"health write": 1.5,
+	"entity field read": 1,
+	"entity field write": 1,
 	"money with its HUD": 2.5,
 	"HUD message": 2,
 	"HUD message, options in place": 2.5,
@@ -346,6 +354,13 @@ function measure(player: Player) {
 	}));
 	ours.set("health write", nsEach(MANY, () => {
 		for (let i = 0; i < MANY; i++) player.health = 100;
+	}));
+	// What a Pawn plugin keeps in a spare entvar, a field of the entity's own.
+	ours.set("entity field read", nsEach(MANY, () => {
+		for (let i = 0; i < MANY; i++) sink += player.perfMark;
+	}));
+	ours.set("entity field write", nsEach(MANY, () => {
+		for (let i = 0; i < MANY; i++) player.perfMark = 3;
 	}));
 	ours.set("money with its HUD", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) player.money = 800;

@@ -346,7 +346,70 @@ declare module "@amxts/core" {
 }
 `,
 	});
-	expect(problem).toContain('declare module "@amxts/core" - only `interface Player { ... }` goes here, not "const limit: number;"');
+	expect(problem).toContain('declare module "@amxts/core" - only `interface Player { ... }` and `interface Entity { ... }` go here, not "const limit: number;"');
+});
+
+const DOORS = ['tests/as/door-writer.ts', 'tests/as/door-reader.ts'];
+
+test('an entity\'s field: what one plugin writes on an entity, another reads, a player\'s too', async () => {
+	const server = await loadPlugin(DOORS);
+	const alice = server.join('Alice');
+
+	alice.command('door_make');
+	const door = Number(alice.console.trim());
+	alice.clearMessages();
+	alice.command(`door_read ${door}`);
+	expect(alice.console).toBe('held 250 1.5');
+
+	// Another entity's fields are its own, and read as never written.
+	alice.clearMessages();
+	alice.command(`door_read ${alice.id}`);
+	expect(alice.console).toBe('unknown 1.5 1.5');
+});
+
+test('an entity that goes takes its fields with it, and so does a player who leaves', async () => {
+	const server = await loadPlugin(DOORS);
+	const alice = server.join('Alice');
+	alice.command('door_make');
+	const door = Number(alice.console.trim());
+
+	// The engine frees it.
+	server.entities.delete(door);
+	alice.clearMessages();
+	alice.command(`door_read ${door}`);
+	expect(alice.console).toBe('unknown 0 1.5');
+
+	const slot = alice.id;
+	alice.disconnect();
+	const bob = server.join('Bob');
+	expect(bob.id).toBe(slot);
+	bob.command(`door_read ${bob.id}`);
+	expect(bob.console).toBe('unknown 0 0');
+});
+
+const entityFields = (member: string) => `import "@amxts/core";\n\ndeclare module "@amxts/core" {\n\tinterface Entity {\n\t\t${member}\n\t}\n}\n`;
+
+test('an entity\'s field is refused where an entity or a player has its name, and holds no players', async () => {
+	const probe = (member: string) => compileProbe({
+		'plugin.ts': `import "./fields";
+${plugin('')}`,
+		'fields.ts': entityFields(member),
+	});
+	expect(await probe('solid: boolean;')).toContain('Entity.solid - Entity already has solid; name the field something else');
+	expect(await probe('name: string;')).toContain('Entity.name - Player already has name; name the field something else');
+	expect(await probe('ghost: boolean;')).toContain('Entity.ghost - Player (');
+	expect(await probe('seenBy: Player[];')).toContain('Entity.seenBy: Player[] - an entity\'s field is boolean, number, string or a union of string literals');
+});
+
+test('an entity\'s accessors: by the key the module hands out for a name, kept, on this.id', () => {
+	const source = playerFieldsSource([], [
+		{ name: 'doorSpeed', type: 'number', where: '', owner: 'Entity' },
+		{ name: 'bhopBlock', type: { literals: ['unknown', 'held'], boolean: false }, where: '', owner: 'Entity' },
+	]);
+	expect(source).toContain('set doorSpeed(value: f64) { __amxts_ef_set(this.id, __amxts_ef_key(0, "doorSpeed"), value); }');
+	expect(source).toContain('get bhopBlock(): string { return __amxts_ef_text_or(this.id, __amxts_ef_key(1, "bhopBlock"), "unknown"); }');
+	expect(source).toContain('const _entityKeys = new StaticArray<i32>(2);');
+	expect(source).not.toContain('"playerChange:doorSpeed"');
 });
 
 test('an object field: a class with a getter and a setter a member, over dotted keys; Player[] a list that writes back', () => {

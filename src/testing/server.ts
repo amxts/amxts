@@ -984,6 +984,10 @@ export class FakeServer {
 	readonly playerData = new Map<number, Map<string, number | string>>();
 	/** Which of those texts are lists of player ids ("3,5"), by `slot:key`: a player who leaves goes from them. */
 	readonly playerLists = new Set<string>();
+	/** The fields plugins add to Entity, by the entity or the player they are kept for: a new one at the same id starts over. */
+	private readonly entityData = new WeakMap<object, Map<number, number | string>>();
+	/** The entity fields' names, by the key the module handed out for each. */
+	readonly entityKeys: string[] = [];
 	/**
 	 * The playerChange listeners, as the module keeps them: per plugin, the
 	 * fields it hears ("" for every one) and the trampoline that hands a change
@@ -1666,6 +1670,14 @@ export class FakeServer {
 		} finally {
 			this.fieldChange = outer;
 		}
+	}
+
+	/** The fields kept for the entity or the player at `id` now; none for nothing there. @internal */
+	entityFields(id: number): Map<number, number | string> | null {
+		const owner = this.entities.get(id) ?? this.player(id);
+		if (!owner) return null;
+		if (!this.entityData.has(owner)) this.entityData.set(owner, new Map());
+		return this.entityData.get(owner)!;
 	}
 
 	/** A player left: his fields go, and he goes from everyone's lists of players. Nobody is told. @internal */
@@ -3409,6 +3421,31 @@ export class FakeServer {
 		// A Player[] field: the ids as text, "3,5".
 		player_data_set_players(this: FakeServer, plugin: PluginInstance, id: number, key: number, value: number) {
 			this.setPlayerData(id, plugin.memory.string(key), plugin.memory.string(value), true);
+		},
+
+		// The fields plugins add to Entity, kept for the entity's life, by the key handed out for a name.
+		entity_field_key(this: FakeServer, plugin: PluginInstance, name: number) {
+			const field = plugin.memory.string(name);
+			if (!this.entityKeys.includes(field)) this.entityKeys.push(field);
+			return this.entityKeys.indexOf(field);
+		},
+
+		entity_data_get(this: FakeServer, plugin: PluginInstance, id: number, key: number) {
+			const value = this.entityFields(id)?.get(key);
+			return typeof value === 'number' ? value : 0;
+		},
+
+		entity_data_set(this: FakeServer, plugin: PluginInstance, id: number, key: number, value: number) {
+			this.entityFields(id)?.set(key, value);
+		},
+
+		entity_data_get_text(this: FakeServer, plugin: PluginInstance, id: number, key: number, out: number, max: number) {
+			const value = this.entityFields(id)?.get(key);
+			return plugin.memory.setUtf8(out, max, typeof value === 'string' ? value : '');
+		},
+
+		entity_data_set_text(this: FakeServer, plugin: PluginInstance, id: number, key: number, value: number) {
+			this.entityFields(id)?.set(key, plugin.memory.string(value));
 		},
 
 		player_slots(this: FakeServer, plugin: PluginInstance, at: number) {

@@ -57,6 +57,15 @@
 // A field whose name Player already has - `solid` is Entity's var_solid - is
 // refused: it would silently replace the engine's property.
 //
+// `interface Entity` in the same block adds fields to every entity the same
+// way - `door.bhopBlock`, a player's too - kept by the module per entity and
+// its life (runtime/src/entityfields.h): read as never written once the
+// entity is gone and its index taken again, cleared when a player leaves and
+// on a map change. An entity's field is a boolean, a number, a string or a
+// union of string literals, and no event: its helpers are `__amxts_ef_*`,
+// its accessors go into the facade's Entity, and its name may be no member of
+// Entity nor of a class that extends it.
+//
 // A change is an event, `"playerChange"`, which the module raises on every
 // write that changes a value (runtime/src/module.cpp). With
 // `{ field: "spawnProtected" }` its listener gets the field's own event class, whose `value` and `previous`
@@ -93,6 +102,8 @@ export type FieldType = ValueType | ObjectType;
 
 export interface PlayerField {
 	name: string;
+	/** Whose field it is: a player's, or (`"Entity"`) every entity's. */
+	owner?: 'Entity';
 	type: FieldType;
 	/** Where it was declared: `file:line`. */
 	where: string;
@@ -101,8 +112,9 @@ export interface PlayerField {
 /** Where the generated accessors are parsed: a library file, so the hood's rules apply to them. */
 export const PLAYER_FIELDS_FILE = '~lib/amxts/player-fields.ts';
 
-/** The holder class in that file whose members go into Player. */
+/** The holder classes in that file whose members go into Player and Entity. */
 const HOLDER = '__AmxtsPlayerFields';
+const ENTITY_HOLDER = '__AmxtsEntityFields';
 
 /** The list a Player[] field reads as. */
 const PLAYER_LIST = '__AmxtsPlayerList';
@@ -124,6 +136,7 @@ const KINDS = 'boolean, number, string, a union of string literals (true and fal
  */
 export function playerFieldsBuild() {
 	const fields = new Map<string, PlayerField>();
+	const entityFields = new Map<string, PlayerField>();
 	const problems: string[] = [];
 
 	function read(path: string, text: string): string {
@@ -167,13 +180,13 @@ export function playerFieldsBuild() {
 	function collect(file: string, text: string, from: number, to: number, local: Map<string, LocalInterface>, used: Set<string>) {
 		let body = withoutComments(text.slice(from, to));
 		const found: { start: number; end: number }[] = [];
-		for (const match of body.matchAll(/\b(?:export\s+)?interface\s+Player\s*\{/g)) {
+		for (const match of body.matchAll(/\b(?:export\s+)?interface\s+(Player|Entity)\s*\{/g)) {
 			const open = match.index! + match[0].length - 1;
 			const close = closingBrace(body, open);
 			if (close < 0) continue;
 			found.push({ start: match.index!, end: close + 1 });
 			for (const piece of members(body, open + 1, close)) {
-				add(piece.text, `${file}:${lineOf(text, from + piece.at)}`, local, used);
+				add(piece.text, `${file}:${lineOf(text, from + piece.at)}`, local, used, match[1]);
 			}
 		}
 
@@ -182,40 +195,45 @@ export function playerFieldsBuild() {
 		const rest = body.search(/\S/);
 		if (rest >= 0) {
 			const what = body.slice(rest).trim().split('\n')[0].trim();
-			problems.push(`${file}:${lineOf(text, from + rest)}: declare module "@amxts/core" - only \`interface Player { ... }\` goes here, not "${what}"`);
+			problems.push(`${file}:${lineOf(text, from + rest)}: declare module "@amxts/core" - only \`interface Player { ... }\` and \`interface Entity { ... }\` go here, not "${what}"`);
 		}
 	}
 
-	function add(member: string, where: string, local: Map<string, LocalInterface>, used: Set<string>) {
+	function add(member: string, where: string, local: Map<string, LocalInterface>, used: Set<string>, owner: string) {
 		const shape = memberShape(member);
 		if (!shape) {
-			problems.push(`${where}: Player - "${member}" is not a field`);
+			problems.push(`${where}: ${owner} - "${member}" is not a field`);
 			return;
 		}
 		const { name, optional, written } = shape;
 		if (optional) {
-			problems.push(`${where}: Player.${name} - a field is never missing: it reads false, 0 or "" until written; drop the ?`);
+			problems.push(`${where}: ${owner}.${name} - a field is never missing: it reads false, 0 or "" until written; drop the ?`);
 			return;
 		}
 		if (name.startsWith('__')) {
-			problems.push(`${where}: Player.${name} - names starting with __ are the hood's`);
+			problems.push(`${where}: ${owner}.${name} - names starting with __ are the hood's`);
 			return;
 		}
 
 		const type = fieldType(written, local);
 		if (typeof type === 'string' && type.startsWith('!')) {
-			problems.push(`${where}: Player.${name}${type.slice(1)}`);
+			problems.push(`${where}: ${owner}.${name}${type.slice(1)}`);
 			return;
 		}
 		const resolved = type as FieldType;
-		if (isObject(resolved) && resolved.interface) used.add(resolved.interface);
-
-		const earlier = fields.get(name);
-		if (earlier && describe(earlier.type) !== describe(resolved)) {
-			problems.push(`${where}: Player.${name} is ${describe(resolved)} here and ${describe(earlier.type)} at ${earlier.where} - one field, one type`);
+		if (owner === 'Entity' && (isObject(resolved) || resolved === 'players')) {
+			problems.push(`${where}: Entity.${name}: ${describe(resolved)} - an entity's field is boolean, number, string or a union of string literals`);
 			return;
 		}
-		if (!earlier) fields.set(name, { name, type: resolved, where });
+		if (isObject(resolved) && resolved.interface) used.add(resolved.interface);
+
+		const own = owner === 'Entity' ? entityFields : fields;
+		const earlier = own.get(name);
+		if (earlier && describe(earlier.type) !== describe(resolved)) {
+			problems.push(`${where}: ${owner}.${name} is ${describe(resolved)} here and ${describe(earlier.type)} at ${earlier.where} - one field, one type`);
+			return;
+		}
+		if (!earlier) own.set(name, { name, type: resolved, where, ...(owner === 'Entity' ? { owner } : {}) });
 	}
 
 	const transform = class {
@@ -223,48 +241,79 @@ export function playerFieldsBuild() {
 			if (problems.length) throw new Error(problems.join('\n'));
 			const listened = typeChangeListeners(parser, new Map(changeEvents([...fields.values()]).map(event => [event.key, event.name])));
 			if (listened.length) throw new Error(listened.join('\n'));
-			if (!fields.size) return;
+			if (!fields.size && !entityFields.size) return;
 
 			const { classes, facade, topLevel } = classDeclarations(parser);
 			const player = classes.get('Player');
 			if (!player) {
-				const first = [...fields.values()][0];
-				throw new Error(`${first.where}: Player.${first.name} - the facade's Player is not part of this compile; import "@amxts/core"`);
+				const first = [...fields.values(), ...entityFields.values()][0];
+				throw new Error(`${first.where}: ${first.owner ?? 'Player'}.${first.name} - the facade's Player is not part of this compile; import "@amxts/core"`);
 			}
 
-			// Player's members and those of every class it extends.
+			// Player's members and those of every class it extends, and the
+			// entity's fields, which Player has too.
 			const taken = new Map<string, string>();
-			for (let node: any = player; node;) {
+			const baseOf = (node: any) => {
+				const base = node.extendsType?.name?.identifier?.text;
+				return base ? classes.get(base) : null;
+			};
+			let entity: any = null;
+			for (let node: any = player; node; node = baseOf(node)) {
 				for (const member of node.members) {
 					const name = member.name?.text;
 					if (name && !taken.has(name)) taken.set(name, node.name.text);
 				}
-				const base = node.extendsType?.name?.identifier?.text;
-				node = base ? classes.get(base) : null;
+				if (node.name.text === 'Entity') entity = node;
 			}
-			const clashes = [...fields.values()].filter(field => taken.has(field.name));
+			if (entityFields.size && !entity) {
+				const first = [...entityFields.values()][0];
+				throw new Error(`${first.where}: Entity.${first.name} - the facade's Entity is not part of this compile; import "@amxts/core"`);
+			}
+			for (const field of entityFields.values()) {
+				if (!taken.has(field.name)) taken.set(field.name, `Entity (${field.where})`);
+			}
+			// An entity's field is every entity's: no class that extends Entity may have its name.
+			const entityTaken = new Map<string, string>();
+			for (const node of classes.values()) {
+				let base: any = node;
+				while (base && base !== entity) base = baseOf(base);
+				if (!base) continue;
+				for (const member of node.members) {
+					const name = member.name?.text;
+					if (name && !entityTaken.has(name)) entityTaken.set(name, node.name.text);
+				}
+			}
+			for (const field of fields.values()) {
+				if (!entityTaken.has(field.name)) entityTaken.set(field.name, `Player (${field.where})`);
+			}
+			const clashes = [
+				...[...fields.values()].filter(field => taken.has(field.name)).map(field => [field, taken.get(field.name)] as const),
+				...[...entityFields.values()].filter(field => entityTaken.has(field.name)).map(field => [field, entityTaken.get(field.name)] as const),
+			];
 			if (clashes.length) {
-				throw new Error(clashes.map(field =>
-					`${field.where}: Player.${field.name} - ${taken.get(field.name)} already has ${field.name}; name the field something else`,
+				throw new Error(clashes.map(([field, owner]) =>
+					`${field.where}: ${field.owner ?? 'Player'}.${field.name} - ${owner} already has ${field.name}; name the field something else`,
 				).join('\n'));
 			}
-			const named = [...fields.values()].filter((field) => {
+			const named = [...fields.values(), ...entityFields.values()].filter((field) => {
 				const type = field.type;
 				return isObject(type) && type.interface && topLevel.has(type.interface);
 			});
 			if (named.length) {
 				throw new Error(named.map(field =>
-					`${field.where}: Player.${field.name} - the facade already has a ${(field.type as ObjectType).interface}; name the interface something else`,
+					`${field.where}: ${field.owner ?? 'Player'}.${field.name} - the facade already has a ${(field.type as ObjectType).interface}; name the interface something else`,
 				).join('\n'));
 			}
 
-			parser.parseFile(playerFieldsSource([...fields.values()]), PLAYER_FIELDS_FILE, false);
+			parser.parseFile(playerFieldsSource([...fields.values()], [...entityFields.values()]), PLAYER_FIELDS_FILE, false);
 			const source = parser.sources.find((s: any) => s.normalizedPath === PLAYER_FIELDS_FILE);
-			const at = source.statements.findIndex((s: any) =>
-				s.kind === asc.NodeKind.ClassDeclaration && s.name.text === HOLDER);
-			const holder = source.statements[at];
-			source.statements.splice(at, 1);
-			player.members.push(...holder.members);
+			for (const [name, owner] of [[HOLDER, player], [ENTITY_HOLDER, entity]]) {
+				const at = source.statements.findIndex((s: any) =>
+					s.kind === asc.NodeKind.ClassDeclaration && s.name.text === name);
+				const holder = source.statements[at];
+				source.statements.splice(at, 1);
+				if (holder.members.length) owner.members.push(...holder.members);
+			}
 
 			// The change events by the names typeChangeListeners gave the calls. A
 			// compile without the server's events has no listener to give them.
@@ -280,7 +329,7 @@ export function playerFieldsBuild() {
 	};
 
 	// asc takes a transform as a class it instantiates; its own type is not ours to import.
-	return { read, transform: transform as any, fields };
+	return { read, transform: transform as any, fields, entityFields };
 }
 
 interface LocalInterface {
@@ -557,6 +606,11 @@ function objectClass(field: PlayerField): string {
 	return type.interface ?? `__AmxtsPlayer_${field.name}`;
 }
 
+/** The helpers over the module's store a field's accessors call: `pf` a player's, `ef` an entity's. */
+function storeOf(field: PlayerField): string {
+	return field.owner ? 'ef' : 'pf';
+}
+
 /** What the AssemblyScript type of a value is, in the hood. */
 function hoodType(type: ValueType): string {
 	if (type === 'boolean') return 'bool';
@@ -567,22 +621,22 @@ function hoodType(type: ValueType): string {
 	return 'string';
 }
 
-/** Reading a value from slot `slot`, key `key` (both expressions). */
-function readValue(type: ValueType, slot: string, key: string): string {
-	if (type === 'boolean') return `__amxts_pf_get(${slot}, ${key}) != 0`;
-	if (type === 'number') return `__amxts_pf_get(${slot}, ${key})`;
-	if (type === 'string') return `__amxts_pf_text(${slot}, ${key})`;
+/** Reading a value from slot `slot`, key `key` (both expressions), of the store `store` (storeOf). */
+function readValue(type: ValueType, slot: string, key: string, store = 'pf'): string {
+	if (type === 'boolean') return `__amxts_${store}_get(${slot}, ${key}) != 0`;
+	if (type === 'number') return `__amxts_${store}_get(${slot}, ${key})`;
+	if (type === 'string') return `__amxts_${store}_text(${slot}, ${key})`;
 	if (type === 'players') return `${PLAYER_LIST}.read(${slot}, ${key})`;
 	const first = JSON.stringify(type.literals[0]);
-	return type.boolean ? `__amxts_pf_choice(${slot}, ${key}, ${first})` : `__amxts_pf_text_or(${slot}, ${key}, ${first})`;
+	return type.boolean ? `__amxts_${store}_choice(${slot}, ${key}, ${first})` : `__amxts_${store}_text_or(${slot}, ${key}, ${first})`;
 }
 
 /** Writing `value` (an expression) there. */
-function writeValue(type: ValueType, slot: string, key: string, value: string): string {
-	if (type === 'boolean') return `__amxts_pf_set(${slot}, ${key}, ${value} ? 1 : 0)`;
-	if (type === 'number') return `__amxts_pf_set(${slot}, ${key}, ${value})`;
+function writeValue(type: ValueType, slot: string, key: string, value: string, store = 'pf'): string {
+	if (type === 'boolean') return `__amxts_${store}_set(${slot}, ${key}, ${value} ? 1 : 0)`;
+	if (type === 'number') return `__amxts_${store}_set(${slot}, ${key}, ${value})`;
 	if (type === 'players') return `${PLAYER_LIST}.write(${slot}, ${key}, ${value})`;
-	return `__amxts_pf_set_text(${slot}, ${key}, ${value})`;
+	return `__amxts_${store}_set_text(${slot}, ${key}, ${value})`;
 }
 
 /** A value from what the module keeps of it - a number and a text, both expressions - as a change event reads it. */
@@ -643,27 +697,31 @@ function initial(type: ValueType): string {
 	return JSON.stringify(type.literals[0]);
 }
 
-/** The hidden file: the helpers the accessors call, the holder of the accessors, and the classes they read as. */
-export function playerFieldsSource(fields: PlayerField[]): string {
+/** The hidden file: the helpers the accessors call, the holders of the accessors, and the classes they read as. */
+export function playerFieldsSource(fields: PlayerField[], entityFields: PlayerField[] = []): string {
 	const accessors: string[] = [];
+	const entityAccessors: string[] = [];
 	const classes: string[] = [];
 	const events = changeEvents(fields);
 	let lists = false;
 
-	for (const field of fields) {
-		const key = JSON.stringify(field.name);
+	for (const field of [...fields, ...entityFields]) {
+		// An entity's field by the key the module hands out for its name, kept in the plugin.
+		const key = field.owner ? `__amxts_ef_key(${entityFields.indexOf(field)}, ${JSON.stringify(field.name)})` : JSON.stringify(field.name);
 		const type = field.type;
+		const store = storeOf(field);
+		const holder = field.owner ? entityAccessors : accessors;
 		if (!isObject(type)) {
 			if (type === 'players') lists = true;
-			accessors.push(
-				`\tget ${field.name}(): ${hoodType(type)} { return ${readValue(type, 'this.id', key)}; }`,
-				`\tset ${field.name}(value: ${hoodType(type)}) { ${writeValue(type, 'this.id', key, 'value')}; }`,
+			holder.push(
+				`\tget ${field.name}(): ${hoodType(type)} { return ${readValue(type, 'this.id', key, store)}; }`,
+				`\tset ${field.name}(value: ${hoodType(type)}) { ${writeValue(type, 'this.id', key, 'value', store)}; }`,
 			);
 			continue;
 		}
 
 		const name = objectClass(field);
-		accessors.push(
+		holder.push(
 			`\tget ${field.name}(): ${name} { const value = new ${name}(); value.__slot = this.id; return value; }`,
 			`\tset ${field.name}(value: ${name}) { const mine = this.${field.name}; ${type.members.map(member => `mine.${member.name} = value.${member.name};`).join(' ')} }`,
 		);
@@ -678,8 +736,8 @@ export function playerFieldsSource(fields: PlayerField[]): string {
 			const memberKey = JSON.stringify(`${field.name}.${member.name}`);
 			const hood = hoodType(member.type);
 			body.push(
-				`\tget ${member.name}(): ${hood} { return this.__slot < 0 ? this.__${member.name} : ${readValue(member.type, 'this.__slot', memberKey)}; }`,
-				`\tset ${member.name}(value: ${hood}) { if (this.__slot < 0) this.__${member.name} = value; else ${writeValue(member.type, 'this.__slot', memberKey, 'value')}; }`,
+				`\tget ${member.name}(): ${hood} { return this.__slot < 0 ? this.__${member.name} : ${readValue(member.type, 'this.__slot', memberKey, store)}; }`,
+				`\tset ${member.name}(value: ${hood}) { if (this.__slot < 0) this.__${member.name} = value; else ${writeValue(member.type, 'this.__slot', memberKey, 'value', store)}; }`,
 			);
 		}
 		classes.push(
@@ -810,11 +868,72 @@ export function playerFieldsSource(fields: PlayerField[]): string {
 		'\t_setPlayers(id, key, ids);',
 		'}',
 		'',
+		'// An entity\'s fields: the same, by entity, for its life, and by the key the',
+		'// module hands out for a field\'s name - asked once, kept in _entityKeys plus one.',
+		'// @ts-ignore: decorator',
+		'@external("env", "entity_field_key") declare function _entityKey(name: string): i32;',
+		'// @ts-ignore: decorator',
+		'@external("env", "entity_data_get") declare function _entityGet(id: i32, key: i32): f64;',
+		'// @ts-ignore: decorator',
+		'@external("env", "entity_data_set") declare function _entitySet(id: i32, key: i32, value: f64): void;',
+		'// @ts-ignore: decorator',
+		'@external("env", "entity_data_get_text") declare function _entityGetText(id: i32, key: i32, out: usize, max: i32): i32;',
+		'// @ts-ignore: decorator',
+		'@external("env", "entity_data_set_text") declare function _entitySetText(id: i32, key: i32, value: string): void;',
+		'',
+		`const _entityKeys = new StaticArray<i32>(${entityFields.length});`,
+		'',
+		'// @ts-ignore: decorator',
+		'@global export function __amxts_ef_key(field: i32, name: string): i32 {',
+		'\tlet key = unchecked(_entityKeys[field]);',
+		'\tif (key == 0) unchecked(_entityKeys[field] = key = _entityKey(name) + 1);',
+		'\treturn key - 1;',
+		'}',
+		'',
+		'// @ts-ignore: decorator',
+		'@global export function __amxts_ef_get(id: i32, key: i32): f64 {',
+		'\treturn _entityGet(id, key);',
+		'}',
+		'',
+		'// @ts-ignore: decorator',
+		'@global export function __amxts_ef_set(id: i32, key: i32, value: f64): void {',
+		'\t_entitySet(id, key, value);',
+		'}',
+		'',
+		'// @ts-ignore: decorator',
+		'@global export function __amxts_ef_text(id: i32, key: i32): string {',
+		'\tconst length = _entityGetText(id, key, 0, 0);',
+		'\tif (length <= 0) return "";',
+		'\tconst bytes = new ArrayBuffer(length);',
+		'\t_entityGetText(id, key, changetype<usize>(bytes), length);',
+		'\treturn String.UTF8.decode(bytes);',
+		'}',
+		'',
+		'// @ts-ignore: decorator',
+		'@global export function __amxts_ef_set_text(id: i32, key: i32, value: string): void {',
+		'\t_entitySetText(id, key, value);',
+		'}',
+		'',
+		'// @ts-ignore: decorator',
+		'@global export function __amxts_ef_text_or(id: i32, key: i32, first: string): string {',
+		'\treturn __amxts_pf_or(__amxts_ef_text(id, key), first);',
+		'}',
+		'',
+		'// @ts-ignore: decorator',
+		'@global export function __amxts_ef_choice(id: i32, key: i32, first: string): string {',
+		'\treturn __amxts_pf_choose(__amxts_ef_text(id, key), first);',
+		'}',
+		'',
 		...classes,
 		...events.flatMap(changeEventClass),
 		`// Its members are moved into the facade's Player; the class itself is dropped.`,
 		`class ${HOLDER} {`,
 		...accessors,
+		'}',
+		'',
+		`// Its members are moved into the facade's Entity; the class itself is dropped.`,
+		`class ${ENTITY_HOLDER} {`,
+		...entityAccessors,
 		'}',
 		'',
 		`// Its members are moved into ServerEventMap: the name a listener's call is given, and its event.`,

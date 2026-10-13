@@ -38,6 +38,8 @@ enum
 	MONEY_READ,
 	HEALTH_READ,
 	HEALTH_WRITE,
+	ENTITY_FIELD_READ,
+	ENTITY_FIELD_WRITE,
 	MONEY_HUD,
 	ORIGIN_READ,
 	RESET,
@@ -346,6 +348,9 @@ run(what, id, count)
 		case MONEY_READ: for (new i = 0; i < count; i++) g_sink += get_member(id, m_iAccount);
 		case HEALTH_READ: for (new i = 0; i < count; i++) g_sink += get_user_health(id);
 		case HEALTH_WRITE: for (new i = 0; i < count; i++) set_user_health(id, 100);
+		// A value a plugin keeps on an entity for others: a spare entvar, as Pawn plugins share one.
+		case ENTITY_FIELD_READ: for (new i = 0; i < count; i++) g_sink += get_entvar(id, var_iuser4);
+		case ENTITY_FIELD_WRITE: for (new i = 0; i < count; i++) set_entvar(id, var_iuser4, 3);
 		case MONEY_HUD: for (new i = 0; i < count; i++) rg_add_account(id, 800, AS_SET);
 		case HUD_MESSAGE:
 		{
@@ -481,6 +486,8 @@ public measure()
 	report_each("money read", MONEY_READ, id, MANY);
 	report_each("health read", HEALTH_READ, id, MANY);
 	report_each("health write", HEALTH_WRITE, id, MANY);
+	report_each("entity field read", ENTITY_FIELD_READ, id, MANY);
+	report_each("entity field write", ENTITY_FIELD_WRITE, id, MANY);
 	report_each("money with its HUD", MONEY_HUD, id, FEW);
 	report_each("HUD message", HUD_MESSAGE, id, FEW);
 	// Pawn writes its parameters in place at every call.

@@ -4079,6 +4079,9 @@ static void w_rpcResult(wasm_exec_env_t env, int32_t to)
 // Entity fields and the game's members, read in memory: ent_get and the rest.
 #include "fields.h"
 
+// The fields plugins add to Entity, kept for an entity's life.
+#include "entityfields.h"
+
 // ---------------------------------------------------------------- the game's functions
 
 // The engine's ReHLDS API (FindRehlds), once a process; NULL on plain HLDS.
@@ -4504,6 +4507,11 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "player_data_get_text", (void *)w_playerDataGetText, "(iiii)i", NULL },
 	{ "player_data_set_text", (void *)w_playerDataSetText, "(iii)",   NULL },
 	{ "player_data_set_players", (void *)w_playerDataSetPlayers, "(iii)", NULL },
+	{ "entity_field_key",     (void *)w_entityFieldKey,    "(i)i",    NULL },
+	{ "entity_data_get",      (void *)w_entityDataGet,     "(ii)F",   NULL },
+	{ "entity_data_set",      (void *)w_entityDataSet,     "(iiF)",   NULL },
+	{ "entity_data_get_text", (void *)w_entityDataGetText, "(iiii)i", NULL },
+	{ "entity_data_set_text", (void *)w_entityDataSetText, "(iii)",   NULL },
 	{ "player_slots",           (void *)w_playerSlots,         "(i)",     NULL },
 	{ "player_names",           (void *)w_playerNames,         "(i)",     NULL },
 	{ "player_change_listen",   (void *)w_playerChangeListen,  "(ii)",    NULL },
@@ -5085,9 +5093,10 @@ static void Teardown()
 	g_namesChanging = false;
 	ForgetEdicts();
 
-	// The players' fields start over with the plugins.
+	// The players' and the entities' fields start over with the plugins.
 	for (int i = 0; i < PLAYER_DATA_SLOTS; i++)
 		ClearPlayerData(i);
+	g_entityFields.clear();
 }
 
 /** Why the last LoadPlugin failed, in a few words: what amxts_plugins shows. */
@@ -6677,6 +6686,7 @@ static void Disconnected(int id, bool dropped, const char *reason)
 	}
 	g_speaking[id] = false;
 	ClearPlayerData(id);
+	ClearEntityFields(id);
 }
 
 /** The slot is let go: client_remove, for a client that had it. */
