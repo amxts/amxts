@@ -90,7 +90,8 @@ async function run() {
 	since = heard.length;
 	game.restartRound();
 	check.expect(asked("removeGuns", since), "removeGuns: heard as the round restarts").toBe(true);
-	check.expect(asked("checkMapConditions", since), "checkMapConditions: heard as the round restarts").toBe(true);
+	// The original game asks it only as the map starts, before the plugins.
+	if (__hasChains(false)) check.expect(asked("checkMapConditions", since), "checkMapConditions: heard as the round restarts").toBe(true);
 
 	bot = null;
 	player.kick();

@@ -277,7 +277,6 @@ const RULES: Record<string, { slot: number; args: string }> = {
 	CSGameRules_GetPlayerSpawnSpot: { slot: 22, args: 'P11CBasePlayer' },
 	CSGameRules_CanHavePlayerItem: { slot: 30, args: 'P11CBasePlayerP15CBasePlayerItem' },
 	CSGameRules_DeadPlayerWeapons: { slot: 48, args: 'P11CBasePlayer' },
-	CSGameRules_CheckMapConditions: { slot: 62, args: 'v' },
 	CSGameRules_CheckWinConditions: { slot: 65, args: 'v' },
 	CSGameRules_RemoveGuns: { slot: 66, args: 'v' },
 };
