@@ -29,6 +29,7 @@
 		"./constants": "./as/constants.ts",
 		"./fs": "./as/fs.ts",
 		"./os": "./as/os.ts",
+		"./zlib": "./as/zlib.ts",
 		"./database": "./as/sql.ts",
 		"./kit": "./as/kit.ts",
 		"./check": "./as/lib/check.ts",

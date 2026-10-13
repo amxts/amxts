@@ -19,6 +19,7 @@ import { envProblems, parseDotenv } from '../../scripts/server-env';
 import { compile } from './compile';
 import { Coroutines } from './coroutines';
 import { FakeDatabases } from './database';
+import { FakeJobs } from './jobs';
 import { installKitFor } from './kits';
 import { bitsFloat, floatBits, Memory, utf8Fit } from './memory';
 import { AUTH_TYPES, clientCommand, fieldCell, giveWeapon, NATIVES, setFieldCell, switchTo, WEAPON_NAMES } from './natives';
@@ -54,7 +55,7 @@ export function normalizePath(path: string): string {
 }
 
 /** A path of the game folder, or null when it would leave it - absolute, a drive, a `..` - as the module's GamePath. */
-function gamePath(path: string): string | null {
+export function gamePath(path: string): string | null {
 	const normal = normalizePath(path);
 	if (normal === '' || path.startsWith('/') || path.startsWith('\\') || path.includes(':') || normal.split('/').includes('..')) return null;
 	return normal;
@@ -1265,6 +1266,7 @@ export class FakeServer {
 
 	/** The module's network client: the requests plugins sent with fetch. @internal */
 	readonly network = new FakeNetwork(this);
+	readonly jobs = new FakeJobs(this);
 
 	/** The module's database client: the queries plugins sent with Database. @internal */
 	readonly databases = new FakeDatabases(this);
@@ -1284,8 +1286,10 @@ export class FakeServer {
 
 	/**
 	 * Waits for the responses to the requests the plugins sent with `fetch`,
-	 * and hands each to its plugin as the server's next frame would; a
-	 * request sent on the way is waited for too. A timer between two tries
+	 * and the work they gave the module's worker thread (`zlib.gzip`,
+	 * `fs.extract`, `fs.writeFile` of bytes), and hands each to its plugin as
+	 * the server's next frame would; a request sent on the way is waited for
+	 * too. A timer between two tries
 	 * waits for `advance()`.
 	 *
 	 * ```ts
@@ -1296,8 +1300,9 @@ export class FakeServer {
 	async responses(): Promise<void> {
 		do {
 			await this.network.settle();
+			this.jobs.frame();
 			this.databases.frame();
-		} while (this.databases.busy || this.network.busy);
+		} while (this.databases.busy || this.network.busy || this.jobs.busy);
 		const problem = this.databases.problem;
 		this.databases.problem = null;
 		if (problem) throw problem;
@@ -2473,6 +2478,29 @@ export class FakeServer {
 		},
 		net_reply(this: FakeServer, plugin: PluginInstance, id: number) {
 			return this.network.reply(plugin, id);
+		},
+
+		// The module's jobs: w_job_*, over node:zlib and files (jobs.ts).
+		job_start(this: FakeServer, plugin: PluginInstance, op: number, path: number, data: number, length: number, size: number, fn: number) {
+			return this.jobs.start(plugin, op, plugin.memory.string(path), new Uint8Array(plugin.instance.exports.memory.buffer, data, length).slice(), size, fn);
+		},
+		job_run(this: FakeServer, plugin: PluginInstance, op: number, path: number, data: number, length: number, size: number) {
+			return this.jobs.run(plugin, op, plugin.memory.string(path), new Uint8Array(plugin.instance.exports.memory.buffer, data, length).slice(), size);
+		},
+		job_size(this: FakeServer, plugin: PluginInstance, id: number) {
+			return this.jobs.size(plugin, id);
+		},
+		job_read(this: FakeServer, plugin: PluginInstance, id: number, out: number, max: number) {
+			return this.jobs.read(plugin, id, out, max);
+		},
+		job_crc(this: FakeServer, plugin: PluginInstance, id: number) {
+			return this.jobs.crc(plugin, id) | 0;
+		},
+		job_error(this: FakeServer, plugin: PluginInstance, id: number, out: number, max: number) {
+			return this.jobs.error(plugin, id, out, max);
+		},
+		job_close(this: FakeServer, plugin: PluginInstance, id: number) {
+			this.jobs.close(plugin, id);
 		},
 
 		// The database client: module.cpp's w_db_*, answered from server.database() (database.ts).

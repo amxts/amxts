@@ -11,6 +11,7 @@ as/vector.ts filter=amxts-docs
 as/effects.ts filter=amxts-docs
 as/fs.ts filter=amxts-docs
 as/os.ts filter=amxts-docs
+as/zlib.ts filter=amxts-docs
 as/amxts.d.ts filter=amxts-docs
 as/lib/check.ts filter=amxts-docs
 as/fetch.ts filter=amxts-docs

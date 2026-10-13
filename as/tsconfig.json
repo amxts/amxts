@@ -12,6 +12,7 @@
 			"@amxts/core/constants": ["./constants.ts"],
 			"@amxts/core/fs": ["./fs.ts"],
 			"@amxts/core/os": ["./os.ts"],
+			"@amxts/core/zlib": ["./zlib.ts"],
 			"@amxts/core/database": ["./sql.ts"],
 			"@amxts/core/kit": ["./kit.ts"],
 			"@amxts/core/check": ["./lib/check.ts"],

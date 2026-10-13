@@ -369,6 +369,7 @@ export const CORE_API = [
 	'as/effects.ts',
 	'as/fs.ts',
 	'as/os.ts',
+	'as/zlib.ts',
 	'as/amxts.d.ts',
 	'as/lib/check.ts',
 	'as/fetch.ts',

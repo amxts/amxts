@@ -36,11 +36,12 @@ include("${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake")
 # fetch's network client: libcurl, mbedTLS and libssh2, built static.
 include(network.cmake)
 
-# zlib's inflate, for extract: the copy AMX Mod X carries (the zlib license),
-# only the files raw inflate needs.
+# zlib's inflate and deflate, for extract and @amxts/core/zlib: the copy AMX
+# Mod X carries (the zlib license), without its gz* file functions.
 set(ZLIB "${AMXX}/third_party/zlib")
 add_library(amxts_zlib STATIC
 	"${ZLIB}/inflate.c" "${ZLIB}/inftrees.c" "${ZLIB}/inffast.c"
+	"${ZLIB}/deflate.c" "${ZLIB}/trees.c"
 	"${ZLIB}/adler32.c" "${ZLIB}/crc32.c" "${ZLIB}/zutil.c"
 )
 target_include_directories(amxts_zlib PUBLIC "${ZLIB}")

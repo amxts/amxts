@@ -95,6 +95,8 @@
 		"as/facade.ts",
 		"as/fs.ts",
 		"as/os.ts",
+		"as/zlib.ts",
+		"as/jobs.ts",
 		"as/promise.ts",
 		"as/remote.ts",
 		"as/vector.ts",
