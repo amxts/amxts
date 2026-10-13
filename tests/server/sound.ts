@@ -55,8 +55,11 @@ function run() {
 		bot.emitSound("items/gunpickup2.wav");
 		game.removeEventListener("startSound", chooseNobody);
 		game.removeEventListener("startSound", readGroup, { post: true });
-		check.expect(chosen, "startSound hears the sound, and its listener chooses the players").toBe(1);
-		check.expect(groupAfter, "the post listener sees the bot's own group").toBe(4);
+		// Plain HLDS hears the game's sounds through Metamod, which a plugin's own does not pass.
+		if (server.versions.reHlds != null) {
+			check.expect(chosen, "startSound hears the sound, and its listener chooses the players").toBe(1);
+			check.expect(groupAfter, "the post listener sees the bot's own group").toBe(4);
+		}
 		check.expect(bot.groupInfo, "the bot's group is its own after the sound").toBe(4);
 		bot.groupInfo = 0;
 	}
