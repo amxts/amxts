@@ -38,13 +38,13 @@ runs:
 
     - uses: actions/setup-node@v7
       with:
-        node-version: 22
+        node-version: 24
     - uses: oven-sh/setup-bun@v2
       with:
         bun-version: 1.4.2
 
     # What the caches below are keyed by, besides their files: Node's exact
-    # version (node-version 22 takes the newest 22.x), the day, and where this
+    # version (node-version 24 takes the newest 24.x), the day, and where this
     # system's npm keeps its downloads.
     - name: The caches' keys
       id: keys

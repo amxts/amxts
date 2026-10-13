@@ -97,7 +97,7 @@
 		"runtime/patches"
 	],
 	"engines": {
-		"node": ">=20.12"
+		"node": ">=24"
 	},
 	"scripts": {
 		"prepare": "bun scripts/patch-typings.ts",

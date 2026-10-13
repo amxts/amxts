@@ -132,6 +132,8 @@ A binary column read into a `string` field comes as base64 now, not as the bytes
 
 ### ✅ Upgrading
 
+amxts needs Node.js 24 or newer now: Node 22's npm 10 fails installing a new project's test runner on Linux. The command says so when it runs on an older Node.
+
 Update the command with your project's package manager, then upgrade:
 
 ```sh
