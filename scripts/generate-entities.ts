@@ -797,7 +797,7 @@ function actions(target: HamFunction['target'], owner: string, fields: Field[]) 
 		const call = `hamCall(${f.ham}, this.id, options)${f.params.map(actionArgument).join('')}.run()`;
 		const answer = f.answer === 'bool' ? `return ${call} != 0;` : f.answer === 'int' ? `return ${call};` : `${call};`;
 		const run = f.params.length === 0 && f.answer === 'none';
-		const body = run ? `if (options.hooks ?? true) _entityRun(this.id, ${f.ham});\n\t\telse ${call};` : answer;
+		const body = run ? `if (options.hooks ?? true) _entityRun(this.id, ${f.ham});\n\t\telse hamRun(${f.ham}, this.id);` : answer;
 		const type = f.answer === 'bool' ? 'bool' : f.answer === 'int' ? 'number' : 'void';
 		return [`\t${methodDoc(`${owner}.${f.event}`)}`, `\t${f.event}(${params}): ${type} {`, `\t\t${body}`, `\t}`].join('\n');
 	}).join('\n\n');
@@ -1152,6 +1152,22 @@ function hamCall(fn: i32, id: number, options: ActionOptions): Call {
 	const hooks = options.hooks ?? true;
 	if (!hooks) _hamBypass(fn, <i32>id);
 	return new Call(hooks ? NATIVE_ExecuteHamB : NATIVE_ExecuteHam).num(fn).num(id);
+}
+
+// An action's call with \`{ hooks: false }\`, apart from the action: the
+// action's own code then needs no frame on the shadow stack for the Call,
+// and with its hooks it costs the module's call alone.
+
+/** An action of no arguments and no answer, with \`{ hooks: false }\`. */
+function hamRun(fn: i32, id: number): void {
+	_hamBypass(fn, <i32>id);
+	new Call(NATIVE_ExecuteHam).num(fn).num(id).run();
+}
+
+/** \`entity.touch(toucher, { hooks: false })\`. */
+function hamTouch(id: number, toucher: number): void {
+	_hamBypass(Ham_Touch, <i32>id);
+	new Call(NATIVE_ExecuteHam).num(Ham_Touch).num(id).ref(toucher).run();
 }
 
 // ---------------------------------------------------------------- fields
@@ -1663,7 +1679,7 @@ export class Entity {
 	${methodDoc('Entity.touch')}
 	touch(toucher: Entity, options: ActionOptions = NO_ACTION_OPTIONS): void {
 		if (options.hooks ?? true) _entityTouch(this.id, toucher.id);
-		else hamCall(Ham_Touch, this.id, options).ref(toucher.id).run();
+		else hamTouch(this.id, toucher.id);
 	}
 
 	${methodDoc('Entity.emitSound')}
