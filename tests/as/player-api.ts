@@ -164,8 +164,10 @@ server.addCommand("pl_breaking", ({ player }) => {
 });
 
 const ticker = new HudLine();
+const speed = new HudLine({ priority: 2 });
 server.addCommand("pl_hud_line", ({ player }) => {
 	ticker.show(player, "5", { color: [255, 50, 50], hold: 1.1, channel: 3 });
+	speed.show(player, "250");
 	player.showHud("big", { large: true, y: 0.2 });
 	ticker.clearAll();
 });

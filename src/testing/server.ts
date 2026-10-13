@@ -874,8 +874,8 @@ export class FakeServer {
 	readonly forwardHandles: { name: string; types: number[] }[] = [];
 	/** How the last HUD message was sent: its colour, place, hold, channel (-1 automatic), line (0 none) and size. */
 	hud = { color: [200, 100, 0], x: -1, y: 0.35, hold: 12, channel: -1, line: 0, large: false };
-	/** The HUD lines plugins made. */
-	hudLines = 0;
+	/** The HUD lines plugins made: each one's priority, by its id less one. */
+	readonly hudLines: number[] = [];
 
 	/** The game rules' members a plugin set (set_member_game), by member. */
 	readonly rules = new Map<number, number>();
@@ -2938,7 +2938,10 @@ export class FakeServer {
 		},
 		// HUD messages: the text to each player, as his messages' "hud" line; how it was set, in server.hud.
 		hud_line(this: FakeServer) {
-			return ++this.hudLines;
+			return this.hudLines.push(0);
+		},
+		hud_line2(this: FakeServer, plugin: PluginInstance, priority: number) {
+			return this.hudLines.push(priority);
 		},
 		hud_show(this: FakeServer, plugin: PluginInstance, id: number, line: number, params: number, text: number) {
 			const p = Array.from({ length: 12 }, (_, i) => plugin.memory.number(params + i * 8));

@@ -3,10 +3,12 @@
 // ClearSyncHud and show_dhudmessage send them - one call from a plugin, no
 // native's arguments formatted on the way.
 //
-// Each player's four channels go as AMX Mod X's do: an automatic message
-// takes the one shown longest ago, and a line (HudLine) keeps the channel it
-// last had while nothing else took it since. The book is the module's, kept
-// for every amxts plugin; a Pawn plugin's messages are in AMX Mod X's.
+// Each player has four channels. A line (HudLine) keeps the channel it last
+// had while nothing else took it since; any other message takes a channel
+// whose message has ended, or else the one of the least important line that
+// ends first - a line of a higher priority is not taken, and a message that
+// finds all four held by such lines is not sent. The book is the module's,
+// kept for every amxts plugin; a Pawn plugin's messages are in AMX Mod X's.
 //
 // Included by module.cpp, after the client helpers.
 
@@ -28,49 +30,93 @@
 #define TE_TEXTMESSAGE  29
 #define DRC_CMD_MESSAGE 6
 
-/** A player's channels: when each was last given out, and the line on it (0 none). */
+/** A player's channels: when the message on each ends, the line on it (0 none) and that line's priority. */
 struct HudPlayer {
-	float shown[5] = {};
+	float ends[5] = {};
 	int lines[5] = {};
+	int priority[5] = {};
 };
 
 static HudPlayer g_hud[CLIENT_SLOTS];
 // g_hudLines (module.cpp, which lets them go at the map's end): each line's
-// last channel by player, a line's id its place plus one.
+// last channel by player, a line's id its place plus one. g_hudPriority: each
+// line's priority, by the same place; grown with the lines, read only below
+// their count.
+static std::vector<int> g_hudPriority;
 
-/** hud_line() - a new line: its id. */
+/** hud_line() - a new line of priority 0: its id. */
 static int32_t w_hudLine(wasm_exec_env_t env)
 {
 	(void)env;
 	g_hudLines.emplace_back(CLIENT_SLOTS, 0);
+	g_hudPriority.resize(g_hudLines.size());
+	g_hudPriority.back() = 0;
 	return (int32_t)g_hudLines.size();
 }
 
-/** The channel a message to the player goes on: AMX Mod X's NextHUDChannel, a line's own while it holds it, or the one asked for. */
-static int HudChannel(int id, int line, int fixed)
+/** hud_line2(priority) - a new line that gives way to lines of a higher priority: its id. */
+static int32_t w_hudLine2(wasm_exec_env_t env, int32_t priority)
+{
+	int32_t line = w_hudLine(env);
+	g_hudPriority.back() = priority;
+	return line;
+}
+
+/** Whether channel `a` is taken before `b`: an ended message first, then the least important line, then the one that ends first. */
+static bool HudBefore(const HudPlayer &player, int a, int b, float now)
+{
+	bool endedA = player.ends[a] <= now, endedB = player.ends[b] <= now;
+	if (endedA != endedB)
+		return endedA;
+	if (!endedA && player.priority[a] != player.priority[b])
+		return player.priority[a] < player.priority[b];
+	return player.ends[a] < player.ends[b];
+}
+
+/**
+ * The channel a message to the player goes on, held until `ends`: the one
+ * asked for, a line's own while it holds it, or the first of HudBefore; -1
+ * when every channel holds a line more important than this message.
+ */
+static int HudChannel(int id, int line, int fixed, float ends)
 {
 	HudPlayer &player = g_hud[id];
+	bool lined = line > 0 && (size_t)line <= g_hudLines.size();
+	int priority = lined ? g_hudPriority[line - 1] : 0;
+	int channel = 0;
 	if (fixed >= 0) {
-		int channel = abs(fixed % 5);
-		player.lines[channel] = 0;
-		return channel;
+		channel = abs(fixed % 5);
+		lined = false;
+		priority = 0;
 	}
-	int channel = 1;
-	for (int i = 2; i <= 4; i++)
-		if (player.shown[i] < player.shown[channel])
-			channel = i;
-	if (line > 0 && (size_t)line <= g_hudLines.size()) {
-		uint8_t &last = g_hudLines[line - 1][id];
-		if (last && player.lines[last] == line)
-			channel = last;
-		last = (uint8_t)channel;
-		player.lines[channel] = line;
+	else if (lined && g_hudLines[line - 1][id] && player.lines[g_hudLines[line - 1][id]] == line) {
+		channel = g_hudLines[line - 1][id];
 	}
 	else {
-		player.lines[channel] = 0;
+		channel = 1;
+		for (int i = 2; i <= 4; i++)
+			if (HudBefore(player, i, channel, gpGlobals->time))
+				channel = i;
+		if (player.ends[channel] > gpGlobals->time && player.priority[channel] > priority)
+			return -1;
 	}
-	player.shown[channel] = gpGlobals->time;
+	if (lined)
+		g_hudLines[line - 1][id] = (uint8_t)channel;
+	player.lines[channel] = lined ? line : 0;
+	player.priority[channel] = priority;
+	player.ends[channel] = ends;
 	return channel;
+}
+
+/**
+ * When a message ends on the client: faded in, held and faded out; the
+ * typewriter brings its letters in one at a time, then holds the effect's
+ * time.
+ */
+static float HudEnds(const double *p, size_t letters)
+{
+	double in = Whole(p[HUD_EFFECT]) == 2 ? p[HUD_FADE_IN] * (double)letters + p[HUD_FX_TIME] : p[HUD_FADE_IN];
+	return gpGlobals->time + (float)(in + p[HUD_HOLD] + p[HUD_FADE_OUT]);
 }
 
 /** A number of `scale` parts to one, as the engine reads a HUD message's (FixedUnsigned16 / FixedSigned16). */
@@ -190,10 +236,13 @@ static void w_hudShow(wasm_exec_env_t env, int32_t id, int32_t line, int32_t par
 			message = large ? AsString(inst, text) : HudLines(AsString(inst, text));
 			made = true;
 		}
-		if (large)
+		if (large) {
 			HudSendLarge(to, p, message);
-		else
-			HudSend(to, p, HudChannel(to, line, fixed), message.c_str());
+			continue;
+		}
+		int channel = HudChannel(to, line, fixed, HudEnds(p, message.size()));
+		if (channel >= 0)
+			HudSend(to, p, channel, message.c_str());
 	}
 }
 
@@ -210,6 +259,7 @@ static void w_hudClear(wasm_exec_env_t env, int32_t id, int32_t line)
 		if (!channel || g_hud[to].lines[channel] != line || !HudReaches(to))
 			continue;
 		HudSend(to, none, channel, "");
+		g_hud[to].ends[channel] = 0;
 	}
 }
 

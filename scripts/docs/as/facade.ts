@@ -1522,6 +1522,25 @@ export default {
 		en: `A HUD message's appearance effect, one of: \`"fade"\` in and out, \`"flicker"\`, or \`"typewriter"\` — letter by letter.`,
 		ru: `Эффект появления HUD-сообщения, одно из: \`"fade"\` — плавно, \`"flicker"\` — мерцая, \`"typewriter"\` — по буквам.`,
 	},
+	'HudLineOptions': {
+		en: `The options of \`new HudLine\`.`,
+		ru: `Параметры \`new HudLine\`.`,
+	},
+	'HudLineOptions.priority': {
+		en: `
+			The line's priority beside the other lines: \`0\` by default, a higher
+			number keeps its channel. A player has four; when every one is taken, a
+			message takes the channel of a line of a lower or the same priority, and
+			one that finds all four held by more important lines is not shown.
+		`,
+		ru: `
+			Приоритет строки среди других строк: по умолчанию \`0\`, строка с большим
+			числом сохраняет свой канал. У игрока их четыре; когда заняты все,
+			сообщение занимает канал строки с меньшим или таким же приоритетом, а
+			сообщение, которому все четыре закрыты более важными строками, не
+			показывается.
+		`,
+	},
 	'HudLine': {
 		en: `
 			A HUD line for one message: showing a new one replaces the old instead of
@@ -1533,6 +1552,7 @@ export default {
 			countdown.show(player, \`\${left}\`, { color: [255, 50, 50], hold: 1.1 });
 			countdown.clear(player);
 			countdown.clearAll();
+			const speed = new HudLine({ priority: 1 }); // keeps its channel when the screen is full
 			\`\`\`
 
 			Pawn: \`CreateHudSyncObj\`, \`ShowSyncHudMsg\`
@@ -1548,6 +1568,7 @@ export default {
 			countdown.show(player, \`\${left}\`, { color: [255, 50, 50], hold: 1.1 });
 			countdown.clear(player);
 			countdown.clearAll();
+			const speed = new HudLine({ priority: 1 }); // сохраняет канал, когда экран заполнен
 			\`\`\`
 
 			Pawn: \`CreateHudSyncObj\`, \`ShowSyncHudMsg\`

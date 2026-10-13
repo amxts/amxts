@@ -3277,9 +3277,20 @@ export interface HudOptions {
 export type HudEffect = "fade" | "flicker" | "typewriter";
 
 
+/** The options of `new HudLine`. */
+export interface HudLineOptions {
+	/**
+	 * The line's priority beside the other lines: `0` by default, a higher
+	 * number keeps its channel. A player has four; when every one is taken, a
+	 * message takes the channel of a line of a lower or the same priority, and
+	 * one that finds all four held by more important lines is not shown.
+	 */
+	priority?: number;
+}
+
 // HUD messages, sent by the module (runtime/src/hud.h).
 // @ts-ignore: decorator
-@external("env", "hud_line")  declare function _hudLine(): i32;
+@external("env", "hud_line2") declare function _hudLine(priority: i32): i32;
 // @ts-ignore: decorator
 @external("env", "hud_show")  declare function _hudShow(id: i32, line: i32, params: usize, text: string): void;
 // @ts-ignore: decorator
@@ -3320,12 +3331,18 @@ function showHudTo(id: i32, text: string, options: HudOptions, line: i32 = 0): v
  * countdown.show(player, `${left}`, { color: [255, 50, 50], hold: 1.1 });
  * countdown.clear(player);
  * countdown.clearAll();
+ * const speed = new HudLine({ priority: 1 }); // keeps its channel when the screen is full
  * ```
  *
  * Pawn: `CreateHudSyncObj`, `ShowSyncHudMsg`
  */
 export class HudLine {
 	private handle: i32 = 0;
+	private priority: i32;
+
+	constructor(options: HudLineOptions = {}) {
+		this.priority = <i32>(options.priority ?? 0);
+	}
 
 	/** Shows `text` to the player on this line, replacing what it showed him before. */
 	show(player: Player, text: string, options: HudOptions = {}): void {
@@ -3352,7 +3369,7 @@ export class HudLine {
 	}
 
 	private line(): i32 {
-		if (this.handle == 0) this.handle = _hudLine();
+		if (this.handle == 0) this.handle = _hudLine(this.priority);
 		return this.handle;
 	}
 }

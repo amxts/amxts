@@ -4323,6 +4323,7 @@ static int32_t w_playerModelGet(wasm_exec_env_t env, int32_t id, int32_t out, in
 static void ModelUserInfoChanged(int id, char *info);
 static void KeepModels();
 static int32_t w_hudLine(wasm_exec_env_t env);
+static int32_t w_hudLine2(wasm_exec_env_t env, int32_t priority);
 static void w_hudShow(wasm_exec_env_t env, int32_t id, int32_t line, int32_t params, int32_t text);
 static void w_hudClear(wasm_exec_env_t env, int32_t id, int32_t line);
 static void HudSlotReset(int id);
@@ -4440,6 +4441,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "player_model",   (void *)w_playerModel,   "(iii)", NULL },
 	{ "player_model_get", (void *)w_playerModelGet, "(iii)i", NULL },
 	{ "hud_line",       (void *)w_hudLine,       "()i", NULL },
+	{ "hud_line2",      (void *)w_hudLine2,      "(i)i", NULL },
 	{ "hud_show",       (void *)w_hudShow,       "(iiii)", NULL },
 	{ "hud_clear",      (void *)w_hudClear,      "(ii)", NULL },
 	{ "state_hook",     (void *)w_stateHook,     "(ii)i", NULL },
