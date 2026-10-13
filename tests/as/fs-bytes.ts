@@ -19,6 +19,7 @@ interface FileArgs {
 server.addCommand<CopyArgs>("fsb_copy <from> <to>", ({ player, from, to }) => copy(player, from, to));
 server.addCommand<UnzipArgs>("fsb_extract <archive>", ({ player, archive }) => unpack(player, archive));
 server.addCommand("fsb_outside", ({ player }) => outside(player));
+server.addCommand<FileArgs>("fsb_words <file>", ({ player, file }) => words(player, file));
 
 function copy(player: Player, from: string, to: string) {
 	const bytes = fs.readBytesSync(from);
@@ -47,6 +48,17 @@ function unpack(player: Player, archive: string) {
 	} catch (error) {
 		player.print(error.message, "console");
 	}
+}
+
+function words(player: Player, file: string) {
+	const bytes = fs.readBytesSync(file);
+	if (bytes == null) return;
+
+	const words: number[] = [];
+	for (let i = 0; i + 3 < bytes.length; i += 4) {
+		words.push(bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16) | (bytes[i + 3] << 24));
+	}
+	player.print(`${words.join(" ")} ${bytes[0] + bytes[1]} ${bytes[0] * bytes[1]}`, "console");
 }
 
 function outside(player: Player) {

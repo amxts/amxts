@@ -134,6 +134,16 @@ test('bytes written on the worker land in the order they were given; a path out 
 	expect(await run(server, 'fsb_order addons/amxmodx/data/order.bin')).toEqual(['1 2 1', 'ENOENT: no such file or directory, open \'../outside.bin\'']);
 });
 
+test('a byte read is a number: shifted, added and multiplied past 255', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	server.files.set('maps/kz_map.dat', new Uint8Array([0xFF, 0xFE, 0x80, 0x01, 0x00, 0x00, 0x00, 0x80]));
+
+	alice.command('fsb_words maps/kz_map.dat');
+
+	expect(alice.console).toBe(`${0x0180FEFF} ${0x80000000 | 0} ${0xFF + 0xFE} ${0xFF * 0xFE}`);
+});
+
 test('bytes are not written or read past the game folder', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');

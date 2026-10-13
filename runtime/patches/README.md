@@ -34,7 +34,11 @@ with a number by `+`, `async`/`await`, overloads, object types in place,
 return types read off the body (a returned literal is the interface of its
 file), `flatMap`, a `sort` comparator whose number orders by its sign
 (`(a, b) => a - b` on fractions), a handler typed `Context & Player` that takes either,
-`Date` in the server's time zone.
+`Date` in the server's time zone, a small or unsigned integer - a typed
+array's element, a DataView's byte, what `>>>` gives - read as a number
+(`bytes[i] << 8` is not cut to 8 bits) and stored back wrapped, as a typed
+array stores it, a literal past 32 bits in a bitwise operator taken as its
+low 32 bits (`0xEDB88320 ^ crc`).
 
 It also tunes the runtime (`std/assembly/rt/`) for a plugin, which makes
 many small objects over a small live heap: a small block freed (up to 124
@@ -96,8 +100,10 @@ the arithmetic and the comparisons over it are i32's
 with a loop, where a value is a whole number within a range - never NaN, an
 infinity or -0 - or anything; a loop is solved to a fixpoint, and a
 comparison narrows the locals it compares in the branch it guards, `x * x <=
-n` included. What is not proven stays an f64: `7 / 2` is 3.5, a sum past
-2^31 is exact, `-6 % 3` is -0. The check a `%` makes that its numbers are
+n` included. A number made an int32 that is a sum, difference or product of
+integers made numbers - `table[bytes[i] + 1]` - is that arithmetic in i32,
+which wraps as ToInt32 does while the double would be exact. What is not
+proven stays an f64: `7 / 2` is 3.5, a sum past 2^31 is exact, `-6 % 3` is -0. The check a `%` makes that its numbers are
 whole is seen to hold there, and only i32's remainder is left.
 
 After changing `src/` or `std/` in `runtime/deps/assemblyscript`, rebuild it
