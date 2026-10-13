@@ -3678,6 +3678,8 @@ export interface SoundOptions {
 	attenuation?: number;
 	/** The pitch in percent: `100` (the default) as recorded, `50` an octave lower, up to `255`. */
 	pitch?: number;
+	/** The player who hears it, alone: `source.emitSound(sample, { to: player })`; everyone near by default. */
+	to?: Player;
 }
 
 // A precached file's index lives in the module's store of player fields, in
@@ -3790,6 +3792,16 @@ export function __onDirect(event: string, fn: i32, listener: usize, view: usize,
 /** @hidden playbackEvent's `preventDefault()`: the module stops the event. */
 export function __playbackBlock(): void {
 	_playbackBlock();
+}
+
+// @ts-ignore: decorator
+@external("env", "sound_to") declare function _soundTo(ids: usize, count: i32): void;
+
+/** @hidden startSound's `recipients`: the module plays the sound to these players alone. */
+export function __soundTo(players: Player[]): void {
+	const ids = new StaticArray<i32>(players.length);
+	for (let i = 0; i < players.length; i++) unchecked(ids[i] = <i32>players[i].id);
+	_soundTo(changetype<usize>(ids), ids.length);
 }
 
 /** @hidden playbackEvent's `recipients`: the module plays the event to these players alone. */

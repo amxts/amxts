@@ -833,6 +833,22 @@ test('fs.extract not awaited reads extractSync; an awaited one stays; one import
 	expect(upgradeCalls('plugins/a.ts', text).text).toBe(text);
 });
 
+test('a startSound event\'s recipients read or given a number are listed; given players, left alone', () => {
+	const source = [
+		'game.addEventListener("startSound", (event) => {',
+		'	if (event.recipients == 1) return;',
+		'	event.recipients = 0;',
+		'	event.recipients = server.players;',
+		'});',
+		'function onSound(sound: StartSoundEvent) { return sound.recipients; }',
+		'server.addEventListener("playbackEvent", (event) => { event.recipients = []; });',
+		'',
+	].join('\n');
+	const { text, left } = upgradeCalls('plugins/a.ts', source);
+	expect(text).toBe(source);
+	expect(left.map(each => each.line)).toEqual([2, 3, 6]);
+});
+
 test('calls 0.3 changed: cmd\'s info goes; a gone event, reapi\'s hook switches and a const string\'s cells are listed', () => {
 	const source = [
 		'cmd("myplugin_go", onGo, "all", "Starts it");',

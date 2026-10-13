@@ -1597,6 +1597,10 @@ export default {
 		en: `The pitch in percent: \`100\` (the default) as recorded, \`50\` an octave lower, up to \`255\`.`,
 		ru: `Высота в процентах: \`100\` (по умолчанию) — как записан, \`50\` — октавой ниже, до \`255\`.`,
 	},
+	'SoundOptions.to': {
+		en: `The player who hears it, alone: \`source.emitSound(sample, { to: player })\`; everyone near by default.`,
+		ru: `Игрок, который слышит звук, — только он: \`source.emitSound(sample, { to: player })\`; по умолчанию все рядом.`,
+	},
 	'MessageArgs': {
 		en: `
 			The arguments of a message, by their place, \`0\` for the first: a number

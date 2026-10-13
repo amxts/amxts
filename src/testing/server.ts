@@ -891,8 +891,10 @@ export class FakeServer {
 	lightStyle = 'm';
 	/** Rounds a plugin ended with rg_round_end, in order. */
 	readonly roundEnds: { status: number; event: number; delay: number; message: string; sound: string; trigger: boolean }[] = [];
-	/** Sounds played: from an entity (emit_sound, rh_emit_sound2), or to a player alone (SendAudio, rg_send_audio). */
-	readonly sounds: { entity: number; sample: string }[] = [];
+	/** Sounds played: from an entity (emit_sound, rh_emit_sound2, `to` the one player who hears it), or to a player alone (SendAudio, rg_send_audio). */
+	readonly sounds: { entity: number; sample: string; to?: number }[] = [];
+	/** The players startSound's listeners chose (`recipients`) in the last hook fireHook ran, `null` for all it reaches. */
+	soundTo: number[] | null = null;
 	/**
 	 * User messages plugins sent, in order: the message's name, the player it
 	 * went to (0 for everyone), and what was written, write_* by write_*.
@@ -1430,6 +1432,7 @@ export class FakeServer {
 		const shape = tables().hooks.get(event);
 		if (!shape) throw new Error(`no hookchain named "${event}" in as/hooks.ts`);
 		const listeners = this.hookchains.get(shape.kind) ?? { pre: [], post: [] };
+		this.soundTo = null;
 		return this.runChain(shape, listeners.pre, listeners.post, args, options.result, false);
 	}
 
@@ -2913,6 +2916,12 @@ export class FakeServer {
 		},
 		playback_to(this: FakeServer, plugin: PluginInstance, ids: number, count: number) {
 			this.playback.recipients = Array.from({ length: count }, (_, i) => plugin.memory.cell(ids + i * 4));
+		},
+		sound_to(this: FakeServer, plugin: PluginInstance, ids: number, count: number) {
+			this.soundTo = Array.from({ length: count }, (_, i) => plugin.memory.cell(ids + i * 4));
+		},
+		sound_emit(this: FakeServer, plugin: PluginInstance, entity: number, channel: number, sample: number, volume: number, attenuation: number, pitch: number, to: number) {
+			this.sounds.push({ entity, sample: plugin.memory.string(sample), ...(to > 0 ? { to } : {}) });
 		},
 		light_style(this: FakeServer, plugin: PluginInstance, text: number) {
 			this.lightStyle = plugin.memory.string(text) || 'm';

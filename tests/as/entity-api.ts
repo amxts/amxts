@@ -24,7 +24,14 @@ function exists(player: Player, id: number) {
 
 function sound(player: Player) {
 	player.emitSound("myplugin/hit.wav", { channel: "voice", volume: 0.5 });
+	player.emitSound("myplugin/hit.wav", { to: player });
 }
+
+// The sounds of the player named "Hidden" reach only the others.
+game.addEventListener("startSound", (event) => {
+	const source = server.players.find(player => player.id == event.entity.id);
+	if (source != null && source.name == "Hidden") event.recipients = server.players.filter(player => player.id != source.id);
+});
 
 function box(player: Player) {
 	const cube = Entity.create("info_target");

@@ -229,8 +229,8 @@ export const HEARD: Record<string, HeardEvent> = {
 		class: 'B',
 		backend: 'FM_EmitSound',
 		gaps: {
-			en: 'heard for the sounds the game plays through the engine\'s `EmitSound`: `preventDefault()` stops it; `recipients` reads as 0, and changing a field does nothing',
-			ru: 'слышно для звуков, которые игра проигрывает через `EmitSound` движка: `preventDefault()` его отменяет; `recipients` читается как 0, запись поля ничего не делает',
+			en: 'heard for the sounds the game plays through the engine\'s `EmitSound`: `preventDefault()` stops it and `recipients` chooses its players; changing a field does nothing',
+			ru: 'слышно для звуков, которые игра проигрывает через `EmitSound` движка: `preventDefault()` его отменяет, `recipients` выбирает игроков; запись поля ничего не делает',
 		},
 	},
 

@@ -4269,6 +4269,9 @@ static void MenuMessage(int type, edict_t *ed)
 		CloseMenu(ClientId(ed));
 }
 
+// Sounds and played events to some players alone, which the hookchains use.
+#include "sound.h"
+
 // Hookchains and Ham Sandwich's functions, hooked by the module: hook, ham and the rest.
 #include "gamehooks.h"
 
@@ -4460,6 +4463,8 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "light_style",    (void *)w_lightStyle,    "(i)", NULL },
 	{ "playback_block", (void *)w_playbackBlock, "()",   NULL },
 	{ "playback_to",    (void *)w_playbackTo,    "(ii)", NULL },
+	{ "sound_to",       (void *)w_soundTo,       "(ii)", NULL },
+	{ "sound_emit",     (void *)w_soundEmit,     "(iiiFFii)", NULL },
 	{ "player_light_style", (void *)w_playerLightStyle, "(ii)", NULL },
 	{ "intermission",   (void *)w_intermission,  "()",   NULL },
 	{ "player_movement", (void *)w_playerMovement, "(iiF)", NULL },
@@ -7296,38 +7301,18 @@ static void w_playbackTo(wasm_exec_env_t env, int32_t ids, int32_t count)
 	g_playbackChosen = true;
 }
 
-// Groups for PlayToChosen: the engine skips a client whose groupinfo has no
-// bit of the invoker's, when both have one (EV_Playback).
-#define PLAYBACK_CHOSEN 0x40000000
-#define PLAYBACK_OTHER  0x20000000
-
 /**
  * Plays an event to the chosen players alone: the engine's own call, which
- * Metamod's hooks do not see, with the invoker and the chosen players in one
- * group and the rest in another for that call, and every group back as it was
- * right after - nothing else of the frame sees them. The invoker plays to
- * itself as the game decides. An event with no invoker plays to everyone.
+ * Metamod's hooks do not see, with the groups of ChosenGroups (sound.h). The
+ * invoker plays to itself as the game decides. An event with no invoker plays
+ * to everyone.
  */
 static void PlayToChosen(int flags, const edict_t *invoker, unsigned short index, float delay, float *origin, float *angles,
                          float f1, float f2, int i1, int i2, int b1, int b2)
 {
-	int groups[CLIENT_SLOTS];
-	int invokerGroup = invoker ? invoker->v.groupinfo : 0;
-	for (int id = 1; id < CLIENT_SLOTS && id <= gpGlobals->maxClients; id++) {
-		edict_t *e = INDEXENT(id);
-		groups[id] = e->v.groupinfo;
-		e->v.groupinfo = g_playbackTo[id] ? PLAYBACK_CHOSEN : PLAYBACK_OTHER;
-	}
-	if (invoker)
-		((edict_t *)invoker)->v.groupinfo = PLAYBACK_CHOSEN;
-	g_engfuncs.pfnSetGroupMask(0, GROUP_OP_AND);
-
+	ChosenGroups groups;
+	groups.Set(g_playbackTo, (edict_t *)invoker);
 	PLAYBACK_EVENT_FULL(flags, invoker, index, delay, origin, angles, f1, f2, i1, i2, b1, b2);
-
-	for (int id = 1; id < CLIENT_SLOTS && id <= gpGlobals->maxClients; id++)
-		INDEXENT(id)->v.groupinfo = groups[id];
-	if (invoker)
-		((edict_t *)invoker)->v.groupinfo = invokerGroup;
 }
 
 /**

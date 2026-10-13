@@ -249,6 +249,16 @@ function kept(ret: CType, value: string) {
 	}
 }
 
+/**
+ * A chain whose call to the next is wrapped: before the listeners, right
+ * before the call once they let it go on, and right after it.
+ * RH_SV_StartSound plays the sound to the players its listeners chose
+ * (event.recipients, runtime/src/sound.h).
+ */
+const AROUND: Record<string, { before: string; next: string; after: string }> = {
+	RH_SV_StartSound: { before: 'SoundChoice choice;', next: 'choice.Play(a1);', after: 'choice.Back();' },
+};
+
 const chainBlocks: string[] = [];
 const chainTable: string[] = [];
 
@@ -275,16 +285,18 @@ chains.forEach((chain, index) => {
 		return cell === undefined ? `a${i}` : pass(p.role, cell, `a${i}`, p.decl);
 	});
 	const call = `chain->callNext(${next.join(', ')})`;
+	const around = AROUND[chain.constant];
+	const callNext = ret.decl === 'void' ? `${call};` : kept(ret, call);
 	chainBlocks.push([
 		`// ${chain.constant}`,
 		`typedef ${registryType} ChainRegistry_${index};`,
 		`NO_STACK_COOKIE static ${ret.decl === 'void' ? 'void ' : ret.decl.endsWith('*') ? ret.decl : `${ret.decl} `}Chain_${index}(${[`${chainType} *chain`, ...declared].join(', ')})`,
 		`{`,
 		`\tstatic const unsigned char roles[] = { ${roles || '0'} };`,
+		...(around ? [`\t${around.before}`] : []),
 		`\tChainCall call(g_chainPoints[${index}], roles, ${cells.length});`,
 		...pushes.map(line => `\t${line}`),
-		`\tif (call.Pre())`,
-		ret.decl === 'void' ? `\t\t${call};` : `\t\t${kept(ret, call)}`,
+		...(around ? [`\tif (call.Pre()) {`, `\t\t${around.next}`, `\t\t${callNext}`, `\t\t${around.after}`, `\t}`] : [`\tif (call.Pre())`, `\t\t${callNext}`]),
 		`\tcall.Post();`,
 		...(ret.decl === 'void' ? [] : [`\treturn ${answer(ret)};`]),
 		`}`,

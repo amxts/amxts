@@ -1107,7 +1107,7 @@ import {
 import {
 	entity_get_string, entity_set_string,
 	entity_get_int, entity_set_int, entity_get_edict, create_entity, is_valid_ent,
-	find_ent_by_class, find_ent_in_sphere, get_global_int, entity_set_origin, emit_sound,
+	find_ent_by_class, find_ent_in_sphere, get_global_int, entity_set_origin,
 	entity_set_model, entity_set_size, is_user_connected, is_user_alive, get_maxplayers, get_user_msgid,
 	emessage_begin, ewrite_string, ewrite_short, ewrite_byte, ewrite_long, emessage_end, client_print,
 	NATIVE_ExecuteHam, NATIVE_ExecuteHamB
@@ -1130,6 +1130,9 @@ const USE_TYPES: UseType[] = ["off", "on", "set", "toggle"];
 // The engine's DropToFloor: 1 landed, 0 nothing under it, -1 stuck.
 // @ts-ignore: decorator
 @external("env", "entity_drop") declare function _entityDrop(id: i32): i32;
+// A sound from the entity, to everyone near or (to) one player.
+// @ts-ignore: decorator
+@external("env", "sound_emit") declare function _soundEmit(id: i32, channel: i32, sample: string, volume: f64, attenuation: f64, pitch: i32, to: i32): void;
 // The entity's own function of no arguments, by its Ham_* constant, through its table.
 // @ts-ignore: decorator
 @external("env", "entity_run") declare function _entityRun(id: i32, fn: i32): void;
@@ -1655,8 +1658,6 @@ export class Entity {
 		entity_set_size(this.id, mins, maxs);
 	}
 
-	${methodDoc('Entity.emitSound')}
-	emitSound(sample: string, options: SoundOptions = {}): void {
 	// Ham_Touch is no event (the touch event is the engine's, by both
 	// classes), so this one is written here.
 	${methodDoc('Entity.touch')}
@@ -1665,8 +1666,11 @@ export class Entity {
 		else hamCall(Ham_Touch, this.id, options).ref(toucher.id).run();
 	}
 
+	${methodDoc('Entity.emitSound')}
+	emitSound(sample: string, options: SoundOptions = {}): void {
 		const channel = max(SOUND_CHANNELS.indexOf(options.channel ?? "auto"), 0);
-		emit_sound(this.id, channel, sample, options.volume ?? 1.0, options.attenuation ?? 0.8, 0, options.pitch ?? 100.0);
+		const to = options.to;
+		_soundEmit(this.id, channel, sample, options.volume ?? 1.0, options.attenuation ?? 0.8, <i32>(options.pitch ?? 100.0), to != null ? <i32>to.id : 0);
 	}
 
 ${entityBody}

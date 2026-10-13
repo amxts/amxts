@@ -27,7 +27,18 @@ test('precache: while the map loads, each file its index; emitSound plays from t
 
 	expect(server.log).toContain('precached 1 2 3 4');
 	expect(server.precached).toEqual(['myplugin/hit.wav', 'models/myplugin/box.mdl', 'sprites/myplugin.spr', 'myplugin/readme.txt']);
-	expect(server.sounds).toEqual([{ entity: alice.id, sample: 'myplugin/hit.wav' }]);
+	expect(server.sounds).toEqual([{ entity: alice.id, sample: 'myplugin/hit.wav' }, { entity: alice.id, sample: 'myplugin/hit.wav', to: alice.id }]);
+});
+
+test('startSound: recipients choose the players a sound plays to', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	const hidden = server.join('Hidden');
+
+	server.fireHook('startSound', [0, alice.id, 4, 'player/pl_step1.wav', 255, 0.8, 0, 100]);
+	expect(server.soundTo).toBeNull();
+	server.fireHook('startSound', [0, hidden.id, 4, 'player/pl_step1.wav', 255, 0.8, 0, 100]);
+	expect(server.soundTo).toEqual([alice.id]);
 });
 
 test('model sets the model as the game does; setSize the box, and refuses one inside out', async () => {

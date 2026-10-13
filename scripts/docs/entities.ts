@@ -1997,10 +1997,10 @@ Pawn: \`drop_to_floor\`, \`engfunc(EngFunc_DropToFloor, ...)\``,
 Pawn: \`drop_to_floor\`, \`engfunc(EngFunc_DropToFloor, ...)\``,
 	},
 	'Entity.emitSound': {
-		en: `Plays a sound from the entity, heard by everyone near and fading with distance: \`player.emitSound("myplugin/hit.wav")\`. The path is under \`sound/\`, as \`server.precache\` takes it; \`options\` set the channel, the volume, the attenuation and the pitch.
+		en: `Plays a sound from the entity, heard by everyone near and fading with distance: \`player.emitSound("myplugin/hit.wav")\`. The path is under \`sound/\`, as \`server.precache\` takes it; \`options\` set the channel, the volume, the attenuation, the pitch, and \`to\` the one player who hears it.
 
 Pawn: \`emit_sound\`, \`rh_emit_sound2\``,
-		ru: `Проигрывает звук от сущности: его слышат все рядом, и он затихает с расстоянием: \`player.emitSound("myplugin/hit.wav")\`. Путь — внутри \`sound/\`, как его принимает \`server.precache\`; \`options\` задают канал, громкость, затухание и высоту.
+		ru: `Проигрывает звук от сущности: его слышат все рядом, и он затихает с расстоянием: \`player.emitSound("myplugin/hit.wav")\`. Путь — внутри \`sound/\`, как его принимает \`server.precache\`; \`options\` задают канал, громкость, затухание, высоту, а \`to\` — единственного игрока, который его услышит.
 
 Pawn: \`emit_sound\`, \`rh_emit_sound2\``,
 	},

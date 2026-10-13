@@ -856,11 +856,13 @@ void SetModel(edict_t *e, const char *model)
 	RETURN_META(call.Pre() ? MRES_IGNORED : MRES_SUPERCEDE);
 }
 
+/** A sound the game plays: a listener may stop it, or choose its players - then the engine's own call plays it to them (sound.h). */
 void EmitSound(edict_t *e, int channel, const char *sample, float volume, float attenuation, int flags, int pitch)
 {
 	if (!StockHeard(STOCK_EMIT_SOUND, 0))
 		RETURN_META(MRES_IGNORED);
 	static const unsigned char roles[7] = { ROLE_EDICT, ROLE_INT, ROLE_TEXT, ROLE_FLOAT, ROLE_FLOAT, ROLE_INT, ROLE_INT };
+	SoundChoice choice;
 	ChainCall call(g_stockPoints[STOCK_EMIT_SOUND], roles, 7);
 	call.Edict(0, e);
 	call.Int(1, channel);
@@ -869,7 +871,12 @@ void EmitSound(edict_t *e, int channel, const char *sample, float volume, float 
 	call.Float(4, attenuation);
 	call.Int(5, flags);
 	call.Int(6, pitch);
-	RETURN_META(call.Pre() ? MRES_IGNORED : MRES_SUPERCEDE);
+	if (!call.Pre())
+		RETURN_META(MRES_SUPERCEDE);
+	if (!choice.Play(e))
+		RETURN_META(MRES_IGNORED);
+	g_engfuncs.pfnEmitSound(e, channel, sample, volume, attenuation, flags, pitch);
+	RETURN_META(MRES_SUPERCEDE);
 }
 
 /** Whether a client hears another: a listener writes the third argument, and the engine is told that instead. */
