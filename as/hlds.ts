@@ -29,7 +29,7 @@ import {
 	DefuseBombStartEvent, DisconnectClientEvent, DropPlayerItemEvent, ExplodeBombEvent, GameThinkEvent, GibSpawnEvent,
 	GiveBombEvent, IntermissionEvent, ItemRestrictedEvent, BecomeBomberEvent, BecomeVipEvent, RoundStartEvent,
 	PainEvent, PlantBombEvent, PlayerBlindEvent, PlayerGotWeaponEvent, PlayerKilledEvent, PlayerSpawnEvent,
-	PrecacheFileEvent, PrecacheModelEvent, PrecacheSoundEvent, NewRoundEvent, RoundEndEvent,
+	MoveEvent, PrecacheFileEvent, PrecacheModelEvent, PrecacheSoundEvent, NewRoundEvent, RoundEndEvent,
 	SendDeathMessageEvent, ChangeNameEvent, SetModelEvent, ShowVguiMenuEvent, StartSoundEvent,
 	ThrowFlashbangEvent, ThrowGrenadeEvent, ThrowHeGrenadeEvent, ThrowSmokeGrenadeEvent
 } from "./hooks";
@@ -174,6 +174,7 @@ const STOCK_PRECACHE_MODEL: i32 = 3;
 const STOCK_PRECACHE_SOUND: i32 = 4;
 const STOCK_PRECACHE_GENERIC: i32 = 5;
 const STOCK_GAME_DESCRIPTION: i32 = 6;
+const STOCK_PM_MOVE: i32 = 8;
 
 /** Hooks one of the engine's or the game's functions (STOCK_*): `handler` reads its arguments with arg() and argText(). */
 function onStock(fn: i32, post: bool, handler: () => void, hook: __Switch | null): void {
@@ -1003,6 +1004,25 @@ export function precacheSoundHlds(fire: Fire<PrecacheSoundEvent>, hook: __Switch
 
 export function precacheFileHlds(fire: Fire<PrecacheFileEvent>, hook: __Switch): void {
 	onPrecache<PrecacheFileEvent>(STOCK_PRECACHE_GENERIC, (): PrecacheFileEvent => new PrecacheFileEvent(), fire, "precacheFile", hook);
+}
+
+// A player's move: the module's hook of the game's PM_Move, the player's
+// index its argument; touchCount and frameTime read the move it runs.
+function onMove(post: bool, fire: Fire<MoveEvent>, hook: __Switch): void {
+	onStock(STOCK_PM_MOVE, post, (): void => {
+		const event = new MoveEvent();
+		changetype<HookEvent>(event).__give(0, <i32>arg(0));
+		fire(event, post);
+		settle(changetype<HookEvent>(event), "move", post ? -1 : PLUGIN_HANDLED);
+	}, hook);
+}
+
+export function moveHlds(fire: Fire<MoveEvent>, hook: __Switch): void {
+	onMove(false, fire, hook);
+}
+
+export function movePostHlds(fire: Fire<MoveEvent>, hook: __Switch): void {
+	onMove(true, fire, hook);
 }
 
 // ---------------------------------------------------------------- the game rules' fields

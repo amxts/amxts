@@ -238,6 +238,8 @@ export const HEARD: Record<string, HeardEvent> = {
 	precacheModel: { class: 'B', backend: 'FM_PrecacheModel', gaps: precached },
 	precacheSound: { class: 'B', backend: 'FM_PrecacheSound', gaps: precached },
 	precacheFile: { class: 'B', backend: 'FM_PrecacheGeneric', gaps: precached },
+	// The player's movement.
+	move: { class: 'A', backend: 'the module\'s Metamod hook of PM_Move', post: true },
 };
 
 /**
@@ -294,7 +296,6 @@ export const NOT_HEARD: Record<string, string> = {
 	joiningThink: 'a non-virtual function of the player; no stock hook',
 	recoil: 'a non-virtual function inside a weapon\'s attack',
 	ladderMove: 'player movement inside the game\'s PM_Move; no stock hook',
-	move: 'the game\'s PM_Move: fakemeta has no forward for it',
 	spectateNext: 'a non-virtual function of the player; no stock hook',
 	canSpectate: 'a non-virtual function of the player; no stock hook',
 	observerSetMode: 'a non-virtual function of the player, which the game calls itself; the specmode command is one of its callers',

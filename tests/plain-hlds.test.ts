@@ -202,7 +202,9 @@ test('each of them is heard on plain HLDS, fully or with its gaps, or is not, wi
 	expect(said).toEqual([]);
 	expect([...unheardEvents()].sort()).toEqual(Object.keys(NOT_HEARD).sort());
 	for (const event of ['playerSpawn', 'roundEnd', 'newRound', 'roundStart', 'addMoney', 'plantBomb']) expect(HEARD[event]?.class).toBe('B');
-	for (const event of ['fallDamage', 'move', 'canHaveItem']) expect(NOT_HEARD[event]).toBeString();
+	for (const event of ['fallDamage', 'airMove', 'canHaveItem']) expect(NOT_HEARD[event]).toBeString();
+	// A player's move, through the module's own hook of PM_Move.
+	expect(HEARD.move?.class).toBe('A');
 });
 
 test('the game events page lists what plain HLDS does not give of each, in both languages', () => {
