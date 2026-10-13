@@ -6508,35 +6508,19 @@ static int ExecuteWith(int id, const int32_t *words, std::index_sequence<I...>)
 	return g_moduleExecuteForward(id, words[I]...);
 }
 
-// Reads the caller's stack past its arguments (ModuleExecuteForward), which
-// AddressSanitizer would take for an overflow of the caller's locals.
-#ifdef _MSC_VER
-#define STACK_WORDS
-#else
-#define STACK_WORDS __attribute__((no_sanitize_address))
-#endif
-
 /**
- * MF_ExecuteForward(id, ...) - AMX Mod X's, the Pawn plugins' publics, then
- * the TypeScript subscribers of the forward's name, unless a public stopped
- * it. The function is variadic and cdecl, on i386 its arguments are words on
- * the stack: they go on to AMX Mod X as the module pushed them, with more
- * words after them than the forward has - which AMX Mod X does not read - so
- * a forward this module never noted (one for a single plugin) passes through
- * whole. They are read here by the forward's FP_*
- * only when someone listens: a number as it is, an FP_FLOAT's double made a
- * Float, a by-reference value through its pointer, and a string and an array
- * copied into the image's heap for as long as the subscribers run.
+ * A module's ExecuteForward with its words read (ModuleExecuteForward): AMX
+ * Mod X's, the Pawn plugins' publics, then the TypeScript subscribers of the
+ * forward's name, unless a public stopped it. The words go on to AMX Mod X
+ * as the module pushed them, more of them than the forward has - which AMX
+ * Mod X does not read - so a forward this module never noted (one for a
+ * single plugin) passes through whole. They are read here by the forward's
+ * FP_* only when someone listens: a number as it is, an FP_FLOAT's double
+ * made a Float, a by-reference value through its pointer, and a string and
+ * an array copied into the image's heap for as long as the subscribers run.
  */
-STACK_WORDS static int ModuleExecuteForward(int id, ...)
+static int ExecuteModuleForward(int id, const int32_t *words)
 {
-	int32_t words[FORWARD_WORDS];
-	va_list list;
-	va_start(list, id);
-	for (int i = 0; i < FORWARD_WORDS; i++)
-		words[i] = va_arg(list, int32_t);
-	va_end(list);
-
 	// The arrays as prepared for this call: a public may prepare its own.
 	ModuleArray arrays[MAX_FORWARD_ARGS];
 	bool listened = Listened(id) != NULL;
@@ -6580,6 +6564,29 @@ STACK_WORDS static int ModuleExecuteForward(int id, ...)
 	}
 	g_image->hea = mark;
 	return result;
+}
+
+/**
+ * MF_ExecuteForward(id, ...): the function is variadic and cdecl, and on
+ * i386 its arguments are words on the stack, read here as they lay - more of
+ * them than the module pushed. The words past its arguments are the caller's
+ * stack, which AddressSanitizer would take for an overflow of the caller's
+ * locals, so this function is built without it, and holds nothing else: GCC
+ * inlines no always_inline function into it.
+ */
+#ifdef _MSC_VER
+static int ModuleExecuteForward(int id, ...)
+#else
+__attribute__((no_sanitize_address)) static int ModuleExecuteForward(int id, ...)
+#endif
+{
+	int32_t words[FORWARD_WORDS];
+	va_list list;
+	va_start(list, id);
+	for (int i = 0; i < FORWARD_WORDS; i++)
+		words[i] = va_arg(list, int32_t);
+	va_end(list);
+	return ExecuteModuleForward(id, words);
 }
 
 /**
