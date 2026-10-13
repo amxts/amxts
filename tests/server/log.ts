@@ -1,7 +1,8 @@
 // The game's log on a real server: the `log` event hears each line the game
 // logs, and read_logargv reads its arguments as AMX Mod X splits them - a
 // quoted text is one, the words between are one. A bot's chat line is
-// logged as `"Name<id><BOT><TEAM>" say "text"`.
+// logged as `"Name<id><BOT><TEAM>" say "text"`, with ` (dead)` after it when
+// the bot is dead - a fourth argument.
 import { read_logargc, read_logargv, read_logdata } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
@@ -34,8 +35,9 @@ async function run() {
 	bot.command(`say "${TEXT}"`);
 	for (let waits = 0; waits < 10 && line.length == 0; waits++) await sleep(50);
 
-	check.expect(line.endsWith(`say "${TEXT}"`), `the line is heard whole (${line})`).toBe(true);
-	check.expect(args.length, "in three arguments").toBe(3);
+	const dead = line.endsWith(" (dead)");
+	check.expect(line.endsWith(`say "${TEXT}"${dead ? " (dead)" : ""}`), `the line is heard whole (${line})`).toBe(true);
+	check.expect(args.length, "in three arguments, a fourth when the bot is dead").toBe(dead ? 4 : 3);
 	check.expect(args.length > 0 && args[0].startsWith(`${bot.name}<`), `the first is the player, without its quotes (${args.length > 0 ? args[0] : ""})`).toBe(true);
 	check.expect(args.length > 2 ? args[2] : "", "the last is the text, without its quotes").toBe(TEXT);
 	check.done();
