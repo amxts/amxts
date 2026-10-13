@@ -411,7 +411,6 @@ function slotOf(kind: string): number {
 	return 1;
 }
 
-/** A player: what the natives read, and what he was shown. */
 /** The fields of `player.movement`, in the module's order, with the cvar each is the server's of and its default. */
 const MOVEMENT_FIELDS = [
 	['accelerate', 'sv_accelerate', 10],
@@ -426,6 +425,7 @@ const MOVEMENT_FIELDS = [
 
 export type MovementField = typeof MOVEMENT_FIELDS[number][0];
 
+/** A player: what the natives read, and what he was shown. */
 export class FakePlayer extends FakeEntity {
 	connected = true;
 	alive: boolean;
