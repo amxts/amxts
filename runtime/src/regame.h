@@ -906,9 +906,10 @@ static bool OriginalRulesHooked()
 /**
  * Whether the original game rules' function g_rulesInfo[rules] can be
  * hooked: its slot holds the function its name in the game library says.
- * All are checked at once, the first time, on the rules the game has then;
- * one that is not where it is expected is said in the console and never
- * hooked.
+ * The table is found by its own name there, not through the rules object,
+ * which the game makes as the map's world spawns - after the plugins load
+ * and add their listeners. All are checked at once, the first time; one
+ * that is not where it is expected is said in the console and never hooked.
  */
 static bool RulesHookable(int rules)
 {
@@ -916,20 +917,26 @@ static bool RulesHookable(int rules)
 	(void)rules;
 	return false;
 #else
-	static signed char checked[RULES_COUNT]; // 1 hookable, -1 not, 0 not checked yet
-	re::OriginalRules *object = OriginalRulesHooked() ? OriginalRulesObject() : NULL;
-	if (!checked[rules] && object) {
-		void **table = *(void ***)object;
-		const char *names[RULES_COUNT];
-		void *named[RULES_COUNT];
+	static signed char checked[RULES_COUNT]; // 1 hookable, -1 not
+	static bool done = false;
+	if (!done && OriginalRulesHooked()) {
+		done = true;
+		const char *names[RULES_COUNT + 1];
+		void *named[RULES_COUNT + 1];
 		for (int i = 0; i < RULES_COUNT; i++)
 			names[i] = g_rulesInfo[i].symbol;
-		LibrarySymbols(table, names, named, RULES_COUNT);
+		names[RULES_COUNT] = "_ZTV18CHalfLifeMultiplay";
+		// g_pGameRules is the game library's own: where to read its names.
+		LibrarySymbols(g_rulesAddress, names, named, RULES_COUNT + 1);
+		// An object points past the table's offset to the top and its type's info.
+		void **table = named[RULES_COUNT] ? (void **)named[RULES_COUNT] + 2 : NULL;
+		if (!table)
+			MF_PrintSrvConsole("[amxts] the game rules' table is not named in this game: their questions are not hooked\n");
 		for (int i = 0; i < RULES_COUNT; i++) {
-			bool same = named[i] && RulesSlotFunction(table, g_rulesInfo[i].slot) == named[i];
+			bool same = table && named[i] && RulesSlotFunction(table, g_rulesInfo[i].slot) == named[i];
 			checked[i] = same ? 1 : -1;
 			g_chainPoints[g_rulesInfo[i].chain].vtable = table;
-			if (!same)
+			if (table && !same)
 				MF_PrintSrvConsole("[amxts] the game rules' %s is not where amxts expects it in this game: it is not hooked\n", names[i]);
 		}
 	}
