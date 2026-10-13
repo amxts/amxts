@@ -15,6 +15,10 @@ game.addEventListener("think", () => console.log("no class"));
 
 server.addCommand<WeaponArgs>("ham_stab <id>", ({ id }) => stab(id));
 server.addCommand<WeaponArgs>("ham_deploy <id>", ({ id }) => deploy(id));
+server.addCommand<WeaponArgs>("ham_touch <id>", ({ player, id }) => new Entity(id).touch(player));
+server.addCommand<WeaponArgs>("ham_touch_alone <id>", ({ player, id }) => new Entity(id).touch(player, { hooks: false }));
+server.addCommand<WeaponArgs>("ham_restart <id>", ({ id }) => new Entity(id).restart());
+game.addEventListener("touch", event => console.log(`touched ${event.touched.id} by ${event.toucher.id}`), { touched: "trigger_teleport" });
 
 interface WeaponArgs {
 	id: number;

@@ -4304,6 +4304,8 @@ static int32_t w_playerRemoveSlot(wasm_exec_env_t env, int32_t id, int32_t slot)
 static void w_playerDrop(wasm_exec_env_t env, int32_t id, int32_t name);
 static int32_t w_playerStat(wasm_exec_env_t env, int32_t id, int32_t what);
 static int32_t w_userInfo(wasm_exec_env_t env, int32_t id, int32_t key, int32_t out, int32_t max);
+static void w_entityRun(wasm_exec_env_t env, int32_t id, int32_t function);
+static void w_entityTouch(wasm_exec_env_t env, int32_t touched, int32_t toucher);
 static void w_setUserInfo(wasm_exec_env_t env, int32_t id, int32_t key, int32_t value);
 static int32_t w_envGet(wasm_exec_env_t env, int32_t name, int32_t out, int32_t max);
 static int32_t w_playerSilent(wasm_exec_env_t env, int32_t id, int32_t on);
@@ -4422,6 +4424,8 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "player_silent",  (void *)w_playerSilent,  "(ii)i", NULL },
 	{ "geo_country",    (void *)w_geoCountry,    "(iiii)i", NULL },
 	{ "player_switch_team", (void *)w_playerSwitchTeam, "(i)", NULL },
+	{ "entity_run",     (void *)w_entityRun,     "(ii)",  NULL },
+	{ "entity_touch",   (void *)w_entityTouch,   "(ii)",  NULL },
 	{ "player_model",   (void *)w_playerModel,   "(iii)", NULL },
 	{ "player_model_get", (void *)w_playerModelGet, "(iii)i", NULL },
 	{ "hud_line",       (void *)w_hudLine,       "()i", NULL },

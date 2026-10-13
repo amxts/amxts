@@ -50,6 +50,31 @@ test('an action with { hooks: false } runs the game\'s function alone', async ()
 	expect(server.log).not.toContain('stab');
 });
 
+test('touch: a touch as the engine makes one, its listeners heard; { hooks: false } is the entity\'s Touch alone', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	const trap = server.createEntity('trigger_teleport');
+
+	alice.command(`ham_touch ${trap.id}`);
+
+	expect(server.engineCalls).toContain(`Touch ${trap.id} ${alice.id}`);
+	expect(server.log).toContain(`touched ${trap.id} by ${alice.id}`);
+
+	alice.command(`ham_touch_alone ${trap.id}`);
+
+	expect(server.hamCalls).toEqual([{ fn: constant('Ham_Touch'), entity: trap.id, args: [alice.id], hooks: false }]);
+});
+
+test('restart: the entity\'s own function, run as ExecuteHamB runs it', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	const door = server.createEntity('func_door');
+
+	alice.command(`ham_restart ${door.id}`);
+
+	expect(server.hamCalls).toEqual([{ fn: constant('Ham_CS_Restart'), entity: door.id, args: [], hooks: true }]);
+});
+
 test('takeDamage on another class: the entity, a writable damage and an answer, through Ham Sandwich', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');

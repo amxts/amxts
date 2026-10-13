@@ -342,6 +342,62 @@ static void w_playerSpeed(wasm_exec_env_t env, int32_t id)
 		SayOnce("speed", "player.resetMaxSpeed() needs the game's ResetMaxSpeed, which this server's gamedata does not have");
 }
 
+#define HAM_IDS 512 // above the largest Ham_* constant
+
+/**
+ * entity_run(id, function) - an entity's own function of no arguments, by
+ * its Ham_* constant (entity.restart(), entity.think()): its slot in the
+ * table is found once a function.
+ */
+static void w_entityRun(wasm_exec_env_t env, int32_t id, int32_t function)
+{
+	(void)env;
+	static int slots[HAM_IDS];
+	static bool started = false;
+	if (!started) {
+		std::fill(slots, slots + HAM_IDS, -1);
+		started = true;
+	}
+	if (function < 0 || function >= HAM_IDS)
+		return;
+
+	int &slot = slots[function];
+	const char *key = "";
+	for (int i = 0; slot < 0 && i < HAM_COUNT; i++)
+		if (g_hamInfo[i].id == function)
+			key = g_hamInfo[i].key;
+	RunVirtual(ObjectOf(id), key, slot);
+}
+
+#ifdef _WIN32
+typedef void (__fastcall *TouchMethod)(void *self, int, void *other);
+#define CALL_TOUCH(fn, self, other) ((TouchMethod)(fn))(self, 0, other)
+#else
+typedef void (*TouchMethod)(void *self, void *other);
+#define CALL_TOUCH(fn, self, other) ((TouchMethod)(fn))(self, other)
+#endif
+
+/**
+ * entity_touch(touched, toucher) - `toucher` touches the entity: the
+ * plugins' touch handlers first, as the engine's touch reaches them, then,
+ * unless one blocked it, the entity's Touch through its table, as
+ * ExecuteHamB runs it - Ham Sandwich's listeners hear it, a Metamod
+ * plugin's hook of DispatchTouch does not. The game's DispatchTouch skips
+ * an entity on its way out, and so does this.
+ */
+static void w_entityTouch(wasm_exec_env_t env, int32_t touched, int32_t toucher)
+{
+	(void)env;
+	static int slot = -1;
+	edict_t *a = (edict_t *)EdictOf(touched);
+	edict_t *b = (edict_t *)EdictOf(toucher);
+	if (!a || !b || !a->pvPrivateData || !b->pvPrivateData || ((a->v.flags | b->v.flags) & FL_KILLME))
+		return;
+	if (!TouchHeard(a, b) || (slot < 0 && !HamOffset("touch", &slot)))
+		return;
+	CALL_TOUCH(VtableOfObject(a->pvPrivateData)[slot], a->pvPrivateData, b->pvPrivateData);
+}
+
 /**
  * player_switch(id, classname) - puts a weapon he carries into his hands:
  * ReGameDLL's SwitchWeapon, else the weapon's own command, which the game

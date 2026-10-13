@@ -755,15 +755,11 @@ static int32_t w_touch_hook(wasm_exec_env_t env, int32_t touched, int32_t touche
 	return AddOtherHook(p.point, fn, 0);
 }
 
-/**
- * The game's DispatchTouch: `other` moved into `touched`. The handlers
- * get (touched, toucher) and block it with handled(). The engine module,
- * after the module in Metamod's list, hears it after them.
- */
-void DispatchTouch(edict_t *touched, edict_t *other)
+/** The touch handlers of these two, (touched, toucher): false when one blocked it with handled(). */
+static bool TouchHeard(edict_t *touched, edict_t *other)
 {
-	if (!g_touchesHooked || !touched || !other)
-		RETURN_META(MRES_IGNORED);
+	if (!g_touchesHooked)
+		return true;
 
 	static const unsigned char roles[2] = { ROLE_EDICT, ROLE_EDICT };
 	const char *a = STRING(touched->v.classname);
@@ -779,7 +775,19 @@ void DispatchTouch(edict_t *touched, edict_t *other)
 		if (!call.Pre())
 			blocked = true;
 	}
-	RETURN_META(blocked ? MRES_SUPERCEDE : MRES_IGNORED);
+	return !blocked;
+}
+
+/**
+ * The game's DispatchTouch: `other` moved into `touched`. The handlers
+ * get (touched, toucher) and block it with handled(). The engine module,
+ * after the module in Metamod's list, hears it after them.
+ */
+void DispatchTouch(edict_t *touched, edict_t *other)
+{
+	if (!touched || !other || TouchHeard(touched, other))
+		RETURN_META(MRES_IGNORED);
+	RETURN_META(MRES_SUPERCEDE);
 }
 
 // ---------------------------------------------------------------- fakemeta's functions

@@ -2705,6 +2705,19 @@ export class FakeServer {
 			NATIVES.rg_round_respawn({ server: this, plugin, memory: plugin.memory }, [id]);
 		},
 		player_speed() {},
+		// The entity's own function of no arguments, as ExecuteHamB runs it: kept in hamCalls, the class's listeners run.
+		entity_run(this: FakeServer, plugin: PluginInstance, id: number, fn: number) {
+			this.hamCalls.push({ fn, entity: id, args: [], hooks: true });
+			const shape = [...tables().hooks.values()].find(one => one.ham === fn);
+			if (shape) this.runHam(shape, id, []);
+		},
+		// A touch the engine makes: kept in engineCalls, the touch listeners run.
+		entity_touch(this: FakeServer, plugin: PluginInstance, touched: number, toucher: number) {
+			const [a, b] = [this.entities.get(touched), this.entities.get(toucher)];
+			if (!a || !b) return;
+			this.engineCalls.push(`Touch ${touched} ${toucher}`);
+			this.touch(b, a);
+		},
 		player_switch(this: FakeServer, plugin: PluginInstance, id: number, name: number) {
 			return switchTo(this.player(id), plugin.memory.string(name));
 		},

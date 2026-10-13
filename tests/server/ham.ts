@@ -9,6 +9,7 @@ let jumps = 0;
 let deploys = 0;
 
 game.addEventListener("think", onThink, { classname: "info_target" });
+game.addEventListener("restart", onRestart, { classname: "info_target" });
 game.addEventListener("jump", countJump);
 game.addEventListener("deploy", onDeploy, { classname: "weapon_knife" });
 
@@ -18,6 +19,12 @@ function countJump() {
 
 function onThink(event: ThinkEvent) {
 	thought.push(event.entity.id);
+}
+
+let restarts = 0;
+
+function onRestart() {
+	restarts++;
 }
 
 function onDeploy() {
@@ -38,6 +45,9 @@ function run() {
 		check.expect(thought.join(","), "its think is heard on its class").toBe(`${box.id}`);
 		box.think({ hooks: false });
 		check.expect(thought.length, "{ hooks: false } runs the game's function alone").toBe(1);
+		box.restart();
+		box.restart({ hooks: false });
+		check.expect(restarts, "its restart is heard, but not the one with { hooks: false }").toBe(1);
 		box.remove();
 	}
 

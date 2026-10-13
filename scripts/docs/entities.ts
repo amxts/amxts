@@ -2004,6 +2004,14 @@ Pawn: \`emit_sound\`, \`rh_emit_sound2\``,
 
 Pawn: \`emit_sound\`, \`rh_emit_sound2\``,
 	},
+	'Entity.touch': {
+		en: `Makes \`toucher\` touch the entity, as when it moves into it: \`trap.touch(player)\` runs the trap's teleport or damage on the player. Every \`touch\` listener hears it, as it hears the game's own touches; \`{ hooks: false }\` runs the entity's touch alone.
+
+Pawn: \`ExecuteHamB(Ham_Touch, ...)\`, \`ExecuteHam\`, \`fake_touch\``,
+		ru: `Заставляет \`toucher\` коснуться сущности, как будто он в неё вошёл: \`trap.touch(player)\` запускает телепорт или урон ловушки на игроке. Его слышит каждый слушатель \`touch\`, как и касания самой игры; \`{ hooks: false }\` запускает только касание сущности.
+
+Pawn: \`ExecuteHamB(Ham_Touch, ...)\`, \`ExecuteHam\`, \`fake_touch\``,
+	},
 	'Entity.setSize': {
 		en: `Sets the entity's bounding box, the corners relative to its \`origin\`: \`box.setSize([-16, -16, 0], [16, 16, 72])\`. \`mins\`, \`maxs\`, \`size\` and where it collides follow. A box whose \`mins\` is above its \`maxs\` on any axis is refused, with an error in the console.
 

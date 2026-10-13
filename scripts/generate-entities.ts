@@ -754,7 +754,8 @@ function methodDoc(key: string) {
 // A Ham Sandwich function that is an action - a weapon's deploy, an entity's
 // takeDamage - as a method of the class it runs on (scripts/ham-functions.ts):
 // ExecuteHamB, which runs every plugin's listeners on it, or ExecuteHam with
-// `{ hooks: false }`.
+// `{ hooks: false }`. One of no arguments and no answer the module runs
+// itself through the entity's table (entity_run), as ExecuteHamB does.
 
 const ACTION_TYPES: Record<HamKind, string> = {
 	entity: 'Entity',
@@ -792,9 +793,11 @@ function actions(target: HamFunction['target'], owner: string, fields: Field[]) 
 	const clash = methods.find(f => fields.some(field => field.name === f.event));
 	if (clash) throw new Error(`${clash.ham}: ${owner} has a field named ${clash.event} - leave the method out`);
 	return methods.map((f) => {
-		const params = [...f.params.map(param => `${param.name}: ${ACTION_TYPES[param.kind]}`), 'options: ActionOptions = {}'].join(', ');
+		const params = [...f.params.map(param => `${param.name}: ${ACTION_TYPES[param.kind]}`), 'options: ActionOptions = NO_ACTION_OPTIONS'].join(', ');
 		const call = `hamCall(${f.ham}, this.id, options)${f.params.map(actionArgument).join('')}.run()`;
-		const body = f.answer === 'bool' ? `return ${call} != 0;` : f.answer === 'int' ? `return ${call};` : `${call};`;
+		const answer = f.answer === 'bool' ? `return ${call} != 0;` : f.answer === 'int' ? `return ${call};` : `${call};`;
+		const run = f.params.length === 0 && f.answer === 'none';
+		const body = run ? `if (options.hooks ?? true) _entityRun(this.id, ${f.ham});\n\t\telse ${call};` : answer;
 		const type = f.answer === 'bool' ? 'bool' : f.answer === 'int' ? 'number' : 'void';
 		return [`\t${methodDoc(`${owner}.${f.event}`)}`, `\t${f.event}(${params}): ${type} {`, `\t\t${body}`, `\t}`].join('\n');
 	}).join('\n\n');
@@ -1110,7 +1113,7 @@ import {
 	NATIVE_ExecuteHam, NATIVE_ExecuteHamB
 } from "./natives";
 import {
-	${chunk([...new Set(gameRules.map(f => f.reapi).concat(stringKeys, ['EV_SZ_classname', 'EV_SZ_model', 'EV_INT_flags', 'EV_ENT_owner', 'FL_KILLME', 'GL_maxEntities', 'MSG_ALL', 'MSG_ONE', 'ARMOR_VESTHELM', 'print_center'], HAM_FUNCTIONS.filter(f => f.method).map(f => f.ham)))]).join(',\n\t')}
+	${chunk([...new Set(gameRules.map(f => f.reapi).concat(stringKeys, ['EV_SZ_classname', 'EV_SZ_model', 'EV_INT_flags', 'EV_ENT_owner', 'FL_KILLME', 'GL_maxEntities', 'MSG_ALL', 'MSG_ONE', 'ARMOR_VESTHELM', 'print_center'], HAM_FUNCTIONS.filter(f => f.method).map(f => f.ham), ['Ham_Touch']))]).join(',\n\t')}
 } from "./constants";
 
 /** A name's number when it has none ("unknown"): the setter then leaves the field alone. */
@@ -1127,6 +1130,15 @@ const USE_TYPES: UseType[] = ["off", "on", "set", "toggle"];
 // The engine's DropToFloor: 1 landed, 0 nothing under it, -1 stuck.
 // @ts-ignore: decorator
 @external("env", "entity_drop") declare function _entityDrop(id: i32): i32;
+// The entity's own function of no arguments, by its Ham_* constant, through its table.
+// @ts-ignore: decorator
+@external("env", "entity_run") declare function _entityRun(id: i32, fn: i32): void;
+// A touch: the plugins' touch handlers, then the entity's Touch through its table.
+// @ts-ignore: decorator
+@external("env", "entity_touch") declare function _entityTouch(touched: i32, toucher: i32): void;
+
+// An action's options when none are given: made once, not at every call.
+const NO_ACTION_OPTIONS: ActionOptions = {};
 
 /**
  * An action's call: every plugin's listeners run on it, unless
@@ -1645,6 +1657,14 @@ export class Entity {
 
 	${methodDoc('Entity.emitSound')}
 	emitSound(sample: string, options: SoundOptions = {}): void {
+	// Ham_Touch is no event (the touch event is the engine's, by both
+	// classes), so this one is written here.
+	${methodDoc('Entity.touch')}
+	touch(toucher: Entity, options: ActionOptions = NO_ACTION_OPTIONS): void {
+		if (options.hooks ?? true) _entityTouch(this.id, toucher.id);
+		else hamCall(Ham_Touch, this.id, options).ref(toucher.id).run();
+	}
+
 		const channel = max(SOUND_CHANNELS.indexOf(options.channel ?? "auto"), 0);
 		emit_sound(this.id, channel, sample, options.volume ?? 1.0, options.attenuation ?? 0.8, 0, options.pitch ?? 100.0);
 	}
