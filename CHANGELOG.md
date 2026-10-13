@@ -22,7 +22,7 @@ export const records = table("records", {
 	time: double().notNull(),
 });
 
-const db = new Database(env("MYPLUGIN_DB"));   // mysql://user:password@host:3306/kz, or jdbc:mysql://... as a game panel shows it
+const db = new Database(env("MYPLUGIN_DB"));   // mysql://user:password@host:3306/myplugin, or jdbc:mysql://... as a game panel shows it
 await db.create(records);
 
 const top = await db.select().from(records)
