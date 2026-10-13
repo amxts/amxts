@@ -54,6 +54,8 @@ player_give (ii)i
 player_strip (ii)
 player_respawn (i)
 player_speed (i)
+entity_run (ii)
+entity_touch (ii)
 player_switch (ii)i
 player_join (ii)i
 player_observe (ii)i
@@ -72,6 +74,7 @@ player_switch_team (i)
 player_model (iii)
 player_model_get (iii)i
 hud_line ()i
+hud_line2 (i)i
 hud_show (iiii)
 hud_clear (ii)
 state_hook (ii)i
@@ -95,7 +98,12 @@ change_level (i)i
 light_style (i)
 playback_block ()
 playback_to (ii)
+sound_to (ii)
+sound_emit (iiiiiii)
 player_light_style (ii)
+intermission ()
+player_movement (iiF)
+player_movement_get (ii)F
 player_view (ii)
 player_view_get (i)i
 plugins_count ()i
@@ -129,6 +137,11 @@ player_data_set (iiF)
 player_data_get_text (iiii)i
 player_data_set_text (iii)
 player_data_set_players (iii)
+entity_field_key (i)i
+entity_data_get (ii)F
+entity_data_set (iiF)
+entity_data_get_text (iiii)i
+entity_data_set_text (iii)
 player_slots (i)
 player_names (i)
 player_change_listen (ii)
@@ -185,6 +198,13 @@ net_size (i)i
 fs_read (iii)i
 fs_write (iiii)i
 zip_inflate (iiii)i
+job_start (iiiiii)i
+job_run (iiiii)i
+job_size (i)i
+job_read (iii)i
+job_crc (i)i
+job_error (iii)i
+job_close (i)
 net_read (iii)i
 net_reply (i)i
 db_open (ii)i
