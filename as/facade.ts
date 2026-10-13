@@ -3568,23 +3568,6 @@ export class Screen {
 	}
 }
 
-/**
- * The channel a sound plays on, one of `"auto"` (the default), `"weapon"`,
- * `"voice"`, `"item"`, `"body"`, `"stream"`, `"static"`. A new sound on an
- * entity's channel cuts the one playing there; `"auto"` never cuts.
- */
-export type SoundChannel = "auto" | "weapon" | "voice" | "item" | "body" | "stream" | "static";
-
-/** The options of `entity.emitSound`; every one has a default. */
-export interface SoundOptions {
-	/** The entity's channel the sound plays on; `"auto"` by default. */
-	channel?: SoundChannel;
-	/** The volume, `0` to `1`; `1` by default. */
-	volume?: number;
-	/** The sound's fall-off with distance: `0` is heard across the map, `0.8` (the default) as a footstep, `2` only close by. */
-	attenuation?: number;
-	/** The pitch in percent: `100` (the default) as recorded, `50` an octave lower, up to `255`. */
-	pitch?: number;
 // The fields of player.movement, in runtime/src/movement.h's order.
 const MOVEMENT_ACCELERATE: i32 = 0;
 const MOVEMENT_AIR_ACCELERATE: i32 = 1;
@@ -3678,6 +3661,23 @@ export class Movement {
 	}
 }
 
+/**
+ * The channel a sound plays on, one of `"auto"` (the default), `"weapon"`,
+ * `"voice"`, `"item"`, `"body"`, `"stream"`, `"static"`. A new sound on an
+ * entity's channel cuts the one playing there; `"auto"` never cuts.
+ */
+export type SoundChannel = "auto" | "weapon" | "voice" | "item" | "body" | "stream" | "static";
+
+/** The options of `entity.emitSound`; every one has a default. */
+export interface SoundOptions {
+	/** The entity's channel the sound plays on; `"auto"` by default. */
+	channel?: SoundChannel;
+	/** The volume, `0` to `1`; `1` by default. */
+	volume?: number;
+	/** The sound's fall-off with distance: `0` is heard across the map, `0.8` (the default) as a footstep, `2` only close by. */
+	attenuation?: number;
+	/** The pitch in percent: `100` (the default) as recorded, `50` an octave lower, up to `255`. */
+	pitch?: number;
 }
 
 // A precached file's index lives in the module's store of player fields, in
@@ -4788,6 +4788,20 @@ export class Server {
 	}
 
 	/**
+	 * Shows every player the intermission: the scoreboard, their view still.
+	 * It lasts until the map changes:
+	 *
+	 * ```ts
+	 * server.intermission();
+	 * setTimeout(() => server.changeLevel("de_dust2"), 5000);
+	 * ```
+	 * Pawn: `message_begin(MSG_ALL, SVC_INTERMISSION)`
+	 */
+	intermission(): void {
+		_intermission();
+	}
+
+	/**
 	 * The map's light, `"a"` the darkest to `"z"` the brightest, `"m"` the
 	 * map's own: `server.lightStyle = "b"`. It lasts until the map changes.
 	 *
@@ -4816,20 +4830,6 @@ export class Server {
 	/**
 	 * Runs a command in the server console, as if typed there:
 	 * `server.command("changelevel de_dust2")`. The text goes as it is: a `%` stays a `%`.
-	/**
-	 * Shows every player the intermission: the scoreboard, their view still.
-	 * It lasts until the map changes:
-	 *
-	 * ```ts
-	 * server.intermission();
-	 * setTimeout(() => server.changeLevel("de_dust2"), 5000);
-	 * ```
-	 * Pawn: `message_begin(MSG_ALL, SVC_INTERMISSION)`
-	 */
-	intermission(): void {
-		_intermission();
-	}
-
 	 *
 	 * Pawn: `server_cmd`
 	 */

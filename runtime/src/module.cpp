@@ -4275,16 +4275,16 @@ static void MenuMessage(int type, edict_t *ed)
 // Messages, the log, cvars, touches and fakemeta's functions, through Metamod.
 #include "enginehooks.h"
 
+// The playermove of the move PM_Move is running while the plain-HLDS move
+// event is heard (movement.h); NULL otherwise.
+static playermove_t *g_pmoveHeard;
+
 /**
  * move_get(field) - the player's movement the game is running, as ReGameDLL
  * keeps it, or as PM_Move gave it without ReGameDLL: 0 what he has touched
  * so far, 1 the frame's seconds. 0 outside a movement event.
  */
 static double w_moveGet(wasm_exec_env_t env, int32_t field)
-// The playermove of the move PM_Move is running while the plain-HLDS move
-// event is heard (movement.h); NULL otherwise.
-static playermove_t *g_pmoveHeard;
-
 {
 	playermove_t *pm = g_regame ? g_regame->GetPlayerMove() : g_pmoveHeard;
 	if (!pm)
@@ -4298,6 +4298,8 @@ static int32_t w_playerGive(wasm_exec_env_t env, int32_t id, int32_t name);
 static void w_playerStrip(wasm_exec_env_t env, int32_t id, int32_t suit);
 static void w_playerRespawn(wasm_exec_env_t env, int32_t id);
 static void w_playerSpeed(wasm_exec_env_t env, int32_t id);
+static void w_entityRun(wasm_exec_env_t env, int32_t id, int32_t function);
+static void w_entityTouch(wasm_exec_env_t env, int32_t touched, int32_t toucher);
 static int32_t w_playerSwitch(wasm_exec_env_t env, int32_t id, int32_t name);
 static int32_t w_playerJoin(wasm_exec_env_t env, int32_t id, int32_t team);
 static int32_t w_playerObserve(wasm_exec_env_t env, int32_t id, int32_t mode);
@@ -4308,8 +4310,6 @@ static int32_t w_playerRemoveSlot(wasm_exec_env_t env, int32_t id, int32_t slot)
 static void w_playerDrop(wasm_exec_env_t env, int32_t id, int32_t name);
 static int32_t w_playerStat(wasm_exec_env_t env, int32_t id, int32_t what);
 static int32_t w_userInfo(wasm_exec_env_t env, int32_t id, int32_t key, int32_t out, int32_t max);
-static void w_entityRun(wasm_exec_env_t env, int32_t id, int32_t function);
-static void w_entityTouch(wasm_exec_env_t env, int32_t touched, int32_t toucher);
 static void w_setUserInfo(wasm_exec_env_t env, int32_t id, int32_t key, int32_t value);
 static int32_t w_envGet(wasm_exec_env_t env, int32_t name, int32_t out, int32_t max);
 static int32_t w_playerSilent(wasm_exec_env_t env, int32_t id, int32_t on);
@@ -4345,6 +4345,10 @@ static int32_t w_mapValid(wasm_exec_env_t env, int32_t name);
 static int32_t w_changeLevel(wasm_exec_env_t env, int32_t name);
 static void w_lightStyle(wasm_exec_env_t env, int32_t text);
 static void w_playerLightStyle(wasm_exec_env_t env, int32_t id, int32_t text);
+static void w_intermission(wasm_exec_env_t env);
+static void w_playerMovement(wasm_exec_env_t env, int32_t id, int32_t field, double value);
+static double w_playerMovementGet(wasm_exec_env_t env, int32_t id, int32_t field);
+static void ResetMovement(int id);
 static void w_playbackBlock(wasm_exec_env_t env);
 static void w_playbackTo(wasm_exec_env_t env, int32_t ids, int32_t count);
 static void w_playerView(wasm_exec_env_t env, int32_t id, int32_t target);
@@ -4352,10 +4356,6 @@ static int32_t w_playerViewGet(wasm_exec_env_t env, int32_t id);
 static int32_t w_pluginsCount(wasm_exec_env_t env);
 static int32_t w_pluginText(wasm_exec_env_t env, int32_t index, int32_t what, int32_t out, int32_t max);
 static int32_t w_pluginState(wasm_exec_env_t env, int32_t index);
-static void w_intermission(wasm_exec_env_t env);
-static void w_playerMovement(wasm_exec_env_t env, int32_t id, int32_t field, double value);
-static double w_playerMovementGet(wasm_exec_env_t env, int32_t id, int32_t field);
-static void ResetMovement(int id);
 static void w_pluginAction(wasm_exec_env_t env, int32_t name, int32_t action);
 static int32_t w_pawnPluginsCount(wasm_exec_env_t env);
 static int32_t w_pawnPluginText(wasm_exec_env_t env, int32_t index, int32_t what, int32_t out, int32_t max);
@@ -4417,6 +4417,8 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "player_strip",   (void *)w_playerStrip,   "(ii)",  NULL },
 	{ "player_respawn", (void *)w_playerRespawn, "(i)",   NULL },
 	{ "player_speed",   (void *)w_playerSpeed,   "(i)",   NULL },
+	{ "entity_run",     (void *)w_entityRun,     "(ii)",  NULL },
+	{ "entity_touch",   (void *)w_entityTouch,   "(ii)",  NULL },
 	{ "player_switch",  (void *)w_playerSwitch,  "(ii)i", NULL },
 	{ "player_join",    (void *)w_playerJoin,    "(ii)i", NULL },
 	{ "player_observe", (void *)w_playerObserve, "(ii)i", NULL },
@@ -4432,8 +4434,6 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "player_silent",  (void *)w_playerSilent,  "(ii)i", NULL },
 	{ "geo_country",    (void *)w_geoCountry,    "(iiii)i", NULL },
 	{ "player_switch_team", (void *)w_playerSwitchTeam, "(i)", NULL },
-	{ "entity_run",     (void *)w_entityRun,     "(ii)",  NULL },
-	{ "entity_touch",   (void *)w_entityTouch,   "(ii)",  NULL },
 	{ "player_model",   (void *)w_playerModel,   "(iii)", NULL },
 	{ "player_model_get", (void *)w_playerModelGet, "(iii)i", NULL },
 	{ "hud_line",       (void *)w_hudLine,       "()i", NULL },
@@ -4461,6 +4461,9 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "playback_block", (void *)w_playbackBlock, "()",   NULL },
 	{ "playback_to",    (void *)w_playbackTo,    "(ii)", NULL },
 	{ "player_light_style", (void *)w_playerLightStyle, "(ii)", NULL },
+	{ "intermission",   (void *)w_intermission,  "()",   NULL },
+	{ "player_movement", (void *)w_playerMovement, "(iiF)", NULL },
+	{ "player_movement_get", (void *)w_playerMovementGet, "(ii)F", NULL },
 	{ "player_view",    (void *)w_playerView,    "(ii)", NULL },
 	{ "player_view_get", (void *)w_playerViewGet, "(i)i", NULL },
 	{ "plugins_count",  (void *)w_pluginsCount,  "()i",   NULL },
@@ -4471,9 +4474,6 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "pawn_plugin_text",   (void *)w_pawnPluginText,   "(iiii)i", NULL },
 	{ "pawn_plugin_pause",  (void *)w_pawnPluginPause,  "(ii)i", NULL },
 	{ "reunion_key",    (void *)w_reunionKey,    "(iii)i", NULL },
-	{ "intermission",   (void *)w_intermission,  "()",   NULL },
-	{ "player_movement", (void *)w_playerMovement, "(iiF)", NULL },
-	{ "player_movement_get", (void *)w_playerMovementGet, "(ii)F", NULL },
 	{ "task",         (void *)w_task,         "(iii)i",  NULL },
 	{ "stop_task",    (void *)w_stopTask,     "(i)i", NULL },
 	{ "tag",          (void *)w_tag,          "(i)",  NULL },
@@ -6644,6 +6644,7 @@ static void Connected(int id)
 static void PutInServer(int id)
 {
 	g_inGame[id] = true;
+	ResetMovement(id);
 	RaiseFor(FORWARD_CLIENT_PUTINSERVER, id);
 }
 
@@ -6659,7 +6660,6 @@ static int ClientId(const edict_t *e)
 /**
  * client_disconnected, then the player's fields go - after every plugin has
  * heard him go, so a listener of the leave can still read them.
-	ResetMovement(id);
  */
 static void Disconnected(int id, bool dropped, const char *reason)
 {
@@ -7793,12 +7793,12 @@ static cell AMX_NATIVE_CALL n_amxclientCmd(AMX *amx, cell *params)
 
 // Traces through the world, and what is at a point.
 #include "traces.h"
-// A player's own movement variables.
-#include "movement.h"
-
 
 // The server's game, versions, map and light.
 #include "world.h"
+
+// A player's own movement variables.
+#include "movement.h"
 
 // HUD messages, sent by the module on channels it keeps per player.
 #include "hud.h"
@@ -7824,11 +7824,11 @@ void StartFrame_Post()
 	NetFrame();
 	JobsFrame();
 	DbFrame();
-	MovementFrame();
 	RunTimers();
 	ConfigTick();
 	CompareCvars();
 	PollSpeaking();
+	MovementFrame();
 	SettleCstrike(g_activated);
 	KeepStepsSilent();
 	KeepModels();

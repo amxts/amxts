@@ -830,6 +830,12 @@ export class FakeServer {
 	 * write. A test fills it before the plugin reads, and reads it after.
 	 */
 	readonly files = new Map<string, Uint8Array>();
+	/**
+	 * The files of the game's other folders (`valve/`, `cstrike_downloads/`), by
+	 * the path the game reads them at (`sound/items/gunpickup2.wav`):
+	 * `fs.existsSync(path, { game: true })` finds these as well as `files`.
+	 */
+	readonly gameFiles = new Set<string>();
 	/** Folders that are there with nothing in them; a file's folders are there anyway. */
 	readonly folders = new Set<string>(['addons', 'addons/amxmodx', 'addons/amxmodx/configs', 'addons/amxmodx/data']);
 	/** What get_localinfo answers: the folders AMX Mod X was told about. */
@@ -849,12 +855,6 @@ export class FakeServer {
 	private nextCellArray = 1;
 	/** fopen's and open_dir's handles. @internal */
 	readonly handles = new Map<number, { path: string; position: number } | { entries: string[]; next: number }>();
-	/**
-	 * The files of the game's other folders (`valve/`, `cstrike_downloads/`), by
-	 * the path the game reads them at (`sound/items/gunpickup2.wav`):
-	 * `fs.existsSync(path, { game: true })` finds these as well as `files`.
-	 */
-	readonly gameFiles = new Set<string>();
 
 	/** Everything below is the module's state. @internal */
 	readonly events = new Map<string, Handler[]>();
@@ -2724,6 +2724,18 @@ export class FakeServer {
 			NATIVES.rg_round_respawn({ server: this, plugin, memory: plugin.memory }, [id]);
 		},
 		player_speed() {},
+		// The module sends his game the set the next frame; here the set is what he has.
+		player_movement(this: FakeServer, plugin: PluginInstance, id: number, field: number, value: number) {
+			const player = this.player(id);
+			const name = MOVEMENT_FIELDS[field]?.[0];
+			if (!player || !name) return;
+			if (Number.isNaN(value)) delete player.movement[name];
+			else player.movement[name] = value;
+		},
+		player_movement_get(this: FakeServer, plugin: PluginInstance, id: number, field: number) {
+			const [name, cvar, value] = MOVEMENT_FIELDS[field] ?? ['', '', 0];
+			return this.player(id)?.movement[name as MovementField] ?? Number(this.cvar(cvar) ?? value);
+		},
 		// The entity's own function of no arguments, as ExecuteHamB runs it: kept in hamCalls, the class's listeners run.
 		entity_run(this: FakeServer, plugin: PluginInstance, id: number, fn: number) {
 			this.hamCalls.push({ fn, entity: id, args: [], hooks: true });
@@ -2736,18 +2748,6 @@ export class FakeServer {
 			if (!a || !b) return;
 			this.engineCalls.push(`Touch ${touched} ${toucher}`);
 			this.touch(b, a);
-		},
-		// The module sends his game the set the next frame; here the set is what he has.
-		player_movement(this: FakeServer, plugin: PluginInstance, id: number, field: number, value: number) {
-			const player = this.player(id);
-			const name = MOVEMENT_FIELDS[field]?.[0];
-			if (!player || !name) return;
-			if (Number.isNaN(value)) delete player.movement[name];
-			else player.movement[name] = value;
-		},
-		player_movement_get(this: FakeServer, plugin: PluginInstance, id: number, field: number) {
-			const [name, cvar, value] = MOVEMENT_FIELDS[field] ?? ['', '', 0];
-			return this.player(id)?.movement[name as MovementField] ?? Number(this.cvar(cvar) ?? value);
 		},
 		player_switch(this: FakeServer, plugin: PluginInstance, id: number, name: number) {
 			return switchTo(this.player(id), plugin.memory.string(name));
@@ -2918,6 +2918,9 @@ export class FakeServer {
 			this.lightStyle = plugin.memory.string(text) || 'm';
 			this.engineCalls.push(`LightStyle 0 ${this.lightStyle}`);
 		},
+		intermission(this: FakeServer) {
+			this.engineCalls.push('Intermission');
+		},
 		// The engine's lightstyle message to one player, as a message he was sent: "" is the server's light.
 		player_light_style(this: FakeServer, plugin: PluginInstance, id: number, text: number) {
 			const player = this.player(id);
@@ -2937,9 +2940,6 @@ export class FakeServer {
 			}
 		},
 		hud_clear(this: FakeServer, plugin: PluginInstance, id: number, line: number) {
-		intermission(this: FakeServer) {
-			this.engineCalls.push('Intermission');
-		},
 			this.engineCalls.push(`HudClear ${id} ${line}`);
 		},
 		// The model a plugin put on each player, by his id: written into his userinfo as the module does.

@@ -3465,6 +3465,28 @@ export default {
 			Pawn: \`is_map_valid\`
 		`,
 	},
+	'Server.intermission': {
+		en: `
+			Shows every player the intermission: the scoreboard, their view still.
+			It lasts until the map changes:
+
+			\`\`\`ts
+			server.intermission();
+			setTimeout(() => server.changeLevel("de_dust2"), 5000);
+			\`\`\`
+			Pawn: \`message_begin(MSG_ALL, SVC_INTERMISSION)\`
+		`,
+		ru: `
+			Показывает всем игрокам антракт: таблицу счёта, их взгляд замирает.
+			Он длится до смены карты:
+
+			\`\`\`ts
+			server.intermission();
+			setTimeout(() => server.changeLevel("de_dust2"), 5000);
+			\`\`\`
+			Pawn: \`message_begin(MSG_ALL, SVC_INTERMISSION)\`
+		`,
+	},
 	'Server.changeLevel': {
 		en: `
 			Goes to the map now: \`false\`, staying, for a map the server does not
@@ -3490,28 +3512,6 @@ export default {
 			Свет карты, от \`"a"\`, самого тёмного, до \`"z"\`, самого яркого; \`"m"\` —
 			свет самой карты: \`server.lightStyle = "b"\`. Держится до смены карты.
 
-	'Server.intermission': {
-		en: `
-			Shows every player the intermission: the scoreboard, their view still.
-			It lasts until the map changes:
-
-			\`\`\`ts
-			server.intermission();
-			setTimeout(() => server.changeLevel("de_dust2"), 5000);
-			\`\`\`
-			Pawn: \`message_begin(MSG_ALL, SVC_INTERMISSION)\`
-		`,
-		ru: `
-			Показывает всем игрокам антракт: таблицу счёта, их взгляд замирает.
-			Он длится до смены карты:
-
-			\`\`\`ts
-			server.intermission();
-			setTimeout(() => server.changeLevel("de_dust2"), 5000);
-			\`\`\`
-			Pawn: \`message_begin(MSG_ALL, SVC_INTERMISSION)\`
-		`,
-	},
 			Pawn: \`set_lights\`, \`engfunc(EngFunc_LightStyle, 0, ...)\`
 		`,
 	},
