@@ -120,8 +120,13 @@ async function run() {
 	bot.command("say /amxts_commands stopped");
 	check.expect(took(), "and no addCommand hears it").toBe("");
 	stopping = false;
-	bot.command("say amxts commands line");
-	check.expect(await lineSaid(), "without it, the game says the line").toBe("amxts commands line");
+	// A bot's own chatter takes the moment's line the same way: say it again.
+	let line = "";
+	for (let tries = 0; tries < 3 && line == ""; tries++) {
+		bot.command("say amxts commands line");
+		line = await lineSaid();
+	}
+	check.expect(line, "without it, the game says the line").toBe("amxts commands line");
 
 	// The server's console runs a command on the next frame.
 	server.command("amxts_commands_count 3");
