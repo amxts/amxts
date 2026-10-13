@@ -1,5 +1,205 @@
 # Changelog
 
+## v0.3.1
+
+> v0.3.1 is a patch release of the 0.3 line. Plugins built with 0.3.0 load on its module as they are; the new things need the 0.3.1 module, which `npx amxts upgrade` puts on your server.
+
+### 📣 Some news
+
+#### 🗄️ A database, built in
+
+A plugin that kept its records in `Storage` had them on one server only, and a plugin that wanted MySQL had to call a web service of its own in between. 👉 **In 0.3.1, MySQL is part of amxts.**
+
+The module speaks MySQL itself - no client library to install, TLS included, MariaDB too - and every query runs on its own thread, so the server never waits for the database. Tables are described in TypeScript, the way Drizzle does it, and the rows come back typed:
+
+```ts
+import { asc, double, eq, int, table, varchar } from "@amxts/core/database";
+
+export const records = table("records", {
+	id: int().primaryKey().autoincrement(),
+	steamId: varchar(32).notNull(),
+	map: varchar(64).notNull(),
+	time: double().notNull(),
+});
+
+const db = new Database(env("MYPLUGIN_DB"));   // mysql://user:password@host:3306/kz, or jdbc:mysql://... as a game panel shows it
+await db.create(records);
+
+const top = await db.select().from(records)
+	.where(eq(records.map, server.map))
+	.orderBy(asc(records.time))
+	.limit(10);
+
+await db.insert(records).values({ steamId: player.steamId, map: server.map, time })
+	.onConflictDoUpdate({ target: [records.steamId, records.map], set: { time } });
+```
+
+A misspelt column is an error in the editor. Every value goes to the server as a parameter, never as text in the SQL. Transactions (`db.transaction(async (tx) => ...)`), raw SQL beside the builder (`db.query<Row>(sql, [values])`), and bytes - a recording, a file - in BLOB columns as `Uint8Array`. Another database plugs in as a provider of its own scheme, with `Database.register`.
+
+#### ⚡ Nothing waits on the frame
+
+Unpacking a downloaded map held the server's frame for as long as it took, and players saw it. `fs.extract` now unpacks on the module's worker thread, and so do writing and reading bytes, and the new compression:
+
+```ts
+import * as zlib from "@amxts/core/zlib";
+
+for (const entry of await fs.extract(await response.arrayBuffer())) {
+	fs.writeFileSync(entry.path, entry.data);
+}
+
+await fs.writeFile(`${server.dataDir}/myplugin/${name}.rec.gz`, await zlib.gzip(recording));
+```
+
+`@amxts/core/zlib` is Node's: `gzip`, `gunzip`, `deflate`, `inflate`, the raw forms, and a `...Sync` of each.
+
+### 👀 Highlights
+
+#### 🏃 A player's own movement
+
+Air acceleration, friction, stop speed and the rest for one player - the server moves him with them and his game predicts them, on any server:
+
+```ts
+player.movement.airAccelerate = 100;   // strafes gain speed easily, for him alone
+player.movement.friction = 2;
+player.movement.reset();               // the server's again
+```
+
+#### 🧱 Fields of your own on entities
+
+The way plugins add fields to a player, they add them to an `Entity` - shared between plugins, gone with the entity:
+
+```ts
+declare module "@amxts/core" {
+	interface Entity {
+		doorSpeed: number;
+	}
+}
+
+door.doorSpeed = door.speed;
+```
+
+#### 🔊 Who hears what
+
+A sound or a shot can go to some players only - a player who hid the others no longer hears their steps:
+
+```ts
+game.addEventListener("startSound", (event) => {
+	event.recipients = server.players.filter(listener => !hidden(event.entity, listener));
+});
+
+door.emitSound("myplugin/creak.wav", { to: player });   // one player hears it
+```
+
+#### 📺 HUD lines that don't steal each other's channel
+
+A client shows four HUD channels. A line with a higher `priority` keeps its channel, and a line whose time is up gives it back:
+
+```ts
+const speed = new HudLine({ priority: 1 });   // redrawn every frame, always on screen
+```
+
+#### 🛠️ And more
+
+- `entity.touch(other)` and `entity.restart()`, done by the module;
+- `player.resetMaxSpeed()`, `player.jumpSlowdown`, `server.intermission()`;
+- `fs.existsSync(path, { game: true })` looks in every folder the game reads from;
+- on plain HLDS, the `move` event and `touchCount`/`frameTime` are heard too;
+- the language: `string | number | boolean | null` values, `number | null`, `T | T[]`, and a `Uint8Array` in JSON as base64.
+
+Each of the new calls is checked against its Pawn way in the speed suite, and is faster.
+
+### 🩹 Important fixes
+
+- `Storage.get` lost the last character of a value of 1 KB or more - JSON came back without its closing brace ([2599130](https://github.com/amxts/amxts/commit/2599130)).
+- A Pawn plugin's `amxclient_cmd` reaches TypeScript commands and the `"command"` event ([4e9118f](https://github.com/amxts/amxts/commit/4e9118f)).
+- `Infinity | 0` and every number past 2^63 convert as JavaScript does ([1add817](https://github.com/amxts/amxts/commit/1add817)).
+- A plugin may be named like a file of the core's API - `facade.ts`, `hooks.ts` ([501a354](https://github.com/amxts/amxts/commit/501a354)).
+- The module shows its own version in `amxx modules` and `meta list` ([2889b27](https://github.com/amxts/amxts/commit/2889b27)).
+- An arrow that returns an object literal gives the interface, so `rows.map((name) => ({ name, time }))` is a `Row[]` ([df82419](https://github.com/amxts/amxts/commit/df82419)).
+- In tests, `setTimeout(fn, 0)` from a listener no longer loops `server.advance` ([f6db4d4](https://github.com/amxts/amxts/commit/f6db4d4)).
+- A build stops, saying so, when the generated natives table is older than the core's code, instead of making a plugin every server refuses ([7f4c5af](https://github.com/amxts/amxts/commit/7f4c5af)).
+
+### ⚠️ Breaking changes
+
+Two, each listed or rewritten by `npx amxts upgrade`:
+
+| 0.3.0 | 0.3.1 | upgrade |
+| --- | --- | --- |
+| `fs.extract(bytes)` gives the entries | a Promise: `await fs.extract(bytes)`; the synchronous form is `fs.extractSync(bytes)` | rewrites a call without `await` to `fs.extractSync`; lists a named import or a reference handed on |
+| `startSound`'s `event.recipients` a number (`0`, `1`) | the players who hear it: `event.recipients = server.players.filter(...)` | lists each use |
+
+A binary column read into a `string` field comes as base64 now, not as the bytes decoded as text; read it into a `Uint8Array`, or `CAST(col AS CHAR)` in the SQL.
+
+### ✅ Upgrading
+
+Update the command with your project's package manager, then upgrade:
+
+```sh
+npm install -D @amxts/cli@latest   # pnpm add -D, yarn add -D, bun add -d
+npx amxts upgrade
+```
+
+It moves `@amxts/core` and `@amxts/menu-core` to 0.3.1, rewrites `fs.extract`, lists what to check by hand, builds, and puts the 0.3.1 module on the server in `AMXTS_SERVER`. Another server takes the module from the release and the `.aot` files from your build.
+
+### 👉 Changelog
+
+[compare changes](https://github.com/amxts/amxts/compare/v0.3.0...v0.3.1)
+
+### 🚀 Enhancements
+
+- **compiler:** A union of text, numbers and booleans ([9002ad0](https://github.com/amxts/amxts/commit/9002ad0))
+- **database:** MySQL from a plugin ([952e2e9](https://github.com/amxts/amxts/commit/952e2e9))
+- **compiler:** Number | null and one or a list ([21e7feb](https://github.com/amxts/amxts/commit/21e7feb))
+- **compiler:** A generic's arguments from a subclass ([dda7bf9](https://github.com/amxts/amxts/commit/dda7bf9))
+- **database:** A query builder on Database ([0c167ab](https://github.com/amxts/amxts/commit/0c167ab))
+- **database:** An address as a game panel gives it, jdbc: ([86870b9](https://github.com/amxts/amxts/commit/86870b9))
+- **zlib:** Node's zlib, off the frame on the module's worker ([f8aedcd](https://github.com/amxts/amxts/commit/f8aedcd))
+- **fs:** ⚠️  Extract and bytes off the frame ([8969c38](https://github.com/amxts/amxts/commit/8969c38))
+- **json:** A Uint8Array as base64 text ([177f545](https://github.com/amxts/amxts/commit/177f545))
+- **database:** Bytes as Uint8Array ([dcb0310](https://github.com/amxts/amxts/commit/dcb0310))
+- **fs:** `existsSync` in the game's other folders ([874c4e7](https://github.com/amxts/amxts/commit/874c4e7))
+- **entities:** Touch, and actions run by the module ([5cc7dfb](https://github.com/amxts/amxts/commit/5cc7dfb))
+- **players:** Own movement variables, `server.intermission` ([13ffbe4](https://github.com/amxts/amxts/commit/13ffbe4))
+- **hooks:** The move event on plain HLDS ([eda7288](https://github.com/amxts/amxts/commit/eda7288))
+- **sound:** ⚠️  Choose who hears a sound ([8adfbfa](https://github.com/amxts/amxts/commit/8adfbfa))
+- **hud:** HudLine priority, and channels taken by ending ([ed6f0ed](https://github.com/amxts/amxts/commit/ed6f0ed))
+- **entities:** Fields plugins add to Entity ([db61bed](https://github.com/amxts/amxts/commit/db61bed))
+
+### 🩹 Fixes
+
+- **storage:** A value of 1 KB or more read whole ([2599130](https://github.com/amxts/amxts/commit/2599130))
+- **module:** Its version in amxx modules and meta list ([2889b27](https://github.com/amxts/amxts/commit/2889b27))
+- **commands:** A Pawn plugin's `amxclient_cmd` reaches `addCommand` ([4e9118f](https://github.com/amxts/amxts/commit/4e9118f))
+- **compiler:** ToInt32 of numbers past 2^63 and Infinity ([1add817](https://github.com/amxts/amxts/commit/1add817))
+- **build:** A plugin may be named like a file of the core ([501a354](https://github.com/amxts/amxts/commit/501a354))
+- **compiler:** An arrow's returned literal is its interface ([df82419](https://github.com/amxts/amxts/commit/df82419))
+- **testing:** A timer armed while timers fire waits a frame ([f6db4d4](https://github.com/amxts/amxts/commit/f6db4d4))
+- **database:** The builder's hood type-checks in the editor ([20eb9be](https://github.com/amxts/amxts/commit/20eb9be))
+- **build:** A natives table older than the code stops the build ([7f4c5af](https://github.com/amxts/amxts/commit/7f4c5af))
+- **build:** A version bump makes cached compiles again ([aa89604](https://github.com/amxts/amxts/commit/aa89604))
+- **sound:** `emitSound`'s volume and attenuation as f32 bits ([d538c1e](https://github.com/amxts/amxts/commit/d538c1e))
+
+### 🔥 Performance
+
+- **player:** `resetMaxSpeed` without a gamedata search ([8145d3f](https://github.com/amxts/amxts/commit/8145d3f))
+- **entities:** Touch listeners matched by class number ([d1e9cb7](https://github.com/amxts/amxts/commit/d1e9cb7))
+- **entities:** A touch without a handler call's frame ([9d28099](https://github.com/amxts/amxts/commit/9d28099))
+
+### 📖 Documentation
+
+- **database:** The query builder first, raw SQL after ([fd721ba](https://github.com/amxts/amxts/commit/fd721ba))
+- **testing:** `server.storage` keys are the Map's iterator ([f7b8c38](https://github.com/amxts/amxts/commit/f7b8c38))
+- **pawn:** The From Pawn pages as the coverage script writes them ([0d76dc4](https://github.com/amxts/amxts/commit/0d76dc4))
+
+#### ⚠️ Breaking Changes
+
+- **fs:** ⚠️  Extract and bytes off the frame ([8969c38](https://github.com/amxts/amxts/commit/8969c38))
+- **sound:** ⚠️  Choose who hears a sound ([8adfbfa](https://github.com/amxts/amxts/commit/8adfbfa))
+
+### ❤️ Contributors
+
+- Ernest Manukyan ([@kukson777](https://github.com/kukson777))
+
 ## v0.3.0
 
 > v0.3.0 is the next minor release.
