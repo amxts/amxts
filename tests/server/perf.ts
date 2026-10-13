@@ -62,6 +62,7 @@ const LIMITS: Record<string, number> = {
 	"player.movement": 0.25,
 	"player.slowdown": 0.75,
 	"entity.touch": 1,
+	"entity.touch, heard": 1,
 	"entity.restart": 1,
 	"server.map": 0.5,
 	"raw hook": 1.5,
@@ -80,6 +81,13 @@ const LIMITS: Record<string, number> = {
 };
 
 let sink = 0;
+let touches = 0;
+
+game.addEventListener("touch", countTouch, { touched: "info_teleport_destination" });
+
+function countTouch() {
+	touches++;
+}
 let resets = 0;
 let rawResets = 0;
 let impulses = 0;
@@ -421,6 +429,7 @@ function measure(player: Player) {
 			player.jumpSlowdown = 0;
 		}
 	}));
+	// A class no other suite listens on: the game's functions alone, on both sides.
 	const target = Entity.create("info_target")!;
 	ours.set("entity.touch", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) target.touch(player);
@@ -429,6 +438,13 @@ function measure(player: Player) {
 		for (let i = 0; i < FEW; i++) target.restart();
 	}));
 	target.remove();
+	// The same with a listener of its class's touch, another class than
+	// perf-pawn.sma's RegisterHam: neither side hears the other's.
+	const heardTarget = Entity.create("info_teleport_destination")!;
+	ours.set("entity.touch, heard", nsEach(FEW, () => {
+		for (let i = 0; i < FEW; i++) heardTarget.touch(player);
+	}));
+	heardTarget.remove();
 	timeMoves(id);
 	ours.set("timer armed", nsEach(FEW, () => {
 		for (let i = 0; i < FEW; i++) clearTimeout(setTimeout(idle, 1000));
@@ -512,6 +528,7 @@ function said(what: string) {
 function compare(check: Checks, writes: number) {
 	const heard = FEW * TRIES;
 	check.expect(resets, "the listener heard every reset").toBe(heard);
+	check.expect(touches, "the touch listener heard every touch").toBe(TRIES * FEW);
 	check.expect(rawResets, "the raw hook heard every reset").toBe(heard);
 	check.expect(impulses, "the listener heard every impulse").toBe(IMPULSE_ROUNDS * IMPULSE_RUN);
 	check.expect(commands, "the handler got every command").toBe(heard);

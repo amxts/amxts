@@ -1136,7 +1136,7 @@ const USE_TYPES: UseType[] = ["off", "on", "set", "toggle"];
 // The entity's own function of no arguments, by its Ham_* constant, through its table.
 // @ts-ignore: decorator
 @external("env", "entity_run") declare function _entityRun(id: i32, fn: i32): void;
-// A touch: the plugins' touch handlers, then the entity's Touch through its table.
+// The plugins' touch listeners, then the entity's Touch through its table.
 // @ts-ignore: decorator
 @external("env", "entity_touch") declare function _entityTouch(touched: i32, toucher: i32): void;
 

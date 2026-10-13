@@ -47,6 +47,7 @@ enum
 	MOVE_VARS,
 	UNSLOW,
 	TOUCH,
+	TOUCH_HEARD,
 	RESTART,
 	REMAINDER,
 	DIVISORS,
@@ -73,8 +74,11 @@ new g_writes;
 new g_commands;
 new g_choices;
 new g_sayText;
-// The entity TOUCH and RESTART run on, made for the measure.
+// The entity TOUCH and RESTART run on, made for the measure, and the one
+// TOUCH_HEARD runs on, whose class's touch this plugin hears.
 new g_target;
+new g_heardTarget;
+new g_touches;
 
 // The menu perf.ts's bot chooses from: its handler shows it again.
 new g_menu;
@@ -93,6 +97,13 @@ new Float:g_firing = 1000000.0;
 // What the hot path keeps about each player between frames.
 new Float:g_x[33], Float:g_y[33], Float:g_speed[33], Float:g_top[33], Float:g_travelled[33];
 
+// A touch of TOUCH_HEARD's class, heard as perf.ts's listener hears its own.
+public on_touch(entity, other)
+{
+	g_touches++;
+	return HAM_IGNORED;
+}
+
 public plugin_init()
 {
 	register_plugin("amxts test: perf", "1.0", "amxts");
@@ -104,6 +115,7 @@ public plugin_init()
 	register_srvcmd("amxts_perf_pawn_menu", "show_menu_to");
 	register_srvcmd("amxts_perf_pawn_impulse", "time_listener");
 	register_srvcmd("amxts_perf_pawn_moves", "time_moves");
+	RegisterHam(Ham_Touch, "info_intermission", "on_touch");
 	g_menu = menu_create("Perf", "on_menu");
 	menu_additem(g_menu, "choose");
 	g_impulse = CreateMultiForward("client_impulse", ET_IGNORE, FP_CELL, FP_CELL);
@@ -391,6 +403,7 @@ run(what, id, count)
 			}
 		}
 		case TOUCH: for (new i = 0; i < count; i++) ExecuteHamB(Ham_Touch, g_target, id);
+		case TOUCH_HEARD: for (new i = 0; i < count; i++) ExecuteHamB(Ham_Touch, g_heardTarget, id);
 		case RESTART: for (new i = 0; i < count; i++) ExecuteHamB(Ham_CS_Restart, g_target);
 		case REMAINDER: g_sink += count_primes(200000);
 		case DIVISORS: g_sink += sum_divisors(700);
@@ -510,6 +523,9 @@ public measure()
 	report_each("entity.touch", TOUCH, id, FEW);
 	report_each("entity.restart", RESTART, id, FEW);
 	engfunc(EngFunc_RemoveEntity, g_target);
+	g_heardTarget = rg_create_entity("info_intermission");
+	report_each("entity.touch, heard", TOUCH_HEARD, id, FEW);
+	engfunc(EngFunc_RemoveEntity, g_heardTarget);
 	report_each("timer armed", TIMER_ARMED, id, FEW);
 
 	report_each("relay with no listener", FORWARD_NOBODY, id, FEW);

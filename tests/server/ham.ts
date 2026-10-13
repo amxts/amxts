@@ -8,8 +8,8 @@ const thought: number[] = [];
 let jumps = 0;
 let deploys = 0;
 
-game.addEventListener("think", onThink, { classname: "info_target" });
-game.addEventListener("restart", onRestart, { classname: "info_target" });
+game.addEventListener("think", onThink, { classname: "info_null" });
+game.addEventListener("restart", onRestart, { classname: "info_null" });
 game.addEventListener("jump", countJump);
 game.addEventListener("deploy", onDeploy, { classname: "weapon_knife" });
 
@@ -37,8 +37,8 @@ server.addServerCommand("amxts_test_ham", run);
 function run() {
 	const check = new Checks("ham");
 
-	const box = Entity.create("info_target");
-	check.expect(box != null, "an info_target made").toBe(true);
+	const box = Entity.create("info_null");
+	check.expect(box != null, "an info_null made").toBe(true);
 
 	if (box != null) {
 		box.think();

@@ -50,7 +50,7 @@ async function run() {
 	check.expect(heard.includes("amxts_toucher -> amxts_touched"), `the touch of the class pair arrived, the sides in place (${heard.join("; ")})`).toBe(true);
 	check.expect(heard.includes("reverse"), "the trigger does not enter the flyer: no reverse pair").toBe(false);
 
-	// A touch the plugin makes: the listener hears it as the engine's.
+	// A touch the plugin makes: the listener hears it as the engine's, but with { hooks: false }.
 	heard.length = 0;
 	trigger.touch(mover);
 	check.expect(heard.join("; "), "entity.touch() is heard as a touch of the engine's").toBe("amxts_toucher -> amxts_touched");

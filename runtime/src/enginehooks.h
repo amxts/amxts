@@ -723,32 +723,64 @@ static void CompareCvars()
 
 // ---------------------------------------------------------------- touches
 
-/** A touch's handlers: of an entity of class `touched` by one of class `toucher`, "" (or "*") for any. */
+/** A touch's handlers: of an entity of class `touched` by one of class `toucher`, by their numbers (ClassNumber), 0 for any. */
 struct TouchPoint {
-	std::string touched;
-	std::string toucher;
-	HookPoint   point;
+	int       touched;
+	int       toucher;
+	HookPoint point;
 };
 
 POINTS_COUNTER(g_touchesHooked)
 
 static std::deque<TouchPoint> g_touchPoints;
 
-static std::string AnyClass(const std::string &name)
+// A touch's classes are matched as numbers, not as text: one number a class
+// name, and each entity's number kept with the classname it was read from,
+// read again when that changes. The engine's strings go with the map, and
+// the entities' numbers with them (ForgetOtherPoints).
+static std::unordered_map<std::string, int> g_classNumbers;
+static std::vector<std::pair<string_t, int>> g_entityClasses;
+// The touched classes some point names, by number, and whether one names any:
+// a touch of another class goes past the points at once.
+static std::vector<char> g_touchedClasses;
+static bool g_anyTouched;
+
+/** A class name's number, from 1; "" and "*" are 0, any class. */
+static int ClassNumber(const std::string &name)
 {
-	return name == "*" ? "" : name;
+	if (name.empty() || name == "*")
+		return 0;
+	return g_classNumbers.emplace(name, (int)g_classNumbers.size() + 1).first->second;
+}
+
+/** The entity's class number: a lookup by its classname only when that changed. */
+static int ClassOf(edict_t *e)
+{
+	int index = IndexOf(e);
+	if (index >= (int)g_entityClasses.size())
+		g_entityClasses.resize(index + 1, std::make_pair((string_t)0, -1));
+	std::pair<string_t, int> &known = g_entityClasses[index];
+	if (known.second < 0 || known.first != e->v.classname) {
+		known.first = e->v.classname;
+		known.second = ClassNumber(STRING(e->v.classname));
+	}
+	return known.second;
 }
 
 /** touch_hook(touched, toucher, handler) - a handler of a touch of these classes. */
 static int32_t w_touch_hook(wasm_exec_env_t env, int32_t touched, int32_t toucher, int32_t fn)
 {
-	std::string a = AnyClass(AsString(Inst(env), touched));
-	std::string b = AnyClass(AsString(Inst(env), toucher));
+	int a = ClassNumber(AsString(Inst(env), touched));
+	int b = ClassNumber(AsString(Inst(env), toucher));
 	for (TouchPoint &p : g_touchPoints)
 		if (p.touched == a && p.toucher == b)
 			return AddOtherHook(p.point, fn, 0);
 	g_touchPoints.push_back(TouchPoint());
 	TouchPoint &p = g_touchPoints.back();
+	if (a >= (int)g_touchedClasses.size())
+		g_touchedClasses.resize(a + 1);
+	g_touchedClasses[a] = 1;
+	g_anyTouched |= a == 0;
 	p.touched = a;
 	p.toucher = b;
 	p.point.attach = g_touchesHookedAttach;
@@ -761,13 +793,16 @@ static bool TouchHeard(edict_t *touched, edict_t *other)
 	if (!g_touchesHooked)
 		return true;
 
+	int a = ClassOf(touched);
+	if (!g_anyTouched && (a >= (int)g_touchedClasses.size() || !g_touchedClasses[a]))
+		return true;
+
 	static const unsigned char roles[2] = { ROLE_EDICT, ROLE_EDICT };
-	const char *a = STRING(touched->v.classname);
-	const char *b = STRING(other->v.classname);
+	int b = ClassOf(other);
 	bool blocked = false;
 	for (size_t i = 0, end = g_touchPoints.size(); i < end; i++) {
 		TouchPoint &p = g_touchPoints[i];
-		if (!p.point.attached || (!p.touched.empty() && p.touched != a) || (!p.toucher.empty() && p.toucher != b))
+		if (!p.point.attached || (p.touched && p.touched != a) || (p.toucher && p.toucher != b))
 			continue;
 		ChainCall call(p.point, roles, 2);
 		call.Edict(0, touched);
@@ -983,6 +1018,9 @@ static void ForgetOtherPoints()
 	g_logPoints.clear();
 	g_cvarPoints.clear();
 	g_touchPoints.clear();
+	g_entityClasses.clear();
+	g_touchedClasses.clear();
+	g_anyTouched = false;
 }
 
 #define ENGINE_HOOK_NATIVES \

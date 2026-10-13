@@ -2005,10 +2005,10 @@ Pawn: \`emit_sound\`, \`rh_emit_sound2\``,
 Pawn: \`emit_sound\`, \`rh_emit_sound2\``,
 	},
 	'Entity.touch': {
-		en: `Makes \`toucher\` touch the entity, as when it moves into it: \`trap.touch(player)\` runs the trap's teleport or damage on the player. Every \`touch\` listener hears it, as it hears the game's own touches; \`{ hooks: false }\` runs the entity's touch alone.
+		en: `Makes \`toucher\` touch the entity, as when it moves into it: \`trap.touch(player)\` runs the trap's teleport or damage on the player. The \`touch\` event and Ham Sandwich's listeners hear it, a Pawn plugin's \`register_touch\` does not, as with \`ExecuteHamB\`; \`{ hooks: false }\` runs the entity's touch alone.
 
 Pawn: \`ExecuteHamB(Ham_Touch, ...)\`, \`ExecuteHam\`, \`fake_touch\``,
-		ru: `Заставляет \`toucher\` коснуться сущности, как будто он в неё вошёл: \`trap.touch(player)\` запускает телепорт или урон ловушки на игроке. Его слышит каждый слушатель \`touch\`, как и касания самой игры; \`{ hooks: false }\` запускает только касание сущности.
+		ru: `Заставляет \`toucher\` коснуться сущности, как будто он в неё вошёл: \`trap.touch(player)\` запускает телепорт или урон ловушки на игроке. Его слышат событие \`touch\` и обработчики Ham Sandwich, а \`register_touch\` плагина на Pawn — нет, как и при \`ExecuteHamB\`; \`{ hooks: false }\` запускает только касание сущности.
 
 Pawn: \`ExecuteHamB(Ham_Touch, ...)\`, \`ExecuteHam\`, \`fake_touch\``,
 	},

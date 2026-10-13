@@ -2757,12 +2757,12 @@ export class FakeServer {
 			const shape = [...tables().hooks.values()].find(one => one.ham === fn);
 			if (shape) this.runHam(shape, id, []);
 		},
-		// A touch the engine makes: kept in engineCalls, the touch listeners run.
+		// The touch listeners, then the entity's touch as ExecuteHamB runs it: kept in hamCalls.
 		entity_touch(this: FakeServer, plugin: PluginInstance, touched: number, toucher: number) {
 			const [a, b] = [this.entities.get(touched), this.entities.get(toucher)];
 			if (!a || !b) return;
-			this.engineCalls.push(`Touch ${touched} ${toucher}`);
 			this.touch(b, a);
+			this.hamCalls.push({ fn: constant('Ham_Touch'), entity: touched, args: [toucher], hooks: true });
 		},
 		player_switch(this: FakeServer, plugin: PluginInstance, id: number, name: number) {
 			return switchTo(this.player(id), plugin.memory.string(name));

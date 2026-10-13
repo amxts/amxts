@@ -382,8 +382,8 @@ typedef void (*TouchMethod)(void *self, void *other);
  * plugins' touch handlers first, as the engine's touch reaches them, then,
  * unless one blocked it, the entity's Touch through its table, as
  * ExecuteHamB runs it - Ham Sandwich's listeners hear it, a Metamod
- * plugin's hook of DispatchTouch does not. The game's DispatchTouch skips
- * an entity on its way out, and so does this.
+ * plugin's hook of DispatchTouch (register_touch) does not. The game's
+ * DispatchTouch skips an entity on its way out, and so does this.
  */
 static void w_entityTouch(wasm_exec_env_t env, int32_t touched, int32_t toucher)
 {
