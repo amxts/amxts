@@ -62,5 +62,8 @@ async function run() {
 	check.expect(fs.writeFileSync("../amxts-outside.bin", archive), "a path out of the game folder is not written").toBe(false);
 	check.expect(fs.readBytesSync("../hlds.exe") == null && fs.readBytesSync("/etc/passwd") == null, "nor read").toBe(true);
 	fs.unlinkSync(`${FOLDER}/amxts.zip`);
+
+	// halflife.wad is valve/'s alone.
+	check.expect(`${fs.existsSync("halflife.wad")} ${fs.existsSync("halflife.wad", { game: true })}`, "{ game: true } finds a file of the game's other folders").toBe("false true");
 	check.done();
 }

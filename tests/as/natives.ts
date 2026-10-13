@@ -91,6 +91,11 @@ export function xn_exists(path: string) {
 	return fs.existsSync(path);
 }
 
+/** Whether a file or folder exists in any folder of the game. */
+export function xn_exists_in_game(path: string) {
+	return fs.existsSync(path, { game: true });
+}
+
 /** The names in a folder joined by commas, or false if there is no folder. */
 export function xn_list(path: string) {
 	const names = fs.readdirSync(path);

@@ -214,13 +214,21 @@ class ReadJob extends __Job {
 	}
 }
 
+/** The options of `existsSync`: `{ game: true }` looks in every folder of the game. */
+export class ExistsOptions {
+	/** `true` to look in every folder the game reads from (`valve/`, `cstrike_downloads/`...), not only the game folder; `false` by default. */
+	game: boolean = false;
+}
+
 /**
- * `true` when the file or folder exists.
+ * `true` when the file or folder exists: `fs.existsSync("maps/de_dust2.bsp")`.
+ * With `{ game: true }`, in any folder the game reads files from.
  *
  * Pawn: `file_exists`, `dir_exists`
  */
-export function existsSync(path: string): boolean {
-	return _fileExists(path, 0) != 0 || _dirExists(path, 0) != 0;
+export function existsSync(path: string, options: ExistsOptions = new ExistsOptions()): boolean {
+	const game: i32 = options.game ? 1 : 0;
+	return _fileExists(path, game) != 0 || _dirExists(path, game) != 0;
 }
 
 /**
@@ -359,8 +367,8 @@ class WriteJob extends __Job {
 }
 
 /** `existsSync` as a promise. */
-export function exists(path: string): Promise<boolean> {
-	return Promise.resolve<boolean>(existsSync(path));
+export function exists(path: string, options: ExistsOptions = new ExistsOptions()): Promise<boolean> {
+	return Promise.resolve<boolean>(existsSync(path, options));
 }
 
 /** `readdirSync` as a promise, rejected when there is no such folder. */

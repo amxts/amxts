@@ -830,6 +830,12 @@ export class FakeServer {
 	private nextCellArray = 1;
 	/** fopen's and open_dir's handles. @internal */
 	readonly handles = new Map<number, { path: string; position: number } | { entries: string[]; next: number }>();
+	/**
+	 * The files of the game's other folders (`valve/`, `cstrike_downloads/`), by
+	 * the path the game reads them at (`sound/items/gunpickup2.wav`):
+	 * `fs.existsSync(path, { game: true })` finds these as well as `files`.
+	 */
+	readonly gameFiles = new Set<string>();
 
 	/** Everything below is the module's state. @internal */
 	readonly events = new Map<string, Handler[]>();
@@ -1178,11 +1184,12 @@ export class FakeServer {
 		if (!this.langKeys.includes(key)) this.langKeys.push(key);
 	}
 
-	/** Whether a folder is there: named in `folders`, or holding a file. */
-	folderExists(path: string): boolean {
+	/** Whether a folder is there: named in `folders`, or holding a file; with `game`, a file of `gameFiles` too. */
+	folderExists(path: string, game = false): boolean {
 		const folder = normalizePath(path);
 		if (folder === '' || this.folders.has(folder)) return true;
-		for (const file of this.files.keys()) {
+		const files = game ? [...this.files.keys(), ...this.gameFiles] : this.files.keys();
+		for (const file of files) {
 			if (file.startsWith(`${folder}/`)) return true;
 		}
 		for (const known of this.folders) {

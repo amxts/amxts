@@ -153,14 +153,24 @@ export default {
 			\`\`\`
 		`,
 	},
+	'ExistsOptions': {
+		en: `The options of \`existsSync\`: \`{ game: true }\` looks in every folder of the game.`,
+		ru: `Настройки \`existsSync\`: \`{ game: true }\` ищет во всех папках игры.`,
+	},
+	'ExistsOptions.game': {
+		en: `\`true\` to look in every folder the game reads from (\`valve/\`, \`cstrike_downloads/\`...), not only the game folder; \`false\` by default.`,
+		ru: `\`true\` — искать во всех папках, из которых игра читает файлы (\`valve/\`, \`cstrike_downloads/\`...), а не только в папке игры; по умолчанию \`false\`.`,
+	},
 	'existsSync': {
 		en: `
-			\`true\` when the file or folder exists.
+			\`true\` when the file or folder exists: \`fs.existsSync("maps/de_dust2.bsp")\`.
+			With \`{ game: true }\`, in any folder the game reads files from.
 
 			Pawn: \`file_exists\`, \`dir_exists\`
 		`,
 		ru: `
-			\`true\`, если такой файл или папка есть.
+			\`true\`, если такой файл или папка есть: \`fs.existsSync("maps/de_dust2.bsp")\`.
+			С \`{ game: true }\` — в любой папке, из которой игра читает файлы.
 
 			Pawn: \`file_exists\`, \`dir_exists\`
 		`,

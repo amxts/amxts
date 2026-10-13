@@ -387,8 +387,11 @@ export const NATIVES: Record<string, Native> = {
 		open.position += added.length;
 		return added.length;
 	},
-	file_exists: (c, [name]) => +c.server.files.has(normalizePath(bytesText(c, name))),
-	dir_exists: (c, [name]) => +c.server.folderExists(bytesText(c, name)),
+	file_exists: (c, [name, game]) => {
+		const path = normalizePath(bytesText(c, name));
+		return +(c.server.files.has(path) || (game !== 0 && c.server.gameFiles.has(path)));
+	},
+	dir_exists: (c, [name, game]) => +c.server.folderExists(bytesText(c, name), game !== 0),
 	open_dir: (c, [dir, first, length]) => {
 		if (!c.server.folderExists(bytesText(c, dir))) return 0;
 		const entries = folderEntries(c, bytesText(c, dir));

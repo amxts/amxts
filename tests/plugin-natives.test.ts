@@ -161,6 +161,14 @@ describe('fs', () => {
 		expect(server.native('xn_exists', 'addons/amxmodx')).toBe(true);
 	});
 
+	test('exists with { game: true } sees the game\'s other folders too', () => {
+		server.gameFiles.add('sound/items/gunpickup2.wav');
+		expect(server.native('xn_exists', 'sound/items/gunpickup2.wav')).toBe(false);
+		expect(server.native('xn_exists_in_game', 'sound/items/gunpickup2.wav')).toBe(true);
+		expect(server.native('xn_exists_in_game', 'sound/items')).toBe(true);
+		expect(server.native('xn_exists_in_game', 'addons/amxmodx')).toBe(true);
+	});
+
 	test('readdir lists a folder without . and ..', () => {
 		server.writeFile('maps/de_dust2.bsp', '');
 		server.writeFile('maps/de_inferno.bsp', '');
