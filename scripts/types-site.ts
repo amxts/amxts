@@ -124,12 +124,21 @@ async function emitAll() {
 	rmSync(join(out, 'emitted'), { recursive: true, force: true });
 	for (const entry of readdirSync(join(out, 'amxts'), { withFileTypes: true })) {
 		const name = entry.name.replace(/\.d\.ts$/, '');
-		const keep = entry.isDirectory() ? API_FOLDERS.has(entry.name) : HOOD.has(name) || entry.name === 'promise.types.d.ts';
+		const keep = entry.isDirectory() ? API_FOLDERS.has(entry.name) : HOOD.has(name) || entry.name.endsWith('.types.d.ts');
 		if (!keep) rmSync(join(out, 'amxts', entry.name), { recursive: true, force: true });
 	}
 
-	// A hand-written .d.ts in as/ is an input to tsc, not an output: copied as it is.
-	copyFileSync('as/promise.types.d.ts', join(out, 'amxts', 'promise.types.d.ts'));
+	// A hand-written .d.ts in as/ is an input to tsc, not an output: copied as
+	// it is - the editor's types of promises and of the query builder.
+	// Each module such a file adds to (`declare module "./sql"`) refers to it,
+	// as as/sql.ts does: the docs' examples read the module, not the file.
+	for (const file of readdirSync('as').filter(name => name.endsWith('.types.d.ts'))) {
+		copyFileSync(join('as', file), join(out, 'amxts', file));
+		for (const [, module] of readFileSync(join('as', file), 'utf8').matchAll(/^declare module "\.\/([\w-]+)"/gm)) {
+			const declarations = join(out, 'amxts', `${module}.d.ts`);
+			if (existsSync(declarations)) writeFileSync(declarations, `/// <reference path="./${file}" />\n${readFileSync(declarations, 'utf8')}`);
+		}
+	}
 	copyFileSync('as/amxts.d.ts', join(out, 'amxts', 'amxts.d.ts'));
 	// The facade's defineModule is typed by the globals there (AmxtsModule):
 	// whatever imports the facade gets them, as the editor does from as/.
