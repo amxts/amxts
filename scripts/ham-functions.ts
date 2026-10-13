@@ -87,7 +87,9 @@ export const HAM_FUNCTIONS: HamFunction[] = [
 	row('Ham_TeamId', 'teamId', 'entity', [], 'string'),
 	row('Ham_GetNextTarget', 'nextTarget', 'entity', [], 'entity'),
 	row('Ham_Think', 'think', 'entity', [], 'none', { method: true }),
-	row('Ham_Use', 'use', 'entity', [p('caller', 'entity'), p('activator', 'entity'), p('useType', 'use'), p('value', 'float')], 'none', { method: true }),
+	// The game's Use(pActivator, pCaller, ...): Ham Sandwich's include names
+	// the first two the other way round, which is not the order they come in.
+	row('Ham_Use', 'use', 'entity', [p('activator', 'entity'), p('caller', 'entity'), p('useType', 'use'), p('value', 'float')], 'none', { method: true }),
 	row('Ham_Blocked', 'blocked', 'entity', [p('other', 'entity')], 'none', { method: true }),
 	row('Ham_Respawn', 'respawn', 'entity', [], 'entity'),
 	row('Ham_UpdateOwner', 'updateOwner', 'entity', [], 'none'),

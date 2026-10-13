@@ -26,12 +26,13 @@ import type { Change, Edit, Left } from './upgrade';
 //   `hook()` handle goes to `unhook`; `cells("text")` given to a call, where
 //   a raw native takes a const string as it is; a startSound event's
 //   `recipients` read or given a number - reapi's 0 or 1 - where it is the
-//   players the sound plays to.
+//   players the sound plays to; a use event's `caller` or `activator`, which
+//   were each the other one (0.3.2).
 import ts from 'typescript';
 import { applyEdits } from './upgrade';
 
 /** The words a file must have for a pass to look at it. */
-const CALL_WORDS = /\bprint\s*\(|\bremoveAllItems\s*\(|\bStorage\b|\bgive\s*\(|\.vault\s*\(|\.(?:view|weapon)Model\b|\bcmd(?:Wide)?\s*\(|HookChain\s*\(|\bcells\s*\(|["'](?:pause|unpause|modules)["']|\bextract\b|\.recipients\b/;
+const CALL_WORDS = /\bprint\s*\(|\bremoveAllItems\s*\(|\bStorage\b|\bgive\s*\(|\.vault\s*\(|\.(?:view|weapon)Model\b|\bcmd(?:Wide)?\s*\(|HookChain\s*\(|\bcells\s*\(|["'](?:pause|unpause|modules)["']|\bextract\b|\.recipients\b|\.(?:caller|activator)\b/;
 
 /** The server events AMX Mod X raises for a Pawn plugin about itself alone. */
 const GONE_EVENTS = new Set(['pause', 'unpause', 'modules']);
@@ -42,6 +43,8 @@ const FS = /^(?:@amxts\/core|~)\/fs$/;
 const EXTRACT_LEFT = 'extract is a promise: await it, or read the archive at once with extractSync';
 
 const RECIPIENTS_LEFT = 'a sound\'s recipients are the players it plays to: event.recipients = server.players.filter(...); the number is gone';
+
+const USE_LEFT = 'a use event\'s activator and caller were each the other one: activator is who uses the entity, caller what passed the use on - check which this means';
 
 /** The fields that held a number of the engine's strings and hold the model's file. */
 const MODELS = new Set(['viewModel', 'weaponModel']);
@@ -88,15 +91,20 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 	};
 	// The names fs is imported as: `import * as fs from "@amxts/core/fs"`.
 	const fsNames = new Set<string>();
-	// The names a startSound event goes by: a listener's first parameter, or one typed StartSoundEvent.
+	// The names a startSound or a use event goes by: a listener's first
+	// parameter, or one typed StartSoundEvent or UseEvent.
 	const soundEvents = new Set<string>();
+	const useEvents = new Set<string>();
 	const collect = (node: ts.Node) => {
 		if (ts.isParameter(node) && ts.isIdentifier(node.name)) {
 			const listener = node.parent;
 			const call = listener.parent;
-			const heard = ts.isCallExpression(call) && call.arguments[1] === listener && ts.isStringLiteral(call.arguments[0]) && call.arguments[0].text === 'startSound'
+			const listened = ts.isCallExpression(call) && call.arguments[1] === listener && ts.isStringLiteral(call.arguments[0])
 				&& (ts.isArrowFunction(listener) || ts.isFunctionExpression(listener)) && listener.parameters[0] === node;
-			if (heard || (node.type && textOf(node.type) === 'StartSoundEvent')) soundEvents.add(node.name.text);
+			const heard = listened && ts.isStringLiteral(call.arguments[0]) ? call.arguments[0].text : '';
+			const type = node.type ? textOf(node.type) : '';
+			if (heard === 'startSound' || type === 'StartSoundEvent') soundEvents.add(node.name.text);
+			if (heard === 'use' || type === 'UseEvent') useEvents.add(node.name.text);
 		}
 		if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && FS.test(node.moduleSpecifier.text)) {
 			const bindings = node.importClause?.namedBindings;
@@ -137,6 +145,12 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 			const { parent } = node;
 			const given = ts.isBinaryExpression(parent) && parent.left === node && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken;
 			if (!given || ts.isNumericLiteral(parent.right)) left.push({ file, line: lineOf(node), why: RECIPIENTS_LEFT });
+			return;
+		}
+
+		// a use event's `event.caller`, `event.activator`
+		if (ts.isPropertyAccessExpression(node) && (node.name.text === 'caller' || node.name.text === 'activator') && ts.isIdentifier(node.expression) && useEvents.has(node.expression.text)) {
+			left.push({ file, line: lineOf(node), why: USE_LEFT });
 			return;
 		}
 

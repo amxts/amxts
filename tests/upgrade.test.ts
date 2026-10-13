@@ -849,6 +849,21 @@ test('a startSound event\'s recipients read or given a number are listed; given 
 	expect(left.map(each => each.line)).toEqual([2, 3, 6]);
 });
 
+test('a use event\'s caller and activator are listed: they were each the other one', () => {
+	const source = [
+		'game.addEventListener("use", (event) => {',
+		'	if (event.caller.classname == "player") return;',
+		'	console.log(event.activator.classname);',
+		'});',
+		'function onUse(use: UseEvent) { return use.useType; }',
+		'game.addEventListener("touch", (touch) => { console.log(touch.caller); });',
+		'',
+	].join('\n');
+	const { text, left } = upgradeCalls('plugins/a.ts', source);
+	expect(text).toBe(source);
+	expect(left.map(each => each.line)).toEqual([2, 3]);
+});
+
 test('calls 0.3 changed: cmd\'s info goes; a gone event, reapi\'s hook switches and a const string\'s cells are listed', () => {
 	const source = [
 		'cmd("myplugin_go", onGo, "all", "Starts it");',

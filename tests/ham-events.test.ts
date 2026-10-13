@@ -106,14 +106,15 @@ test('answers of every kind: a boolean, text, and a player\'s event with no clas
 	expect(server.fireHam('isBot', alice).result).toBe(1);
 });
 
-test('use: the type is a name, and writing it writes the argument', async () => {
+test('use: the activator first, then the caller, as the game passes them; the type is a name, and writing it writes the argument', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
 	const button = server.createEntity('func_button');
+	const relay = server.createEntity('trigger_relay');
 
-	const fired = server.fireHam('use', button, [alice.id, alice.id, 1, 0.5]);
+	const fired = server.fireHam('use', button, [alice.id, relay.id, 1, 0.5]);
 
-	expect(server.log).toContain('use on 0.5');
+	expect(server.log).toContain('use on 0.5 by player through trigger_relay');
 	expect(fired.args[3]).toBe(0);
 });
 

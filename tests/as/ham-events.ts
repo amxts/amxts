@@ -46,7 +46,7 @@ function onPlayerHurt(event: TakeDamageEvent) {
 }
 
 function onUse(event: UseEvent) {
-	console.log(`use ${event.useType} ${event.value}`);
+	console.log(`use ${event.useType} ${event.value} by ${event.activator.classname} through ${event.caller.classname}`);
 	event.useType = "off";
 }
 
