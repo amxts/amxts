@@ -160,6 +160,30 @@ function step(i: number) { STEPS[i](); STEPS[i + 1](); }
 	expect(log).toContain('first\nsecond');
 });
 
+test('an arrow declared below the function that calls it types a generic call', async () => {
+	const log = await pluginProbe('tdz', `
+import { server } from "@amxts/core";
+import { Checks } from "@amxts/core/check";
+server.addServerCommand("probe_arrows", run);
+async function run() {
+	const check = new Checks("arrows");
+	check.expect(typed("abc", 3), "typed").toBe(true);
+	check.expect(untyped("abc", 2), "untyped").toBe(false);
+	await sleep(10);
+	check.expect(typed("ab", 2), "typed, after await").toBe(true);
+	check.done();
+}
+const typed = (text: string, length: number): boolean => text.length == length;
+const untyped = (text: string, length: number) => text.length == length;
+`, '', async (file) => {
+		const server = await loadPlugin(file);
+		server.serverCommand('probe_arrows');
+		server.advance(100);
+		return server.log;
+	});
+	expect(log).toContain('[arrows] 3 ok, 0 failed');
+});
+
 test('a top-level variable read above its declaration while the file runs', async () => {
 	const module = await compile(`
 function readLate(): f64 { return late; }
