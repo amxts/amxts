@@ -42,10 +42,11 @@ server.addEventListener("command", (event) => {
 	if (event.command == "amxts_commands_event") heard.push(`event ${event.args.join(",")} | ${event.text}`);
 });
 
-// The chat line the game last said, as its log has it.
+// The chat line of this test the game last said, as its log has it: the
+// bots chat on their own too.
 let said = "";
 server.addEventListener("log", (event) => {
-	if (event.args.length > 2 && event.args[1] == "say") said = event.args[2];
+	if (event.args.length > 2 && event.args[1] == "say" && event.args[2].startsWith("amxts commands")) said = event.args[2];
 });
 
 /** Waits a moment for the game's log line of a chat line. */
