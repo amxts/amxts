@@ -5,6 +5,7 @@
 import * as fs from "@amxts/core/fs";
 import * as zlib from "@amxts/core/zlib";
 import { Checks } from "@amxts/core/check";
+import { dir_exists, file_exists } from "@amxts/core/natives";
 
 const FOLDER = "addons/amxmodx/data";
 
@@ -65,5 +66,8 @@ async function run() {
 
 	// halflife.wad is valve/'s alone.
 	check.expect(`${fs.existsSync("halflife.wad")} ${fs.existsSync("halflife.wad", { game: true })}`, "{ game: true } finds a file of the game's other folders").toBe("false true");
+	// A file a map names that no folder has: a server that loads it exits.
+	check.expect(`${fs.existsSync("sprites/amxts_none/x.spr", { game: true })} ${file_exists("sprites/amxts_none/x.spr", true)} ${dir_exists("sprites/amxts_none/x.spr", true)}`, "{ game: true } finds nothing where there is nothing (file_exists, dir_exists)").toBe("false 0 0");
+	check.expect(`${fs.existsSync("sprites", { game: true })} ${fs.existsSync("sprites/amxts_none", { game: true })}`, "a folder of the game is there, one of no folder is not").toBe("true false");
 	check.done();
 }
