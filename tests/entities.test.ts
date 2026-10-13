@@ -113,10 +113,10 @@ test('the game rules name what they hold: the bomb carrier is a Player, the VIP 
 });
 
 test('an action answers what the game\'s function answers', () => {
-	expect(source).toMatch(/\taddItem\(item: Weapon, options: ActionOptions = \{\}\): bool \{/);
-	expect(source).toMatch(/\tremoveItem\(item: Weapon, options: ActionOptions = \{\}\): bool \{/);
+	expect(source).toMatch(/\taddItem\(item: Weapon, options: ActionOptions = NO_ACTION_OPTIONS\): bool \{/);
+	expect(source).toMatch(/\tremoveItem\(item: Weapon, options: ActionOptions = NO_ACTION_OPTIONS\): bool \{/);
 	// CBasePlayerItem::Holster is void: nothing comes back to read.
-	expect(weaponSource()).toMatch(/\tholster\(options: ActionOptions = \{\}\): void \{/);
+	expect(weaponSource()).toMatch(/\tholster\(options: ActionOptions = NO_ACTION_OPTIONS\): void \{/);
 });
 
 test('kind is a name: WEAPON_KNIFE is "knife"', () => {
