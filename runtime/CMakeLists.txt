@@ -108,6 +108,24 @@ if(MSVC)
 	target_compile_options(amxts_amxx PRIVATE /wd4996)
 endif()
 
+# A module of the server suites' own, never shipped: it raises forwards
+# through AMX Mod X's functions for modules, as any module does
+# (test/test-module). testmodule_amxx.dll, testmodule_amxx_i386.so.
+add_library(testmodule_amxx SHARED
+	test/test-module/testmodule.cpp
+	"${AMXX}/public/sdk/amxxmodule.cpp"
+)
+target_include_directories(testmodule_amxx PRIVATE test/test-module "${AMXX}/public" "${AMXX}/public/sdk")
+set_target_properties(testmodule_amxx PROPERTIES PREFIX "")
+if(WIN32)
+	target_compile_definitions(testmodule_amxx PRIVATE _CRT_SECURE_NO_WARNINGS HAVE_STDINT_H)
+else()
+	set_target_properties(testmodule_amxx PROPERTIES OUTPUT_NAME "testmodule_amxx_i386")
+	target_compile_options(testmodule_amxx PRIVATE -m32)
+	target_compile_definitions(testmodule_amxx PRIVATE HAVE_STDINT_H LINUX _LINUX POSIX)
+	target_link_options(testmodule_amxx PRIVATE -m32 -static-libstdc++ -static-libgcc)
+endif()
+
 # The module and WAMR optimised as one: what a plugin calls on every native,
 # field and event - WAMR's calls, its intrinsics - inlined across files.
 set_property(TARGET amxts_amxx PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)

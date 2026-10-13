@@ -211,6 +211,9 @@ const signatures = process.env.AMXTS_NATIVES ?? join(CORE_DIR, 'runtime/natives.
 // AMXTS_TEST_MODULE: another build of the module, e.g. one made beside a running test.
 const sanitizedDir = join(CORE_DIR, 'runtime/build/linux-sanitize');
 const moduleDll = process.env.AMXTS_TEST_MODULE ?? (sanitize ? join(sanitizedDir, MODULE_FILE.linux) : modulePath(linux ? 'linux' : 'windows'));
+// The suites' own module, built beside the module under test
+// (runtime/test/test-module): module-forwards.sma loads it by its library.
+const testModule = join(dirname(moduleDll), linux ? 'testmodule_amxx_i386.so' : 'testmodule_amxx.dll');
 
 // Plugins a suite needs beside the suites themselves: the modules
 // amxts.config.ts lists, as their owners, in load order, then the project's
@@ -422,6 +425,7 @@ function startContainer(argv: string[]): number {
 		[modulesIni, `${CONTAINER}:${CONTAINER_GAME}/addons/amxmodx/configs/modules.ini`],
 		[join(rootDir, 'amxts'), `${CONTAINER}:${CONTAINER_GAME}/addons/amxts`],
 		[moduleDll, `${CONTAINER}:${CONTAINER_GAME}/addons/amxmodx/modules/${MODULE_FILE.linux}`],
+		...(existsSync(testModule) ? [[testModule, `${CONTAINER}:${CONTAINER_GAME}/addons/amxmodx/modules/${basename(testModule)}`]] : []),
 		...SANITIZER_LIBS.map(file => [join(sanitizedDir, file), `${CONTAINER}:/hlds/${file}`]),
 	]) {
 		const copied = docker(['cp', from, to]);
@@ -905,6 +909,7 @@ function stage(built: string[], refused: Refused[], unlisted: string[], pawn: st
 			if (name !== 'amxts_amxx.dll' && !(noReapi && name.startsWith('reapi'))) copyFileSync(join(serverAmxx, 'modules', file), join(amxx, 'modules', file));
 		}
 		copyFileSync(moduleDll, join(amxx, 'modules', 'amxts_amxx.dll'));
+		if (existsSync(testModule)) copyFileSync(testModule, join(amxx, 'modules', basename(testModule)));
 		const modules = readFileSync(join(serverAmxx, 'configs', 'modules.ini'), 'utf-8');
 		writeFileSync(join(amxx, 'modules.ini'), noReapi ? withoutReapi(modules) : modules);
 		for (const file of CONFIGS_READ) {

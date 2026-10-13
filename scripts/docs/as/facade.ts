@@ -4823,7 +4823,7 @@ export default {
 	'Forward.subscribe': {
 		en: `
 			Calls \`handler\` each time the forward is emitted - by this plugin, another
-			TypeScript plugin or a Pawn plugin:
+			TypeScript plugin, a Pawn plugin or an AMX Mod X module:
 
 			\`\`\`ts
 			const greeted = new Forward<string, number>("showcase_on_greeted");
@@ -4831,13 +4831,13 @@ export default {
 			\`\`\`
 
 			The handler's parameters take the forward's types; a named function may
-			take fewer of them. A forward a Pawn plugin makes reaches it after the
-			Pawn plugins' handlers; one emitted from TypeScript reaches every
-			subscriber.
+			take fewer of them. A forward a Pawn plugin or a module makes reaches it
+			after the Pawn plugins' handlers, unless one of them stopped it; one
+			emitted from TypeScript reaches every subscriber.
 		`,
 		ru: `
 			Вызывает \`handler\` при каждом срабатывании форварда — из этого плагина,
-			другого TypeScript-плагина или Pawn-плагина:
+			другого TypeScript-плагина, Pawn-плагина или модуля AMX Mod X:
 
 			\`\`\`ts
 			const greeted = new Forward<string, number>("showcase_on_greeted");
@@ -4845,9 +4845,9 @@ export default {
 			\`\`\`
 
 			Параметры обработчика получают типы форварда; именованная функция может
-			принимать их меньше. Форвард, созданный Pawn-плагином, доходит до него
-			после обработчиков Pawn-плагинов; отправленный из TypeScript доходит до
-			всех подписчиков.
+			принимать их меньше. Форвард, созданный Pawn-плагином или модулем,
+			доходит до него после обработчиков Pawn-плагинов, если ни один из них
+			его не остановил; отправленный из TypeScript доходит до всех подписчиков.
 		`,
 	},
 	'Forward.unsubscribe': {

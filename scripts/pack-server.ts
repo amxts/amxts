@@ -94,7 +94,8 @@ cpSync('./runtime/host/amxts.inc', join(out, 'addons/amxmodx/scripting/include/a
 writeFileSync(join(out, 'README.txt'), `amxts — write AMX Mod X plugins in TypeScript
 
 Copy addons/ over your server's addons/, then add one line to
-addons/amxmodx/configs/modules.ini:
+addons/amxmodx/configs/modules.ini, as its first line - a module listed
+above it does not hand its forwards to amxts plugins:
 
   amxts_amxx
 

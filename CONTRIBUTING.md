@@ -109,9 +109,9 @@ stops on one, give the new shape a new name instead.
 bun run image                             # runtime/host/amxts_natives.amxx, and runtime/src/image.h
 cd runtime
 cmake -A Win32 -B build -S .
-cmake --build build --config Release      # runtime/build/Release/amxts_amxx.dll
+cmake --build build --config Release      # runtime/build/Release/amxts_amxx.dll, and testmodule_amxx.dll for the server suites
 cd ..
-bun run build:linux                       # runtime/build/linux: amxts_amxx_i386.so, wamrc
+bun run build:linux                       # runtime/build/linux: amxts_amxx_i386.so, testmodule_amxx_i386.so, wamrc
 bun run build:linux --sanitize            # runtime/build/linux-sanitize: the same under ASan and UBSan
 ```
 

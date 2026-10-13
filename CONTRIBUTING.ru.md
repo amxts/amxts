@@ -109,9 +109,9 @@ bun run generate
 bun run image                             # runtime/host/amxts_natives.amxx и runtime/src/image.h
 cd runtime
 cmake -A Win32 -B build -S .
-cmake --build build --config Release      # runtime/build/Release/amxts_amxx.dll
+cmake --build build --config Release      # runtime/build/Release/amxts_amxx.dll и testmodule_amxx.dll для серверных сюит
 cd ..
-bun run build:linux                       # runtime/build/linux: amxts_amxx_i386.so, wamrc
+bun run build:linux                       # runtime/build/linux: amxts_amxx_i386.so, testmodule_amxx_i386.so, wamrc
 bun run build:linux --sanitize            # runtime/build/linux-sanitize: the same under ASan and UBSan
 ```
 

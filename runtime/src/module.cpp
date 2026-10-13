@@ -511,7 +511,7 @@ static ALWAYS_INLINE bool CallVia(const Handler &h, Plugin &p, uint32_t first)
  * from the call's context (CallArgs): a number as it is, a string or an array
  * where it lies in the AMX that carries it. Reached three ways: Dispatch,
  * when the forward is one the module raises itself (g_forwards); a Pawn
- * plugin's ExecuteForward, which the module stands in for
+ * plugin's or a module's ExecuteForward, which the module stands in for
  * (DeliverToSubscribers); and emit_local, when a TypeScript plugin fires one.
  */
 struct Subscription {
@@ -545,13 +545,13 @@ struct Forward {
 
 static Forward g_forwards[FORWARD_COUNT];
 
-// The subscribers of every other forward: a Pawn plugin's, which its
-// ExecuteForward delivers (DeliverToSubscribers), and a TypeScript plugin's
-// (emit_local).
+// The subscribers of every other forward: a Pawn plugin's or a module's,
+// which its ExecuteForward delivers (DeliverToSubscribers), and a TypeScript
+// plugin's (emit_local).
 static std::map<std::string, std::vector<Subscription> > g_subscriptions;
 
 // Moves on whenever g_subscriptions may have a name more or fewer, so that
-// what a Pawn forward found there (PawnForward) is looked up again.
+// what a forward found there (MultiForward) is looked up again.
 static unsigned g_subscriptionNames = 1;
 
 /**
@@ -645,16 +645,18 @@ static const AMX_NATIVE *ExportedEntries(std::index_sequence<K...>)
 static const AMX_NATIVE *const g_exportedEntries = ExportedEntries(std::make_index_sequence<MAX_EXPORTED>());
 
 /**
- * A forward a Pawn plugin made with CreateMultiForward, which a TypeScript
- * Forward hears by its name. AMX Mod X calls a forward's publics in plugins
- * only, so the module stands in for the natives that make and execute one in
- * every Pawn plugin's native table (InterposeNatives): CreateMultiForward
- * notes the forward by its id, PrepareArray where an array lies, and
- * ExecuteForward, once AMX Mod X has run the Pawn plugins' publics, hands the
- * call to the TypeScript subscribers - unless a public stopped it. A forward
- * lives one map, as AMX Mod X's.
+ * A forward for every plugin that a Pawn plugin (CreateMultiForward) or a
+ * module (MF_RegisterForward) made, which a TypeScript Forward hears by its
+ * name. AMX Mod X calls a forward's publics in plugins only, so the module
+ * stands in for what makes and executes one: the natives in every Pawn
+ * plugin's native table (InterposeNatives), the functions in AMX Mod X's
+ * table for modules (HookModuleForwards). Making one notes it by its id,
+ * preparing an array notes where the array lies, and executing one, once AMX
+ * Mod X has run the Pawn plugins' publics, hands the call to the TypeScript
+ * subscribers - unless a public stopped it. A forward lives one map, as AMX
+ * Mod X's.
  */
-struct PawnForward {
+struct MultiForward {
 	std::string name;
 	// ET_*: what stops it.
 	cell et = ET_IGNORE;
@@ -666,8 +668,9 @@ struct PawnForward {
 	unsigned seen = 0;
 };
 
-// By id >> 1: the ids of AMX Mod X's forwards for every plugin are even.
-static std::vector<PawnForward> g_pawnForwards;
+// By id >> 1: the ids of AMX Mod X's forwards for every plugin are even, and
+// Pawn plugins' and modules' are numbered together.
+static std::vector<MultiForward> g_multiForwards;
 
 /**
  * A native of the image's table: its function, its index there, and the AMX
@@ -5072,7 +5075,7 @@ static void Teardown()
 	// a call answers 0 until a plugin exports the name again.
 	for (Exported &e : g_exported)
 		e.plugin = SLOT_ORPHANED;
-	g_pawnForwards.clear();
+	g_multiForwards.clear();
 
 	// Raw AMX_NATIVE pointers harvested from an AMX image that is about to be
 	// let go. Keeping them across a map change is a call into freed memory.
@@ -6262,12 +6265,50 @@ static cell CallExported(size_t slot, AMX *amx, cell *params)
 	return Fire(g_exported[slot], argv, n, 0);
 }
 
-// ---- Pawn's forwards to TypeScript
+// ---- Pawn plugins' and modules' forwards to TypeScript
 
-// amxmodx/CForward.h's ForwardParam: how a forward passes a parameter.
-#define FP_STRING   2
-#define FP_STRINGEX 3
-#define FP_ARRAY    4
+/** Notes a forward AMX Mod X made for every plugin, by its id (MultiForward). */
+static void NoteForward(cell id, const char *name, cell et, const cell *types, int count)
+{
+	size_t index = (size_t)id >> 1;
+	if (g_multiForwards.size() <= index)
+		g_multiForwards.resize(index + 1);
+	MultiForward &forward = g_multiForwards[index];
+	forward = MultiForward();
+	forward.name = name;
+	forward.et = et;
+	forward.types.assign(types, types + count);
+}
+
+/**
+ * The forward with this id when a TypeScript plugin subscribes to its name,
+ * NULL otherwise. What it found in g_subscriptions is looked up again only
+ * when that map may have a name more or fewer (g_subscriptionNames), so a
+ * forward nobody hears costs a compare.
+ */
+static MultiForward *Listened(cell id)
+{
+	size_t index = (size_t)id >> 1;
+	if (id < 0 || (id & 1) || index >= g_multiForwards.size())
+		return NULL;
+	MultiForward &forward = g_multiForwards[index];
+	if (forward.seen != g_subscriptionNames) {
+		std::map<std::string, std::vector<Subscription> >::iterator it = g_subscriptions.find(forward.name);
+		forward.subscribers = it == g_subscriptions.end() ? NULL : &it->second;
+		forward.seen = g_subscriptionNames;
+	}
+	return forward.subscribers && !forward.subscribers->empty() ? &forward : NULL;
+}
+
+/**
+ * Whether a forward's publics answered `result` by stopping it, as AMX Mod X
+ * reads the answers (CForward::execute): ET_STOP stops on the first answer
+ * above 0 and answers it, ET_STOP2 on PLUGIN_HANDLED.
+ */
+static bool Stopped(cell et, cell result)
+{
+	return (et == ET_STOP && result > 0) || (et == ET_STOP2 && result == 1);
+}
 
 /**
  * The array behind each PrepareArray handle - the calling plugin's address
@@ -6288,19 +6329,14 @@ static cell AMX_NATIVE_CALL n_createMultiForward(AMX *amx, cell *params)
 	if (id < 0 || (id & 1))
 		return id;
 
-	PawnForward forward;
-	int len = 0;
-	forward.name = MF_GetAmxString(amx, params[1], 0, &len);
-	forward.et = params[2];
-	for (int i = 3, count = (int)(params[0] / sizeof(cell)); i <= count; i++) {
+	cell types[MAX_FORWARD_ARGS];
+	int count = 0;
+	for (int i = 3, last = (int)(params[0] / sizeof(cell)); i <= last && count < MAX_FORWARD_ARGS; i++) {
 		cell *type = MF_GetAmxAddr(amx, params[i]);
-		forward.types.push_back(type ? *type : 0);
+		types[count++] = type ? *type : 0;
 	}
-
-	size_t index = (size_t)id >> 1;
-	if (g_pawnForwards.size() <= index)
-		g_pawnForwards.resize(index + 1);
-	g_pawnForwards[index] = forward;
+	int len = 0;
+	NoteForward(id, MF_GetAmxString(amx, params[1], 0, &len), params[2], types, count);
 	return id;
 }
 
@@ -6316,43 +6352,23 @@ static cell AMX_NATIVE_CALL n_prepareArray(AMX *amx, cell *params)
 }
 
 /**
- * Whether a forward's publics answered `result` by stopping it, as AMX Mod X
- * reads the answers (CForward::execute): ET_STOP stops on the first answer
- * above 0 and answers it, ET_STOP2 on PLUGIN_HANDLED.
- */
-static bool Stopped(cell et, cell result)
-{
-	return (et == ET_STOP && result > 0) || (et == ET_STOP2 && result == 1);
-}
-
-/**
  * ExecuteForward(forward, &ret, ...) - the Pawn plugins' publics first, as
  * AMX Mod X runs them, then the TypeScript subscribers of the forward's
- * name, unless a public stopped it. Pawn passes every argument after `ret` by its address: a number is
- * read through it, a string stays the address it is, an array is the one its
- * PrepareArray handle names.
+ * name, unless a public stopped it. Pawn passes every argument after `ret`
+ * by its address: a number is read through it, a string stays the address
+ * it is, an array is the one its PrepareArray handle names.
  */
 static cell AMX_NATIVE_CALL n_executeForward(AMX *amx, cell *params)
 {
 	cell sent = g_executeForward(amx, params);
-	size_t index = (size_t)params[1] >> 1;
-	if (!sent || (params[1] & 1) || index >= g_pawnForwards.size())
-		return sent;
-
-	PawnForward &forward = g_pawnForwards[index];
-	if (forward.seen != g_subscriptionNames) {
-		std::map<std::string, std::vector<Subscription> >::iterator it = g_subscriptions.find(forward.name);
-		forward.subscribers = it == g_subscriptions.end() ? NULL : &it->second;
-		forward.seen = g_subscriptionNames;
-	}
+	MultiForward *forward = sent ? Listened(params[1]) : NULL;
 	cell *result = MF_GetAmxAddr(amx, params[2]);
-	if (!forward.subscribers || forward.subscribers->empty() || (result && Stopped(forward.et, *result)))
+	if (!forward || (result && Stopped(forward->et, *result)))
 		return sent;
 
-	const std::vector<cell> &types = forward.types;
+	const std::vector<cell> &types = forward->types;
 	int argc = (int)(params[0] / sizeof(cell)) - 2;
 	if (argc > (int)types.size()) argc = (int)types.size();
-	if (argc > MAX_FORWARD_ARGS) argc = MAX_FORWARD_ARGS;
 
 	cell args[MAX_FORWARD_ARGS];
 	int32_t lengths[MAX_FORWARD_ARGS];
@@ -6371,11 +6387,255 @@ static cell AMX_NATIVE_CALL n_executeForward(AMX *amx, cell *params)
 		lengths[i] = prepared ? g_prepared[handle].size : -1;
 	}
 
-	// A copy: a subscriber may make a forward of its own, and g_pawnForwards grows.
-	std::string name = forward.name;
+	// A copy: a subscriber may make a forward of its own, and g_multiForwards grows.
+	std::string name = forward->name;
 	CallArgs context(args, argc, amx, -1, lengths);
 	DeliverToSubscribers(name);
 	return sent;
+}
+
+/**
+ * AMX Mod X's own functions a module makes, prepares and executes a forward
+ * with, as its table of functions for modules had them (HookModuleForwards).
+ */
+static PFN_REGISTER_FORWARD    g_registerForward = NULL;
+static PFN_EXECUTE_FORWARD     g_moduleExecuteForward = NULL;
+static PFN_PREPARE_CELLARRAY   g_prepareCellArray = NULL;
+static PFN_PREPARE_CHARARRAY   g_prepareCharArray = NULL;
+static PFN_PREPARE_CELLARRAY_A g_prepareCellArrayA = NULL;
+static PFN_PREPARE_CHARARRAY_A g_prepareCharArrayA = NULL;
+
+/**
+ * The array a module prepared behind each handle, for the ExecuteForward
+ * that takes it - numbered as g_prepared's, by AMX Mod X: its elements, their
+ * count, and whether each is a byte (PrepareCharArray) or a cell.
+ */
+struct ModuleArray {
+	const void *data;
+	unsigned    size;
+	bool        chars;
+};
+
+static ModuleArray g_moduleArrays[MAX_FORWARD_ARGS];
+
+static cell NoteArray(cell handle, const void *data, unsigned size, bool chars)
+{
+	if (handle >= 0 && handle < MAX_FORWARD_ARGS)
+		g_moduleArrays[handle] = { data, size, chars };
+	return handle;
+}
+
+static cell ModulePrepareCellArray(cell *ptr, unsigned int size)
+{
+	return NoteArray(g_prepareCellArray(ptr, size), ptr, size, false);
+}
+
+static cell ModulePrepareCharArray(char *ptr, unsigned int size)
+{
+	return NoteArray(g_prepareCharArray(ptr, size), ptr, size, true);
+}
+
+static cell ModulePrepareCellArrayA(cell *ptr, unsigned int size, bool copyBack)
+{
+	return NoteArray(g_prepareCellArrayA(ptr, size, copyBack), ptr, size, false);
+}
+
+static cell ModulePrepareCharArrayA(char *ptr, unsigned int size, bool copyBack)
+{
+	return NoteArray(g_prepareCharArrayA(ptr, size, copyBack), ptr, size, true);
+}
+
+/** A module's array (`handle`) into the image's heap, a cell an element: its address, and its count in `length`; 0 when there is none. */
+static cell PushModuleArray(const ModuleArray *arrays, cell handle, int32_t *length)
+{
+	if (handle < 0 || handle >= MAX_FORWARD_ARGS || !arrays[handle].data)
+		return 0;
+	const ModuleArray &array = arrays[handle];
+	int n = array.size > MAX_CROSSING_CELLS - 1 ? MAX_CROSSING_CELLS - 1 : (int)array.size;
+	cell addr = 0;
+	cell *phys = HeapCells(n + 1, &addr);
+	if (!phys)
+		return 0;
+	for (int k = 0; k < n; k++)
+		phys[k] = array.chars ? (cell)((const unsigned char *)array.data)[k] : ((const cell *)array.data)[k];
+	phys[n] = 0;
+	*length = n;
+	return addr;
+}
+
+// MF_RegisterForward's FP_* list ends with FP_DONE: room for it after the most.
+#define FORWARD_TYPES (MAX_FORWARD_ARGS + 1)
+
+template <size_t... I>
+static int RegisterWith(const char *name, ForwardExecType et, const int *types, std::index_sequence<I...>)
+{
+	return g_registerForward(name, et, types[I]...);
+}
+
+/**
+ * MF_RegisterForward(name, et, FP_..., FP_DONE) - AMX Mod X's, then the
+ * forward noted by its id, as CreateMultiForward's.
+ */
+static int ModuleRegisterForward(const char *name, ForwardExecType et, ...)
+{
+	int types[FORWARD_TYPES];
+	int count = 0;
+	va_list list;
+	va_start(list, et);
+	while (count < MAX_FORWARD_ARGS && (types[count] = va_arg(list, int)) != FP_DONE)
+		count++;
+	va_end(list);
+	for (int i = count; i < FORWARD_TYPES; i++)
+		types[i] = FP_DONE;
+
+	int id = RegisterWith(name, et, types, std::make_index_sequence<FORWARD_TYPES>());
+	if (id >= 0 && !(id & 1) && name) {
+		cell noted[MAX_FORWARD_ARGS];
+		for (int i = 0; i < count; i++)
+			noted[i] = types[i];
+		NoteForward(id, name, et, noted, count);
+	}
+	return id;
+}
+
+// What a module's ExecuteForward call holds after the id, in 32-bit words at
+// most: a parameter is one, an FP_FLOAT a double, two.
+#define FORWARD_WORDS (2 * MAX_FORWARD_ARGS)
+
+template <size_t... I>
+static int ExecuteWith(int id, const int32_t *words, std::index_sequence<I...>)
+{
+	return g_moduleExecuteForward(id, words[I]...);
+}
+
+// Reads the caller's stack past its arguments (ModuleExecuteForward), which
+// AddressSanitizer would take for an overflow of the caller's locals.
+#ifdef _MSC_VER
+#define STACK_WORDS
+#else
+#define STACK_WORDS __attribute__((no_sanitize_address))
+#endif
+
+/**
+ * MF_ExecuteForward(id, ...) - AMX Mod X's, the Pawn plugins' publics, then
+ * the TypeScript subscribers of the forward's name, unless a public stopped
+ * it. The function is variadic and cdecl, on i386 its arguments are words on
+ * the stack: they go on to AMX Mod X as the module pushed them, with more
+ * words after them than the forward has - which AMX Mod X does not read - so
+ * a forward this module never noted (one for a single plugin) passes through
+ * whole. They are read here by the forward's FP_*
+ * only when someone listens: a number as it is, an FP_FLOAT's double made a
+ * Float, a by-reference value through its pointer, and a string and an array
+ * copied into the image's heap for as long as the subscribers run.
+ */
+STACK_WORDS static int ModuleExecuteForward(int id, ...)
+{
+	int32_t words[FORWARD_WORDS];
+	va_list list;
+	va_start(list, id);
+	for (int i = 0; i < FORWARD_WORDS; i++)
+		words[i] = va_arg(list, int32_t);
+	va_end(list);
+
+	// The arrays as prepared for this call: a public may prepare its own.
+	ModuleArray arrays[MAX_FORWARD_ARGS];
+	bool listened = Listened(id) != NULL;
+	if (listened)
+		memcpy(arrays, g_moduleArrays, sizeof(arrays));
+
+	int result = ExecuteWith(id, words, std::make_index_sequence<FORWARD_WORDS>());
+	MultiForward *forward = listened ? Listened(id) : NULL;
+	if (!forward || !g_image || Stopped(forward->et, result))
+		return result;
+
+	const std::vector<cell> &types = forward->types;
+	int argc = (int)types.size();
+	cell args[MAX_FORWARD_ARGS];
+	int32_t lengths[MAX_FORWARD_ARGS];
+	cell mark = g_image->hea;
+	for (int i = 0, w = 0; i < argc; i++, w++) {
+		lengths[i] = -1;
+		const void *at = (const void *)(size_t)(uint32_t)words[w];
+		if (types[i] == FP_FLOAT) {
+			double value;
+			memcpy(&value, words + w++, sizeof(value));
+			float single = (float)value;
+			memcpy(&args[i], &single, sizeof(single));
+		} else if (types[i] == FP_STRING || types[i] == FP_STRINGEX) {
+			args[i] = PushText(at ? (const char *)at : "");
+		} else if (types[i] == FP_CELL_BYREF || types[i] == FP_FLOAT_BYREF) {
+			args[i] = at ? *(const cell *)at : 0;
+		} else if (types[i] == FP_ARRAY) {
+			args[i] = PushModuleArray(arrays, words[w], &lengths[i]);
+		} else {
+			args[i] = words[w];
+		}
+	}
+
+	// A copy: a subscriber may make a forward of its own, and g_multiForwards grows.
+	std::string name = forward->name;
+	{
+		CallArgs context(args, argc, g_image, -1, lengths);
+		DeliverToSubscribers(name);
+	}
+	g_image->hea = mark;
+	return result;
+}
+
+/**
+ * Puts the module's own in AMX Mod X's table of functions for modules, in
+ * place of RegisterForward, ExecuteForward and the Prepare*Array ones, so
+ * that a module's forward reaches TypeScript as a Pawn plugin's does. A
+ * module takes its pointers from the table as it attaches: one AMX Mod X
+ * attaches after this one - below it in modules.ini, or loaded for a
+ * plugin's include - calls the module's, one above it keeps AMX Mod X's own
+ * (WarnModulesAbove). AMX Mod X raises its own forwards directly, and the
+ * module raises those itself (g_forwards).
+ */
+static void HookModuleForwards()
+{
+	const struct { const char *name; void **original; void *own; } functions[] = {
+		{ "RegisterForward",   (void **)&g_registerForward,      (void *)ModuleRegisterForward   },
+		{ "ExecuteForward",    (void **)&g_moduleExecuteForward, (void *)ModuleExecuteForward    },
+		{ "PrepareCellArray",  (void **)&g_prepareCellArray,     (void *)ModulePrepareCellArray  },
+		{ "PrepareCharArray",  (void **)&g_prepareCharArray,     (void *)ModulePrepareCharArray  },
+		{ "PrepareCellArrayA", (void **)&g_prepareCellArrayA,    (void *)ModulePrepareCellArrayA },
+		{ "PrepareCharArrayA", (void **)&g_prepareCharArrayA,    (void *)ModulePrepareCharArrayA },
+	};
+	for (const auto &function : functions)
+		*function.original = MF_RegisterFunctionEx(function.own, function.name);
+}
+
+/**
+ * Says, as the module attaches, which modules modules.ini lists above it:
+ * they attached first and keep AMX Mod X's own forward functions, so their
+ * forwards do not reach Forward.subscribe (HookModuleForwards). Read as AMX
+ * Mod X reads the list (loadModules): a module's name is a line's first
+ * word, after a `>`.
+ */
+static void WarnModulesAbove()
+{
+	std::string list = ReadWhole(MF_BuildPathname("%s", MF_GetLocalInfo("amxx_modules", "addons/amxmodx/configs/modules.ini")));
+	std::string above;
+	size_t start = 0;
+	while (start < list.size()) {
+		size_t end = list.find('\n', start);
+		if (end == std::string::npos)
+			end = list.size();
+		std::string line = Trimmed(list.substr(start, end - start));
+		start = end + 1;
+		if (!line.empty() && line[0] == '>')
+			line = Trimmed(line.substr(1));
+		std::string name = line.substr(0, line.find_first_of(" \t"));
+		if (name.empty() || name[0] == ';')
+			continue;
+		if (Lower(name.c_str()).compare(0, 5, "amxts") == 0) {
+			if (!above.empty())
+				MF_PrintSrvConsole("[amxts] modules.ini lists %s above amxts_amxx: their forwards do not reach Forward.subscribe - put amxts_amxx on its first line\n", above.c_str());
+			return;
+		}
+		above += (above.empty() ? "" : ", ") + name;
+	}
 }
 
 // AMX Mod X's own show_menu and menu_display.
@@ -7987,6 +8247,8 @@ void OnAmxxAttach()
 
 	MF_AddNatives(g_natives);
 	MF_AddNatives(g_exportedList);
+	HookModuleForwards();
+	WarnModulesAbove();
 	if (g_pengfuncsTable)
 		g_pengfuncsTable->pfnAlertMessage = AlertMessage;
 	MessageHooks(false);

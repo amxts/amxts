@@ -107,6 +107,8 @@ fi
 
 cp -L build-wamrc/wamrc /out/wamrc
 cp "$module/amxts_amxx_i386.so" /out/amxts_amxx_i386.so
+# The server suites' own module (runtime/test/test-module), never shipped.
+cp "$module/testmodule_amxx_i386.so" /out/testmodule_amxx_i386.so
 chmod 755 /out/wamrc /out/amxts_amxx_i386.so
 if [ -n "$SANITIZE" ]; then
 	cp -L /usr/lib32/libasan.so.4 /usr/lib32/libubsan.so.0 /out/
