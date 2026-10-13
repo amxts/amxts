@@ -137,7 +137,8 @@ test('a Ham Sandwich function reapi has no chain for is an event of its own, nam
 	expect(body).toContain('get weapon(): Weapon { return new Weapon(this.__cell(0)); }');
 	expect(hooks).toMatch(/export interface GameEventMap \{[\s\S]*\tprimaryAttack: PrimaryAttackEvent;/);
 	// Every argument Ham Sandwich takes back is writable, an entity and a vector too.
-	expect(classBody('UseEvent')).toContain('set caller(value: Entity) { this.__setEntity(1, value.id); }');
+	expect(classBody('UseEvent')).toContain('set activator(value: Entity) { this.__setEntity(1, value.id); }');
+	expect(classBody('UseEvent')).toContain('set caller(value: Entity) { this.__setEntity(2, value.id); }');
 	expect(classBody('BodyTargetEvent')).toContain('set from(value: Vector) { this.__setVector(1, value); }');
 	expect(classBody('TeamIdEvent')).toContain('get result(): string { return this.__resultText(); }');
 	// No event is named after a backend or a C++ class.
