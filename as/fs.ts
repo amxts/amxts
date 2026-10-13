@@ -14,8 +14,9 @@
 // a native call (the thunk's buffer for an array it does not know the size
 // of), never through a 255-character line buffer. Bytes go through the
 // module's own fs_read and fs_write, a whole file a call, and refuse a path
-// that leaves the game folder; extract reads the archive here and inflates
-// with the module's zlib (zip_inflate).
+// that leaves the game folder; their promise versions are the module's jobs,
+// done on its worker thread (./jobs). extract reads the archive's directory
+// here, and the module inflates each file and checks its CRC-32.
 //
 // There are no exceptions in AssemblyScript, so the synchronous functions say
 // they failed by their result - null, false - and the promise ones reject
@@ -27,6 +28,7 @@
 // Promise, for the promise versions, whether or not the plugin imports the facade.
 import "./promise";
 import { __textFrom, __textInto, __textRoom } from "./natives";
+import { __Job, __JobResult, __jobRun, __jobStart, JOB_APPEND, JOB_COPY, JOB_INFLATE_RAW, JOB_READ, JOB_WRITE } from "./jobs";
 
 // @ts-ignore: decorator
 @external("env", "fopen")        declare function _fopen(name: string, mode: string, valve: i32, pathId: usize): i32;
@@ -62,8 +64,6 @@ import { __textFrom, __textInto, __textRoom } from "./natives";
 @external("env", "fs_read")      declare function _readBytes(name: string, out: usize, max: i32): i32;
 // @ts-ignore: decorator
 @external("env", "fs_write")     declare function _writeBytes(name: string, data: usize, length: i32, append: i32): i32;
-// @ts-ignore: decorator
-@external("env", "zip_inflate")  declare function _inflate(data: usize, length: i32, out: usize, max: i32): i32;
 
 // fread_blocks' mode for one byte per cell.
 const BLOCK_CHAR: i32 = 1;
@@ -192,11 +192,26 @@ export function readBytesSync(path: string): Uint8Array | null {
 	return null;
 }
 
-/** `readBytesSync` as a promise, rejected when the file cannot be opened. */
+/**
+ * `readBytesSync` as a promise, rejected when the file cannot be opened: the
+ * file is read on the module's worker thread, without holding the server.
+ */
 export function readBytes(path: string): Promise<Uint8Array> {
-	const bytes = readBytesSync(path);
-	if (bytes == null) return Promise.reject<Uint8Array>(missing(path, "open"));
-	return Promise.resolve<Uint8Array>(bytes);
+	const promise = __co_promise<Uint8Array>();
+	__jobStart(JOB_READ, path, 0, 0, -1, new ReadJob(promise, path));
+	return promise;
+}
+
+class ReadJob extends __Job {
+	constructor(public promise: Promise<Uint8Array>, public path: string) {
+		super();
+	}
+
+	finish(result: __JobResult): void {
+		const data = result.data;
+		if (data) __co_resolve<Uint8Array>(this.promise, data);
+		else __co_reject(this.promise, missing(this.path, "open"));
+	}
 }
 
 /**
@@ -300,14 +315,47 @@ export function readFile(path: string): Promise<string> {
 	return Promise.resolve<string>(text);
 }
 
-/** `writeFileSync` as a promise, rejected when the file cannot be opened. */
+/**
+ * `writeFileSync` as a promise, rejected when the file cannot be opened.
+ * Bytes are written on the module's worker thread, without holding the
+ * server, in the order the calls were made.
+ */
 export function writeFile<T extends string | Uint8Array | ArrayBuffer = string>(path: string, data: T): Promise<void> {
-	return done(write<T>(path, data, false), path, "open");
+	if (isString<T>()) return done(write<T>(path, data, false), path, "open");
+	return writeLater<T>(JOB_WRITE, path, data);
 }
 
-/** `appendFileSync` as a promise, rejected when the file cannot be opened. */
+/** `appendFileSync` as a promise, rejected when the file cannot be opened; bytes are written as `writeFile` writes them. */
 export function appendFile<T extends string | Uint8Array | ArrayBuffer = string>(path: string, data: T): Promise<void> {
-	return done(write<T>(path, data, true), path, "open");
+	if (isString<T>()) return done(write<T>(path, data, true), path, "open");
+	return writeLater<T>(JOB_APPEND, path, data);
+}
+
+function writeLater<T>(op: i32, path: string, data: T): Promise<void> {
+	const promise = __co_promise<void>();
+	const job = new WriteJob(promise, path);
+	if (idof<T>() == idof<Uint8Array>()) {
+		const bytes = changetype<Uint8Array>(data);
+		__jobStart(op, path, bytes.dataStart, bytes.length, -1, job);
+	}
+	else if (idof<T>() == idof<ArrayBuffer>()) {
+		__jobStart(op, path, changetype<usize>(data), changetype<ArrayBuffer>(data).byteLength, -1, job);
+	}
+	else {
+		ERROR("a file takes text, a Uint8Array or an ArrayBuffer");
+	}
+	return promise;
+}
+
+class WriteJob extends __Job {
+	constructor(public promise: Promise<void>, public path: string) {
+		super();
+	}
+
+	finish(result: __JobResult): void {
+		if (result.data) this.promise.__fulfillVoid();
+		else this.promise.__reject(missing(this.path, "open"));
+	}
 }
 
 /** `existsSync` as a promise. */
@@ -416,19 +464,6 @@ function done(ok: bool, path: string, call: string): Promise<void> {
 
 // ---------------------------------------------------------------- zip
 
-// The records of a zip archive: the end of its central directory, an entry
-// of the directory, an entry's local header.
-const ZIP_END: u32 = 0x06054B50;
-const ZIP_ENTRY: u32 = 0x02014B50;
-const ZIP_LOCAL: u32 = 0x04034B50;
-// The end record is 22 bytes and its comment 65535 at most.
-const ZIP_END_SIZE: i32 = 22;
-const ZIP_COMMENT_MAX: i32 = 0xFFFF;
-const ZIP_STORED: i32 = 0;
-const ZIP_DEFLATED: i32 = 8;
-// An entry's flags: encrypted.
-const ZIP_ENCRYPTED: i32 = 1;
-
 /** A file of an archive, from `extract`: its path inside the archive and its bytes. */
 export class ArchiveEntry {
 	constructor(
@@ -442,27 +477,142 @@ export class ArchiveEntry {
 /**
  * The files of an archive, with their paths inside it; folders are not
  * listed. The archive's kind is read off its first bytes: a zip archive,
- * stored or deflated. Throws an `Error` for a kind it does not read - naming
- * the ones it does - an entry whose bytes do not check out, and a path that
- * would leave the folder it is unpacked into.
+ * stored or deflated. The files are inflated on the module's worker thread,
+ * without holding the server, and the promise settles on a later frame. It
+ * rejects with an `Error` for a kind it does not read - naming the ones it
+ * does - a file whose bytes do not check out, and a path that would leave
+ * the folder it is unpacked into.
  *
  * ```ts
- * for (const entry of fs.extract(await response.arrayBuffer())) {
+ * for (const entry of await fs.extract(await response.arrayBuffer())) {
+ * 	await fs.writeFile(entry.path, entry.data);
+ * }
+ * ```
+ */
+export function extract<T extends Uint8Array | ArrayBuffer>(archive: T): Promise<ArchiveEntry[]> {
+	const zip = archiveBytes<T>(archive);
+	const extraction = new Extraction(__co_promise<ArchiveEntry[]>());
+	try {
+		extraction.files = zipFiles(zip);
+	}
+	catch (error) {
+		__co_reject(extraction.promise, error as Error);
+		return extraction.promise;
+	}
+
+	const files = extraction.files;
+	if (files.length == 0) __co_resolve(extraction.promise, extraction.entries);
+	for (let i = 0; i < files.length; i++) {
+		const file = files[i];
+		__jobStart(file.op, "", zip.dataStart + <usize>file.start, file.packed, file.size, new ExtractJob(extraction, file));
+	}
+	return extraction.promise;
+}
+
+/**
+ * `extract` at once, holding the server while it inflates: the files of an
+ * archive, or an `Error` thrown where `extract` rejects.
+ *
+ * ```ts
+ * for (const entry of fs.extractSync(bytes)) {
  * 	fs.writeFileSync(entry.path, entry.data);
  * }
  * ```
  */
-export function extract<T extends Uint8Array | ArrayBuffer>(archive: T): ArchiveEntry[] {
-	if (idof<T>() == idof<Uint8Array>()) return extractBytes(changetype<Uint8Array>(archive));
-	if (idof<T>() == idof<ArrayBuffer>()) return extractBytes(Uint8Array.wrap(changetype<ArrayBuffer>(archive)));
+export function extractSync<T extends Uint8Array | ArrayBuffer>(archive: T): ArchiveEntry[] {
+	const zip = archiveBytes<T>(archive);
+	const files = zipFiles(zip);
+	const entries: ArchiveEntry[] = [];
+	for (let i = 0; i < files.length; i++) {
+		const file = files[i];
+		const entry = entryOf(file, __jobRun(file.op, "", zip.dataStart + <usize>file.start, file.packed, file.size));
+		if (entry == null) throw damaged(file);
+		entries.push(entry);
+	}
+	return entries;
+}
+
+function archiveBytes<T>(archive: T): Uint8Array {
+	if (idof<T>() == idof<Uint8Array>()) return changetype<Uint8Array>(archive);
+	if (idof<T>() == idof<ArrayBuffer>()) return Uint8Array.wrap(changetype<ArrayBuffer>(archive));
 	ERROR("extract takes a Uint8Array or an ArrayBuffer");
-	return [];
+	return new Uint8Array(0);
+}
+
+/** An archive being extracted: its files, and the entries that have come back. */
+class Extraction {
+	files: ZipFile[] = [];
+	entries: ArchiveEntry[] = [];
+	failed: bool = false;
+
+	constructor(public promise: Promise<ArchiveEntry[]>) {}
+}
+
+class ExtractJob extends __Job {
+	constructor(public extraction: Extraction, public file: ZipFile) {
+		super();
+	}
+
+	// The module's one worker ends jobs in the order they were started, so
+	// the entries come back in the archive's order.
+	finish(result: __JobResult): void {
+		const extraction = this.extraction;
+		if (extraction.failed) return;
+
+		const entry = entryOf(this.file, result);
+		if (entry == null) {
+			extraction.failed = true;
+			__co_reject(extraction.promise, damaged(this.file));
+			return;
+		}
+
+		extraction.entries.push(entry);
+		if (extraction.entries.length == extraction.files.length) __co_resolve(extraction.promise, extraction.entries);
+	}
+}
+
+/** The file's entry from what the module gave, or `null` when its bytes do not check out. */
+function entryOf(file: ZipFile, result: __JobResult): ArchiveEntry | null {
+	const data = result.data;
+	if (data == null || data.length != file.size || result.crc != file.crc) return null;
+	return new ArchiveEntry(file.path, data);
+}
+
+function damaged(file: ZipFile): Error {
+	return new Error(`extract: "${file.path}" is damaged`);
 }
 
 // The archives extract reads, for its errors to name.
 const READS = "zip";
 
-function extractBytes(data: Uint8Array): ArchiveEntry[] {
+// The records of a zip archive: the end of its central directory, an entry
+// of the directory, an entry's local header.
+const ZIP_END: u32 = 0x06054B50;
+const ZIP_ENTRY: u32 = 0x02014B50;
+const ZIP_LOCAL: u32 = 0x04034B50;
+// The end record is 22 bytes and its comment 65535 at most.
+const ZIP_END_SIZE: i32 = 22;
+const ZIP_COMMENT_MAX: i32 = 0xFFFF;
+const ZIP_STORED: i32 = 0;
+const ZIP_DEFLATED: i32 = 8;
+// An entry's flags: encrypted.
+const ZIP_ENCRYPTED: i32 = 1;
+
+/** A file of a zip archive, by its directory: where its bytes lie and what they must come to. */
+class ZipFile {
+	constructor(
+		readonly path: string,
+		/** The module's job for its bytes: a copy of stored ones, a raw inflate of deflated ones. */
+		readonly op: i32,
+		readonly start: i32,
+		readonly packed: i32,
+		readonly size: i32,
+		readonly crc: u32,
+	) {}
+}
+
+/** The archive's files, read off its directory; throws for an archive extract does not read. */
+function zipFiles(data: Uint8Array): ZipFile[] {
 	const kind = archiveKind(data);
 	if (kind == "zip") return unzip(data);
 	if (kind.length > 0) throw new Error(`extract: a ${kind} archive is not read yet - extract reads ${READS}`);
@@ -486,12 +636,12 @@ function startsWith(data: Uint8Array, magic: u8[]): bool {
 	return true;
 }
 
-function unzip(zip: Uint8Array): ArchiveEntry[] {
+function unzip(zip: Uint8Array): ZipFile[] {
 	const end = zipEnd(zip);
 	const count = <i32>zipShort(zip, end + 10);
 	let at = <i32>zipWord(zip, end + 16);
 
-	const entries: ArchiveEntry[] = [];
+	const files: ZipFile[] = [];
 	for (let i: i32 = 0; i < count; i++) {
 		if (zipWord(zip, at) != ZIP_ENTRY) throw new Error("extract: the archive's directory is damaged");
 		const flags = <i32>zipShort(zip, at + 8);
@@ -512,15 +662,9 @@ function unzip(zip: Uint8Array): ArchiveEntry[] {
 		if (zipWord(zip, local) != ZIP_LOCAL) throw new Error(`extract: "${path}" is damaged`);
 		const start = local + 30 + <i32>zipShort(zip, local + 26) + <i32>zipShort(zip, local + 28);
 		zipCheck(zip, start, packed);
-
-		const data = method == ZIP_STORED ? zip.slice(start, start + packed) : new Uint8Array(size);
-		if (method == ZIP_DEFLATED && size > 0 && _inflate(zip.dataStart + <usize>start, packed, data.dataStart, size) != size) {
-			throw new Error(`extract: "${path}" is damaged`);
-		}
-		if (data.length != size || crc32(data) != crc) throw new Error(`extract: "${path}" is damaged`);
-		entries.push(new ArchiveEntry(path, data));
+		files.push(new ZipFile(path, method == ZIP_STORED ? JOB_COPY : JOB_INFLATE_RAW, start, packed, size, crc));
 	}
-	return entries;
+	return files;
 }
 
 /** Where the end of the central directory starts: the last of its records, past which only its comment lies. */
@@ -554,27 +698,4 @@ function zipWord(zip: Uint8Array, at: i32): u32 {
 function zipText(zip: Uint8Array, at: i32, length: i32): string {
 	zipCheck(zip, at, length);
 	return String.UTF8.decodeUnsafe(zip.dataStart + <usize>at, <usize>length);
-}
-
-// CRC-32 as zip writes it, a table of 256 made on the first archive.
-let crcTable: StaticArray<u32> | null = null;
-
-function crc32(data: Uint8Array): u32 {
-	let table = crcTable;
-	if (table == null) {
-		table = new StaticArray<u32>(256);
-		for (let n: u32 = 0; n < 256; n++) {
-			let c = n;
-			for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
-			unchecked(table[n] = c);
-		}
-		crcTable = table;
-	}
-
-	let crc: u32 = 0xFFFFFFFF;
-	const start = data.dataStart;
-	for (let i: i32 = 0; i < data.length; i++) {
-		crc = unchecked(table[(crc ^ <u32>load<u8>(start + <usize>i)) & 0xFF]) ^ (crc >>> 8);
-	}
-	return crc ^ 0xFFFFFFFF;
 }

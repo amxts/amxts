@@ -18,6 +18,9 @@ import type { Change, Edit, Left } from './upgrade';
 // - An entity's `viewModel` and `weaponModel` are the model's file, text: a
 //   `0` written or compared is `""`, another number is listed.
 // - `cmd()` and `cmdWide()` take no `info`: the fourth argument goes.
+// - fs's `extract` is a promise: a call not awaited reads `extractSync`, the
+//   synchronous form; an awaited one stays. Listed: `extract` imported by
+//   name, or read without a call.
 // - Listed: a listener of the server events `pause`, `unpause` and `modules`,
 //   which are gone; reapi's `DisableHookChain` and `EnableHookChain`, where a
 //   `hook()` handle goes to `unhook`; `cells("text")` given to a call, where
@@ -26,10 +29,15 @@ import ts from 'typescript';
 import { applyEdits } from './upgrade';
 
 /** The words a file must have for a pass to look at it. */
-const CALL_WORDS = /\bprint\s*\(|\bremoveAllItems\s*\(|\bStorage\b|\bgive\s*\(|\.vault\s*\(|\.(?:view|weapon)Model\b|\bcmd(?:Wide)?\s*\(|HookChain\s*\(|\bcells\s*\(|["'](?:pause|unpause|modules)["']/;
+const CALL_WORDS = /\bprint\s*\(|\bremoveAllItems\s*\(|\bStorage\b|\bgive\s*\(|\.vault\s*\(|\.(?:view|weapon)Model\b|\bcmd(?:Wide)?\s*\(|HookChain\s*\(|\bcells\s*\(|["'](?:pause|unpause|modules)["']|\bextract\b/;
 
 /** The server events AMX Mod X raises for a Pawn plugin about itself alone. */
 const GONE_EVENTS = new Set(['pause', 'unpause', 'modules']);
+
+/** Where `@amxts/core/fs` is imported from, by the package or by `~/`. */
+const FS = /^(?:@amxts\/core|~)\/fs$/;
+
+const EXTRACT_LEFT = 'extract is a promise: await it, or read the archive at once with extractSync';
 
 /** The fields that held a number of the engine's strings and hold the model's file. */
 const MODELS = new Set(['viewModel', 'weaponModel']);
@@ -74,7 +82,16 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 		return ts.isCallExpression(call) && ts.isPropertyAccessExpression(call.expression) && call.expression.name.text === 'get'
 			&& ts.isIdentifier(call.expression.expression) && storages.has(call.expression.expression.text);
 	};
+	// The names fs is imported as: `import * as fs from "@amxts/core/fs"`.
+	const fsNames = new Set<string>();
 	const collect = (node: ts.Node) => {
+		if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && FS.test(node.moduleSpecifier.text)) {
+			const bindings = node.importClause?.namedBindings;
+			if (bindings && ts.isNamespaceImport(bindings)) fsNames.add(bindings.name.text);
+			if (bindings && ts.isNamedImports(bindings) && bindings.elements.some(element => (element.propertyName ?? element.name).text === 'extract')) {
+				left.push({ file, line: lineOf(node), why: EXTRACT_LEFT });
+			}
+		}
 		if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
 			const init = node.initializer;
 			if (ts.isNewExpression(init) && ts.isIdentifier(init.expression) && init.expression.text === 'Storage') storages.add(node.name.text);
@@ -93,6 +110,14 @@ export function upgradeCalls(file: string, text: string): { text: string; change
 
 	const visit = (node: ts.Node) => {
 		ts.forEachChild(node, visit);
+
+		// fs.extract(bytes) not awaited reads extractSync; fs.extract handed on is listed.
+		if (ts.isPropertyAccessExpression(node) && node.name.text === 'extract' && ts.isIdentifier(node.expression) && fsNames.has(node.expression.text)) {
+			const called = ts.isCallExpression(node.parent) && node.parent.expression === node;
+			if (!called) left.push({ file, line: lineOf(node), why: EXTRACT_LEFT });
+			else if (!ts.isAwaitExpression(node.parent.parent)) replace(node.name, 'extractSync');
+			return;
+		}
 
 		// `player.viewModel = 0`, `weapon.weaponModel == 0`
 		if (ts.isBinaryExpression(node) && ts.isPropertyAccessExpression(node.left) && MODELS.has(node.left.name.text) && ts.isNumericLiteral(node.right)) {

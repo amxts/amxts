@@ -813,6 +813,26 @@ test('calls of a changed shape: print to a player and to everyone, removeAllItem
 	expect(upgradeCalls('plugins/a.ts', text).text).toBe(text);
 });
 
+test('fs.extract not awaited reads extractSync; an awaited one stays; one imported by name or handed on is listed', () => {
+	const source = [
+		'import * as fs from "@amxts/core/fs";',
+		'import { extract } from "~/fs";',
+		'for (const entry of fs.extract(bytes)) fs.writeFileSync(entry.path, entry.data);',
+		'const entries = await fs.extract(bytes);',
+		'const unpack = fs.extract;',
+		'extract(bytes);',
+		'',
+	].join('\n');
+	const { text, left } = upgradeCalls('plugins/a.ts', source);
+	expect(text.split('\n').slice(2, 5)).toEqual([
+		'for (const entry of fs.extractSync(bytes)) fs.writeFileSync(entry.path, entry.data);',
+		'const entries = await fs.extract(bytes);',
+		'const unpack = fs.extract;',
+	]);
+	expect(left.map(each => each.line)).toEqual([2, 5]);
+	expect(upgradeCalls('plugins/a.ts', text).text).toBe(text);
+});
+
 test('calls 0.3 changed: cmd\'s info goes; a gone event, reapi\'s hook switches and a const string\'s cells are listed', () => {
 	const source = [
 		'cmd("myplugin_go", onGo, "all", "Starts it");',

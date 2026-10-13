@@ -4,7 +4,8 @@
 // written whole with the C library, a .bsp of megabytes in one call. A path is
 // one of the game folder, and one that would leave it is refused (GamePath).
 // zip_inflate is zlib's raw inflate - AMX Mod X's copy, built in by
-// CMakeLists.txt - for extract, which reads the archive itself.
+// CMakeLists.txt - for plugins whose extract calls it; extract inflates
+// through the module's jobs (jobs.h).
 
 #include "zlib.h"
 

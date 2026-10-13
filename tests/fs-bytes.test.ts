@@ -67,7 +67,7 @@ test('a file is read and written as bytes, zeros and all, whole or at its end', 
 	expect(server.files.get('maps/kz_copy.bsp')).toEqual(new Uint8Array([...map, ...map]));
 });
 
-test('extract gives the files of a zip archive, deflated and stored, into their folders', async () => {
+test('extractSync gives the files of a zip archive, deflated and stored, into their folders', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
 	const map = binary(100_000);
@@ -81,7 +81,7 @@ test('extract gives the files of a zip archive, deflated and stored, into their 
 	expect(server.files.get('sound/kz/start.wav')).toEqual(sound);
 });
 
-test('extract refuses a path that leaves the folder, damaged bytes, a kind it does not read and what is no archive', async () => {
+test('extractSync refuses a path that leaves the folder, damaged bytes, a kind it does not read and what is no archive', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
 	const damaged = zip({ 'maps/a.bsp': binary(1000) }, ['maps/a.bsp']);
@@ -100,6 +100,38 @@ test('extract refuses a path that leaves the folder, damaged bytes, a kind it do
 		'extract: a rar archive is not read yet - extract reads zip',
 	]);
 	expect(server.files.has('server.cfg')).toBe(false);
+});
+
+/** Runs a command and lets its work on the module's worker come back; the lines it logged. */
+async function run(server: Awaited<ReturnType<typeof loadPlugin>>, command: string): Promise<string[]> {
+	const from = server.logLines.length;
+	server.serverCommand(command);
+	await server.responses();
+	return server.logLines.slice(from);
+}
+
+test('extract gives the same files on the worker, and rejects a broken archive', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const map = binary(100_000);
+	const sound = new TextEncoder().encode('RIFF');
+	const damaged = zip({ 'maps/a.bsp': binary(1000) });
+	damaged[40] ^= 0xFF;
+	server.files.set('maps/kz_map.zip', zip({ 'maps/kz_map.bsp': map, 'sound/kz/start.wav': sound, 'maps/kz_map.res': new Uint8Array(0) }, ['sound/kz/start.wav']));
+	server.files.set('b.zip', damaged);
+	server.files.set('d.rar', new TextEncoder().encode('Rar!\x1A\x07\x00'));
+
+	expect(await run(server, 'fsb_extract_async maps/kz_map.zip')).toEqual(['maps/kz_map.bsp:100000,sound/kz/start.wav:4,maps/kz_map.res:0']);
+	expect(server.files.get('maps/kz_map.bsp')).toEqual(map);
+	expect(server.files.get('sound/kz/start.wav')).toEqual(sound);
+	expect(await run(server, 'fsb_extract_async b.zip')).toEqual(['extract: "maps/a.bsp" is damaged']);
+	expect(await run(server, 'fsb_extract_async d.rar')).toEqual(['extract: a rar archive is not read yet - extract reads zip']);
+});
+
+test('bytes written on the worker land in the order they were given; a path out of the game folder rejects', async () => {
+	const server = await loadPlugin(PLUGIN);
+	server.files.set('addons/amxmodx/data/keep.txt', new Uint8Array(0));
+
+	expect(await run(server, 'fsb_order addons/amxmodx/data/order.bin')).toEqual(['1 2 1', 'ENOENT: no such file or directory, open \'../outside.bin\'']);
 });
 
 test('bytes are not written or read past the game folder', async () => {

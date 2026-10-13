@@ -1,5 +1,6 @@
 // A fixture for tests/fs-bytes.test.ts: files as bytes, and an archive
-// extracted into the game folder.
+// extracted into the game folder - at once, and on the module's worker
+// thread.
 import * as fs from "@amxts/core/fs";
 
 interface CopyArgs {
@@ -9,6 +10,10 @@ interface CopyArgs {
 
 interface UnzipArgs {
 	archive: string;
+}
+
+interface FileArgs {
+	file: string;
 }
 
 server.addCommand<CopyArgs>("fsb_copy <from> <to>", ({ player, from, to }) => copy(player, from, to));
@@ -32,7 +37,7 @@ function unpack(player: Player, archive: string) {
 	if (bytes == null) return;
 
 	try {
-		const entries = fs.extract(bytes);
+		const entries = fs.extractSync(bytes);
 		for (const entry of entries) {
 			const folder = entry.path.substring(0, entry.path.lastIndexOf("/"));
 			if (folder.length > 0) fs.mkdirSync(folder, { recursive: true });
@@ -49,3 +54,33 @@ function outside(player: Player) {
 	const read = fs.readBytesSync("/etc/passwd");
 	player.print(`${written} ${read == null}`, "console");
 }
+
+server.addServerCommand<FileArgs>("fsb_extract_async <file>", async ({ file }) => {
+	try {
+		const entries = await fs.extract(await fs.readBytes(file));
+		for (const entry of entries) {
+			const folder = entry.path.substring(0, entry.path.lastIndexOf("/"));
+			if (folder.length > 0) await fs.mkdir(folder, { recursive: true });
+			await fs.writeFile(entry.path, entry.data);
+		}
+		console.log(entries.map(entry => `${entry.path}:${entry.data.length}`).join(","));
+	} catch (error) {
+		console.log(error.message);
+	}
+});
+
+server.addServerCommand<FileArgs>("fsb_order <file>", async ({ file }) => {
+	const one = new Uint8Array(1);
+	one[0] = 1;
+	const two = new Uint8Array(1);
+	two[0] = 2;
+	fs.writeFile(file, one);
+	fs.appendFile(file, two);
+	await fs.appendFile(file, one.buffer);
+	console.log(`${(await fs.readBytes(file)).join(" ")}`);
+	try {
+		await fs.readBytes("../outside.bin");
+	} catch (error) {
+		console.log(error.message);
+	}
+});

@@ -78,8 +78,14 @@ export default {
 		`,
 	},
 	'readBytes': {
-		en: `\`readBytesSync\` as a promise, rejected when the file cannot be opened.`,
-		ru: `\`readBytesSync\` в виде промиса; отклоняется, если файл не удалось открыть.`,
+		en: `
+			\`readBytesSync\` as a promise, rejected when the file cannot be opened: the
+			file is read on the module's worker thread, without holding the server.
+		`,
+		ru: `
+			\`readBytesSync\` в виде промиса; отклоняется, если файл не удалось открыть.
+			Файл читается в рабочем потоке модуля и не задерживает сервер.
+		`,
 	},
 	'ArchiveEntry': {
 		en: `A file of an archive, from \`extract\`: its path inside the archive and its bytes.`,
@@ -97,25 +103,51 @@ export default {
 		en: `
 			The files of an archive, with their paths inside it; folders are not
 			listed. The archive's kind is read off its first bytes: a zip archive,
-			stored or deflated. Throws an \`Error\` for a kind it does not read - naming
-			the ones it does - an entry whose bytes do not check out, and a path that
-			would leave the folder it is unpacked into.
+			stored or deflated. The files are inflated on the module's worker thread,
+			without holding the server, and the promise settles on a later frame. It
+			rejects with an \`Error\` for a kind it does not read - naming the ones it
+			does - a file whose bytes do not check out, and a path that would leave
+			the folder it is unpacked into.
 
 			\`\`\`ts
-			for (const entry of fs.extract(await response.arrayBuffer())) {
-				fs.writeFileSync(entry.path, entry.data);
+			for (const entry of await fs.extract(await response.arrayBuffer())) {
+				await fs.writeFile(entry.path, entry.data);
 			}
 			\`\`\`
 		`,
 		ru: `
 			Файлы архива с их путями внутри него; папки не перечисляются. Вид архива
 			читается по его первым байтам: zip-архив, сохранённый как есть или сжатый
-			deflate. Бросает \`Error\` для вида, который не читает, — называя те, что
-			читает, — для файла, чьи байты не сходятся, и для пути, который ведёт за
-			пределы папки, куда архив распаковывается.
+			deflate. Файлы распаковываются в рабочем потоке модуля и не задерживают
+			сервер, а промис выполняется на одном из следующих кадров. Отклоняется с
+			\`Error\` для вида, который не читает, — называя те, что читает, — для
+			файла, чьи байты не сходятся, и для пути, который ведёт за пределы папки,
+			куда архив распаковывается.
 
 			\`\`\`ts
-			for (const entry of fs.extract(await response.arrayBuffer())) {
+			for (const entry of await fs.extract(await response.arrayBuffer())) {
+				await fs.writeFile(entry.path, entry.data);
+			}
+			\`\`\`
+		`,
+	},
+	'extractSync': {
+		en: `
+			\`extract\` at once, holding the server while it inflates: the files of an
+			archive, or an \`Error\` thrown where \`extract\` rejects.
+
+			\`\`\`ts
+			for (const entry of fs.extractSync(bytes)) {
+				fs.writeFileSync(entry.path, entry.data);
+			}
+			\`\`\`
+		`,
+		ru: `
+			\`extract\` сразу, с задержкой сервера на время распаковки: файлы архива
+			или \`Error\`, брошенная там, где \`extract\` отклоняется.
+
+			\`\`\`ts
+			for (const entry of fs.extractSync(bytes)) {
 				fs.writeFileSync(entry.path, entry.data);
 			}
 			\`\`\`
@@ -213,12 +245,20 @@ export default {
 		`,
 	},
 	'writeFile': {
-		en: `\`writeFileSync\` as a promise, rejected when the file cannot be opened.`,
-		ru: `\`writeFileSync\` в виде промиса; отклоняется, если файл не удалось открыть.`,
+		en: `
+			\`writeFileSync\` as a promise, rejected when the file cannot be opened.
+			Bytes are written on the module's worker thread, without holding the
+			server, in the order the calls were made.
+		`,
+		ru: `
+			\`writeFileSync\` в виде промиса; отклоняется, если файл не удалось открыть.
+			Байты пишутся в рабочем потоке модуля и не задерживают сервер — в том
+			порядке, в каком были вызовы.
+		`,
 	},
 	'appendFile': {
-		en: `\`appendFileSync\` as a promise, rejected when the file cannot be opened.`,
-		ru: `\`appendFileSync\` в виде промиса; отклоняется, если файл не удалось открыть.`,
+		en: `\`appendFileSync\` as a promise, rejected when the file cannot be opened; bytes are written as \`writeFile\` writes them.`,
+		ru: `\`appendFileSync\` в виде промиса; отклоняется, если файл не удалось открыть. Байты пишутся так же, как пишет \`writeFile\`.`,
 	},
 	'exists': {
 		en: `\`existsSync\` as a promise.`,
