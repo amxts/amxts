@@ -138,5 +138,31 @@ export function text(): string {
 				'[{"x":1,"y":2}]"stamp"null"x"',
 			].join('\n'));
 		});
+
+		test('a Uint8Array is base64 text both ways, and a union of values holds one', async () => {
+			const { error, text } = await compile(`
+interface Blob { data: Uint8Array; none: Uint8Array | null }
+export function text(): string {
+	const every = new Uint8Array(256);
+	for (let i = 0; i < 256; i++) every[i] = i;
+	const written = JSON.stringify(every);
+	const back = JSON.parse<Uint8Array>(written);
+	let same = back.length == 256;
+	for (let i = 0; i < 256; i++) if (back[i] != i) same = false;
+	const blob = JSON.parse<Blob>('{"data":"AAH/","none":null}');
+	const tails = ["", "AA", "AAE", "AAEC", "AA==", "AAE="].map(t => JSON.stringify(JSON.parse<Uint8Array>(\`"\${t}"\`)));
+	const value: string | number | boolean | Uint8Array | null = blob.data;
+	let bad = "";
+	try {
+		JSON.parse<Blob>('{"data":"A*==","none":null}');
+	} catch (e) {
+		bad = e.message;
+	}
+	return \`\${written.substring(0, 12)}|\${same}|\${blob.data.join(",")}|\${blob.none == null}|\${tails.join(" ")}|\${typeof value}|\${(value as Uint8Array).length}|\${JSON.stringify([value, 1])}|\${bad}\`;
+}
+`, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('"AAECAwQFBgc|true|0,1,255|true|"" "AA==" "AAE=" "AAEC" "AA==" "AAE="|object|3|["AAH/",1]|JSON: data is not base64 text, which a Uint8Array is read from');
+		});
 	});
 }

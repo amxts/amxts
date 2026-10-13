@@ -416,7 +416,7 @@ index f876049..107db99 100644
          let value = global.constantIntegerValue;
          if (i64_low(value) || i64_high(value)) {
 diff --git a/src/compiler.ts b/src/compiler.ts
-index f99bd5a..c9f672f 100644
+index f99bd5a..8828ab6 100644
 --- a/src/compiler.ts
 +++ b/src/compiler.ts
 @@ -39,6 +39,8 @@ import {
@@ -2348,7 +2348,7 @@ index f99bd5a..c9f672f 100644
 +      if (!explicit) {
 +        this.error(
 +          DiagnosticCode.Not_implemented_0,
-+          reportNode.range, `a union of string, number and boolean read without saying which: write \`value as ${toType.isReference ? "string" : toType == Type.bool ? "boolean" : "number"}\`, after a typeof check`
++          reportNode.range, `a union of string, number and boolean read without saying which: write \`value as ${toType.isReference ? toType.getClass() == this.program.stringInstance ? "string" : "Uint8Array" : toType == Type.bool ? "boolean" : "number"}\`, after a typeof check`
 +        );
 +        this.currentType = toType;
 +        return module.unreachable();
@@ -5379,7 +5379,7 @@ index f99bd5a..c9f672f 100644
              expr = this.convertExpression(expr, type, Type.void, true, operand);
              if (type.isReference) {
                let signatureReference = type.getSignature();
-@@ -9998,6 +13387,29 @@ export class Compiler extends DiagnosticEmitter {
+@@ -9998,6 +13387,32 @@ export class Compiler extends DiagnosticEmitter {
        : this.ensureStaticString(typeString);
    }
  
@@ -5391,9 +5391,12 @@ index f99bd5a..c9f672f 100644
 +    return prototype != null && classReference.prototype == prototype;
 +  }
 +
-+  /** amxts: whether a value of `type` goes into a union of text, a number and a boolean: text, a number or a boolean. */
++  /** amxts: whether a value of `type` goes into a union of text, a number and a boolean: text, a number, a boolean or a Uint8Array. */
 +  isValueMember(type: Type): bool {
-+    if (type.isReference) return type.getClass() == this.program.stringInstance;
++    if (type.isReference) {
++      let classReference = type.getClass();
++      return classReference != null && (classReference == this.program.stringInstance || classReference.prototype == this.program.uint8ArrayPrototype);
++    }
 +    return type == Type.bool || (type.isNumericValue && !type.isVectorValue);
 +  }
 +
@@ -5409,7 +5412,7 @@ index f99bd5a..c9f672f 100644
    /** Makes sure that a 32-bit integer value is wrapped to a valid value of the specified type. */
    ensureSmallIntegerWrap(expr: ExpressionRef, type: Type): ExpressionRef {
      let module = this.module;
-@@ -10067,6 +13479,8 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10067,6 +13482,8 @@ export class Compiler extends DiagnosticEmitter {
    addDebugLocation(expr: ExpressionRef, range: Range): void {
      let targetFunction = this.currentFlow.targetFunction;
      let source = range.source;
@@ -5418,7 +5421,7 @@ index f99bd5a..c9f672f 100644
      if (source.debugInfoIndex < 0) source.debugInfoIndex = this.module.addDebugInfoFile(source.normalizedPath);
      // It's possible that an `expr` is seen multiple times, for example when
      // first adding debug information for an inner expression and later on for
-@@ -10220,6 +13634,31 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10220,6 +13637,31 @@ export class Compiler extends DiagnosticEmitter {
        case TypeKind.U64: return module.binary(BinaryOp.NeI64, expr, module.i64(0));
        case TypeKind.Isize:
        case TypeKind.Usize: {
@@ -5450,7 +5453,7 @@ index f99bd5a..c9f672f 100644
          return type.size == 64
            ? module.binary(BinaryOp.NeI64, expr, module.i64(0))
            : expr;
-@@ -10323,10 +13762,75 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10323,10 +13765,75 @@ export class Compiler extends DiagnosticEmitter {
      }
    }
  
@@ -5526,7 +5529,7 @@ index f99bd5a..c9f672f 100644
      if (type == stringType) {
        return expr;
      }
-@@ -10364,7 +13868,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10364,7 +13871,7 @@ export class Compiler extends DiagnosticEmitter {
                type.nonNullableType,
                reportNode
              ),
@@ -5535,7 +5538,7 @@ index f99bd5a..c9f672f 100644
            );
          }
          let toStringReturnType = toStringSignature.returnType;
-@@ -10416,6 +13920,49 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10416,6 +13923,49 @@ export class Compiler extends DiagnosticEmitter {
      }
    }
  
@@ -5585,7 +5588,7 @@ index f99bd5a..c9f672f 100644
    /** Makes a conditional allocation where `this` might not have been initialized yet. */
    makeConditionalAllocation(
      classInstance: Class,
-@@ -10436,85 +13983,728 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10436,85 +13986,728 @@ export class Compiler extends DiagnosticEmitter {
      );
    }
  
@@ -6386,7 +6389,7 @@ index f99bd5a..c9f672f 100644
    }
  
    /** Makes a call to `abort`, if present, otherwise creates a trap. */
-@@ -10554,20 +14744,72 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10554,20 +14747,72 @@ export class Compiler extends DiagnosticEmitter {
      let filenameExpr = this.ensureStaticString(codeLocation.range.source.normalizedPath);
      let range = codeLocation.range;
      let source = range.source;
@@ -6468,7 +6471,7 @@ index f99bd5a..c9f672f 100644
    /** Makes a runtime non-null check, e.g. on `<Type>possiblyNull` or `possiblyNull!`. */
    makeRuntimeNonNullCheck(
      /** Expression being checked. */
-@@ -10575,7 +14817,9 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10575,7 +14820,9 @@ export class Compiler extends DiagnosticEmitter {
      /** Type of the expression. */
      type: Type,
      /** Report node. */
@@ -6479,7 +6482,7 @@ index f99bd5a..c9f672f 100644
    ): ExpressionRef {
      let module = this.module;
      let flow = this.currentFlow;
-@@ -10584,10 +14828,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10584,10 +14831,7 @@ export class Compiler extends DiagnosticEmitter {
      if (!flow.canOverflow(expr, type)) flow.setLocalFlag(tempIndex, LocalFlags.Wrapped);
      flow.setLocalFlag(tempIndex, LocalFlags.NonNull);
  
@@ -6491,7 +6494,7 @@ index f99bd5a..c9f672f 100644
  
      if (type.isExternalReference) {
        let nonNullExpr = module.local_get(tempIndex, type.toRef());
-@@ -10629,10 +14870,7 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10629,10 +14873,7 @@ export class Compiler extends DiagnosticEmitter {
      let temp = flow.getTempLocal(type);
      let tempIndex = temp.index;
  
@@ -6503,7 +6506,7 @@ index f99bd5a..c9f672f 100644
  
      if (!toType.isNullableReference || flow.isNonnull(expr, type)) {
        // Simplify if the value cannot be `null`. If toType is non-nullable, a
-@@ -10669,6 +14907,20 @@ export class Compiler extends DiagnosticEmitter {
+@@ -10669,6 +14910,20 @@ export class Compiler extends DiagnosticEmitter {
  
  // helpers
  
@@ -6524,7 +6527,7 @@ index f99bd5a..c9f672f 100644
  function mangleImportName(
    element: Element,
    declaration: DeclarationStatement
-@@ -10725,3 +14977,524 @@ function mangleImportName(
+@@ -10725,3 +14980,524 @@ function mangleImportName(
      );
    }
  }
@@ -7541,7 +7544,7 @@ index def4e78..d2cec11 100644
      let cases = this.cases;
      let index = cases.indexOf(code);
 diff --git a/src/parser.ts b/src/parser.ts
-index 157351c..9f4a4d4 100644
+index 157351c..786ca8b 100644
 --- a/src/parser.ts
 +++ b/src/parser.ts
 @@ -31,7 +31,8 @@ import {
@@ -8197,7 +8200,7 @@ index 157351c..9f4a4d4 100644
      } else {
        if (!suppressErrors) {
          this.error(
-@@ -677,12 +1211,203 @@ export class Parser extends DiagnosticEmitter {
+@@ -677,12 +1211,206 @@ export class Parser extends DiagnosticEmitter {
        }
        return null;
      }
@@ -8327,7 +8330,8 @@ index 157351c..9f4a4d4 100644
 +
 +      // amxts: a union of text, a number and a boolean - `string | number`,
 +      // `number | boolean`, `string | number | boolean | null` - one value
-+      // that is any of them, as a query's values are. It is held as the
++      // that is any of them, as a query's values are; a Uint8Array may be one
++      // of them too, as a query's bytes. It is held as the
 +      // library's __Value (std/assembly/json.ts), a box with what it holds:
 +      // a value given where this type is declared is boxed
 +      // (Compiler.convertExpression), `typeof` reads what it holds and
@@ -8337,11 +8341,13 @@ index 157351c..9f4a4d4 100644
 +      let nextIsNumber = nextType.kind == NodeKind.NamedType && isNumberName((<NamedTypeNode>nextType).name.identifier.text);
 +      let typeIsValue = type.kind == NodeKind.NamedType && (<NamedTypeNode>type).name.identifier.text == "__Value";
 +      let nextIsValue = nextType.kind == NodeKind.NamedType && (<NamedTypeNode>nextType).name.identifier.text == "__Value";
++      let typeIsBytes = type.kind == NodeKind.NamedType && (<NamedTypeNode>type).name.identifier.text == "Uint8Array";
++      let nextIsBytes = nextType.kind == NodeKind.NamedType && (<NamedTypeNode>nextType).name.identifier.text == "Uint8Array";
 +      if (
 +        this.constraintDepth == 0 && !(typeIsNumber && nextIsNumber) &&
 +        (typeIsNumber || nextIsNumber || typeIsValue || nextIsValue) &&
-+        (typeIsNumber || typeIsString || typeIsBool || typeIsValue) &&
-+        (nextIsNumber || nextIsString || nextIsBool || nextIsValue)
++        (typeIsNumber || typeIsString || typeIsBool || typeIsValue || typeIsBytes) &&
++        (nextIsNumber || nextIsString || nextIsBool || nextIsValue || nextIsBytes)
 +      ) {
 +        type = Node.createNamedType(
 +          Node.createSimpleTypeName("__Value", type.range), [], type.isNullable || nextType.isNullable || type.orNull || nextType.orNull, tn.range(startPos, tn.pos)
@@ -8402,7 +8408,7 @@ index 157351c..9f4a4d4 100644
        if (!typeIsNull && !nextTypeIsNull) {
          if (!suppressErrors) {
            this.error(
-@@ -691,11 +1416,11 @@ export class Parser extends DiagnosticEmitter {
+@@ -691,11 +1419,11 @@ export class Parser extends DiagnosticEmitter {
          }
          return null;
        } else if (nextTypeIsNull) {
@@ -8416,7 +8422,7 @@ index 157351c..9f4a4d4 100644
          type = nextType;
        } else {
          // `null | null` still `null`
-@@ -705,6 +1430,26 @@ export class Parser extends DiagnosticEmitter {
+@@ -705,6 +1433,26 @@ export class Parser extends DiagnosticEmitter {
      // ... [][]
      while (tn.skip(Token.OpenBracket)) {
        let bracketStart = tn.tokenPos;
@@ -8443,7 +8449,7 @@ index 157351c..9f4a4d4 100644
        if (!tn.skip(Token.CloseBracket)) {
          if (!suppressErrors) {
            this.error(
-@@ -718,9 +1463,26 @@ export class Parser extends DiagnosticEmitter {
+@@ -718,9 +1466,26 @@ export class Parser extends DiagnosticEmitter {
  
        // ...[] | null
        let nullable = false;
@@ -8470,7 +8476,7 @@ index 157351c..9f4a4d4 100644
          } else {
            if (!suppressErrors) {
              this.error(
-@@ -737,9 +1499,20 @@ export class Parser extends DiagnosticEmitter {
+@@ -737,9 +1502,20 @@ export class Parser extends DiagnosticEmitter {
          nullable,
          tn.range(startPos, tn.pos)
        );
@@ -8491,7 +8497,7 @@ index 157351c..9f4a4d4 100644
      return type;
    }
  
-@@ -897,6 +1670,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -897,6 +1673,7 @@ export class Parser extends DiagnosticEmitter {
          }
        }
        returnType = this.parseType(tn);
@@ -8499,7 +8505,7 @@ index 157351c..9f4a4d4 100644
        if (!returnType) {
          this.tryParseSignatureIsSignature = isSignature;
          return null;
-@@ -984,6 +1758,16 @@ export class Parser extends DiagnosticEmitter {
+@@ -984,6 +1761,16 @@ export class Parser extends DiagnosticEmitter {
  
      let declarations = new Array<VariableDeclaration>();
      do {
@@ -8516,7 +8522,7 @@ index 157351c..9f4a4d4 100644
        let declaration = this.parseVariableDeclaration(tn, flags, decorators, isFor);
        if (!declaration) return null;
        declaration.overriddenModuleName = this.currentModuleName;
-@@ -995,6 +1779,277 @@ export class Parser extends DiagnosticEmitter {
+@@ -995,6 +1782,277 @@ export class Parser extends DiagnosticEmitter {
      return ret;
    }
  
@@ -8794,7 +8800,7 @@ index 157351c..9f4a4d4 100644
    parseVariableDeclaration(
      tn: Tokenizer,
      parentFlags: CommonFlags,
-@@ -1081,7 +2136,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -1081,7 +2139,7 @@ export class Parser extends DiagnosticEmitter {
      flags: CommonFlags,
      decorators: DecoratorNode[] | null,
      startPos: i32
@@ -8803,7 +8809,7 @@ index 157351c..9f4a4d4 100644
  
      // at 'enum': Identifier '{' (EnumValueDeclaration (',' EnumValueDeclaration )*)? '}' ';'?
  
-@@ -1117,6 +2172,8 @@ export class Parser extends DiagnosticEmitter {
+@@ -1117,6 +2175,8 @@ export class Parser extends DiagnosticEmitter {
          }
        }
      }
@@ -8812,7 +8818,7 @@ index 157351c..9f4a4d4 100644
      let ret = Node.createEnumDeclaration(
        identifier,
        decorators,
-@@ -1125,7 +2182,34 @@ export class Parser extends DiagnosticEmitter {
+@@ -1125,7 +2185,34 @@ export class Parser extends DiagnosticEmitter {
        tn.range(startPos, tn.pos)
      );
      ret.overriddenModuleName = this.currentModuleName;
@@ -8848,7 +8854,7 @@ index 157351c..9f4a4d4 100644
      return ret;
    }
  
-@@ -1235,16 +2319,41 @@ export class Parser extends DiagnosticEmitter {
+@@ -1235,16 +2322,41 @@ export class Parser extends DiagnosticEmitter {
        );
        let extendsType: NamedTypeNode | null = null;
        if (tn.skip(Token.Extends)) {
@@ -8898,7 +8904,7 @@ index 157351c..9f4a4d4 100644
        }
        let defaultType: NamedTypeNode | null = null;
        if (tn.skip(Token.Equals)) {
-@@ -1413,9 +2522,21 @@ export class Parser extends DiagnosticEmitter {
+@@ -1413,9 +2525,21 @@ export class Parser extends DiagnosticEmitter {
        }
        isRest = true;
      }
@@ -8923,7 +8929,7 @@ index 157351c..9f4a4d4 100644
        let type: TypeNode | null = null;
        if (isOptional = tn.skip(Token.Question)) {
          if (isRest) {
-@@ -1450,6 +2571,47 @@ export class Parser extends DiagnosticEmitter {
+@@ -1450,6 +2574,47 @@ export class Parser extends DiagnosticEmitter {
          initializer = this.parseExpression(tn, Precedence.Comma + 1);
          if (!initializer) return null;
        }
@@ -8971,7 +8977,7 @@ index 157351c..9f4a4d4 100644
        let param = Node.createParameter(
          isRest
            ? ParameterKind.Rest
-@@ -1462,6 +2624,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -1462,6 +2627,7 @@ export class Parser extends DiagnosticEmitter {
          Range.join(assert(startRange), tn.range())
        );
        param.flags |= accessFlags;
@@ -8979,7 +8985,7 @@ index 157351c..9f4a4d4 100644
        return param;
      } else {
        this.error(
-@@ -1477,7 +2640,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -1477,7 +2643,7 @@ export class Parser extends DiagnosticEmitter {
      flags: CommonFlags,
      decorators: DecoratorNode[] | null,
      startPos: i32
@@ -8988,7 +8994,7 @@ index 157351c..9f4a4d4 100644
  
      // at 'function':
      //  Identifier
-@@ -1486,6 +2649,9 @@ export class Parser extends DiagnosticEmitter {
+@@ -1486,6 +2652,9 @@ export class Parser extends DiagnosticEmitter {
      //  '{' Statement* '}'
      //  ';'?
  
@@ -8998,7 +9004,7 @@ index 157351c..9f4a4d4 100644
      if (!tn.skipIdentifier()) {
        this.error(
          DiagnosticCode.Identifier_expected,
-@@ -1549,19 +2715,29 @@ export class Parser extends DiagnosticEmitter {
+@@ -1549,19 +2718,29 @@ export class Parser extends DiagnosticEmitter {
      let returnType: TypeNode | null = null;
      if (tn.skip(Token.Colon)) {
        returnType = this.parseType(tn, true, isSetter);
@@ -9036,7 +9042,7 @@ index 157351c..9f4a4d4 100644
      }
  
      let signature = Node.createFunctionType(
-@@ -1571,6 +2747,8 @@ export class Parser extends DiagnosticEmitter {
+@@ -1571,6 +2750,8 @@ export class Parser extends DiagnosticEmitter {
        false,
        tn.range(signatureStart, tn.pos)
      );
@@ -9045,7 +9051,7 @@ index 157351c..9f4a4d4 100644
  
      let body: Statement | null = null;
      if (tn.skip(Token.OpenBrace)) {
-@@ -1581,15 +2759,35 @@ export class Parser extends DiagnosticEmitter {
+@@ -1581,15 +2762,35 @@ export class Parser extends DiagnosticEmitter {
          ); // recoverable
        }
  
@@ -9081,7 +9087,7 @@ index 157351c..9f4a4d4 100644
      let ret = Node.createFunctionDeclaration(
        name,
        decorators,
-@@ -1605,6 +2803,17 @@ export class Parser extends DiagnosticEmitter {
+@@ -1605,6 +2806,17 @@ export class Parser extends DiagnosticEmitter {
      return ret;
    }
  
@@ -9099,7 +9105,7 @@ index 157351c..9f4a4d4 100644
    parseFunctionExpression(tn: Tokenizer): FunctionExpression | null {
      let startPos = tn.tokenPos;
      let name: IdentifierExpression;
-@@ -1641,9 +2850,13 @@ export class Parser extends DiagnosticEmitter {
+@@ -1641,9 +2853,13 @@ export class Parser extends DiagnosticEmitter {
  
      // TODO: type parameters? doesn't seem worth it.
  
@@ -9113,7 +9119,7 @@ index 157351c..9f4a4d4 100644
  
      return this.parseFunctionExpressionCommon(tn, name, parameters, this.parseParametersThis, arrowKind, startPos, signatureStart);
    }
-@@ -1663,6 +2876,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -1663,6 +2879,7 @@ export class Parser extends DiagnosticEmitter {
      let returnType: TypeNode | null = null;
      if (arrowKind != ArrowKind.Single && tn.skip(Token.Colon)) {
        returnType = this.parseType(tn);
@@ -9121,7 +9127,7 @@ index 157351c..9f4a4d4 100644
        if (!returnType) return null;
      } else {
        returnType = Node.createOmittedType(tn.range(tn.pos));
-@@ -1685,17 +2899,32 @@ export class Parser extends DiagnosticEmitter {
+@@ -1685,17 +2902,32 @@ export class Parser extends DiagnosticEmitter {
        false,
        tn.range(signatureStart, tn.pos)
      );
@@ -9155,7 +9161,7 @@ index 157351c..9f4a4d4 100644
          this.error(
            DiagnosticCode._0_expected,
            tn.range(tn.pos), "{"
-@@ -1704,7 +2933,26 @@ export class Parser extends DiagnosticEmitter {
+@@ -1704,7 +2936,26 @@ export class Parser extends DiagnosticEmitter {
        }
        body = this.parseBlockStatement(tn, false);
      }
@@ -9182,7 +9188,7 @@ index 157351c..9f4a4d4 100644
  
      let declaration = Node.createFunctionDeclaration(
        name,
-@@ -1724,7 +2972,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -1724,7 +2975,7 @@ export class Parser extends DiagnosticEmitter {
      flags: CommonFlags,
      decorators: DecoratorNode[] | null,
      startPos: i32
@@ -9191,7 +9197,7 @@ index 157351c..9f4a4d4 100644
  
      // at ('class' | 'interface'):
      //   Identifier
-@@ -1852,6 +3100,52 @@ export class Parser extends DiagnosticEmitter {
+@@ -1852,6 +3103,52 @@ export class Parser extends DiagnosticEmitter {
      }
      declaration.range.end = tn.pos;
      declaration.overriddenModuleName = this.currentModuleName;
@@ -9244,7 +9250,7 @@ index 157351c..9f4a4d4 100644
      return declaration;
    }
  
-@@ -2084,6 +3378,20 @@ export class Parser extends DiagnosticEmitter {
+@@ -2084,6 +3381,20 @@ export class Parser extends DiagnosticEmitter {
        }
      }
  
@@ -9265,7 +9271,7 @@ index 157351c..9f4a4d4 100644
      // check if accessor: ('get' | 'set') ^\n Identifier
      let state = tn.mark();
      let isConstructor = false;
-@@ -2093,7 +3401,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -2093,7 +3404,7 @@ export class Parser extends DiagnosticEmitter {
      let isSetter = false;
      let setStart = 0;
      let setEnd = 0;
@@ -9274,7 +9280,7 @@ index 157351c..9f4a4d4 100644
        if (tn.skip(Token.Get)) {
          if (tn.peek(IdentifierHandling.Prefer) == Token.Identifier && !tn.peekOnNewLine()) {
            flags |= CommonFlags.Get;
-@@ -2126,7 +3434,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -2126,7 +3437,7 @@ export class Parser extends DiagnosticEmitter {
          } else {
            tn.reset(state);
          }
@@ -9283,7 +9289,7 @@ index 157351c..9f4a4d4 100644
          flags |= CommonFlags.Constructor;
          isConstructor = true;
          if (!startPos) startPos = tn.tokenPos;
-@@ -2206,15 +3514,22 @@ export class Parser extends DiagnosticEmitter {
+@@ -2206,15 +3517,22 @@ export class Parser extends DiagnosticEmitter {
          tn.skip(Token.Semicolon);
          return retIndex;
        }
@@ -9314,7 +9320,7 @@ index 157351c..9f4a4d4 100644
      }
      let typeParameters: TypeParameterNode[] | null = null;
      if (tn.skip(Token.LessThan)) {
-@@ -2299,6 +3614,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -2299,6 +3617,7 @@ export class Parser extends DiagnosticEmitter {
        }
  
        let returnType: TypeNode | null = null;
@@ -9322,7 +9328,7 @@ index 157351c..9f4a4d4 100644
        if (tn.skip(Token.Colon)) {
          if (name.kind == NodeKind.Constructor) {
            this.error(
-@@ -2312,15 +3628,22 @@ export class Parser extends DiagnosticEmitter {
+@@ -2312,15 +3631,22 @@ export class Parser extends DiagnosticEmitter {
            );
          }
          returnType = this.parseType(tn, isSetter || name.kind == NodeKind.Constructor);
@@ -9351,7 +9357,7 @@ index 157351c..9f4a4d4 100644
        }
  
        let signature = Node.createFunctionType(
-@@ -2330,6 +3653,8 @@ export class Parser extends DiagnosticEmitter {
+@@ -2330,6 +3656,8 @@ export class Parser extends DiagnosticEmitter {
          false,
          tn.range(signatureStart, tn.pos)
        );
@@ -9360,7 +9366,7 @@ index 157351c..9f4a4d4 100644
  
        let body: Statement | null = null;
        if (tn.skip(Token.OpenBrace)) {
-@@ -2349,7 +3674,10 @@ export class Parser extends DiagnosticEmitter {
+@@ -2349,7 +3677,10 @@ export class Parser extends DiagnosticEmitter {
              tn.range(), ";"
            ); // recoverable
          }
@@ -9371,7 +9377,7 @@ index 157351c..9f4a4d4 100644
          if (!body) return null;
        } else if (!isInterface && !(flags & (CommonFlags.Ambient | CommonFlags.Abstract))) {
          this.error(
-@@ -2358,6 +3686,9 @@ export class Parser extends DiagnosticEmitter {
+@@ -2358,6 +3689,9 @@ export class Parser extends DiagnosticEmitter {
          ); // recoverable
        }
  
@@ -9381,7 +9387,7 @@ index 157351c..9f4a4d4 100644
        let retMethod = Node.createMethodDeclaration(
          name,
          decorators,
-@@ -2415,61 +3746,310 @@ export class Parser extends DiagnosticEmitter {
+@@ -2415,61 +3749,310 @@ export class Parser extends DiagnosticEmitter {
        }
  
        let type: TypeNode | null = null;
@@ -9731,7 +9737,7 @@ index 157351c..9f4a4d4 100644
      return null;
    }
  
-@@ -2490,8 +4070,9 @@ export class Parser extends DiagnosticEmitter {
+@@ -2490,8 +4073,9 @@ export class Parser extends DiagnosticEmitter {
  
      let start = tn.tokenPos;
      if (tn.skipIdentifier()) {
@@ -9743,7 +9749,7 @@ index 157351c..9f4a4d4 100644
          if (tn.skip(Token.Colon)) {
            let keyType = this.parseType(tn);
            if (!keyType) return null;
-@@ -2506,13 +4087,6 @@ export class Parser extends DiagnosticEmitter {
+@@ -2506,13 +4090,6 @@ export class Parser extends DiagnosticEmitter {
              if (tn.skip(Token.Colon)) {
                let valueType = this.parseType(tn);
                if (!valueType) return null;
@@ -9757,7 +9763,7 @@ index 157351c..9f4a4d4 100644
                return Node.createIndexSignature(<NamedTypeNode>keyType, valueType, flags, tn.range(start, tn.pos));
              } else {
                this.error(
-@@ -2532,11 +4106,6 @@ export class Parser extends DiagnosticEmitter {
+@@ -2532,11 +4109,6 @@ export class Parser extends DiagnosticEmitter {
              tn.range(), ":"
            );
          }
@@ -9769,7 +9775,7 @@ index 157351c..9f4a4d4 100644
        }
      } else {
        this.error(
-@@ -2770,6 +4339,18 @@ export class Parser extends DiagnosticEmitter {
+@@ -2770,6 +4342,18 @@ export class Parser extends DiagnosticEmitter {
      let members: ImportDeclaration[] | null = null;
      let namespaceName: IdentifierExpression | null = null;
      let skipFrom = false;
@@ -9788,7 +9794,7 @@ index 157351c..9f4a4d4 100644
      if (tn.skip(Token.OpenBrace)) { // import { ... } from "file"
        members = new Array();
        while (!tn.skip(Token.CloseBrace)) {
-@@ -3026,6 +4607,15 @@ export class Parser extends DiagnosticEmitter {
+@@ -3026,6 +4610,15 @@ export class Parser extends DiagnosticEmitter {
          // fall-through
        }
        default: {
@@ -9804,7 +9810,7 @@ index 157351c..9f4a4d4 100644
          tn.reset(state);
          statement = this.parseExpressionStatement(tn);
          break;
-@@ -3153,17 +4743,114 @@ export class Parser extends DiagnosticEmitter {
+@@ -3153,17 +4746,114 @@ export class Parser extends DiagnosticEmitter {
      return ret;
    }
  
@@ -9921,7 +9927,7 @@ index 157351c..9f4a4d4 100644
        if (tn.skip(Token.Const)) {
          initializer = this.parseVariable(tn, CommonFlags.Const, null, tn.tokenPos, true);
        } else if (tn.skip(Token.Let)) {
-@@ -3291,7 +4978,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -3291,7 +4981,7 @@ export class Parser extends DiagnosticEmitter {
      tn: Tokenizer,
      startPos: i32,
      variable: Statement,
@@ -9930,7 +9936,7 @@ index 157351c..9f4a4d4 100644
  
      // at 'of': Expression ')' Statement
  
-@@ -3308,15 +4995,87 @@ export class Parser extends DiagnosticEmitter {
+@@ -3308,15 +4998,87 @@ export class Parser extends DiagnosticEmitter {
  
      let statement = this.parseStatement(tn);
      if (!statement) return null;
@@ -10019,7 +10025,7 @@ index 157351c..9f4a4d4 100644
    parseIfStatement(
      tn: Tokenizer
    ): IfStatement | null {
-@@ -3496,27 +5255,27 @@ export class Parser extends DiagnosticEmitter {
+@@ -3496,27 +5258,27 @@ export class Parser extends DiagnosticEmitter {
        let catchStatements: Statement[] | null = null;
        let finallyStatements: Statement[] | null = null;
        if (tn.skip(Token.Catch)) {
@@ -10068,7 +10074,7 @@ index 157351c..9f4a4d4 100644
          }
          if (!tn.skip(Token.OpenBrace)) {
            this.error(
-@@ -3561,6 +5320,9 @@ export class Parser extends DiagnosticEmitter {
+@@ -3561,6 +5323,9 @@ export class Parser extends DiagnosticEmitter {
          finallyStatements,
          tn.range(startPos, tn.pos)
        );
@@ -10078,7 +10084,7 @@ index 157351c..9f4a4d4 100644
        tn.skip(Token.Semicolon);
        return ret;
      } else {
-@@ -3608,6 +5370,11 @@ export class Parser extends DiagnosticEmitter {
+@@ -3608,6 +5373,11 @@ export class Parser extends DiagnosticEmitter {
            type,
            tn.range(startPos, tn.pos)
          );
@@ -10090,7 +10096,7 @@ index 157351c..9f4a4d4 100644
          tn.skip(Token.Semicolon);
          ret.overriddenModuleName = this.currentModuleName;
          return ret;
-@@ -3694,6 +5461,19 @@ export class Parser extends DiagnosticEmitter {
+@@ -3694,6 +5464,19 @@ export class Parser extends DiagnosticEmitter {
    ): Expression | null {
      let token = tn.next(IdentifierHandling.Prefer);
      let startPos = tn.tokenPos;
@@ -10110,7 +10116,7 @@ index 157351c..9f4a4d4 100644
      switch (token) {
  
        // TODO: SpreadExpression, YieldExpression
-@@ -3712,6 +5492,51 @@ export class Parser extends DiagnosticEmitter {
+@@ -3712,6 +5495,51 @@ export class Parser extends DiagnosticEmitter {
          if (!operand) return null;
          return Node.createUnaryPrefixExpression(token, operand, tn.range(startPos, tn.pos));
        }
@@ -10162,7 +10168,7 @@ index 157351c..9f4a4d4 100644
        case Token.Plus_Plus:
        case Token.Minus_Minus: {
          let operand = this.parseExpression(tn, Precedence.UnaryPrefix);
-@@ -3752,6 +5577,9 @@ export class Parser extends DiagnosticEmitter {
+@@ -3752,6 +5580,9 @@ export class Parser extends DiagnosticEmitter {
          } else {
            arguments_ = []; // new Type;
          }
@@ -10172,7 +10178,7 @@ index 157351c..9f4a4d4 100644
          return Node.createNewExpression(
            typeName,
            typeArguments,
-@@ -3790,6 +5618,24 @@ export class Parser extends DiagnosticEmitter {
+@@ -3790,6 +5621,24 @@ export class Parser extends DiagnosticEmitter {
                tn.reset(state);
                return this.parseFunctionExpression(tn);
              }
@@ -10197,7 +10203,7 @@ index 157351c..9f4a4d4 100644
              // can be both
              case Token.Identifier: {
                tn.readIdentifier();
-@@ -3896,6 +5742,25 @@ export class Parser extends DiagnosticEmitter {
+@@ -3896,6 +5745,25 @@ export class Parser extends DiagnosticEmitter {
          let values = new Array<Expression>();
          let name: IdentifierExpression;
          while (!tn.skip(Token.CloseBrace)) {
@@ -10223,7 +10229,7 @@ index 157351c..9f4a4d4 100644
            if (!tn.skipIdentifier()) {
              if (!tn.skip(Token.StringLiteral)) {
                this.error(
-@@ -3914,6 +5779,17 @@ export class Parser extends DiagnosticEmitter {
+@@ -3914,6 +5782,17 @@ export class Parser extends DiagnosticEmitter {
              let value = this.parseExpression(tn, Precedence.Comma + 1);
              if (!value) return null;
              values.push(value);
@@ -10241,7 +10247,7 @@ index 157351c..9f4a4d4 100644
            } else if (!name.isQuoted) {
              values.push(name);
            } else {
-@@ -3935,7 +5811,10 @@ export class Parser extends DiagnosticEmitter {
+@@ -3935,7 +5814,10 @@ export class Parser extends DiagnosticEmitter {
              }
            }
          }
@@ -10253,7 +10259,7 @@ index 157351c..9f4a4d4 100644
        }
        // AssertionExpression (unary prefix)
        case Token.LessThan: {
-@@ -4129,20 +6008,32 @@ export class Parser extends DiagnosticEmitter {
+@@ -4129,20 +6011,32 @@ export class Parser extends DiagnosticEmitter {
      // see: http://www.engr.mun.ca/~theo/Misc/exp_parsing.htm#climbing
      let nextPrecedence: Precedence;
      while (
@@ -10293,7 +10299,7 @@ index 157351c..9f4a4d4 100644
            } else {
              let toType = this.parseType(tn); // reports
              if (!toType) return null;
-@@ -4281,6 +6172,44 @@ export class Parser extends DiagnosticEmitter {
+@@ -4281,6 +6175,44 @@ export class Parser extends DiagnosticEmitter {
            }
            break;
          }
@@ -10338,7 +10344,7 @@ index 157351c..9f4a4d4 100644
          // BinaryExpression (right associative)
          case Token.Equals:
          case Token.Plus_Equals:
-@@ -4295,6 +6224,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -4295,6 +6227,7 @@ export class Parser extends DiagnosticEmitter {
          case Token.Ampersand_Equals:
          case Token.Caret_Equals:
          case Token.Bar_Equals:
@@ -10346,7 +10352,7 @@ index 157351c..9f4a4d4 100644
          case Token.Asterisk_Asterisk: {
            let next = this.parseExpression(tn, nextPrecedence);
            if (!next) return null;
-@@ -4323,6 +6253,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -4323,6 +6256,7 @@ export class Parser extends DiagnosticEmitter {
          case Token.Caret:
          case Token.Ampersand_Ampersand:
          case Token.Bar_Bar:
@@ -10354,7 +10360,7 @@ index 157351c..9f4a4d4 100644
          case Token.In: {
            let next = this.parseExpression(tn, nextPrecedence + 1);
            if (!next) return null;
-@@ -4335,6 +6266,26 @@ export class Parser extends DiagnosticEmitter {
+@@ -4335,6 +6269,26 @@ export class Parser extends DiagnosticEmitter {
      return expr;
    }
  
@@ -10381,7 +10387,7 @@ index 157351c..9f4a4d4 100644
    private parseTemplateLiteral(tn: Tokenizer, tag: Expression | null = null): Expression | null {
      // at '`': ... '`'
      let startPos = tag ? tag.range.start : tn.tokenPos;
-@@ -4569,9 +6520,11 @@ function determinePrecedence(kind: Token): Precedence {
+@@ -4569,9 +6523,11 @@ function determinePrecedence(kind: Token): Precedence {
      case Token.GreaterThan_GreaterThan_GreaterThan_Equals:
      case Token.Ampersand_Equals:
      case Token.Caret_Equals:
@@ -10395,7 +10401,7 @@ index 157351c..9f4a4d4 100644
      case Token.Ampersand_Ampersand: return Precedence.LogicalAnd;
      case Token.Bar: return Precedence.BitwiseOr;
      case Token.Caret: return Precedence.BitwiseXor;
-@@ -4599,6 +6552,7 @@ function determinePrecedence(kind: Token): Precedence {
+@@ -4599,6 +6555,7 @@ function determinePrecedence(kind: Token): Precedence {
      case Token.Plus_Plus:
      case Token.Minus_Minus: return Precedence.UnaryPostfix;
      case Token.Dot:
@@ -10403,7 +10409,7 @@ index 157351c..9f4a4d4 100644
      case Token.OpenBracket:
      case Token.Exclamation: return Precedence.MemberAccess;
    }
-@@ -4640,3 +6594,94 @@ function isCircularTypeAlias(name: string, type: TypeNode): bool {
+@@ -4640,3 +6597,94 @@ function isCircularTypeAlias(name: string, type: TypeNode): bool {
    }
    return false;
  }
@@ -16959,17 +16965,19 @@ index a604397..7749c2e 100644
    toString(): string;
 diff --git a/std/assembly/json.ts b/std/assembly/json.ts
 new file mode 100644
-index 0000000..7535e50
+index 0000000..032f863
 --- /dev/null
 +++ b/std/assembly/json.ts
-@@ -0,0 +1,635 @@
+@@ -0,0 +1,733 @@
 +// amxts: JSON as JavaScript has it, typed. JSON.parse<T>(text) - or
 +// `JSON.parse(text) as T` - builds a T from the text: what T is the compiler
 +// knows, so __jsonRead walks it, field by field for an object
 +// (Compiler.compileJsonReadFields). JSON.stringify(value) writes any value a
 +// plugin has: text, numbers, booleans, arrays, Records, objects of fields
 +// (Compiler.compileJsonWriteFields), a Date as its ISO text, an object with a
-+// toJSON() as what that gives.
++// toJSON() as what that gives. A Uint8Array is base64 text both ways, as Go
++// and protobuf's JSON write bytes: JavaScript's object of indexes is three to
++// four times larger and reads back as no Uint8Array.
 +
 +import { dtoa } from "./util/number";
 +
@@ -17271,6 +17279,10 @@ index 0000000..7535e50
 +    if (!value || value.kind != NUMBER) __jsonMismatch(value, path, "a number");
 +    return <T>(<__JsonValue>value).number;
 +  }
++  if (isManaged<T>() && idof<T>() == idof<Uint8Array>()) {
++    if (!value || value.kind != STRING) __jsonMismatch(value, path, "base64 text");
++    return changetype<T>(__base64Decode((<__JsonValue>value).text, path));
++  }
 +  if (isArray<T>()) {
 +    if (!value || value.kind != ARRAY) __jsonMismatch(value, path, "an array");
 +    let items = <__JsonValue[]>(<__JsonValue>value).items;
@@ -17382,9 +17394,83 @@ index 0000000..7535e50
 +    parts.push("\"");
 +  }
 +
++  /** Bytes, as base64 text: nothing in it to escape. */
++  bytes(bytes: Uint8Array): void {
++    this.parts.push("\"");
++    this.parts.push(__base64Encode(bytes));
++    this.parts.push("\"");
++  }
++
 +  toString(): string {
 +    return this.parts.join("");
 +  }
++}
++
++/** The base64 digit of six bits. */
++// @ts-ignore: decorator
++@inline function base64Digit(bits: u32): u16 {
++  return <u16>(bits < 26 ? bits + 65 : bits < 52 ? bits + 71 : bits < 62 ? bits - 4 : bits == 62 ? 43 : 47);
++}
++
++/** The six bits of a base64 digit; -1 for a character that is none. */
++// @ts-ignore: decorator
++@inline function base64Bits(code: i32): i32 {
++  if (code >= 65 && code <= 90) return code - 65;
++  if (code >= 97 && code <= 122) return code - 71;
++  if (code >= 48 && code <= 57) return code + 4;
++  if (code == 43) return 62;
++  if (code == 47) return 63;
++  return -1;
++}
++
++/** @hidden bytes as base64 text, padded with `=`. */
++export function __base64Encode(bytes: Uint8Array): string {
++  let length = bytes.length;
++  let size = (length + 2) / 3 * 4;
++  let out = changetype<usize>(__new(<usize>size << 1, idof<string>()));
++  let from = bytes.dataStart;
++  let at = out;
++  let i = 0;
++  for (; i + 2 < length; i += 3, at += 8) {
++    let bits = (<u32>load<u8>(from + i) << 16) | (<u32>load<u8>(from + i + 1) << 8) | <u32>load<u8>(from + i + 2);
++    store<u64>(at,
++      <u64>base64Digit(bits >> 18) | (<u64>base64Digit((bits >> 12) & 63) << 16) |
++      (<u64>base64Digit((bits >> 6) & 63) << 32) | (<u64>base64Digit(bits & 63) << 48)
++    );
++  }
++  if (i < length) {
++    let two = i + 1 < length;
++    let bits = (<u32>load<u8>(from + i) << 16) | (two ? <u32>load<u8>(from + i + 1) << 8 : 0);
++    store<u16>(at, base64Digit(bits >> 18));
++    store<u16>(at, base64Digit((bits >> 12) & 63), 2);
++    store<u16>(at, two ? base64Digit((bits >> 6) & 63) : 61, 4);
++    store<u16>(at, 61, 6);
++  }
++  return changetype<string>(out);
++}
++
++/** @hidden the bytes of base64 text, with its `=` or without; a TypeError naming `path` where it is not base64. */
++export function __base64Decode(text: string, path: string): Uint8Array {
++  let length = text.length;
++  let end = length;
++  while (end > 0 && end > length - 2 && text.charCodeAt(end - 1) == 61) --end;
++  let bytes = new Uint8Array((end * 3) >> 2);
++  let to = bytes.dataStart;
++  let bits: u32 = 0;
++  let count = 0;
++  let valid = end % 4 != 1 && (end == length || length % 4 == 0);
++  for (let i = 0; valid && i < end; ++i) {
++    let digit = base64Bits(text.charCodeAt(i));
++    if (digit < 0) valid = false;
++    bits = (bits << 6) | <u32>digit;
++    count += 6;
++    if (count >= 8) {
++      count -= 8;
++      store<u8>(to++, <u8>(bits >> count));
++    }
++  }
++  if (!valid) throw new TypeError(`JSON: ${path.length ? path : "the value"} is not base64 text, which a Uint8Array is read from`);
++  return bytes;
 +}
 +
 +/** Whether the surrogate at `i` is one half of a pair, which JSON writes as it is. */
@@ -17442,6 +17528,10 @@ index 0000000..7535e50
 +    writer.close("]");
 +    return;
 +  }
++  if (isManaged<T>() && idof<T>() == idof<Uint8Array>()) {
++    writer.bytes(changetype<Uint8Array>(value));
++    return;
++  }
 +  if (isReference<T>()) {
 +    // @ts-ignore: a union of text, a number and a boolean is what it holds
 +    if (isDefined(value.__valueKind)) {
@@ -17486,7 +17576,9 @@ index 0000000..7535e50
 +// where one goes is boxed (Compiler.convertExpression, __valueOf), `typeof`
 +// reads what it holds (__valueTypeof), `value as string` takes it out
 +// (__valueAs), and it compares, prints and goes to and from JSON as what it
-+// holds. Its null is null.
++// holds. Its null is null. It may hold a Uint8Array too, a query's bytes:
++// `typeof` says "object", `value as Uint8Array` takes it out, it compares by
++// which array it is, and from JSON it is text, as base64 is.
 +
 +// @ts-ignore: decorator
 +@inline const VALUE_BOOLEAN = 1;
@@ -17494,20 +17586,24 @@ index 0000000..7535e50
 +@inline const VALUE_NUMBER = 2;
 +// @ts-ignore: decorator
 +@inline const VALUE_TEXT = 3;
++// @ts-ignore: decorator
++@inline const VALUE_BYTES = 4;
 +
-+/** @hidden text, a number or a boolean: a union of them, boxed. */
++/** @hidden text, a number, a boolean or bytes: a union of them, boxed. */
 +// @ts-ignore: decorator
 +@final export class __Value {
-+  constructor(public __valueKind: i32, public __number: f64, public __text: string) {}
++  constructor(public __valueKind: i32, public __number: f64, public __text: string, public __bytes: Uint8Array | null = null) {}
 +
 +  toString(): string {
 +    if (this.__valueKind == VALUE_TEXT) return this.__text;
++    if (this.__valueKind == VALUE_BYTES) return (<Uint8Array>this.__bytes).join(",");
 +    if (this.__valueKind == VALUE_BOOLEAN) return this.__number != 0 ? "true" : "false";
 +    return dtoa(this.__number);
 +  }
 +
 +  __writeJson(writer: __JsonWriter): void {
 +    if (this.__valueKind == VALUE_TEXT) writer.text(this.__text);
++    else if (this.__valueKind == VALUE_BYTES) writer.bytes(<Uint8Array>this.__bytes);
 +    else if (this.__valueKind == VALUE_BOOLEAN) writer.raw(this.__number != 0 ? "true" : "false");
 +    else writer.number(this.__number);
 +  }
@@ -17515,7 +17611,7 @@ index 0000000..7535e50
 +  // @ts-ignore: decorator
 +  @operator("==") static __equals(a: __Value | null, b: __Value | null): bool {
 +    if (!a || !b) return changetype<usize>(a) == changetype<usize>(b);
-+    return a.__valueKind == b.__valueKind && a.__number == b.__number && a.__text == b.__text;
++    return a.__valueKind == b.__valueKind && a.__number == b.__number && a.__text == b.__text && a.__bytes == b.__bytes;
 +  }
 +
 +  // @ts-ignore: decorator
@@ -17532,7 +17628,11 @@ index 0000000..7535e50
 +  }
 +  if (isBoolean<T>()) return new __Value(VALUE_BOOLEAN, value ? 1 : 0, "");
 +  if (isInteger<T>() || isFloat<T>()) return new __Value(VALUE_NUMBER, <f64>value, "");
-+  ERROR("a union of string, number and boolean holds text, a number or a boolean");
++  if (isManaged<T>() && idof<T>() == idof<Uint8Array>()) {
++    if (isNullable<T>() && changetype<usize>(value) == 0) return changetype<__Value>(0);
++    return new __Value(VALUE_BYTES, 0, "", changetype<Uint8Array>(value));
++  }
++  ERROR("a union of string, number and boolean holds text, a number, a boolean or a Uint8Array");
 +  return changetype<__Value>(0);
 +}
 +
@@ -17541,6 +17641,7 @@ index 0000000..7535e50
 +  if (!value) return "object";
 +  if (value.__valueKind == VALUE_TEXT) return "string";
 +  if (value.__valueKind == VALUE_BOOLEAN) return "boolean";
++  if (value.__valueKind == VALUE_BYTES) return "object";
 +  return "number";
 +}
 +
@@ -17549,12 +17650,15 @@ index 0000000..7535e50
 +  if (isNullable<T>()) {
 +    if (!value) return changetype<T>(0);
 +  }
-+  let kind = isString<T>() ? VALUE_TEXT : isBoolean<T>() ? VALUE_BOOLEAN : VALUE_NUMBER;
++  let bytes = isManaged<T>() && !isString<T>();
++  let kind = isString<T>() ? VALUE_TEXT : bytes ? VALUE_BYTES : isBoolean<T>() ? VALUE_BOOLEAN : VALUE_NUMBER;
 +  if (!value || value.__valueKind != kind) {
-+    let wanted = isString<T>() ? "string" : isBoolean<T>() ? "boolean" : "number";
-+    throw new TypeError(`the value is ${value ? __valueTypeof(value) : "null"}, not ${wanted}`);
++    let wanted = isString<T>() ? "string" : bytes ? "a Uint8Array" : isBoolean<T>() ? "boolean" : "number";
++    let held = !value ? "null" : value.__valueKind == VALUE_BYTES ? "a Uint8Array" : __valueTypeof(value);
++    throw new TypeError(`the value is ${held}, not ${wanted}`);
 +  }
 +  if (isString<T>()) return changetype<T>(value.__text);
++  if (isManaged<T>()) return changetype<T>(value.__bytes);
 +  if (isBoolean<T>()) return <T>(value.__number != 0);
 +  return <T>value.__number;
 +}
