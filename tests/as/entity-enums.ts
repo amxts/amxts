@@ -39,4 +39,7 @@ function masks(player: Player) {
 	player.physicsFlags = ["onLadder", "ducking"];
 	player.physicsFlags.push("using");
 	console.log(`physics ${player.physicsFlags.join(",")}`);
+	player.hideHud = ["timer"];
+	player.hideHud.push("crosshair", "money");
+	console.log(`hud ${player.hideHud.join(",")}`);
 }

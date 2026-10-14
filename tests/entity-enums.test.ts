@@ -70,4 +70,7 @@ test('masks are lists of names; weapons keep the suit bit', async () => {
 	// PFLAG_ONLADDER | PFLAG_DUCKING, then push writes PFLAG_USING.
 	expect(alice.get('m_afPhysicsFlags')).toBe(1 | 8 | 16);
 	expect(server.log).toContain('physics onLadder,ducking,using');
+	// HIDEHUD_TIMER, then push of two writes HIDEHUD_CROSSHAIR and HIDEHUD_MONEY.
+	expect(alice.get('m_iHideHUD')).toBe(16 | 64 | 32);
+	expect(server.log).toContain('hud timer,money,crosshair');
 });
