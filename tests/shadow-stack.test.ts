@@ -226,27 +226,152 @@ export function heldByGlobals(): i32 {
 	if (held!() != 24) failed |= 8;
 	return failed;
 }
+
+// What a callee holds across a collection - its caller keeps the argument
+// for it: an argument made for the call alone has nothing else to keep it.
+function useAfter(node: Node): i32 {
+	garbage(500);
+	return node.value;
+}
+const DEFAULT_HOLDER = new Holder(100);
+function defaulted(node: Node, options: Holder = DEFAULT_HOLDER): i32 {
+	garbage(500);
+	return node.value + options.tag;
+}
+function passOn(node: Node): i32 {
+	return useAfter(node);
+}
+function deep(node: Node, depth: i32): i32 {
+	if (depth == 0) {
+		garbage(500);
+		return node.value;
+	}
+	return deep(node, depth - 1);
+}
+function copied(node: Node): i32 {
+	const other = node;
+	garbage(500);
+	return other.value;
+}
+class Counter {
+	constructor(public value: i32) {}
+	after(): i32 {
+		garbage(500);
+		return this.value;
+	}
+}
+// The base reads its argument before it can collect, the override after.
+class Shape {
+	read(node: Node): i32 {
+		return node.value;
+	}
+}
+class Square extends Shape {
+	constructor(public extra: i32) {
+		super();
+	}
+	read(node: Node): i32 {
+		garbage(500);
+		return node.value + this.extra;
+	}
+}
+function viaShape(shape: Shape, node: Node): i32 {
+	return shape.read(node);
+}
+function runWith(read: (node: Node) => i32, node: Node): i32 {
+	return read(node);
+}
+function reader(node: Node): () => i32 {
+	return () => node.value;
+}
+function callLater(read: () => i32): i32 {
+	garbage(500);
+	return read();
+}
+function rawUse(at: usize): i32 {
+	garbage(500);
+	return load<i32>(at);
+}
+const SLOT = memory.data(4);
+function stashed(at: usize): i32 {
+	store<usize>(SLOT, at);
+	garbage(500);
+	return load<i32>(load<usize>(SLOT));
+}
+// The imports call back into the probe, which collects, as a native's forward does.
+// @ts-ignore: decorator
+@external("env", "callback") declare function callback(): void;
+// @ts-ignore: decorator
+@external("env", "visit") declare function visit(at: usize): i32;
+export function churn(): void {
+	garbage(500);
+}
+function viaImport(node: Node): i32 {
+	callback();
+	return node.value;
+}
+function givenToImport(node: Node): i32 {
+	return visit(changetype<usize>(node));
+}
+
+export function heldByCallees(): i32 {
+	let failed = 0;
+	if (useAfter(new Node(31)) != 31) failed |= 1;
+	if (defaulted(new Node(32)) != 132) failed |= 2;
+	if (passOn(new Node(33)) != 33) failed |= 4;
+	if (deep(new Node(34), 5) != 34) failed |= 8;
+	if (copied(new Node(35)) != 35) failed |= 16;
+	if (new Counter(36).after() != 36) failed |= 32;
+	if (viaShape(new Square(1000), new Node(37)) != 1037) failed |= 64;
+	if (viaShape(new Shape(), new Node(38)) != 38) failed |= 128;
+	const captured = new Node(39);
+	if (runWith((node: Node): i32 => {
+		garbage(500);
+		return node.value + captured.value;
+	}, new Node(1000)) != 1039) failed |= 256;
+	if (callLater(reader(new Node(40))) != 40) failed |= 512;
+	if (rawUse(changetype<usize>(new Node(41))) != 41) failed |= 1024;
+	if (stashed(changetype<usize>(new Node(42))) != 42) failed |= 2048;
+	if (viaImport(new Node(43)) != 43) failed |= 4096;
+	if (givenToImport(new Node(44)) != 44) failed |= 8192;
+	return failed;
+}
 `;
+
+/** The imports of SOURCE: each calls back into the instance, which collects. */
+let instance: any = null;
+const ENV = {
+	callback: () => instance.churn(),
+	visit: (at: number) => {
+		instance.churn();
+		return new Int32Array(instance.memory.buffer, at, 1)[0];
+	},
+};
 
 for (const optimize of [false, true]) {
 	describe(optimize ? '-O3' : 'default', () => {
-		test('what a function holds survives collections, with or without a frame', async () => {
-			const { error, exports } = await probe({ 'probe.ts': SOURCE }, [...OFTEN, ...(optimize ? ['-O3'] : [])]);
+		const compiled = async (flags: string[] = []) => {
+			const { error, exports } = await probe({ 'probe.ts': SOURCE }, [...OFTEN, ...flags, ...(optimize ? ['-O3'] : [])], ENV);
 			expect(error).toBe('');
-			expect(exports.run()).toBe(0);
+			instance = exports;
+			return exports;
+		};
+
+		test('what a function holds survives collections, with or without a frame', async () => {
+			expect((await compiled()).run()).toBe(0);
 		});
 
 		test('a closure a global alone keeps survives collections', async () => {
-			const { error, exports } = await probe({ 'probe.ts': SOURCE }, [...OFTEN, ...(optimize ? ['-O3'] : [])]);
-			expect(error).toBe('');
-			expect(exports.heldByGlobals()).toBe(0);
+			expect((await compiled()).heldByGlobals()).toBe(0);
 		});
 
 		// A whole cycle of the collector on every allocation: the join's frees what nothing keeps.
 		test('the parts of a template live until it is joined', async () => {
-			const { error, exports } = await probe({ 'probe.ts': SOURCE }, [...OFTEN, '--use', 'ASC_GC_SWEEPFACTOR=1000000', ...(optimize ? ['-O3'] : [])]);
-			expect(error).toBe('');
-			expect(exports.templateParts()).toBe(0);
+			expect((await compiled(['--use', 'ASC_GC_SWEEPFACTOR=1000000'])).templateParts()).toBe(0);
+		});
+
+		test('an argument its callee holds across a collection survives it', async () => {
+			expect((await compiled()).heldByCallees()).toBe(0);
 		});
 	});
 }
@@ -277,4 +402,29 @@ export function viaPlain(): i32 {
 	const body = (name: string) => text['probe.wat'].split(`(func $probe/${name} `)[1].split('\n (func ')[0];
 	expect(body('viaLeaf')).not.toContain('__stack_pointer');
 	expect(body('viaPlain')).toContain('__stack_pointer');
+});
+
+test('an argument its callee reads before it can collect keeps no slot', async () => {
+	const source = `
+class Options {
+	hooks: bool = true;
+}
+const NO_OPTIONS = new Options();
+class Thing {
+	constructor(public id: f64) {}
+	touch(other: Thing, options: Options = NO_OPTIONS): void {
+		if (options.hooks) touched(<i32>this.id, <i32>other.id);
+	}
+}
+// @ts-ignore: decorator
+@external("env", "touched") declare function touched(a: i32, b: i32): void;
+const target = new Thing(1);
+const toucher = new Thing(2);
+export function loop(): void {
+	for (let i = 0; i < 100; i++) target.touch(toucher);
+}
+`;
+	const { error, text } = await compileSources(['probe.ts', '--outFile', 'probe.wasm', '--textFile', 'probe.wat', '-O3'], { 'probe.ts': source });
+	expect(error).toBeNull();
+	expect(text['probe.wat'].split('(func $probe/loop\n')[1].split('\n (func ')[0]).not.toContain('__stack_pointer');
 });

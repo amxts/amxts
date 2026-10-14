@@ -10604,7 +10604,7 @@ index 157351c..786ca8b 100644
 +  return value != null && value.kind == NodeKind.Literal && (<LiteralExpression>value).literalKind == LiteralKind.String;
 +}
 diff --git a/src/passes/shadowstack.ts b/src/passes/shadowstack.ts
-index d34997e..e735e21 100644
+index d34997e..8cbc174 100644
 --- a/src/passes/shadowstack.ts
 +++ b/src/passes/shadowstack.ts
 @@ -87,13 +87,23 @@ import {
@@ -10631,7 +10631,7 @@ index d34997e..e735e21 100644
    _BinaryenExportGetKind,
    _BinaryenExportGetName,
    _BinaryenExportGetValue,
-@@ -109,14 +119,42 @@ import {
+@@ -109,14 +119,43 @@ import {
    _BinaryenFunctionSetBody,
    _BinaryenGetExport,
    _BinaryenGetFunction,
@@ -10670,11 +10670,20 @@ index d34997e..e735e21 100644
 +  _BinaryenSwitchGetNameAt,
 +  _BinaryenSwitchGetNumNames,
 +  _BinaryenSwitchGetValue,
++  _BinaryenUnaryGetOp,
 +  _BinaryenUnaryGetValue,
    _free
  } from "../glue/binaryen";
  
-@@ -141,6 +179,13 @@ import {
+@@ -127,6 +166,7 @@ import {
+   Index,
+   BinaryOp,
+   TypeRef,
++  UnaryOp,
+   allocPtrArray,
+   Module,
+   ExternalKind,
+@@ -141,6 +181,13 @@ import {
  } from "../compiler";
  
  import {
@@ -10688,7 +10697,7 @@ index d34997e..e735e21 100644
    Feature
  } from "../common";
  
-@@ -149,6 +194,9 @@ import {
+@@ -149,6 +196,9 @@ import {
  } from "../builtins";
  
  import {
@@ -10698,7 +10707,7 @@ index d34997e..e735e21 100644
    Source
  } from "../ast";
  
-@@ -184,6 +232,416 @@ function needsSlot(value: ExpressionRef): bool {
+@@ -184,6 +234,482 @@ function needsSlot(value: ExpressionRef): bool {
    return true;
  }
  
@@ -10716,7 +10725,7 @@ index d34997e..e735e21 100644
 +  /** The functions that may collect, by name. */
 +  collecting: Set<string> = new Set();
 +  /** The direct callers of each function, by name. */
-+  private callers: Map<string, string[]> = new Map();
++  callers: Map<string, string[]> = new Map();
 +  private currentName: string = "";
 +
 +  constructor(module: Module, private abortName: string | null, private leaves: Set<string>) {
@@ -10841,8 +10850,10 @@ index d34997e..e735e21 100644
 +  /** The locals each expression reads, once asked. */
 +  private readsCache: Map<ExpressionRef, Set<Index>> = new Map();
 +  private failed: bool = false;
++  /** The locals whose value may be stored where the collector does not see it: a global, the memory. */
++  stored: Set<Index> = new Set();
 +
-+  constructor(private module: Module, private collecting: Set<string>) {}
++  constructor(private module: Module, private collecting: Set<string>, private held: Map<string, Set<Index>>) {}
 +
 +  run(body: ExpressionRef): Set<Index> | null {
 +    this.live(body, new Set(), new Set());
@@ -11053,6 +11064,14 @@ index d34997e..e735e21 100644
 +        this.need(expr, after, waiting);
 +        break;
 +      }
++      case ExpressionId.GlobalSet: {
++        this.store(_BinaryenGlobalSetGetValue(expr));
++        break;
++      }
++      case ExpressionId.Store: {
++        this.store(_BinaryenStoreGetValue(expr));
++        break;
++      }
 +    }
 +    // Operands: each waits on the stack while the ones after it run.
 +    let children = this.children(expr);
@@ -11076,15 +11095,71 @@ index d34997e..e735e21 100644
 +
 +  /**
 +   * A call that may collect: what is live after it, what waits for it, and
-+   * what its arguments were read from - an argument the callee takes as a
-+   * plain pointer, as `__closure` takes an environment, has no slot of its
-+   * own - must be on the stack.
++   * what the arguments the callee holds were read from - an argument the
++   * callee takes as a plain pointer, as `__closure` takes an environment,
++   * has no slot of its own - must be on the stack.
 +   */
 +  private need(call: ExpressionRef, after: Set<Index>, waiting: Set<Index>): void {
 +    let needed = this.needed;
-+    let values = Set_values(union(union(after, waiting), this.readsOf(call)));
++    let values = Set_values(union(union(after, waiting), this.heldReads(call)));
 +    for (let i = 0, k = values.length; i < k; ++i) needed.add(values[i]);
 +  }
++
++  /**
++   * The locals a call's arguments were read from, of the arguments that may
++   * be pointers and that the callee holds across a collection - each, for a
++   * callee not followed: an import, a call through a function value.
++   */
++  private heldReads(call: ExpressionRef): Set<Index> {
++    if (_BinaryenExpressionGetId(call) != ExpressionId.Call) return this.readsOf(call);
++    let callee = assert(this.module.readStringCached(_BinaryenCallGetTarget(call)));
++    let held = this.held.has(callee) ? changetype<Set<Index>>(this.held.get(callee)) : null;
++    let reads = new Set<Index>();
++    for (let i: Index = 0, k = _BinaryenCallGetNumOperands(call); i < k; ++i) {
++      let operand = _BinaryenCallGetOperandAt(call, i);
++      if (held && !held.has(i) || !matchPattern(this.module, operand) && !mayBePointer(operand)) continue;
++      let inner = Set_values(this.readsOf(operand));
++      for (let j = 0, l = inner.length; j < l; ++j) reads.add(inner[j]);
++    }
++    return reads;
++  }
++
++  /** A value stored into a global or the memory: what it was read from, if it may be a pointer. */
++  private store(value: ExpressionRef): void {
++    if (!mayBePointer(value)) return;
++    let reads = Set_values(this.readsOf(value));
++    for (let i = 0, k = reads.length; i < k; ++i) this.stored.add(reads[i]);
++  }
++}
++
++/**
++ * amxts: whether a value may be a pointer: anything but a number of another
++ * type than a pointer's, a constant, or an integer made from a float - what
++ * `native(this.id)` gives the native.
++ */
++function mayBePointer(expr: ExpressionRef): bool {
++  let type = _BinaryenExpressionGetType(expr);
++  if (type != TypeRef.I32 && type != TypeRef.I64) return false;
++  switch (_BinaryenExpressionGetId(expr)) {
++    case ExpressionId.Const: return false;
++    case ExpressionId.Unary: {
++      let value = _BinaryenUnaryGetValue(expr);
++      let valueType = _BinaryenExpressionGetType(value);
++      if (valueType == TypeRef.F32 || valueType == TypeRef.F64) return false;
++      return _BinaryenUnaryGetOp(expr) == UnaryOp.WrapI64ToI32 ? mayBePointer(value) : true;
++    }
++    case ExpressionId.If: {
++      let ifFalse = _BinaryenIfGetIfFalse(expr);
++      return !ifFalse || mayBePointer(_BinaryenIfGetIfTrue(expr)) || mayBePointer(ifFalse);
++    }
++    case ExpressionId.Select: return mayBePointer(_BinaryenSelectGetIfTrue(expr)) || mayBePointer(_BinaryenSelectGetIfFalse(expr));
++    case ExpressionId.Block: {
++      // A label's branches may give it another value.
++      let count = _BinaryenBlockGetNumChildren(expr);
++      return _BinaryenBlockGetName(expr) != 0 || count == 0 || mayBePointer(_BinaryenBlockGetChildAt(expr, count - 1));
++    }
++  }
++  return true;
 +}
 +
 +/** amxts: a new set of the locals in `set`. */
@@ -11115,7 +11190,7 @@ index d34997e..e735e21 100644
  /** Instruments a module with a shadow stack for precise GC. */
  export class ShadowStackPass extends Pass {
    /** Stack frame slots, per function. */
-@@ -194,6 +652,13 @@ export class ShadowStackPass extends Pass {
+@@ -194,6 +720,17 @@ export class ShadowStackPass extends Pass {
    exportMap: Map<string,i32[]> = new Map();
    /** Compiler reference. */
    compiler: Compiler;
@@ -11126,25 +11201,30 @@ index d34997e..e735e21 100644
 +  /** amxts: the locals of the function being walked that need a slot; null for every managed one. */
 +  private needed: Set<Index> | null = null;
 +  private finder!: CollectingCallFinder;
++  /** amxts: the parameters each function that may collect holds - see findHeld. */
++  private held: Map<string, Set<Index>> = new Map();
++  /** amxts: the locals of each function that may collect that need a slot; null for every managed one. */
++  private neededLocals: Map<string, Set<Index> | null> = new Map();
  
    constructor(compiler: Compiler) {
      super(compiler.module);
-@@ -340,14 +805,23 @@ export class ShadowStackPass extends Pass {
+@@ -340,14 +877,24 @@ export class ShadowStackPass extends Pass {
      return module.call("~stack_check", null, TypeRef.None);
    }
  
 -  private updateCallOperands(operands: ExpressionRef[]): i32 {
 +  /**
 +   * amxts: an operand needs a slot only while a collection may run: in the
-+   * callee, or in an operand evaluated after it.
++   * callee, which holds that parameter across it (`held`; null for every
++   * one), or in an operand evaluated after it.
 +   */
-+  private updateCallOperands(operands: ExpressionRef[], calleeCollects: bool): i32 {
++  private updateCallOperands(operands: ExpressionRef[], calleeCollects: bool, held: Set<Index> | null): i32 {
      let module = this.module;
      let numSlots = 0;
 +    let collects = new Array<bool>(operands.length);
-+    for (let i = operands.length - 1, after = calleeCollects; i >= 0; --i) {
-+      collects[i] = after;
-+      if (!after && this.finder.test(operands[i])) after = true;
++    for (let i = operands.length - 1, later = false; i >= 0; --i) {
++      collects[i] = later || calleeCollects && (!held || held.has(i));
++      if (!later && this.finder.test(operands[i])) later = true;
 +    }
      for (let i = 0, k = operands.length; i < k; ++i) {
        let operand = operands[i];
@@ -11155,26 +11235,27 @@ index d34997e..e735e21 100644
          operands[i] = match;
          continue;
        }
-@@ -390,7 +864,8 @@ export class ShadowStackPass extends Pass {
+@@ -390,7 +937,9 @@ export class ShadowStackPass extends Pass {
      for (let i: Index = 0; i < numOperands; ++i) {
        operands[i] = _BinaryenCallGetOperandAt(call, i);
      }
 -    let numSlots = this.updateCallOperands(operands);
 +    let callee = assert(this.module.readStringCached(_BinaryenCallGetTarget(call)));
-+    let numSlots = this.updateCallOperands(operands, !this.frameless && this.collecting.has(callee));
++    let held = this.held.has(callee) ? changetype<Set<Index>>(this.held.get(callee)) : null;
++    let numSlots = this.updateCallOperands(operands, !this.frameless && this.collecting.has(callee), held);
      for (let i = 0, k = operands.length; i < k; ++i) {
        _BinaryenCallSetOperandAt(call, i, operands[i]);
      }
-@@ -414,7 +889,7 @@ export class ShadowStackPass extends Pass {
+@@ -414,7 +963,7 @@ export class ShadowStackPass extends Pass {
      for (let i: Index = 0; i < numOperands; ++i) {
        operands[i] = _BinaryenCallIndirectGetOperandAt(callIndirect, i);
      }
 -    let numSlots = this.updateCallOperands(operands);
-+    let numSlots = this.updateCallOperands(operands, true);
++    let numSlots = this.updateCallOperands(operands, true, null);
      for (let i = 0, k = operands.length; i < k; ++i) {
        _BinaryenCallIndirectSetOperandAt(callIndirect, i, operands[i]);
      }
-@@ -437,11 +912,12 @@ export class ShadowStackPass extends Pass {
+@@ -437,11 +986,12 @@ export class ShadowStackPass extends Pass {
      let value = _BinaryenLocalSetGetValue(localSet);
      let match = matchPattern(module, value);
      if (!match) return;
@@ -11189,15 +11270,16 @@ index d34997e..e735e21 100644
      let slotIndex = this.noteSlot(this.currentFunction, index);
      let stmts = new Array<ExpressionRef>();
      // store<usize>(__stack_pointer, local = match, slotIndex * ptrSize)
-@@ -463,6 +939,16 @@ export class ShadowStackPass extends Pass {
+@@ -463,6 +1013,17 @@ export class ShadowStackPass extends Pass {
      }
    }
  
 +  /** @override */
 +  walkFunction(func: FunctionRef): void {
-+    this.frameless = !this.collecting.has(assert(this.module.readStringCached(_BinaryenFunctionGetName(func))));
-+    let body = _BinaryenFunctionGetBody(func);
-+    this.needed = this.frameless || !body ? null : new LiveAcrossCollections(this.module, this.collecting).run(body);
++    let name = assert(this.module.readStringCached(_BinaryenFunctionGetName(func)));
++    this.frameless = !this.collecting.has(name);
++    let neededLocals = this.neededLocals;
++    this.needed = neededLocals.has(name) ? changetype<Set<Index> | null>(neededLocals.get(name)) : null;
 +    super.walkFunction(func);
 +    this.frameless = false;
 +    this.needed = null;
@@ -11206,14 +11288,69 @@ index d34997e..e735e21 100644
    /** Updates a function with additional locals etc. */
    updateFunction(funcRef: FunctionRef): void {
      let name = _BinaryenFunctionGetName(funcRef);
-@@ -573,11 +1059,15 @@ export class ShadowStackPass extends Pass {
+@@ -571,13 +1132,70 @@ export class ShadowStackPass extends Pass {
+     _BinaryenAddFunctionExport(moduleRef, wrapperNameRef, externalNameRef);
+   }
  
++  /**
++   * amxts: which parameters each function that may collect holds across a
++   * collection - live across it, stored where the collector does not see
++   * it, or given to a callee that holds it - and so which arguments its
++   * callers keep on the stack: a function's frame keeps none of its
++   * parameters, its caller's slot does. Worked out from no parameter held up
++   * to where nothing grows: a value is held by the last function of a finite
++   * chain of calls, recursive or not. With it, the locals of each that need
++   * a slot.
++   */
++  private findHeld(callers: Map<string, string[]>): void {
++    let module = this.module;
++    let moduleRef = module.ref;
++    let held = this.held;
++    let functions = new Map<string, FunctionRef>();
++    let pending = new Array<string>();
++    for (let i: Index = 0, k = _BinaryenGetNumFunctions(moduleRef); i < k; ++i) {
++      let func = _BinaryenGetFunctionByIndex(moduleRef, i);
++      let name = assert(module.readStringCached(_BinaryenFunctionGetName(func)));
++      if (!_BinaryenFunctionGetBody(func) || !this.collecting.has(name)) continue;
++      held.set(name, new Set());
++      functions.set(name, func);
++      pending.push(name);
++    }
++    let queued = new Set<string>();
++    for (let i = 0, k = pending.length; i < k; ++i) queued.add(pending[i]);
++    while (pending.length) {
++      let name = assert(pending.pop());
++      queued.delete(name);
++      let func = assert(functions.get(name));
++      let liveness = new LiveAcrossCollections(module, this.collecting, held);
++      let needed = liveness.run(_BinaryenFunctionGetBody(func));
++      this.neededLocals.set(name, needed);
++      let params = assert(held.get(name));
++      let grew = false;
++      for (let i: Index = 0, k = <Index>expandType(_BinaryenFunctionGetParams(func)).length; i < k; ++i) {
++        if (params.has(i) || needed && !needed.has(i) && !liveness.stored.has(i)) continue;
++        params.add(i);
++        grew = true;
++      }
++      if (!grew || !callers.has(name)) continue;
++      let calling = assert(callers.get(name));
++      for (let i = 0, k = calling.length; i < k; ++i) {
++        let caller = calling[i];
++        if (!functions.has(caller) || queued.has(caller)) continue;
++        queued.add(caller);
++        pending.push(caller);
++      }
++    }
++  }
++
    /** @override */
    walkModule(): void {
 +    let module = this.module;
 +    let abort = this.compiler.program.abortInstance;
-+    this.collecting = new CollectingFunctions(module, abort ? abort.internalName : null, leafImports(this.compiler.program)).run();
++    let collectingFunctions = new CollectingFunctions(module, abort ? abort.internalName : null, leafImports(this.compiler.program));
++    this.collecting = collectingFunctions.run();
 +    this.finder = new CollectingCallFinder(module, this.collecting);
++    this.findHeld(collectingFunctions.callers);
 +
      // Run the pass normally
      super.walkModule();
