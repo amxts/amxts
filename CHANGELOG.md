@@ -1,5 +1,134 @@
 # Changelog
 
+## v0.3.2
+
+> v0.3.2 is a patch release of the 0.3 line. Plugins built with 0.3.0 and 0.3.1 load on its module as they are; the new things need the 0.3.2 module, which `npx amxts upgrade` puts on your server.
+
+### 📣 Some news
+
+#### 🔌 Forwards of C++ modules reach TypeScript
+
+A forward a Pawn plugin raises has reached `Forward.subscribe` since 0.3. A forward an AMX Mod X module written in C++ raises (`MF_ExecuteForward`) reached only the Pawn plugins. 👉 **In 0.3.2 it reaches TypeScript too**, after the Pawn plugins' handlers, with every kind of argument: numbers, floats, strings, arrays and by-reference values.
+
+```ts
+const jumped = new Forward<Player, number>("mymodule_on_jump");
+
+jumped.subscribe((player, height) => {
+	console.log(`${player.name} jumped ${height} units`);
+});
+```
+
+A module hands its forwards to amxts when AMX Mod X loads it after amxts, so `amxts_amxx` goes on the first line of `modules.ini`. `npx amxts upgrade` puts it there, and the server console names any module listed above it.
+
+A Pawn forward made with `ET_STOP` or `ET_STOP2` that a Pawn public stopped no longer reaches TypeScript subscribers, as AMX Mod X itself would do for one more plugin.
+
+#### 🎯 Valve's HLDS hears the game first
+
+Without ReGameDLL, most of the game rules' events were heard only after the game had acted, and their questions (`fallDamage`, `canHaveItem`, `canRespawn`, ...) were not heard at all. 👉 **In 0.3.2 they are heard the way ReGameDLL hears them**: before the game acts, with answers, written fields and `preventDefault()` taken.
+
+```ts
+game.addEventListener("fallDamage", (event) => event.result / 2, true);   // half the fall damage
+
+game.addEventListener("addMoney", (event) => {
+	if (event.player.isBot) event.amount = 0;
+});
+```
+
+That is 21 events - the questions, `playerSpawn`, `playerKilled`, `newRound`, `deathNotice`, `gameThink` and the rest - plus `addMoney` and `giveDefaultItems`. On Linux it works with any build of the game. On Windows it works with the builds of Valve's game amxts knows: the one steam installs and its `steam_legacy` branch. With another `mp.dll` the console says so once and the events are heard as before. The table on the hooks page shows what each event gives on such a server.
+
+### 👀 Highlights
+
+#### 🔢 A byte is a number
+
+An element of a `Uint8Array` (and of `Int8Array`, `Uint16Array`, `Int16Array`, `Uint8ClampedArray`) is a `number`, as in JavaScript. Arithmetic on it no longer wraps at 8 bits, so reading a file's words gives what JavaScript gives:
+
+```ts
+const word = bytes[i] | (bytes[i + 1] << 8);   // a little-endian word
+```
+
+Loops over bytes keep their integer code, and are faster than the same loop in Pawn.
+
+#### ➕ `push` and `unshift` take any number of values
+
+```ts
+names.push("a", "b", "c");
+names.push(...others);
+```
+
+#### 🛠️ And more
+
+- `entity.touch()` and the entity actions (`restart()`, `think()`, ...) cost less, and are faster than Pawn's `ExecuteHamB` on every machine the speed suite runs on;
+- the compiler keeps fewer values on its stack for the garbage collector, which makes the facade's calls cheaper everywhere.
+
+### 🩹 Important fixes
+
+- `ExecuteHam(Ham_DeathSound, ...)` and any other Ham function Counter-Strike has not got crashed the server; such a call now answers 0 and says so once in the console ([959bcf0](https://github.com/amxts/amxts/commit/959bcf0)).
+- `bytes[i] << 8` was cut back to 8 bits, so decoding a word from a file's bytes gave garbage ([21610b6](https://github.com/amxts/amxts/commit/21610b6)).
+- A generic call to an arrow declared further down the file did not build ("Type argument expected") ([7da3818](https://github.com/amxts/amxts/commit/7da3818)).
+- A stopped Pawn forward reached TypeScript subscribers ([e0dd372](https://github.com/amxts/amxts/commit/e0dd372)).
+- `@amxts/core/zlib` and the query builder had no types on the site, and its examples did not type-check ([a907e84](https://github.com/amxts/amxts/commit/a907e84), [58883e0](https://github.com/amxts/amxts/commit/58883e0)).
+
+### ⚠️ Breaking changes
+
+One, listed by `npx amxts upgrade`:
+
+| 0.3.1 | 0.3.2 | upgrade |
+| --- | --- | --- |
+| a `use` event's `event.caller` was the one who used the entity, `event.activator` what passed the use on | named as the game passes them: `event.activator` uses the entity, `event.caller` passes the use on | lists each `caller` and `activator` of a use event |
+
+`entity.use()` calls do the same as before; only its parameters' names changed.
+
+### ✅ Upgrading
+
+Update the command with your project's package manager, then upgrade:
+
+```sh
+npm install -D @amxts/cli@latest   # pnpm add -D, yarn add -D, bun add -d
+npx amxts upgrade
+```
+
+It moves `@amxts/core` to 0.3.2, lists the use events to check, puts `amxts_amxx` on the first line of `modules.ini`, builds, and puts the 0.3.2 module on the server in `AMXTS_SERVER`. Another server takes the module from the release and the `.aot` files from your build.
+
+### 👉 Changelog
+
+[compare changes](https://github.com/amxts/amxts/compare/v0.3.1...v0.3.2)
+
+### 🚀 Enhancements
+
+- **hooks:** Game rules' questions on plain HLDS for Linux ([55a14a1](https://github.com/amxts/amxts/commit/55a14a1))
+- **forwards:** A module's forward reaches `Forward.subscribe` ([b036bc6](https://github.com/amxts/amxts/commit/b036bc6))
+- **hooks:** Plain HLDS hears game rules' events first ([20b51c5](https://github.com/amxts/amxts/commit/20b51c5))
+
+### 🩹 Fixes
+
+- **site:** The hood's files from the build's own list ([a907e84](https://github.com/amxts/amxts/commit/a907e84))
+- **site:** The editor's own `.types.d.ts` files in the site's declarations ([58883e0](https://github.com/amxts/amxts/commit/58883e0))
+- **hooks:** ⚠️  A use event's activator and caller the right way round ([535a989](https://github.com/amxts/amxts/commit/535a989))
+- **forwards:** A stopped Pawn forward skips TypeScript ([e0dd372](https://github.com/amxts/amxts/commit/e0dd372))
+- **compiler:** A typed array's element is a number ([21610b6](https://github.com/amxts/amxts/commit/21610b6))
+- **compiler:** An arrow declared below types a generic call ([7da3818](https://github.com/amxts/amxts/commit/7da3818))
+- **forwards:** The sanitized module builds again ([db6b3d0](https://github.com/amxts/amxts/commit/db6b3d0))
+- **hooks:** ExecuteHam of a function the game has not got ([959bcf0](https://github.com/amxts/amxts/commit/959bcf0))
+- **hooks:** Game rules' questions hooked before the map's rules exist ([366bee1](https://github.com/amxts/amxts/commit/366bee1))
+- **hooks:** `checkMapConditions` not hooked on plain HLDS ([a684626](https://github.com/amxts/amxts/commit/a684626))
+- **hooks:** `original_hook`'s import passes the editor's check ([dffb78d](https://github.com/amxts/amxts/commit/dffb78d))
+- **compiler:** Push and unshift take any number of values ([b11f2fe](https://github.com/amxts/amxts/commit/b11f2fe))
+
+### 🔥 Performance
+
+- **entities:** An action with hooks keeps no Call's frame ([2bbffd2](https://github.com/amxts/amxts/commit/2bbffd2))
+- **compiler:** An argument keeps a slot only if held ([3661bd4](https://github.com/amxts/amxts/commit/3661bd4))
+- **compiler:** Whole numbers bounded by i + c in i32 ([b712462](https://github.com/amxts/amxts/commit/b712462))
+- **compiler:** An array's [] keeps no frame for its error ([ff9a2f7](https://github.com/amxts/amxts/commit/ff9a2f7))
+
+#### ⚠️ Breaking Changes
+
+- **hooks:** ⚠️  A use event's activator and caller the right way round ([535a989](https://github.com/amxts/amxts/commit/535a989))
+
+### ❤️ Contributors
+
+- Ernest Manukyan ([@kukson777](https://github.com/kukson777))
+
 ## v0.3.1
 
 > v0.3.1 is a patch release of the 0.3 line. Plugins built with 0.3.0 load on its module as they are; the new things need the 0.3.1 module, which `npx amxts upgrade` puts on your server.
