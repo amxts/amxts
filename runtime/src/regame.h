@@ -888,39 +888,67 @@ static void *RulesSlotFunction(void **table, int slot)
 	return table[slot];
 }
 
-/**
- * Whether the module hooks the original game's rules in their table: on
- * Linux, where each slot is checked against its function's name first
- * (RulesHookable). A Windows game has no names to check a slot by, and a
- * wrong one would crash the server, so its rules are not hooked.
- */
-static bool OriginalRulesHooked()
-{
 #ifdef _WIN32
-	return false;
-#else
-	return !g_regameChains && g_rulesAddress;
-#endif
+/**
+ * Valve's builds of mp.dll whose game rules' table amxts knows: the file's
+ * size and FNV-1a, and the table of CHalfLifeMultiplay from the library's
+ * base. Each build's slots were checked against its functions' code once: a
+ * Windows game has no names to check them by at run time, and a wrong slot
+ * would crash the server.
+ */
+static const struct { long size; uint32_t hash; uint32_t table; } g_valveGames[] = {
+	{ 1131368, 0xc1e9ac50, 0xe3068 }, // the 25th anniversary's, steam app 90 as it is
+	{ 1325976, 0x54358503, 0xfdadc }, // the one before, its steam_legacy branch
+};
+
+/** The original game rules' table in mp.dll, a build amxts knows; NULL for any other. */
+static void **KnownRulesTable()
+{
+	HMODULE game = NULL;
+	char path[MAX_PATH];
+	if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)g_rulesAddress, &game)
+	    || !GetModuleFileNameA(game, path, sizeof(path)))
+		return NULL;
+	FILE *f = fopen(path, "rb");
+	if (!f)
+		return NULL;
+	uint32_t hash = 2166136261u;
+	long size = 0;
+	for (int c; (c = fgetc(f)) != EOF; size++)
+		hash = (hash ^ (unsigned char)c) * 16777619u;
+	fclose(f);
+	for (const auto &build : g_valveGames)
+		if (build.size == size && build.hash == hash)
+			return (void **)((char *)game + build.table);
+	return NULL;
 }
+#endif
 
 /**
  * Whether the original game rules' function g_rulesInfo[rules] can be
- * hooked: its slot holds the function its name in the game library says.
- * The table is found by its own name there, not through the rules object,
+ * hooked: on Linux its slot holds the function its name in the game library
+ * says, on Windows the library is a build whose table amxts knows. The table
+ * is found by its own name or place there, not through the rules object,
  * which the game makes as the map's world spawns - after the plugins load
  * and add their listeners. All are checked at once, the first time; one
  * that is not where it is expected is said in the console and never hooked.
  */
 static bool RulesHookable(int rules)
 {
-#ifdef _WIN32
-	(void)rules;
-	return false;
-#else
 	static signed char checked[RULES_COUNT]; // 1 hookable, -1 not
 	static bool done = false;
-	if (!done && OriginalRulesHooked()) {
+	// The gamedata finds the original's rules; ReGameDLL's go through its chains (OriginalAttach).
+	if (!done && g_rulesAddress) {
 		done = true;
+#ifdef _WIN32
+		void **table = KnownRulesTable();
+		if (!table)
+			MF_PrintSrvConsole("[amxts] this server's mp.dll is not a build of Valve's game amxts knows: the game rules' functions are not hooked in it\n");
+		for (int i = 0; i < RULES_COUNT; i++) {
+			checked[i] = table ? 1 : -1;
+			g_chainPoints[g_rulesInfo[i].chain].vtable = table;
+		}
+#else
 		const char *names[RULES_COUNT + 1];
 		void *named[RULES_COUNT + 1];
 		for (int i = 0; i < RULES_COUNT; i++)
@@ -931,7 +959,7 @@ static bool RulesHookable(int rules)
 		// An object points past the table's offset to the top and its type's info.
 		void **table = named[RULES_COUNT] ? (void **)named[RULES_COUNT] + 2 : NULL;
 		if (!table)
-			MF_PrintSrvConsole("[amxts] the game rules' table is not named in this game: their questions are not hooked\n");
+			MF_PrintSrvConsole("[amxts] the game rules' table is not named in this game: their functions are not hooked\n");
 		for (int i = 0; i < RULES_COUNT; i++) {
 			bool same = table && named[i] && RulesSlotFunction(table, g_rulesInfo[i].slot) == named[i];
 			checked[i] = same ? 1 : -1;
@@ -939,9 +967,9 @@ static bool RulesHookable(int rules)
 			if (table && !same)
 				MF_PrintSrvConsole("[amxts] the game rules' %s is not where amxts expects it in this game: it is not hooked\n", names[i]);
 		}
+#endif
 	}
 	return checked[rules] > 0;
-#endif
 }
 
 /** The module's hook in a slot of the original game rules' table, or what was there back (a hookchain's attach). */

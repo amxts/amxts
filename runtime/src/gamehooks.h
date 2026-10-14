@@ -601,31 +601,64 @@ static int RulesOf(int chain)
 	return -1;
 }
 
+static void (*EntryAttach(int chain))(bool on);
+
+/**
+ * How the module hooks ReGameDLL's chain g_chainInfo[chain] in Valve's game
+ * itself, without ReGameDLL: a game rules' function in their table where it
+ * can be, else one it takes over at its start (EntryAttach). NULL when it
+ * cannot.
+ */
+static void (*OriginalAttach(int chain))(bool on)
+{
+	if (g_chainInfo[chain].rehlds || g_regameChains)
+		return NULL;
+	int rules = RulesOf(chain);
+	if (rules >= 0)
+		return RulesHookable(rules) ? g_rulesInfo[rules].attach : NULL;
+	return EntryAttach(chain);
+}
+
+/** A hookchain's place in g_chainInfo by reapi's number of it, -1 for none. */
+static int ChainOf(int32_t id)
+{
+	for (int i = 0; i < CHAIN_COUNT; i++)
+		if (g_chainInfo[i].id == id)
+			return i;
+	return -1;
+}
+
 /**
  * hook(chain, handler, post) - a handler of a ReGameDLL or ReHLDS hookchain,
- * by reapi's number of it (as/constants.ts); without ReGameDLL a game rules'
- * chain is hooked in the original game's table where it can be. 0 when the
- * server has not the API the chain is of.
+ * by reapi's number of it (as/constants.ts); without ReGameDLL the chain's
+ * function is hooked in Valve's game where it can be (OriginalAttach). 0
+ * when the server has not the API the chain is of.
  */
 static int32_t w_hook(wasm_exec_env_t env, int32_t id, int32_t fn, int32_t post)
 {
 	(void)env;
-	for (int i = 0; i < CHAIN_COUNT; i++) {
-		if (g_chainInfo[i].id != id)
-			continue;
-		if (g_chainInfo[i].rehlds ? (void *)g_rehldsChains : (void *)g_regameChains) {
-			g_chainPoints[i].attach = g_chainInfo[i].attach;
-			return AddHook(g_chainPoints[i], fn, post);
-		}
-		int rules = g_chainInfo[i].rehlds ? -1 : RulesOf(i);
-		if (rules >= 0 && RulesHookable(rules)) {
-			g_chainPoints[i].attach = g_rulesInfo[rules].attach;
-			return AddHook(g_chainPoints[i], fn, post);
-		}
-		break;
+	int i = ChainOf(id);
+	void (*attach)(bool on) = NULL;
+	if (i >= 0)
+		attach = (g_chainInfo[i].rehlds ? (void *)g_rehldsChains : (void *)g_regameChains) ? g_chainInfo[i].attach : OriginalAttach(i);
+	if (!attach) {
+		TakeTag();
+		return 0;
 	}
-	TakeTag();
-	return 0;
+	g_chainPoints[i].attach = attach;
+	return AddHook(g_chainPoints[i], fn, post);
+}
+
+/**
+ * original_hook(chain) - 1 when the module hooks ReGameDLL's chain, by
+ * reapi's number of it, in Valve's game itself (OriginalAttach): the chain's
+ * listeners are heard there as with ReGameDLL.
+ */
+static int32_t w_original_hook(wasm_exec_env_t env, int32_t id)
+{
+	(void)env;
+	int i = ChainOf(id);
+	return i >= 0 && OriginalAttach(i) ? 1 : 0;
 }
 
 /**
@@ -765,16 +798,15 @@ static int32_t w_chain_dispatch(wasm_exec_env_t env, int32_t id, int32_t post, i
 	return (call.superceded ? 1 : 0) | (call.broken ? 2 : 0);
 }
 
-static bool OriginalRulesHooked();
-
 /**
  * game_api() - what the server has: 1 ReGameDLL's hookchains, 2 ReHLDS's,
- * 4 the original game's rules, whose questions the module hooks in their table.
+ * 4 the original game's rules, which the module may hook itself - what a
+ * plugin built before original_hook asks.
  */
 static int32_t w_game_api(wasm_exec_env_t env)
 {
 	(void)env;
-	return (g_regameChains ? 1 : 0) | (g_rehldsChains ? 2 : 0) | (OriginalRulesHooked() ? 4 : 0);
+	return (g_regameChains ? 1 : 0) | (g_rehldsChains ? 2 : 0) | (!g_regameChains && g_rulesAddress ? 4 : 0);
 }
 
 /** The running hooked call's answer as a cell (arg(-1)). */

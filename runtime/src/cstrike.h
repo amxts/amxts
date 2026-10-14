@@ -14,6 +14,8 @@
 // AddAccount and BuyGunAmmo kept from taking the money or giving the ammo of
 // one a listener blocked. Which item a command buys is the game's own words
 // for it: an alias in the buy zone (`ak47`), or a number in a buy menu.
+// AddAccount and GiveDefaultItems are taken over for ReGameDLL's chains of
+// them too, whose listeners the module calls there as ReGameDLL would.
 //
 // Included by module.cpp, after the clients' events.
 
@@ -113,6 +115,15 @@ static EntryHook g_canPlayerBuy  = { NULL, NULL, { 0 }, { 0 }, false };
 static EntryHook g_giveNamedItem = { NULL, NULL, { 0 }, { 0 }, false };
 static EntryHook g_addAccount    = { NULL, NULL, { 0 }, { 0 }, false };
 static EntryHook g_buyGunAmmo    = { NULL, NULL, { 0 }, { 0 }, false };
+static EntryHook g_giveDefaultItems = { NULL, NULL, { 0 }, { 0 }, false };
+
+// ReGameDLL's chains of AddAccount and GiveDefaultItems, which the module
+// hears in Valve's game at the functions' start: reapi's numbers of them
+// (as/constants.ts), and their places in g_chainInfo, -1 for none.
+#define RG_GIVE_DEFAULT_ITEMS 3098
+#define RG_ADD_ACCOUNT        3100
+static int g_addMoneyChain = -1;
+static int g_defaultItemsChain = -1;
 
 // The item the command being run buys, and what a blocked one keeps back.
 static int  g_buying = 0;
@@ -276,13 +287,51 @@ static MEMBER_HOOK(void, GiveNamedItem_Hooked, const char *name)
 
 using AddAccountFn = MEMBER_TYPE(void, int, bool);
 
+/**
+ * The money of a purchase a listener blocked kept, then ReGameDLL's
+ * AddAccount chain where it is listened to: the original has no reason, and
+ * the listeners read it as none (RT_NONE).
+ */
 static MEMBER_HOOK(void, AddAccount_Hooked, int amount, bool track)
 {
 	if (g_keepMoney) {
 		g_keepMoney = false;
 		return;
 	}
-	CALL_ORIGINAL(g_addAccount, AddAccountFn, MEMBER_ARGS(amount, track));
+	if (g_addMoneyChain < 0 || !g_chainPoints[g_addMoneyChain].attached) {
+		CALL_ORIGINAL(g_addAccount, AddAccountFn, MEMBER_ARGS(amount, track));
+		return;
+	}
+	static const unsigned char roles[] = { ROLE_CBASE, ROLE_INT, ROLE_INT, ROLE_BOOL };
+	ChainCall call(g_chainPoints[g_addMoneyChain], roles, 4);
+	call.Cbase(0, self);
+	call.Int(1, amount);
+	call.Int(2, 0);
+	call.Bool(3, track);
+	if (call.Pre())
+		CALL_ORIGINAL(g_addAccount, AddAccountFn, MEMBER_ARGS((int)call.cells[1], call.cells[3] != 0));
+	call.Post();
+}
+
+/** ReGameDLL's GiveDefaultItems chain: the player's knife, pistol and ammo the game gives as he spawns. */
+#ifdef _WIN32
+typedef void (__fastcall *GiveDefaultItemsFn)(void *self, int);
+static void __fastcall GiveDefaultItems_Hooked(void *self, int)
+#else
+typedef void (*GiveDefaultItemsFn)(void *self);
+static void GiveDefaultItems_Hooked(void *self)
+#endif
+{
+	static const unsigned char roles[] = { ROLE_CBASE };
+	ChainCall call(g_chainPoints[g_defaultItemsChain], roles, 1);
+	call.Cbase(0, self);
+	if (call.Pre())
+#ifdef _WIN32
+		CALL_ORIGINAL(g_giveDefaultItems, GiveDefaultItemsFn, self, 0);
+#else
+		CALL_ORIGINAL(g_giveDefaultItems, GiveDefaultItemsFn, self);
+#endif
+	call.Post();
 }
 
 typedef bool (*BuyGunAmmoFn)(void *player, void *weapon, bool blink);
@@ -325,6 +374,8 @@ static void FindCstrike()
 		((InternalCommandRegistry *)g_regameChains->InternalCommand())->registerHook(InternalCommand_RG, CHAIN_PRIORITY);
 		return;
 	}
+	g_addMoneyChain = ChainOf(RG_ADD_ACCOUNT);
+	g_defaultItemsChain = ChainOf(RG_GIVE_DEFAULT_ITEMS);
 	std::string mod = MF_GetModname();
 	IGameConfigManager *manager = MF_GetConfigManager();
 	char error[256] = "";
@@ -361,12 +412,14 @@ static void FindCstrike()
 	if (!g_useBotArgs || !g_botArgs)
 		g_useBotArgs = NULL;
 
+	FoundAt(g_cstrikeData, g_addAccount, "AddAccount", (void *)AddAccount_Hooked);
+	FoundAt(g_cstrikeData, g_giveDefaultItems, "GiveDefaultItems", (void *)GiveDefaultItems_Hooked);
+
 	if (g_menuOffset < 0 || g_teamOffset < 0 || g_signalsOffset < 0 || g_moneyOffset < 0 || g_nightVisionOffset < 0 || g_defuserOffset < 0)
 		return;
 	FoundAt(g_cstrikeData, g_canBuyThis, "CanBuyThis", (void *)CanBuyThis_Hooked);
 	FoundAt(g_cstrikeData, g_canPlayerBuy, "CanPlayerBuy", (void *)CanPlayerBuy_Hooked);
 	FoundAt(g_cstrikeData, g_giveNamedItem, "GiveNamedItem", (void *)GiveNamedItem_Hooked);
-	FoundAt(g_cstrikeData, g_addAccount, "AddAccount", (void *)AddAccount_Hooked);
 	FoundAt(g_cstrikeData, g_buyGunAmmo, "BuyGunAmmo", (void *)BuyGunAmmo_Hooked);
 	if (!g_canBuyThis.at || !g_canPlayerBuy.at || !g_giveNamedItem.at || !g_addAccount.at || !g_buyGunAmmo.at)
 		g_menuOffset = -1;
@@ -382,17 +435,32 @@ static void SettleCstrike(bool active)
 {
 	bool command = active && (Heard(FORWARD_CS_INTERNALCOMMAND) || Heard(FORWARD_CS_ONBUY) || Heard(FORWARD_CS_ONBUYATTEMPT));
 	bool buying = active && g_menuOffset >= 0 && Heard(FORWARD_CS_ONBUY);
-	EntryHook *buys[] = { &g_canBuyThis, &g_canPlayerBuy, &g_giveNamedItem, &g_addAccount, &g_buyGunAmmo };
-	if (command)
-		HookOn(g_clientCommand);
-	else
-		HookOff(g_clientCommand);
-	for (EntryHook *hook : buys) {
-		if (buying)
-			HookOn(*hook);
+	bool money = active && g_addMoneyChain >= 0 && g_chainPoints[g_addMoneyChain].attached;
+	bool items = active && g_defaultItemsChain >= 0 && g_chainPoints[g_defaultItemsChain].attached;
+	struct { EntryHook &hook; bool on; } hooks[] = {
+		{ g_clientCommand, command }, { g_canBuyThis, buying }, { g_canPlayerBuy, buying }, { g_giveNamedItem, buying },
+		{ g_addAccount, buying || money }, { g_buyGunAmmo, buying }, { g_giveDefaultItems, items },
+	};
+	for (auto &each : hooks) {
+		if (each.on)
+			HookOn(each.hook);
 		else
-			HookOff(*hook);
+			HookOff(each.hook);
 	}
+}
+
+/** A chain's listeners added or gone: its function hooked or put back at once, while the map runs. */
+static void SettleEntry(bool on)
+{
+	(void)on;
+	SettleCstrike(g_activated);
+}
+
+static void (*EntryAttach(int chain))(bool on)
+{
+	if ((chain == g_addMoneyChain && g_addAccount.at) || (chain == g_defaultItemsChain && g_giveDefaultItems.at))
+		return SettleEntry;
+	return NULL;
 }
 
 static void ForgetCstrike()

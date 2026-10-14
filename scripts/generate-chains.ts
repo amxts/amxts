@@ -266,19 +266,31 @@ const AROUND: Record<string, { before: string; next: string; after: string }> = 
  * declares it, without the destructor the original's table has not, then
  * CHalfLifeMultiplay's own (CleanUpMap is 63). `args` are its arguments as
  * GCC names them: on Linux the slot is checked against the function's name
- * before it is hooked.
+ * before it is hooked. `void`: the original returns nothing where
+ * ReGameDLL's chain answers.
  */
-const RULES: Record<string, { slot: number; args: string }> = {
+const RULES: Record<string, { slot: number; args: string; void?: true }> = {
+	CSGameRules_Think: { slot: 1, args: 'v' },
 	CSGameRules_FShouldSwitchWeapon: { slot: 4, args: 'P11CBasePlayerP15CBasePlayerItem' },
 	CSGameRules_GetNextBestWeapon: { slot: 5, args: 'P11CBasePlayerP15CBasePlayerItem' },
 	CSGameRules_FlPlayerFallDamage: { slot: 15, args: 'P11CBasePlayer' },
 	CSGameRules_FPlayerCanTakeDamage: { slot: 16, args: 'P11CBasePlayerP11CBaseEntity' },
+	CSGameRules_PlayerSpawn: { slot: 18, args: 'P11CBasePlayer' },
 	CSGameRules_FPlayerCanRespawn: { slot: 20, args: 'P11CBasePlayer' },
 	CSGameRules_GetPlayerSpawnSpot: { slot: 22, args: 'P11CBasePlayer' },
+	CSGameRules_ClientUserInfoChanged: { slot: 26, args: 'P11CBasePlayerPc' },
+	CSGameRules_PlayerKilled: { slot: 28, args: 'P11CBasePlayerP9entvars_sS3_' },
+	CSGameRules_DeathNotice: { slot: 29, args: 'P11CBasePlayerP9entvars_sS3_' },
 	CSGameRules_CanHavePlayerItem: { slot: 30, args: 'P11CBasePlayerP15CBasePlayerItem' },
+	CSGameRules_PlayerGotWeapon: { slot: 31, args: 'P11CBasePlayerP15CBasePlayerItem' },
 	CSGameRules_DeadPlayerWeapons: { slot: 48, args: 'P11CBasePlayer' },
+	CSGameRules_CleanUpMap: { slot: 63, args: 'v' },
+	CSGameRules_RestartRound: { slot: 64, args: 'v' },
 	CSGameRules_CheckWinConditions: { slot: 65, args: 'v' },
 	CSGameRules_RemoveGuns: { slot: 66, args: 'v' },
+	CSGameRules_GiveC4: { slot: 67, args: 'v', void: true },
+	CSGameRules_ChangeLevel: { slot: 68, args: 'v' },
+	CSGameRules_GoToIntermission: { slot: 69, args: 'v' },
 };
 
 const chainBlocks: string[] = [];
@@ -310,9 +322,9 @@ chains.forEach((chain, index) => {
 	});
 	const around = AROUND[chain.constant];
 	const retDecl = ret.decl === 'void' ? 'void ' : ret.decl.endsWith('*') ? ret.decl : `${ret.decl} `;
-	/** The hook's body around the call of what it hooks, `call` with the arguments the listeners left. */
-	const body = (call: string) => {
-		const callNext = ret.decl === 'void' ? `${call};` : kept(ret, call);
+	/** The hook's body around the call of what it hooks, `call` with the arguments the listeners left, which `returns`. */
+	const body = (call: string, returns = ret) => {
+		const callNext = returns.decl === 'void' ? `${call};` : kept(returns, call);
 		return [
 			`{`,
 			`\tstatic const unsigned char roles[] = { ${roles || '0'} };`,
@@ -321,7 +333,7 @@ chains.forEach((chain, index) => {
 			...pushes.map(line => `\t${line}`),
 			...(around ? [`\tif (call.Pre()) {`, `\t\t${around.next}`, `\t\t${callNext}`, `\t\t${around.after}`, `\t}`] : [`\tif (call.Pre())`, `\t\t${callNext}`]),
 			`\tcall.Post();`,
-			...(ret.decl === 'void' ? [] : [`\treturn ${answer(ret)};`]),
+			...(returns.decl === 'void' ? [] : [`\treturn ${answer(returns)};`]),
 			`}`,
 		];
 	};
@@ -343,10 +355,12 @@ chains.forEach((chain, index) => {
 	const rules = RULES[name];
 	if (!rules) return;
 	const fn = name.slice('CSGameRules_'.length);
+	// What the original returns: nothing, where the chain answers and the original does not.
+	const own = rules.void ? VOID : ret;
 	rulesBlocks.push([
 		`// ${chain.constant} in the original game rules' table`,
-		`NO_STACK_COOKIE static ${retDecl}HAM_CC Rules_${index}(${['HAM_SELF', ...declared].join(', ')})`,
-		...body(`((${ret.decl} (HAM_CC *)(${['HAM_SELF', ...args].join(', ')}))g_chainPoints[${index}].original)(${['HAM_PASS', ...next].join(', ')})`),
+		`NO_STACK_COOKIE static ${own === VOID ? 'void ' : retDecl}HAM_CC Rules_${index}(${['HAM_SELF', ...declared].join(', ')})`,
+		...body(`((${own.decl} (HAM_CC *)(${['HAM_SELF', ...args].join(', ')}))g_chainPoints[${index}].original)(${['HAM_PASS', ...next].join(', ')})`, own),
 		`static void AttachRules_${index}(bool on)`,
 		`{`,
 		`\tRulesAttach(${rulesTable.length}, on);`,

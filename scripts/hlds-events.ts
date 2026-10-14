@@ -14,9 +14,11 @@
 // An A or B event's backend is `<event>Hlds` in as/hlds.ts, which
 // scripts/generate-hooks.ts registers on the event's first listener, once,
 // when the server has no reapi; `post` adds `<event>PostHlds` for the first
-// listener after the game. A game rules' question (`rules`) has none: the
-// module hooks the original game's function in the rules' table on Linux,
-// and hook() takes its chain as on ReGameDLL.
+// listener after the game. An `original` one is the original game's own
+// function, which the module hooks itself where it finds it - a game
+// rules' function in their table, AddAccount and GiveDefaultItems at their
+// start - and hook() takes its chain as on ReGameDLL; the backend hears it
+// where the module does not.
 import type { Text } from './docs/events';
 
 export interface HeardEvent {
@@ -27,8 +29,13 @@ export interface HeardEvent {
 	gaps?: Text;
 	/** A backend of its own for the listeners after the game. */
 	post?: boolean;
-	/** A game rules' question, heard through hook() itself: no backend in as/hlds.ts. */
-	rules?: boolean;
+	/**
+	 * The original game's function the module hooks itself, heard through
+	 * hook() where the module finds it (original_hook): `only` nothing else
+	 * hears it, no backend in as/hlds.ts; `first` the backend hears it where
+	 * the module does not.
+	 */
+	original?: 'only' | 'first';
 }
 
 const after: Text = {
@@ -56,16 +63,49 @@ function thrown(en: string, ru: string): Text {
 	return afterAnd(`it is heard as the grenade gets its model${en}`, `слышно, когда граната получает модель${ru}`);
 }
 
-/** A game rules' question, which the module hooks in the original game's table on Linux. */
+/** Where the module hooks the original game rules' functions in their table. */
+const IN_RULES: Text = {
+	en: 'on Linux, and on Windows with a build of Valve\'s game amxts knows',
+	ru: 'на Linux, а на Windows — со сборкой игры Valve, которую amxts знает',
+};
+
+/** Where the module takes over a function of the original game at its start. */
+const AT_START: Text = {
+	en: 'where AMX Mod X\'s gamedata finds the game\'s function',
+	ru: 'там, где gamedata AMX Mod X находит функцию игры',
+};
+
+/** Heard as with ReGameDLL `where` the module hooks the game's function; `elsewhere`, as the stock backend hears it, or not at all. */
+function original(where: Text, elsewhere: Text | null): Text {
+	return {
+		en: `heard as with ReGameDLL ${where.en}; elsewhere ${elsewhere ? elsewhere.en : 'nothing hears it'}`,
+		ru: `слышно, как с ReGameDLL, ${where.ru}; в остальных случаях ${elsewhere ? elsewhere.ru : 'его ничто не слышит'}`,
+	};
+}
+
+/** What holds either way, then `where` - as with ReGameDLL or not. */
+function either(en: string, ru: string, where: Text): Text {
+	return { en: `${en}; ${where.en}`, ru: `${ru}; ${where.ru}` };
+}
+
+/** A game rules' function the module hooks in the original game's table, heard `elsewhere` through `backend`. */
+function inRules(backend: string, elsewhere: Text): HeardEvent {
+	return { class: 'B', backend: `the original game rules' virtual function, else ${backend}`, gaps: original(IN_RULES, elsewhere), original: 'first' };
+}
+
+/** A game rules' question, which the module hooks in the original game's table: nothing else hears it. */
 const rules: HeardEvent = {
 	class: 'B',
-	backend: 'the original game rules\' virtual function, hooked in their table after its name is checked',
-	gaps: {
-		en: 'heard on Linux as with ReGameDLL; on Windows nothing hears it',
-		ru: 'слышно на Linux, как с ReGameDLL; на Windows его ничто не слышит',
-	},
-	rules: true,
+	backend: 'the original game rules\' virtual function, hooked in their table once its slot is checked',
+	gaps: original(IN_RULES, null),
+	original: 'only',
 };
+
+/** Money: AddAccount where it is found, else the Money message. The original game has no reason for a change either way. */
+const money = original(AT_START, afterAnd(
+	'`amount` is how much his money moved since the game last sent it to him',
+	'`amount` — на сколько сдвинулись его деньги с тех пор, как игра в последний раз их ему прислала',
+));
 
 const precached: Text = {
 	en: '`preventDefault()` skips the precache, which answers 0; returning an answer or changing `file` does nothing',
@@ -75,13 +115,11 @@ const precached: Text = {
 export const HEARD: Record<string, HeardEvent> = {
 	// The round.
 	newRound: {
-		class: 'B',
-		backend: 'HLTV message (1=0 2=0) before, decal_reset.sc playback at its time after; the map\'s first round is the game\'s restart as it commences',
-		post: true,
-		gaps: {
-			en: 'heard as the round restarts - the listeners before the game when it announces the round, the ones after it once its players have respawned - but `preventDefault()` does nothing',
+		...inRules('HLTV message (1=0 2=0) before, decal_reset.sc playback at its time after; the map\'s first round is the game\'s restart as it commences', {
+			en: 'it is heard as the round restarts - the listeners before the game when it announces the round, the ones after it once its players have respawned - but `preventDefault()` does nothing',
 			ru: 'слышно при перезапуске раунда — обработчики «до» игры, когда она объявляет раунд, обработчики «после» — когда её игроки возродились, — но `preventDefault()` ничего не делает',
-		},
+		}),
+		post: true,
 	},
 	roundStart: { class: 'B', backend: 'logevent World triggered "Round_Start"', gaps: after },
 	roundEnd: {
@@ -92,26 +130,18 @@ export const HEARD: Record<string, HeardEvent> = {
 			'ответ ничего не делает; `delay` — 5 секунд оригинальной игры, 3 для `"gameCommence"`, если его не задал `game.endRound`',
 		),
 	},
-	gameThink: { class: 'B', backend: 'server_frame', gaps: after },
-	mapReset: { class: 'B', backend: 'the decal_reset.sc playback CleanUpMap ends with', gaps: after },
-	intermission: { class: 'B', backend: 'the engine message 30 (SVC_INTERMISSION)', gaps: after },
-	changeLevel: { class: 'B', backend: 'server_changelevel', gaps: { en: '`preventDefault()` does nothing', ru: '`preventDefault()` ничего не делает' } },
+	gameThink: inRules('server_frame', after),
+	mapReset: inRules('the decal_reset.sc playback CleanUpMap ends with', after),
+	intermission: inRules('the engine message 30 (SVC_INTERMISSION)', after),
+	changeLevel: inRules('server_changelevel', { en: '`preventDefault()` does nothing', ru: '`preventDefault()` ничего не делает' }),
 
 	// Spawning and dying.
-	playerSpawn: { class: 'B', backend: 'Ham_Spawn post on "player", alive', gaps: after },
-	playerKilled: {
-		class: 'B',
-		backend: 'Ham_Killed post on "player"; the inflictor is the victim\'s dmg_inflictor',
-		gaps: after,
-	},
-	deathNotice: {
-		class: 'B',
-		backend: 'DeathMsg message',
-		gaps: {
-			en: 'heard as its death message is sent: `preventDefault()` does nothing, and `inflictor` reads as the world',
-			ru: 'слышно, когда уходит сообщение о смерти: `preventDefault()` ничего не делает, а `inflictor` читается как мир',
-		},
-	},
+	playerSpawn: inRules('Ham_Spawn post on "player", alive', after),
+	playerKilled: inRules('Ham_Killed post on "player"; the inflictor is the victim\'s dmg_inflictor', after),
+	deathNotice: inRules('DeathMsg message', {
+		en: 'it is heard as its death message is sent: `preventDefault()` does nothing, and `inflictor` reads as the world',
+		ru: 'слышно, когда уходит сообщение о смерти: `preventDefault()` ничего не делает, а `inflictor` читается как мир',
+	}),
 	sendDeathMessage: {
 		class: 'B',
 		backend: 'DeathMsg message',
@@ -124,7 +154,11 @@ export const HEARD: Record<string, HeardEvent> = {
 	deathSound: { class: 'A', backend: 'FM_EmitSound of a player\'s death sound' },
 
 	// The bomb and the VIP: the game's log lines.
-	giveBomb: { class: 'B', backend: 'logevent "Spawned_With_The_Bomb"', gaps: noAnswer(after.en, after.ru) },
+	// The original's GiveC4 answers nothing: its listeners' answer is lost either way.
+	giveBomb: {
+		...inRules('logevent "Spawned_With_The_Bomb"', after),
+		gaps: either('returning an answer does nothing', 'ответ ничего не делает', original(IN_RULES, after)),
+	},
 	becomeBomber: { class: 'B', backend: 'logevent "Spawned_With_The_Bomb"', gaps: noAnswer(after.en, after.ru) },
 	becomeVip: { class: 'B', backend: 'logevent "Became_VIP"', gaps: after },
 	plantBomb: {
@@ -147,11 +181,9 @@ export const HEARD: Record<string, HeardEvent> = {
 	// Money and buying.
 	addMoney: {
 		class: 'B',
-		backend: 'Money message: the change from the last amount the player was sent',
-		gaps: afterAnd(
-			'`amount` is how much his money moved since the game last sent it to him, and `reason` reads as `"none"`',
-			'`amount` — на сколько сдвинулись его деньги с тех пор, как игра в последний раз их ему прислала, а `reason` читается как `"none"`',
-		),
+		backend: 'the game\'s AddAccount, taken over at its start; else the Money message: the change from the last amount the player was sent',
+		gaps: either('`reason` reads as `"none"`', '`reason` читается как `"none"`', money),
+		original: 'first',
 	},
 	buyWeapon: { class: 'B', backend: 'the game\'s CanBuyThis, a weapon (CS_OnBuy\'s place)', gaps: buy('`event.result` reads as `null`', '`event.result` читается как `null`') },
 	buyItem: { class: 'B', backend: 'the game\'s CanPlayerBuy and GiveNamedItem, the equipment (CS_OnBuy\'s place)', gaps: buy('heard for the equipment menu\'s items', 'слышно для предметов меню снаряжения') },
@@ -207,7 +239,7 @@ export const HEARD: Record<string, HeardEvent> = {
 		backend: 'client_disconnected',
 		gaps: afterAnd('`crash` reads as `false`, and `reason` is the one AMX Mod X was told', '`crash` читается как `false`, а `reason` — причина, которую узнал AMX Mod X'),
 	},
-	userInfoChange: { class: 'B', backend: 'client_infochanged', gaps: afterAnd('`info` reads as `""`', '`info` читается как `""`') },
+	userInfoChange: inRules('client_infochanged', afterAnd('`info` reads as `""`', '`info` читается как `""`')),
 	changeName: {
 		class: 'B',
 		backend: 'client_infochanged, when the name in the info differs from the player\'s',
@@ -220,7 +252,13 @@ export const HEARD: Record<string, HeardEvent> = {
 		backend: 'Ham_CS_Player_Blind',
 		gaps: afterAnd('`inflictor` and `attacker` read as the world, `color` as zero', '`inflictor` и `attacker` читаются как мир, `color` — нулевым'),
 	},
-	playerGotWeapon: { class: 'B', backend: 'Ham_AddPlayerItem post, when the item was added', gaps: after },
+	playerGotWeapon: inRules('Ham_AddPlayerItem post, when the item was added', after),
+	giveDefaultItems: {
+		class: 'B',
+		backend: 'the game\'s GiveDefaultItems, taken over at its start',
+		gaps: original(AT_START, null),
+		original: 'only',
+	},
 	canPlayerHearPlayer: {
 		class: 'B',
 		backend: 'FM_Voice_SetClientListening',
@@ -304,7 +342,6 @@ export const NOT_HEARD: Record<string, string> = {
 	shoot: 'a non-virtual function inside a weapon\'s attack',
 	getForceCamera: 'a global function of the game; no stock hook',
 	getIntoGame: 'a non-virtual function of the player; no stock hook',
-	giveDefaultItems: 'inside the game rules\' PlayerSpawn, for a player who did not survive and a map without game_player_equip; no stock hook',
 	giveItem: 'a non-virtual function of the player; fakemeta\'s CreateNamedEntity hears every entity made by name',
 	giveShield: 'a non-virtual function of the player; no stock hook',
 	hintMessage: 'ReGameDLL\'s own function; the original queues hints',

@@ -40,7 +40,7 @@ test('without reapi a player\'s event is Ham Sandwich\'s on "player", a weapon\'
 test('an event nothing on plain HLDS hears says so once, and is not listened for', async () => {
 	const server = await loadPlugin(PLUGIN, PLAIN);
 	const said = server.logLines.filter(line => line.includes('needs ReGameDLL'));
-	expect(said).toEqual(['warning: fallDamage needs ReGameDLL, or Valve\'s game on Linux, which this server does not have: its listeners are never called']);
+	expect(said).toEqual(['warning: fallDamage needs ReGameDLL, or Valve\'s game where amxts finds its function, which this server does not have: its listeners are never called']);
 });
 
 test('where the module hooks the original game\'s rules, a game rules\' question is heard as its chain', async () => {
@@ -51,6 +51,17 @@ test('where the module hooks the original game\'s rules, a game rules\' question
 	const fall = server.fireHook('fallDamage', [alice.id], { result: 40.0 });
 
 	expect(fall.result).toBe(20);
+});
+
+test('where the module hooks the original game\'s functions, a player\'s spawn is its chain, before the game', async () => {
+	const server = await loadPlugin(PLUGIN, { ...PLAIN, originalRules: true });
+	const alice = server.join('Alice');
+	expect([...server.hams.keys()]).not.toContain(`${constant('Ham_Spawn')}:player:post`);
+
+	server.fireHook('playerSpawn', [alice.id]);
+
+	expect(server.logLines.filter(line => line === `spawned ${alice.id}`)).toHaveLength(1);
+	expect(server.log).not.toContain('playerSpawn is heard');
 });
 
 test('without reapi a player spawns through Ham Sandwich\'s Spawn, after the game: preventDefault() is said once', async () => {
@@ -212,9 +223,11 @@ test('each of them is heard on plain HLDS, fully or with its gaps, or is not, wi
 	expect(said).toEqual([]);
 	expect([...unheardEvents()].sort()).toEqual(Object.keys(NOT_HEARD).sort());
 	for (const event of ['playerSpawn', 'roundEnd', 'newRound', 'roundStart', 'addMoney', 'plantBomb']) expect(HEARD[event]?.class).toBe('B');
-	for (const event of ['teamFull', 'airMove', 'giveDefaultItems']) expect(NOT_HEARD[event]).toBeString();
-	// A game rules' question, through the module's hook of the original rules' table.
-	for (const event of ['fallDamage', 'canHaveItem']) expect(HEARD[event]?.rules).toBe(true);
+	for (const event of ['teamFull', 'airMove', 'explodeHeGrenade']) expect(NOT_HEARD[event]).toBeString();
+	// A game rules' question, through the module's hook of the original rules' table, or a function it takes over at its start.
+	for (const event of ['fallDamage', 'canHaveItem', 'giveDefaultItems']) expect(HEARD[event]?.original).toBe('only');
+	// A game rules' function with a stock hook where the module does not hook it.
+	for (const event of ['playerSpawn', 'newRound', 'deathNotice', 'addMoney']) expect(HEARD[event]?.original).toBe('first');
 	// A player's move, through the module's own hook of PM_Move.
 	expect(HEARD.move?.class).toBe('A');
 });

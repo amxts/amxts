@@ -6683,6 +6683,7 @@ export function __setField<T>(call: Call, kind: i32, value: T, element: number, 
 @external("env", "chain_set_text") declare function _chainSetText(index: i32, text: string): void;
 // @ts-ignore: decorator
 @external("env", "game_api")       declare function _gameApi(): i32;
+@external("env", "original_hook")  declare function _originalHook(id: i32): i32;
 
 /**
  * Hooks a ReGameDLL or ReHLDS hookchain with a raw handler of four numbers -
@@ -6767,8 +6768,7 @@ export function __chainSetText(index: i32, text: string): void {
 }
 
 // What the server has of ReGameDLL's and ReHLDS's hookchains: 1 the game's,
-// 2 the engine's, 4 the original game's rules the module hooks itself;
-// asked once, -1 not asked yet.
+// 2 the engine's; asked once, -1 not asked yet.
 let gameApi: i32 = -1;
 
 /** @hidden Whether the server has the hookchains of ReHLDS (`rehlds`) or of ReGameDLL. */
@@ -6777,10 +6777,9 @@ export function __hasChains(rehlds: bool): bool {
 	return (gameApi & (rehlds ? 2 : 1)) != 0;
 }
 
-/** @hidden Whether the module hooks the game rules' questions of the original game (Valve's, on Linux). */
-export function __hasRules(): bool {
-	if (gameApi < 0) gameApi = _gameApi();
-	return (gameApi & 4) != 0;
+/** @hidden Whether the module hooks ReGameDLL's chain `name` in Valve's game itself, heard there as with ReGameDLL. */
+export function __hooksOriginal(name: HookName): bool {
+	return _originalHook(hookIdOf(name)) != 0;
 }
 
 // AMX Mod X has no entry for an amxts plugin, so this is the only place

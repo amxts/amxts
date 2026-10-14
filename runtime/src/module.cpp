@@ -4501,6 +4501,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "chain_set",    (void *)w_chain_set,    "(ii)",   NULL },
 	{ "chain_set_text", (void *)w_chain_set_text, "(ii)", NULL },
 	{ "game_api",     (void *)w_game_api,     "()i",    NULL },
+	{ "original_hook", (void *)w_original_hook, "(i)i", NULL },
 	{ "ham_bypass",   (void *)w_ham_bypass,   "(ii)",   NULL },
 	{ "chain_dispatch", (void *)w_chain_dispatch, "(iiiii)i", NULL },
 	{ "plugin",       (void *)w_meta,         "(iiii)", NULL },

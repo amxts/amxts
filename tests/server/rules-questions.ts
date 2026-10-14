@@ -1,12 +1,12 @@
 // The game rules' questions as events: on ReGameDLL through its hookchains,
-// on Valve's game for Linux through the module's hook of the rules' table -
+// on Valve's game through the module's hook of the rules' table -
 // heard as the game asks, before it decides, preventDefault() taken. A bot of
 // its own spawns, is refused a rifle and then given it and drops it; the
 // round's check and restart ask the rest, and a YaPB bot's death.
 // canRespawn and fallDamage are left out: a dead player is asked only while
 // he presses nothing, and a fall needs a map's height. It restarts the round,
 // so it runs after round-restart (the suites go by name).
-import { __hasChains, __hasRules } from "@amxts/core";
+import { __hasChains, __hooksOriginal } from "@amxts/core";
 import { Checks } from "@amxts/core/check";
 
 const NAME = "amxts rules bot";
@@ -54,7 +54,7 @@ function asked(question: string, since: number): boolean {
 
 async function run() {
 	const check = new Checks("rules-questions");
-	check.expect(__hasChains(false) || __hasRules(), "the server hears the game rules' questions").toBe(true);
+	check.expect(__hasChains(false) || __hooksOriginal("fl_player_fall_damage"), "the server hears the game rules' questions").toBe(true);
 	bot = server.addBot(NAME);
 	if (bot == null) {
 		check.expect(false, "addBot gives a player").toBe(true);

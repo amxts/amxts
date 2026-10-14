@@ -155,8 +155,10 @@ test('the same function under reapi and Ham Sandwich is one event: reapi for its
 	expect(hooks).toContain('if ((classname.length > 0) || !__hasChains(false)) { canDeployHams().add(classname.length > 0 ? classname : EVERY_WEAPON, post, canDeployFire, entry); return; }');
 	// A chain of ReGameDLL's own that nothing on plain HLDS hears says so there, once, and is not added.
 	expect(hooks).toContain('if (!__hasChains(false)) { __sayOnce("teamFull needs ReGameDLL, which this server does not have: its listeners are never called"); return; }');
-	// A game rules' question is heard on Valve's game on Linux too, where the module hooks the rules' table.
-	expect(hooks).toContain('if (!__hasChains(false) && !__hasRules()) { __sayOnce("fallDamage needs ReGameDLL, or Valve\'s game on Linux, which this server does not have: its listeners are never called"); return; }');
+	// A game rules' question is heard on Valve's game too, where the module hooks the rules' table.
+	expect(hooks).toContain('if (!__hasChains(false) && !__hooksOriginal("fl_player_fall_damage")) { __sayOnce("fallDamage needs ReGameDLL, or Valve\'s game where amxts finds its function, which this server does not have: its listeners are never called"); return; }');
+	// A game rules' function with a stock hook goes to it only where the module does not hook the function itself.
+	expect(hooks).toContain('if (!__hasChains(false) && !__hooksOriginal("player_spawn")) {');
 	// One a stock hook hears goes to its backend (as/hlds.ts), registered on
 	// the first listener and switched off with the event's last.
 	expect(hooks).toContain('if (!roundEndHldsHooked) { roundEndHldsHooked = true; roundEndHlds(roundEndFireHlds, roundEndBackend()); }');

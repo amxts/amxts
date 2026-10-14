@@ -46,8 +46,9 @@ game.addEventListener("roundEnd", (event) => {
 	winner = event.winner;
 	reason = event.reason;
 });
+// A payment, not a purchase: Valve's game pays a draw's next round nothing, 0.
 game.addEventListener("addMoney", (event) => {
-	if (event.amount > 0) paid++;
+	if (event.amount >= 0) paid++;
 });
 game.addEventListener("defuseBombStart", (event) => {
 	defuseStarted = event.player.id;

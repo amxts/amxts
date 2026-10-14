@@ -242,8 +242,8 @@ export interface ServerOptions {
 	chains?: boolean;
 	/**
 	 * Without the hookchains, whether the module hooks the original game's
-	 * rules, so the game rules' questions are heard as their chains: Valve's
-	 * game on Linux. Not unless said.
+	 * functions itself, so their events are heard as their chains: Valve's
+	 * game on Linux, or a build of it amxts knows on Windows. Not unless said.
 	 */
 	originalRules?: boolean;
 }
@@ -812,7 +812,7 @@ export class FakeServer {
 	readonly reunion: boolean;
 	/** Whether the module finds ReGameDLL's and ReHLDS's hookchains (game_api). */
 	readonly chains: boolean;
-	/** Whether, without them, it hooks the original game's rules (game_api). */
+	/** Whether, without them, it hooks the original game's functions itself (original_hook). */
 	readonly originalRules: boolean;
 	/** Milliseconds since the map started; advance() moves it. */
 	time = 0;
@@ -3199,8 +3199,14 @@ export class FakeServer {
 			this.chainSet(index, plugin.memory.string(text));
 		},
 
+		// 4: the original game's rules the module may hook, what a plugin built before original_hook asks.
 		game_api(this: FakeServer, _plugin: PluginInstance) {
 			return this.chains ? 3 : this.originalRules ? 4 : 0;
+		},
+
+		// Every chain, where the module hooks the original game's functions.
+		original_hook(this: FakeServer, _plugin: PluginInstance, _id: number) {
+			return this.originalRules ? 1 : 0;
 		},
 
 		// One phase of a chain's listeners for game.endRound's dispatch, as module.cpp's chain_dispatch.
