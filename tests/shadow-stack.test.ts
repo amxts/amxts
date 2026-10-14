@@ -314,6 +314,73 @@ function givenToImport(node: Node): i32 {
 	return visit(changetype<usize>(node));
 }
 
+// A throw caught by a try further out: what the frames outside it hold lives on past the catch.
+function readAt(bytes: Uint8Array, at: i32): i32 {
+	return bytes[at];
+}
+function failWith(): Node {
+	throw new Error("failed");
+}
+function errorAfter(count: i32): Error {
+	garbage(count);
+	return new Error("late");
+}
+function failLate(): Node {
+	throw errorAfter(1000);
+}
+function caughtInside(node: Node, bytes: Uint8Array): i32 {
+	try {
+		readAt(bytes, 9);
+	} catch (e) {
+		garbage(500);
+	}
+	garbage(500);
+	return node.value;
+}
+
+export function heldAcrossCatch(): i32 {
+	let failed = 0;
+	const outer = new Node(51);
+	const bytes = new Uint8Array(2);
+	try {
+		readAt(bytes, 5);
+		failed |= 1;
+	} catch (e) {
+		garbage(500);
+	}
+	garbage(500);
+	if (outer.value != 51) failed |= 2;
+	const holder = new Holder(52);
+	holder.child = new Node(53);
+	try {
+		failWith();
+		failed |= 4;
+	} catch (e) {
+		garbage(500);
+	}
+	if (holder.child!.value != 53) failed |= 8;
+	let sum = 0;
+	for (let i = 0; i < 20; i++) {
+		const node = new Node(i);
+		try {
+			sum += readAt(bytes, i);
+		} catch (e) {
+			garbage(50);
+		}
+		sum += node.value;
+	}
+	if (sum != 190) failed |= 16;
+	if (caughtInside(new Node(54), bytes) != 54) failed |= 32;
+	// Held across the throwing call alone, which collects before it throws.
+	const late = new Node(55);
+	try {
+		failLate();
+		failed |= 64;
+	} catch (e) {}
+	if (late.value != 55) failed |= 128;
+	return failed;
+}
+
 export function heldByCallees(): i32 {
 	let failed = 0;
 	if (useAfter(new Node(31)) != 31) failed |= 1;
@@ -373,6 +440,10 @@ for (const optimize of [false, true]) {
 		test('an argument its callee holds across a collection survives it', async () => {
 			expect((await compiled()).heldByCallees()).toBe(0);
 		});
+
+		test('what the frames outside a caught throw hold survives the catch', async () => {
+			expect((await compiled()).heldAcrossCatch()).toBe(0);
+		});
 	});
 }
 
@@ -427,4 +498,31 @@ export function loop(): void {
 	const { error, text } = await compileSources(['probe.ts', '--outFile', 'probe.wasm', '--textFile', 'probe.wat', '-O3'], { 'probe.ts': source });
 	expect(error).toBeNull();
 	expect(text['probe.wat'].split('(func $probe/loop\n')[1].split('\n (func ')[0]).not.toContain('__stack_pointer');
+});
+
+test('the [] of an array keeps no frame for the error it may throw', async () => {
+	// A program with a try: a throw unwinds to it, the error held meanwhile.
+	const source = `
+export function caught(bytes: Uint8Array): i32 {
+	try {
+		return bytes[8];
+	} catch (e) {
+		return -1;
+	}
+}
+export function read(bytes: Uint8Array, list: string[], fixed: StaticArray<i32>, i: i32): i32 {
+	return bytes[i] + list[i].length + fixed[i];
+}
+export function write(bytes: Uint8Array, list: i32[], fixed: StaticArray<i32>, i: i32): void {
+	bytes[i] = 1;
+	list[i] = 1;
+	fixed[i] = 1;
+}
+`;
+	const { error, text } = await compileSources(['probe.ts', '--outFile', 'probe.wasm', '--textFile', 'probe.wat'], { 'probe.ts': source });
+	expect(error).toBeNull();
+	const body = (name: string) => text['probe.wat'].split(`(func $${name} `)[1].split('\n (func ')[0];
+	for (const name of ['~lib/typedarray/Uint8Array#__get', '~lib/typedarray/Uint8Array#__set', '~lib/array/Array<~lib/string/String>#__get', '~lib/staticarray/StaticArray<i32>#__get', '~lib/staticarray/StaticArray<i32>#__set']) {
+		expect(body(name)).not.toContain('__stack_pointer');
+	}
 });

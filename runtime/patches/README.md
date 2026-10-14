@@ -63,6 +63,12 @@ And it makes a plugin's many small calls cheaper:
   callee that holds it - worked out for the whole program first, so
   `entity.touch(player)`, which reads its arguments before the native it
   calls, keeps nothing on the shadow stack;
+- an array's `[]` and `[]=` - a typed array's, an `Array`'s, a
+  `StaticArray`'s - throw their error through a function of
+  `std/assembly/util/error.ts` that is never inlined, and a call to a
+  function whose body is a `throw` is known to unwind, so the accessor
+  holds nothing across the throw, keeps no frame and is inlined where it
+  is read;
 - the check for an error on its way to a catch after a call is kept only
   where the callee may throw, which is known once the whole program is
   compiled;

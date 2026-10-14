@@ -297,5 +297,71 @@ export function text(): string {
 			expect(error).toBe('');
 			expect(text()).toBe('box(no box)box');
 		});
+
+		test('a call to a function whose body is a throw unwinds; one that throws after a loop it returns from need not', async () => {
+			const { error, text } = await compile(`
+class Box { constructor(public text: string) {} }
+function fail(text: string): Box {
+	throw new Error(text);
+}
+function find(list: i32[], wanted: i32): i32 {
+	for (let i = 0; i < list.length; i++) if (list[i] == wanted) return i;
+	throw new Error("missing " + wanted.toString());
+}
+export function text(): string {
+	let out = "";
+	const kept = new Box("kept");
+	try {
+		out += fail("failed").text;
+		out += "never";
+	} catch (e) {
+		out += e.message + " " + kept.text;
+	}
+	out += ", ";
+	try {
+		out += find([4, 5, 6], 5).toString();
+		out += find([4], 7).toString();
+	} catch (e) {
+		out += " " + e.message;
+	}
+	return out;
+}
+`, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('failed kept, 1 missing 7');
+		});
+
+		test('an index out of range throws a RangeError, an element missing from an array an Error', async () => {
+			const { error, text } = await compile(`
+let out = "";
+function attempt(what: string, run: () => void): void {
+	try {
+		run();
+		out += what + ": none; ";
+	} catch (e) {
+		out += what + ": " + e.name + " " + e.message + "; ";
+	}
+}
+export function text(): string {
+	const bytes = new Uint8Array(4);
+	const list = [1, 2, 3];
+	const fixed = StaticArray.fromArray<i32>([1, 2]);
+	const words = new Array<string>(2);
+	attempt("bytes read", () => { out += bytes[4].toString(); });
+	attempt("bytes write", () => { bytes[-1] = 1; });
+	attempt("list read", () => { out += list[3].toString(); });
+	attempt("list write", () => { list[-1] = 1; });
+	attempt("fixed read", () => { out += fixed[2].toString(); });
+	attempt("fixed write", () => { fixed[2] = 1; });
+	attempt("missing", () => { out += words[0]; });
+	attempt("in range", () => { out += (bytes[3] + list[2] + fixed[1]).toString() + " "; });
+	return out;
+}
+`, optimize);
+			expect(error).toBe('');
+			const range = 'RangeError Index out of range';
+			expect(text()).toBe(`bytes read: ${range}; bytes write: ${range}; list read: ${range}; list write: ${range}; `
+				+ `fixed read: ${range}; fixed write: ${range}; missing: Error Element type must be nullable if array is holey; 5 in range: none; `);
+		});
 	});
 }
