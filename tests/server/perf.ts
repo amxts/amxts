@@ -81,10 +81,7 @@ const LIMITS: Record<string, number> = {
 	"menu choice": 1.5,
 	"remainder": 1.25,
 	"fractions": 0.5,
-	// Known to trail Pawn: a loop's counter over a Uint8Array stays a double
-	// in a function of two loops, and each read checks its bounds. To come
-	// down when that is lifted.
-	"bytes": 5,
+	"bytes": 2,
 	"hot path": 1.5,
 };
 
