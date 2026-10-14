@@ -105,7 +105,8 @@ the arithmetic and the comparisons over it are i32's
 with a loop, where a value is a whole number within a range - never NaN, an
 infinity or -0 - or anything; a loop is solved to a fixpoint, and a
 comparison narrows the locals it compares in the branch it guards, `x * x <=
-n` included. A number made an int32 that is a sum, difference or product of
+n` and `i + 3 < n` included. A ToInt32 of a number proven a whole number
+within i32 is the number. A number made an int32 that is a sum, difference or product of
 integers made numbers - `table[bytes[i] + 1]` - is that arithmetic in i32,
 which wraps as ToInt32 does while the double would be exact. What is not
 proven stays an f64: `7 / 2` is 3.5, a sum past 2^31 is exact, `-6 % 3` is -0. The check a `%` makes that its numbers are

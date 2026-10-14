@@ -143,3 +143,39 @@ export function bigSum(): number {
 	for (let i = 0; i < 100000; i++) total += 40000;
 	return total;
 }
+
+/** A CRC and little-endian words over bytes: two loops, the second bounded by `i + 3 < length`. */
+export function byteWords(): number {
+	const bytes = new Uint8Array(1000);
+	for (let i = 0; i < bytes.length; i++) bytes[i] = i & 0xFF;
+	let crc = -1;
+	for (let i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ ((crc ^ bytes[i]) & 0xFF);
+	let words = 0;
+	for (let i = 0; i + 3 < bytes.length; i += 4) words += bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16) | (bytes[i + 3] << 24);
+	return (crc ^ -1) + words;
+}
+
+/** A counter bounded by `i + 1 <` a bound past 2^31: past i32, still exact. */
+export function offsetPastI32(): number {
+	let sum = 0;
+	for (let i = 2147483640; i + 1 < 2147483650; i++) sum += i;
+	return sum;
+}
+
+/** A counter going down, bounded by `i - 2 >`. */
+export function offsetDown(): number {
+	let sum = 0;
+	for (let i = 100; i - 2 > 0; i--) sum += i;
+	return sum;
+}
+
+/** An int32 that reaches -2^31, then wraps, made an int32 again. */
+export function minInt32(): number {
+	let x = 0;
+	let total = 0;
+	for (let i = 0; i < 4; i++) {
+		x = (x - 1073741824) | 0;
+		total += x ^ 1;
+	}
+	return total;
+}

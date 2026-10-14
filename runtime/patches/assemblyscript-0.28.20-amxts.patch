@@ -12428,10 +12428,10 @@ index 0000000..dcb8e23
 +}
 diff --git a/src/passes/wholenumbers.ts b/src/passes/wholenumbers.ts
 new file mode 100644
-index 0000000..7161c1d
+index 0000000..18a1e25
 --- /dev/null
 +++ b/src/passes/wholenumbers.ts
-@@ -0,0 +1,1262 @@
+@@ -0,0 +1,1419 @@
 +/**
 + * @fileoverview amxts: a plugin's whole numbers kept in i32.
 + *
@@ -12454,6 +12454,10 @@ index 0000000..7161c1d
 + *
 + * @license Apache-2.0
 + */
++
++import {
++  Pass
++} from "./pass";
 +
 +import {
 +  BinaryOp,
@@ -12832,6 +12836,8 @@ index 0000000..7161c1d
 +  /** Each f64 local kept in i32, and its i32 local. */
 +  private kept: Map<Index, Index> = new Map();
 +  private cheapness: Map<ExpressionRef, bool> = new Map();
++  /** The ToInt32s of a whole number within i32, the number in their place (toInt32). */
++  private toInt32s: Set<ExpressionRef> = new Set();
 +
 +  /** Keeps the function's whole numbers in i32; returns how many locals were. */
 +  run(): i32 {
@@ -12848,6 +12854,11 @@ index 0000000..7161c1d
 +    this.state = state;
 +    this.eval(body);
 +    if (this.failed) return 0;
++    for (let _values = Set_values(this.toInt32s), i = 0, k = _values.length; i < k; ++i) {
++      let expr = _values[i];
++      let taken = isTrue(this.valueOf(_BinaryenIfGetCondition(expr)));
++      if (!this.leavesNothing(_BinaryenIfGetIfTrue(expr)) || !taken && !this.leavesNothing(_BinaryenIfGetIfFalse(expr))) this.toInt32s.delete(expr);
++    }
 +
 +    // A local is kept in i32 when every value set to it, where a path
 +    // reaches, is a whole number within i32 - and it starts at 0.
@@ -12867,9 +12878,10 @@ index 0000000..7161c1d
 +      let index = _keys[i];
 +      if (fits.get(index)!) this.kept.set(index, _BinaryenFunctionAddVar(func, TypeRef.I32));
 +    }
-+    if (this.kept.size == 0) return 0;
++    if (this.kept.size == 0 && this.toInt32s.size == 0) return 0;
 +    _BinaryenFunctionSetBody(func, this.rewrite(body));
 +    this.module.runPasses(CLEAN_UP, func);
++    new TruncOfConvert(this.module).walkFunction(func);
 +    return this.kept.size;
 +  }
 +
@@ -12896,7 +12908,7 @@ index 0000000..7161c1d
 +    switch (_BinaryenExpressionGetId(expr)) {
 +      case ExpressionId.Block: return this.block(expr);
 +      case ExpressionId.Loop: return this.loop(expr);
-+      case ExpressionId.If: return this.branch(expr);
++      case ExpressionId.If: return this.toInt32(expr, this.branch(expr));
 +      case ExpressionId.Break: {
 +        let value = _BinaryenBreakGetValue(expr);
 +        let result = value ? this.eval(value) : DEAD;
@@ -13150,6 +13162,54 @@ index 0000000..7161c1d
 +    return join(a, b);
 +  }
 +
++  /**
++   * The compiler's ToInt32 of a number, `abs(x) < 2^31 ? <i32>x :
++   * <i32><i64>(x - trunc(x * 2^-32) * 2^32)`, of an x proven a whole number
++   * within i32 is x: its second arm is taken only at -2^31, where it gives
++   * -2^31 too - or never, where x cannot be -2^31. Recognised by its shape,
++   * its x's the same value throughout.
++   */
++  private toInt32(expr: ExpressionRef, value: Value): Value {
++    this.toInt32s.delete(expr);
++    let condition = _BinaryenIfGetCondition(expr);
++    let ifFalse = _BinaryenIfGetIfFalse(expr);
++    if (!ifFalse || !this.isOp(condition, BinaryOp.LtF64) || !this.isOp(_BinaryenBinaryGetLeft(condition), UnaryOp.AbsF64, true)) return value;
++    let x = this.valueOf(_BinaryenUnaryGetValue(_BinaryenBinaryGetLeft(condition)));
++    if (!isInt32(x) || !x.id || !this.isF64(_BinaryenBinaryGetRight(condition), 2147483648)) return value;
++    if (_BinaryenExpressionGetType(expr) != TypeRef.I32 || this.valueOf(_BinaryenIfGetIfTrue(expr)).id != x.id) return value;
++    if (isTrue(this.valueOf(condition))) {
++      this.toInt32s.add(expr);
++      return new Value(x.lo, x.hi, true, x.id);
++    }
++    // <i32><i64>(x - trunc(x * 2^-32) * 2^32)
++    if (!this.isOp(ifFalse, UnaryOp.WrapI64ToI32, true)) return value;
++    let truncated = _BinaryenUnaryGetValue(ifFalse);
++    if (!this.isOp(truncated, UnaryOp.TruncSatF64ToI64, true)) return value;
++    let difference = _BinaryenUnaryGetValue(truncated);
++    if (!this.isOp(difference, BinaryOp.SubF64) || this.valueOf(_BinaryenBinaryGetLeft(difference)).id != x.id) return value;
++    let product = _BinaryenBinaryGetRight(difference);
++    if (!this.isOp(product, BinaryOp.MulF64) || !this.isF64(_BinaryenBinaryGetRight(product), 4294967296)) return value;
++    let wraps = _BinaryenBinaryGetLeft(product);
++    if (!this.isOp(wraps, UnaryOp.TruncF64, true)) return value;
++    let scaled = _BinaryenUnaryGetValue(wraps);
++    if (!this.isOp(scaled, BinaryOp.MulF64) || this.valueOf(_BinaryenBinaryGetLeft(scaled)).id != x.id) return value;
++    if (!this.isF64(_BinaryenBinaryGetRight(scaled), 2.3283064365386963e-10)) return value;
++    this.toInt32s.add(expr);
++    return new Value(x.lo, x.hi, true, x.id);
++  }
++
++  /** Whether `expr` is a unary (`unary`) or binary operation `op`. */
++  private isOp(expr: ExpressionRef, op: i32, unary: bool = false): bool {
++    let id = _BinaryenExpressionGetId(expr);
++    if (unary) return id == ExpressionId.Unary && _BinaryenUnaryGetOp(expr) == op;
++    return id == ExpressionId.Binary && _BinaryenBinaryGetOp(expr) == op;
++  }
++
++  /** Whether `expr` is the f64 constant `value`. */
++  private isF64(expr: ExpressionRef, value: f64): bool {
++    return _BinaryenExpressionGetId(expr) == ExpressionId.Const && _BinaryenExpressionGetType(expr) == TypeRef.F64 && _BinaryenConstGetValueF64(expr) == value;
++  }
++
 +  private send(name: string, state: State, value: Value): void {
 +    if (!this.targets.has(name)) {
 +      this.failed = true;
@@ -13186,6 +13246,9 @@ index 0000000..7161c1d
 +        // of a whole x is never NaN, and exact where it can be at most n.
 +        state = this.root(state, a, signed, b);
 +        state = this.root(state, b, swapped(signed), a);
++        // `x + c op n`, either way round: x within n less c.
++        state = this.sum(state, left, signed, b);
++        state = this.sum(state, right, swapped(signed), a);
 +        if (!a.whole || !b.whole) return state;
 +        state = this.narrow(state, a.id, signed, b);
 +        return this.narrow(state, b.id, swapped(signed), a);
@@ -13203,6 +13266,30 @@ index 0000000..7161c1d
 +    let root = Math.floor(Math.sqrt(bound.hi));
 +    state = this.narrow(state, square.square, BinaryOp.LeI32, new Value(-Infinity, root, true));
 +    return this.narrow(state, square.square, BinaryOp.GeI32, new Value(-root, Infinity, true));
++  }
++
++  /**
++   * `state` where `x + c op bound` or `x - c op bound`, c a constant: the
++   * locals of x's value narrowed by the bound less c. The sum of a whole x
++   * is held below 2^53 by the bound only when it is exact, and above -2^53
++   * likewise, so each side is taken where the bound holds it there; an i32
++   * sum only when it cannot wrap.
++   */
++  private sum(state: State, expr: ExpressionRef, op: BinaryOp, bound: Value): State {
++    if (!state || !bound.whole || _BinaryenExpressionGetId(expr) != ExpressionId.Binary) return state;
++    let sumOp = _BinaryenBinaryGetOp(expr);
++    let isF64 = sumOp == BinaryOp.AddF64 || sumOp == BinaryOp.SubF64;
++    if (!isF64 && sumOp != BinaryOp.AddI32 && sumOp != BinaryOp.SubI32) return state;
++    let x = assert(this.values.get(_BinaryenBinaryGetLeft(expr)));
++    let constant = assert(this.values.get(_BinaryenBinaryGetRight(expr)));
++    if (!x.whole || !x.id || !constant.whole || constant.lo != constant.hi) return state;
++    let c = sumOp == BinaryOp.AddF64 || sumOp == BinaryOp.AddI32 ? constant.lo : -constant.lo;
++    if (!isF64 && (x.lo + c < I32_MIN || x.hi + c > I32_MAX)) return state;
++    let narrowed = constrain(new Value(x.lo + c, x.hi + c, true), op, bound);
++    if (!narrowed) return null;
++    let lo = narrowed.lo > -EXACT ? narrowed.lo - c : -Infinity;
++    let hi = narrowed.hi < EXACT ? narrowed.hi - c : Infinity;
++    return this.narrow(state, x.id, BinaryOp.EqI32, new Value(lo, hi, true));
 +  }
 +
 +  /** `state` with each local of value `id` known to stand in `op` to `bound`. */
@@ -13539,6 +13626,8 @@ index 0000000..7161c1d
 +        break;
 +      }
 +      case ExpressionId.If: {
++        // ToInt32 of a whole number within i32 (toInt32): the number.
++        if (this.toInt32s.has(expr)) return this.lower(_BinaryenUnaryGetValue(_BinaryenBinaryGetLeft(_BinaryenIfGetCondition(expr))));
 +        // A test that always comes out one way: only its effects are kept.
 +        let test = this.valueOf(_BinaryenIfGetCondition(expr));
 +        let taken = isTrue(test) ? _BinaryenIfGetIfTrue(expr) : isFalse(test) ? _BinaryenIfGetIfFalse(expr) : -1;
@@ -13551,6 +13640,50 @@ index 0000000..7161c1d
 +    }
 +    this.rewriteChildren(expr);
 +    return expr;
++  }
++
++  /**
++   * Whether an arm can be left out: arithmetic on locals and constants that
++   * cannot trap, a local it sets read nowhere else in the function.
++   */
++  private leavesNothing(arm: ExpressionRef): bool {
++    let sets = new Array<Index>();
++    let pure = true;
++    this.forEach(arm, (expr: ExpressionRef): bool => {
++      switch (_BinaryenExpressionGetId(expr)) {
++        case ExpressionId.LocalSet: sets.push(_BinaryenLocalSetGetIndex(expr)); break;
++        case ExpressionId.Unary: {
++          let op = _BinaryenUnaryGetOp(expr);
++          if (op != UnaryOp.TruncSatF64ToI32 && op != UnaryOp.TruncSatF64ToI64 && op != UnaryOp.WrapI64ToI32 && op != UnaryOp.TruncF64 && op != UnaryOp.ConvertI32ToF64) pure = false;
++          break;
++        }
++        case ExpressionId.LocalGet:
++        case ExpressionId.Const: break;
++        case ExpressionId.Binary: {
++          let op = _BinaryenBinaryGetOp(expr);
++          if (op != BinaryOp.SubF64 && op != BinaryOp.MulF64) pure = false;
++          break;
++        }
++        default: pure = false;
++      }
++      return pure;
++    });
++    if (!pure) return false;
++    for (let i = 0, k = sets.length; i < k; ++i) {
++      if (this.isReadOutside(sets[i], arm)) return false;
++    }
++    return true;
++  }
++
++  /** Whether the function reads local `index` anywhere but in `within`. */
++  private isReadOutside(index: Index, within: ExpressionRef): bool {
++    let read = false;
++    this.forEach(_BinaryenFunctionGetBody(this.func), (expr: ExpressionRef): bool => {
++      if (expr == within) return false;
++      if (_BinaryenExpressionGetId(expr) == ExpressionId.LocalGet && _BinaryenLocalGetGetIndex(expr) == index) read = true;
++      return !read;
++    });
++    return read;
 +  }
 +
 +  /** Whether `expr`, a whole number within i32, is had in i32 without a conversion. */
@@ -13618,8 +13751,14 @@ index 0000000..7161c1d
 +      }
 +      case ExpressionId.LocalSet: {
 +        let index = _BinaryenLocalSetGetIndex(expr);
-+        if (this.kept.has(index)) return module.local_tee(this.kept.get(index)!, this.lower(_BinaryenLocalSetGetValue(expr)), false, TypeRef.I32);
-+        break;
++        let value = this.lower(_BinaryenLocalSetGetValue(expr));
++        if (this.kept.has(index)) return module.local_tee(this.kept.get(index)!, value, false, TypeRef.I32);
++        // A local not kept still gets the number; the i32 goes on as it is.
++        let temp = _BinaryenFunctionAddVar(this.func, TypeRef.I32);
++        return module.block(null, [
++          module.local_set(index, module.unary(UnaryOp.ConvertI32ToF64, module.local_tee(temp, value, false, TypeRef.I32)), false),
++          module.local_get(temp, TypeRef.I32)
++        ], TypeRef.I32);
 +      }
 +      case ExpressionId.Unary: {
 +        let op = _BinaryenUnaryGetOp(expr);
@@ -13653,8 +13792,26 @@ index 0000000..7161c1d
 +        break;
 +      }
 +    }
-+    // Exact: the value is a whole number within i32.
-+    return module.unary(UnaryOp.TruncSatF64ToI32, this.rewrite(expr));
++    // Exact: the value is a whole number within i32 - an i32's as it is.
++    let rewritten = this.rewrite(expr);
++    if (this.isOp(rewritten, UnaryOp.ConvertI32ToF64, true)) return _BinaryenUnaryGetValue(rewritten);
++    return module.unary(UnaryOp.TruncSatF64ToI32, rewritten);
++  }
++}
++
++/**
++ * `<i32><f64>x` of an i32 x is x: what a kept local's copy leaves once the
++ * clean-up has moved its value into where it is read.
++ */
++class TruncOfConvert extends Pass {
++  /** @override */
++  visitUnary(expr: ExpressionRef): void {
++    let op = _BinaryenUnaryGetOp(expr);
++    if (op != UnaryOp.TruncSatF64ToI32 && op != UnaryOp.TruncF64ToI32) return;
++    let value = _BinaryenUnaryGetValue(expr);
++    if (_BinaryenExpressionGetId(value) == ExpressionId.Unary && _BinaryenUnaryGetOp(value) == UnaryOp.ConvertI32ToF64) {
++      this.replaceCurrent(_BinaryenUnaryGetValue(value));
++    }
 +  }
 +}
 +

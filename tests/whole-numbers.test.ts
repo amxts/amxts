@@ -41,12 +41,13 @@ test('whole numbers in i32 give what JavaScript gives, to the bit', async () => 
 test('a loop over whole numbers within i32 runs in i32: no f64, no Math.mod', async () => {
 	const { text } = await compiled();
 	const body = (name: string) => text.slice(text.indexOf(`(func $probe/${name} `), text.indexOf('\n )\n', text.indexOf(`(func $probe/${name} `)));
-	for (const name of ['divisors', 'primes', 'powers']) {
+	for (const name of ['divisors', 'primes', 'powers', 'byteWords']) {
 		expect(body(name)).not.toContain('NativeMath.mod');
 		expect(body(name)).not.toContain('i32.trunc_sat_f64_s');
 	}
 	// What is not proven stays f64.
 	expect(body('pastI32')).toContain('f64.add');
 	expect(body('counterPastI32')).toContain('f64.lt');
+	expect(body('offsetPastI32')).toContain('f64.lt');
 	expect(body('halves')).toContain('(f64.const 0.5)');
 });
