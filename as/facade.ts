@@ -6683,6 +6683,7 @@ export function __setField<T>(call: Call, kind: i32, value: T, element: number, 
 @external("env", "chain_set_text") declare function _chainSetText(index: i32, text: string): void;
 // @ts-ignore: decorator
 @external("env", "game_api")       declare function _gameApi(): i32;
+// @ts-ignore: decorator
 @external("env", "original_hook")  declare function _originalHook(id: i32): i32;
 
 /**
