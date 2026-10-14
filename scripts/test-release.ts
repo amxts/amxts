@@ -170,11 +170,11 @@ function docker(argv: string[]) {
 	return spawnSync('docker', argv, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 }
 
-/** Every file under node_modules but the caches - the build's, and Vitest's in .vite - by its size, time and link. */
+/** Every file under node_modules but the caches - the build's, and Vitest's in .vite and .vitest-cache - by its size, time and link. */
 function snapshot(dir: string): Map<string, string> {
 	const files = new Map<string, string>();
 	for (const path of readdirSync(dir, { recursive: true }) as string[]) {
-		if (/^\.(?:cache|vite)(?:[\\/]|$)/.test(path)) continue;
+		if (/^\.(?:cache|vite|vitest-cache)(?:[\\/]|$)/.test(path)) continue;
 		const full = join(dir, path);
 		const link = lstatSync(full);
 		if (link.isDirectory()) continue;
