@@ -80,7 +80,11 @@ async function run() {
 	const check = new Checks("rules-events");
 	check.expect(__hasChains(false) || __hooksOriginal("player_spawn"), "the server hears the game rules' functions").toBe(true);
 	const terrorist = server.addBot("amxts events T");
-	const counter = server.players.find(other => other.isBot && other.team == "CT") ?? null;
+	terrorist?.joinTeam("TERRORIST");
+	// YaPB's quota kicks one of its bots for the one added: the counter is
+	// chosen once it has, or the game would be handed a freed player.
+	await sleep(1000);
+	const counter = server.players.find(other => other.isBot && other.isConnected && other.team == "CT") ?? null;
 	if (terrorist == null || counter == null) {
 		check.expect(terrorist != null, "addBot gives a player").toBe(true);
 		check.expect(counter != null, "a YaPB bot of the counter-terrorists").toBe(true);
@@ -92,8 +96,6 @@ async function run() {
 	ours.push(counter.id);
 	const t = terrorist.id;
 	const ct = counter.id;
-	terrorist.joinTeam("TERRORIST");
-	await sleep(300);
 
 	const since = thinks;
 	await sleep(200);
