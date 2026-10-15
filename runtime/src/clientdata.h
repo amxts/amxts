@@ -4,10 +4,10 @@
 //
 // A client with cl_lw 1 predicts his weapon's animations himself, drawn with
 // body 0, and the game sends him none of them (SendWeaponAnim skips a player
-// the engine's CanSkipPlayer says predicts). While the weapon in his hands
-// has a viewBody, the module says he does not - so the game sends every
-// animation, with the weapon's pev->body - and writes clientdata_t's
-// m_flNextAttack: the seconds until his next attack, which his client counts
+// the engine's CanSkipPlayer says predicts). Once his client data has had a
+// weapon with a viewBody in his hands, the module says he does not - so the
+// game sends every animation, with the weapon's pev->body - and writes
+// clientdata_t's m_flNextAttack: the seconds until his next attack, which his client counts
 // down and runs the weapon's code (and its animations) only at 0 or less.
 // His client also replays clientdata_t's weaponanim with a body of its own
 // whenever it is not the last animation it played itself, so the module
@@ -97,11 +97,11 @@ static int ActiveViewBody(const edict_t *player, int *weapon = NULL)
  * The client data of a player who predicts his weapon (cl_lw 1), while the
  * weapon in his hands has a viewBody: his client runs no weapon code, and
  * weaponanim is held at the animation it last played itself - the deploy's,
- * which it replays once with its own body, the server's draw still in the
- * same packet. The deploy's is sent again with the body on his next client
- * data: like the deploy's own it is reliable, and the netchan sends a
- * reliable only once the last is acknowledged, so it reaches his client
- * after the replay at any ping.
+ * which it replays once with its own body. The game left the deploy's draw
+ * to his client; it is sent with the body in the packet of the replay, and
+ * again on his next client data: both are reliable, and the netchan sends a
+ * reliable only once the last is acknowledged, so the second reaches his
+ * client after the replay at any ping.
  */
 static void HoldWeaponAnim(const edict_t *ent, int sendweapons, clientdata_t *cd)
 {
@@ -118,13 +118,14 @@ static void HoldWeaponAnim(const edict_t *ent, int sendweapons, clientdata_t *cd
 	// The value Pawn plugins write: far beyond any ping, counted down from each frame's.
 	cd->m_flNextAttack = gpGlobals->time + 0.001f;
 	int serial = g_viewBodies[weapon].serial;
-	if (held.weapon != weapon || held.serial != serial) {
+	bool first = held.weapon != weapon || held.serial != serial;
+	if (first) {
 		held.weapon = weapon;
 		held.serial = serial;
 		held.anim = cd->weaponanim;
-		held.redraw = true;
-	} else if (held.redraw) {
-		held.redraw = false;
+	}
+	if (first || held.redraw) {
+		held.redraw = first;
 		MESSAGE_BEGIN(MSG_ONE, SVC_WEAPONANIM, NULL, (edict_t *)ent);
 		WRITE_BYTE(held.anim);
 		WRITE_BYTE(body);
@@ -234,10 +235,19 @@ static ALIGNED_ENTRY void UpdateClientData_Post(const edict_t *ent, int sendweap
 	RETURN_META(MRES_IGNORED);
 }
 
-/** The engine's CanSkipPlayer, as the game asks it before an animation it would leave to the client: no, for a viewBody in his hands. */
+/**
+ * The engine's CanSkipPlayer, as the game asks it before an animation it
+ * would leave to the client: no, for a viewBody in his hands his client data
+ * has had. A deploy's own draw is left to his client: on spawn the knife and
+ * the pistol are deployed in one frame, and the knife's draw would play on
+ * the pistol; the redraw sends it with the body if the weapon is still his.
+ */
 static ALIGNED_ENTRY qboolean CanSkipPlayer(const edict_t *player)
 {
-	if (ActiveViewBody(player))
+	int weapon = 0;
+	int id = ENTINDEX((edict_t *)player);
+	if (id >= 1 && id < CLIENT_SLOTS && ActiveViewBody(player, &weapon)
+		&& g_heldAnims[id].weapon == weapon && g_heldAnims[id].serial == g_viewBodies[weapon].serial)
 		RETURN_META_VALUE(MRES_SUPERCEDE, 0);
 	RETURN_META_VALUE(MRES_IGNORED, 0);
 }
