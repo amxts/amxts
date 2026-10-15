@@ -1,5 +1,5 @@
 // A weapon's viewBody and the clientData event on a real server: a bot of
-// its own switches to a knife whose defaultDeploy listener gives it a
+// its own switches to a knife whose deploy listener gives it a
 // viewBody, and every animation of the knife the game sends him - the draw,
 // one the plugin plays - carries that body (client-data-pawn.sma hears
 // SVC_WEAPONANIM); the rifle's draw carries its own, and viewBody 0
@@ -16,7 +16,7 @@ let watched = 0;
 let finish = 0;
 /** The animations the watched bot was sent since the suite cleared them: "anim/body". */
 const sent: string[] = [];
-/** The weapons the watched bot deployed since the suite cleared them. */
+/** The knives the watched bot drew since the suite cleared them. */
 const deployed: string[] = [];
 let frames = 0;
 
@@ -25,11 +25,13 @@ export function client_data_pawn(player: number, anim: number, body: number) {
 	if (player == watched) sent.push(`${anim}/${body}`);
 }
 
-game.addEventListener("defaultDeploy", (event) => {
+// Ham Sandwich's deploy, before the game draws the knife: on plain HLDS too,
+// which has no defaultDeploy.
+game.addEventListener("deploy", (event) => {
 	if (event.weapon.player?.id != watched) return;
 	deployed.push(event.weapon.classname);
-	if (event.weapon.classname == "weapon_knife") event.weapon.viewBody = finish;
-});
+	event.weapon.viewBody = finish;
+}, { classname: "weapon_knife" });
 
 function countFrame() {
 	frames++;
