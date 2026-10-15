@@ -67,6 +67,9 @@ async function run() {
 	check.expect(knife?.viewBody ?? -1, "the listener's viewBody on the knife").toBe(2);
 	check.expect(knife?.body ?? -1, "the knife's body with it").toBe(2);
 	check.expect(sent.join(" "), "the draw is sent with the body").toBe(`${KNIFE_DRAW}/2`);
+	// The draw is sent again on a client's next client data, which a bot is not sent.
+	await sleep(200);
+	check.expect(sent.join(" "), "a bot, which predicts nothing, gets the draw once").toBe(`${KNIFE_DRAW}/2`);
 
 	sent.length = 0;
 	knife?.sendWeaponAnim(1, true);

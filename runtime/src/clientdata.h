@@ -9,6 +9,10 @@
 // animation, with the weapon's pev->body - and writes clientdata_t's
 // m_flNextAttack: the seconds until his next attack, which his client counts
 // down and runs the weapon's code (and its animations) only at 0 or less.
+// His client also replays clientdata_t's weaponanim with a body of its own
+// whenever it is not the last animation it played itself, so the module
+// holds weaponanim at the deploy's and sends the deploy's again with the body
+// once his client has replayed it.
 // Both hooks are in Metamod's tables only while a listener or a viewBody
 // needs them: a server without either pays nothing.
 //
@@ -29,6 +33,16 @@ static std::vector<ViewBody> g_viewBodies;
 // The weapons with a viewBody; one removed with it keeps it counted till the map's end.
 static int g_viewBodyCount = 0;
 
+/** The weapon with a viewBody in a player's hands as his client data last had it, by his id: its edict and serial, the animation held for his client, and whether its redraw is still to be sent. */
+struct HeldAnim {
+	int weapon;
+	int serial;
+	int anim;
+	bool redraw;
+};
+
+static HeldAnim g_heldAnims[CLIENT_SLOTS];
+
 static void UpdateClientData_Post(const edict_t *ent, int sendweapons, clientdata_t *cd);
 static qboolean CanSkipPlayer(const edict_t *player);
 
@@ -38,6 +52,9 @@ static void ClientDataHooks()
 		g_pFunctionTable_Post->pfnUpdateClientData = g_clientDataHooked > 0 || g_viewBodyCount > 0 ? UpdateClientData_Post : NULL;
 	if (g_pengfuncsTable)
 		g_pengfuncsTable->pfnCanSkipPlayer = g_viewBodyCount > 0 ? CanSkipPlayer : NULL;
+	// Out of the table they are not watched: a weapon in his hands then is a new one.
+	if (!g_viewBodyCount)
+		memset(g_heldAnims, 0, sizeof(g_heldAnims));
 }
 
 static void ClientDataAttach(bool on)
@@ -54,8 +71,8 @@ static void ForgetViewBodies()
 	ClientDataHooks();
 }
 
-/** The viewBody of the weapon in a player's hands, 0 for none. */
-static int ActiveViewBody(const edict_t *player)
+/** The viewBody of the weapon in a player's hands, 0 for none; `weapon` gets its edict's index. */
+static int ActiveViewBody(const edict_t *player, int *weapon = NULL)
 {
 	// CBasePlayer::m_pActiveItem's offset, looked up once; -1 when the gamedata has none.
 	static int active = -2;
@@ -70,8 +87,50 @@ static int ActiveViewBody(const edict_t *player)
 	if (index <= 0 || index >= (int)g_viewBodies.size())
 		return 0;
 	const ViewBody &view = g_viewBodies[index];
-	const edict_t *weapon = (const edict_t *)EdictOf(index);
-	return view.body && weapon && view.serial == weapon->serialnumber ? view.body : 0;
+	const edict_t *edict = (const edict_t *)EdictOf(index);
+	if (weapon)
+		*weapon = index;
+	return view.body && edict && view.serial == edict->serialnumber ? view.body : 0;
+}
+
+/**
+ * The client data of a player who predicts his weapon (cl_lw 1), while the
+ * weapon in his hands has a viewBody: his client runs no weapon code, and
+ * weaponanim is held at the animation it last played itself - the deploy's,
+ * which it replays once with its own body, the server's draw still in the
+ * same packet. The deploy's is sent again with the body on his next client
+ * data: like the deploy's own it is reliable, and the netchan sends a
+ * reliable only once the last is acknowledged, so it reaches his client
+ * after the replay at any ping.
+ */
+static void HoldWeaponAnim(const edict_t *ent, int sendweapons, clientdata_t *cd)
+{
+	int id = ENTINDEX((edict_t *)ent);
+	if (id < 1 || id >= CLIENT_SLOTS)
+		return;
+	HeldAnim &held = g_heldAnims[id];
+	int weapon = 0;
+	int body = sendweapons ? ActiveViewBody(ent, &weapon) : 0;
+	if (!body) {
+		held.weapon = 0;
+		return;
+	}
+	// The value Pawn plugins write: far beyond any ping, counted down from each frame's.
+	cd->m_flNextAttack = gpGlobals->time + 0.001f;
+	int serial = g_viewBodies[weapon].serial;
+	if (held.weapon != weapon || held.serial != serial) {
+		held.weapon = weapon;
+		held.serial = serial;
+		held.anim = cd->weaponanim;
+		held.redraw = true;
+	} else if (held.redraw) {
+		held.redraw = false;
+		MESSAGE_BEGIN(MSG_ONE, SVC_WEAPONANIM, NULL, (edict_t *)ent);
+		WRITE_BYTE(held.anim);
+		WRITE_BYTE(body);
+		MESSAGE_END();
+	}
+	cd->weaponanim = held.anim;
 }
 
 /** client_data_hook(handler) - a handler of each player's client data. */
@@ -151,16 +210,16 @@ static void w_viewBodySet(wasm_exec_env_t env, int32_t weapon, int32_t body)
 
 /**
  * The game DLL's UpdateClientData, after it: what `ent` is sent of himself.
- * A viewBody in his hands keeps his client from running the weapon; then
- * the listeners get (player), the client data read and written.
+ * A viewBody in his hands keeps his client from running the weapon and in
+ * step with it; then the listeners get (player), the client data read and
+ * written.
  */
 static ALIGNED_ENTRY void UpdateClientData_Post(const edict_t *ent, int sendweapons, clientdata_t *cd)
 {
 	if (!ent || !cd)
 		RETURN_META(MRES_IGNORED);
-	// The value Pawn plugins write: far beyond any ping, counted down from each frame's.
-	if (g_viewBodyCount && sendweapons && ActiveViewBody(ent))
-		cd->m_flNextAttack = gpGlobals->time + 0.001f;
+	if (g_viewBodyCount)
+		HoldWeaponAnim(ent, sendweapons, cd);
 	if (g_clientDataHooked && g_clientDataPoint.attached) {
 		static const unsigned char roles[1] = { ROLE_EDICT };
 		clientdata_t *outer = g_clientData;
