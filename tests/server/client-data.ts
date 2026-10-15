@@ -2,7 +2,7 @@
 // its own switches to a knife whose defaultDeploy listener gives it a
 // viewBody, and every animation of the knife the game sends him - the draw,
 // one the plugin plays - carries that body (client-data-pawn.sma hears
-// SVC_WEAPONANIM); another weapon's draw carries its own, and viewBody 0
+// SVC_WEAPONANIM); the rifle's draw carries its own, and viewBody 0
 // gives the knife its body back. A bot is sent no client data - the engine
 // sends it to a real client only - so the clientData listener is only added
 // and taken off here, the server running frames with the hooks in place.
@@ -47,8 +47,9 @@ async function run() {
 	bot.respawn();
 	await sleep(300);
 	bot.give("weapon_knife");
-	bot.give("weapon_deagle");
-	bot.switchWeapon("weapon_deagle");
+	bot.give("weapon_ak47");
+	bot.switchWeapon("weapon_ak47");
+	check.expect(bot.activeItem?.classname ?? "", "the rifle in his hands first").toBe("weapon_ak47");
 	watched = bot.id;
 	finish = 2;
 
@@ -64,8 +65,13 @@ async function run() {
 	check.expect(sent.join(" "), "an animation the plugin plays, with the body").toBe("1/2");
 
 	sent.length = 0;
-	bot.switchWeapon("weapon_deagle");
-	check.expect(sent.length > 0 && sent.every(anim => anim.endsWith("/0")), `the deagle's draw with its own body: ${sent.join(" ")}`).toBe(true);
+	bot.switchWeapon("weapon_ak47");
+	check.expect(sent.length > 0 && sent.every(anim => anim.endsWith("/0")), `the rifle's draw with its own body: ${sent.join(" ")}`).toBe(true);
+
+	const rifle = bot.activeItem;
+	if (rifle != null) rifle.viewBody = 4;
+	check.expect(`${rifle?.viewBody ?? -1} ${rifle?.body ?? -1}`, "viewBody set by hand, and the body with it").toBe("4 4");
+	if (rifle != null) rifle.viewBody = 0;
 
 	if (knife != null) knife.viewBody = 0;
 	check.expect(knife?.viewBody ?? -1, "viewBody 0").toBe(0);
