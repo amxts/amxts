@@ -32,7 +32,8 @@ unions of string literals, closures, optional properties and `undefined`,
 `Object.keys` and `for...in`, `try`/`catch`/`finally`, typed `JSON`, text joined
 with a number by `+`, `async`/`await`, overloads, object types in place,
 return types read off the body (a returned literal is the interface of its
-file), `flatMap`, `push` and `unshift` of any number of values, a `sort`
+file), `flatMap`, `push` and `unshift` of any number of values, `concat` of
+any number of strings, or of values and arrays mixed, a `sort`
 comparator whose number orders by its sign (`(a, b) => a - b` on fractions), a handler typed `Context & Player` that takes either,
 `Date` in the server's time zone, a small or unsigned integer - a typed
 array's element, a DataView's byte, what `>>>` gives - read as a number
