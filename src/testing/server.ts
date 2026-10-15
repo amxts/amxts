@@ -946,6 +946,12 @@ export class FakeServer {
 	readonly stateHooks: { classname: string; slot: Slot }[] = [];
 	/** The state being sent while its listeners run (sendState), by the module's field numbers. */
 	sending: number[] | null = null;
+	/** The clientData listeners' hooks. */
+	readonly clientDataHooks: Slot[] = [];
+	/** The client data being sent while its listeners run (sendClientData), by the module's field numbers. */
+	clientData: number[] | null = null;
+	/** The weapons' viewBody, by id: set by weapon.viewBody, read by sendClientData. */
+	readonly viewBodies = new Map<number, number>();
 	/** register_logevent's callbacks: the number of arguments a line has, and the filters it passes. @internal */
 	readonly logEvents: { argc: number; filters: string[]; slot: Slot }[] = [];
 	/** The log line logevent callbacks are reading, as AMX Mod X splits it. @internal */
@@ -2316,6 +2322,26 @@ export class FakeServer {
 	}
 
 	/**
+	 * What the server sends `player` of himself (UpdateClientData): four
+	 * numbers by the module's field numbers - next attack, field of view,
+	 * weapon animation, top speed. A viewBody in his hands sets the next
+	 * attack far off, as the module does; then the listeners run on it, and
+	 * it is what was sent.
+	 */
+	sendClientData(player: FakePlayer, data: number[] = [0, 90, 0, 250]): number[] {
+		const sent = [...data];
+		const active = player.activeItem;
+		if (active && this.viewBodies.get(active.id)) sent[0] = this.time / 1000 + 0.001;
+		this.clientData = sent;
+		try {
+			for (const slot of this.clientDataHooks) this.withCallArgs([player.id], () => this.call(slot, [player.id], 0));
+		} finally {
+			this.clientData = null;
+		}
+		return sent;
+	}
+
+	/**
 	 * One entity moving into another: the register_touch callbacks whose
 	 * classes match ("*" or "" is any), called as the engine module calls
 	 * them - (touched, toucher). The largest answer, as the module takes it.
@@ -3160,6 +3186,26 @@ export class FakeServer {
 			this.stateHooks.push({ classname: plugin.memory.string(classname), slot });
 			this.hookSlots.set(this.hookSlots.size + 1, slot);
 			return this.hookSlots.size;
+		},
+		client_data_hook(this: FakeServer, plugin: PluginInstance, fn: number) {
+			const slot = this.takeSlot(plugin, fn, SHAPE_WIDE, '', 0);
+			this.clientDataHooks.push(slot);
+			this.hookSlots.set(this.hookSlots.size + 1, slot);
+			return this.hookSlots.size;
+		},
+		client_data_get(this: FakeServer, plugin: PluginInstance, field: number) {
+			return this.clientData?.[field] ?? 0;
+		},
+		client_data_set(this: FakeServer, plugin: PluginInstance, field: number, value: number) {
+			if (this.clientData) this.clientData[field] = value;
+		},
+		view_body_get(this: FakeServer, plugin: PluginInstance, weapon: number) {
+			return this.viewBodies.get(weapon) ?? 0;
+		},
+		// The body goes into the weapon's own pev->body too, as the module writes it.
+		view_body_set(this: FakeServer, plugin: PluginInstance, weapon: number, body: number) {
+			this.viewBodies.set(weapon, body);
+			this.entities.get(weapon)?.set('var_body', body);
 		},
 		// A movement event's touchCount (0) and frameTime (1), from server.playerMove.
 		move_get(this: FakeServer, plugin: PluginInstance, field: number) {

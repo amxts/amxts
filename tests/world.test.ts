@@ -82,6 +82,25 @@ test('entityState: a listener of a class changes what one player is sent, and hi
 	expect(untouched).toEqual({ hidden: false, state: [1, 2, 3, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0] });
 });
 
+test('clientData: a listener changes what one player\'s client is sent of him', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	const bob = server.join('Bob');
+
+	expect(server.sendClientData(bob, [0, 90, 0, 250])).toEqual([0, 45, 0, 125]);
+	expect(server.sendClientData(alice, [0, 90, 0, 250])).toEqual([0, 90, 0, 250]);
+});
+
+test('a weapon\'s viewBody is its body until it is set back to 0', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	alice.set('m_pActiveItem', alice.give('weapon_knife').id);
+
+	alice.command('world_view_body');
+
+	expect(alice.console).toBe('3 3 0 0');
+});
+
 test('dropToFloor asks the engine to drop the entity', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');

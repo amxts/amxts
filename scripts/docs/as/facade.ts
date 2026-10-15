@@ -3932,6 +3932,92 @@ export default {
 			Скрывает от него сущность в этом кадре.
 		`,
 	},
+	'ClientDataEvent': {
+		en: `
+			The data a player's client is sent of the player himself this frame. Writing a
+			field changes what his client has, not the player: the client predicts his
+			movement and his weapon from it.
+
+			\`\`\`ts
+			game.addEventListener("clientData", (event) => {
+			  event.nextAttack = 1; // his client runs no weapon of his this frame
+			});
+			\`\`\`
+
+			Pawn: \`register_forward(FM_UpdateClientData, ..., 1)\`, \`get_cd\`, \`set_cd\`
+		`,
+		ru: `
+			Данные о самом игроке, которые его клиент получает в этом кадре. Запись поля меняет
+			то, что есть у его клиента, а не самого игрока: по этим данным клиент
+			предсказывает его движение и оружие.
+
+			\`\`\`ts
+			game.addEventListener("clientData", (event) => {
+			  event.nextAttack = 1; // его клиент в этом кадре не запускает его оружие
+			});
+			\`\`\`
+
+			Pawn: \`register_forward(FM_UpdateClientData, ..., 1)\`, \`get_cd\`, \`set_cd\`
+		`,
+	},
+	'ClientDataEvent.player': {
+		en: `
+			The player it is sent to.
+		`,
+		ru: `
+			Игрок, которому они отправляются.
+		`,
+	},
+	'ClientDataEvent.nextAttack': {
+		en: `
+			Seconds until the player's next attack, as his client counts them down: the
+			client runs his weapon - its shots and animations - only at \`0\` or less.
+
+			Pawn: \`CD_flNextAttack\`
+		`,
+		ru: `
+			Секунды до следующей атаки игрока, как их отсчитывает его клиент: клиент
+			запускает его оружие — выстрелы и анимации — только при \`0\` и меньше.
+
+			Pawn: \`CD_flNextAttack\`
+		`,
+	},
+	'ClientDataEvent.fov': {
+		en: `
+			The player's field of view in degrees, as his client draws it.
+
+			Pawn: \`CD_FOV\`
+		`,
+		ru: `
+			Угол обзора игрока в градусах, как его рисует клиент.
+
+			Pawn: \`CD_FOV\`
+		`,
+	},
+	'ClientDataEvent.weaponAnim': {
+		en: `
+			The animation of the player's view model, by its number in the model.
+
+			Pawn: \`CD_WeaponAnim\`
+		`,
+		ru: `
+			Анимация модели оружия от первого лица, по её номеру в модели.
+
+			Pawn: \`CD_WeaponAnim\`
+		`,
+	},
+	'ClientDataEvent.maxSpeed': {
+		en: `
+			The player's top speed, as his client predicts his movement with it.
+
+			Pawn: \`CD_MaxSpeed\`
+		`,
+		ru: `
+			Предельная скорость игрока, с которой клиент предсказывает его движение.
+
+			Pawn: \`CD_MaxSpeed\`
+		`,
+	},
 	'GameListenerOptions': {
 		en: `
 			The third argument of \`game.addEventListener\`: \`true\` stands for

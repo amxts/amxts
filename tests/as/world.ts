@@ -42,6 +42,20 @@ game.addEventListener("entityState", (event) => {
 	event.renderColor = [255, 0, 0];
 	event.origin = event.origin.add([0, 0, 10]);
 }, { classname: "myplugin_marker" });
+game.addEventListener("clientData", (event) => {
+	if (event.player.name != "Bob") return;
+	event.fov = 45;
+	event.maxSpeed = event.maxSpeed / 2;
+});
+
+server.addCommand("world_view_body", ({ player }) => {
+	const weapon = player.activeItem;
+	if (weapon == null) return;
+	weapon.viewBody = 3;
+	const set = `${weapon.viewBody} ${weapon.body}`;
+	weapon.viewBody = 0;
+	player.print(`${set} ${weapon.viewBody} ${weapon.body}`, "console");
+});
 
 server.addCommand("world_drop", ({ player }) => {
 	player.print(`${player.dropToFloor()}`, "console");

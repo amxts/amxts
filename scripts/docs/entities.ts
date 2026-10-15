@@ -1980,6 +1980,14 @@ Pawn: \`pev->classname\`, \`get_weaponname\``,
 
 Pawn: \`pev->classname\`, \`get_weaponname\``,
 	},
+	'Weapon.viewBody': {
+		en: `The body the weapon's view model is drawn with in its holder's hands, \`0\` for the game's own: one model with several looks as body groups - \`weapon.viewBody = 2\` in a \`defaultDeploy\` listener. While the weapon is in his hands, every animation of it comes from the server with this body, and his client does not predict them; holstering it or \`0\` gives the prediction back.
+
+Pawn: \`pev->body\`, \`register_forward(FM_UpdateClientData, ..., 1)\` with \`set_cd(cd, CD_flNextAttack, ...)\``,
+		ru: `Тело (body), с которым рисуется модель оружия от первого лица в руках владельца, \`0\` — как у игры: одна модель с несколькими видами в группах тел — \`weapon.viewBody = 2\` в слушателе \`defaultDeploy\`. Пока оружие у него в руках, каждая его анимация приходит с сервера с этим телом, и клиент их не предсказывает; убранное оружие или \`0\` возвращают предсказание.
+
+Pawn: \`pev->body\`, \`register_forward(FM_UpdateClientData, ..., 1)\` с \`set_cd(cd, CD_flNextAttack, ...)\``,
+	},
 	'Entity.exists': {
 		en: `\`true\` while the entity is in the world: \`false\` once the engine has freed it (\`remove()\` has it freed at the end of the frame), for a player who has left, and for \`0\`, no entity. An id that came from an event or a hook may name an entity that is gone.
 

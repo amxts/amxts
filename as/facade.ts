@@ -5037,6 +5037,11 @@ export class Game extends GameFields {
 			addStateListener(changetype<StateListener>(listener), given.classname ?? "");
 			return;
 		}
+		if (idof<GameEventMap[K]>() == idof<ClientDataEvent>()) {
+			if (!isVoid<R>()) ERROR("a clientData listener answers nothing: write the event's fields");
+			addClientDataListener(changetype<ClientDataListener>(listener));
+			return;
+		}
 		addGameListener<GameEventMap[K], R>(listener, given.post == true, given.classname ?? "");
 	}
 
@@ -5051,6 +5056,10 @@ export class Game extends GameFields {
 		}
 		if (idof<GameEventMap[K]>() == idof<EntityStateEvent>()) {
 			removeStateListener(changetype<StateListener>(listener), given.classname ?? "");
+			return;
+		}
+		if (idof<GameEventMap[K]>() == idof<ClientDataEvent>()) {
+			removeClientDataListener(changetype<ClientDataListener>(listener));
 			return;
 		}
 		removeGameListener<GameEventMap[K], R>(listener, given.post == true, given.classname ?? "");
@@ -5542,6 +5551,112 @@ function stateFired(filter: StateFilter, host: i32, entity: i32): void {
 	event.__player = host;
 	event.__entity = entity;
 	const listeners = filter.listeners;
+	const n = listeners.begin();
+	for (let i = 0; i < n; i++) {
+		const listener = listeners.at(i);
+		if (listener) listener(event);
+	}
+	listeners.end();
+}
+
+// What a player is sent of himself (runtime/src/clientdata.h): its
+// listeners, the client data read and written while they run.
+// @ts-ignore: decorator
+@external("env", "client_data_hook") declare function _clientDataHook(fn: i32): i32;
+// @ts-ignore: decorator
+@external("env", "client_data_get")  declare function _clientDataGet(field: i32): f64;
+// @ts-ignore: decorator
+@external("env", "client_data_set")  declare function _clientDataSet(field: i32, value: f64): void;
+const CLIENT_NEXT_ATTACK: i32 = 0;
+const CLIENT_FOV: i32 = 1;
+const CLIENT_WEAPON_ANIM: i32 = 2;
+const CLIENT_MAX_SPEED: i32 = 3;
+
+/**
+ * The data a player's client is sent of the player himself this frame. Writing a
+ * field changes what his client has, not the player: the client predicts his
+ * movement and his weapon from it.
+ *
+ * ```ts
+ * game.addEventListener("clientData", (event) => {
+ *   event.nextAttack = 1; // his client runs no weapon of his this frame
+ * });
+ * ```
+ *
+ * Pawn: `register_forward(FM_UpdateClientData, ..., 1)`, `get_cd`, `set_cd`
+ */
+export class ClientDataEvent {
+	/** @hidden */ __player: i32 = 0;
+
+	/** The player it is sent to. */
+	get player(): Player {
+		return __playerOf(this.__player);
+	}
+
+	/**
+	 * Seconds until the player's next attack, as his client counts them down: the
+	 * client runs his weapon - its shots and animations - only at `0` or less.
+	 *
+	 * Pawn: `CD_flNextAttack`
+	 */
+	get nextAttack(): number { return _clientDataGet(CLIENT_NEXT_ATTACK); }
+	set nextAttack(value: number) { _clientDataSet(CLIENT_NEXT_ATTACK, value); }
+
+	/**
+	 * The player's field of view in degrees, as his client draws it.
+	 *
+	 * Pawn: `CD_FOV`
+	 */
+	get fov(): number { return _clientDataGet(CLIENT_FOV); }
+	set fov(value: number) { _clientDataSet(CLIENT_FOV, value); }
+
+	/**
+	 * The animation of the player's view model, by its number in the model.
+	 *
+	 * Pawn: `CD_WeaponAnim`
+	 */
+	get weaponAnim(): number { return _clientDataGet(CLIENT_WEAPON_ANIM); }
+	set weaponAnim(value: number) { _clientDataSet(CLIENT_WEAPON_ANIM, value); }
+
+	/**
+	 * The player's top speed, as his client predicts his movement with it.
+	 *
+	 * Pawn: `CD_MaxSpeed`
+	 */
+	get maxSpeed(): number { return _clientDataGet(CLIENT_MAX_SPEED); }
+	set maxSpeed(value: number) { _clientDataSet(CLIENT_MAX_SPEED, value); }
+}
+
+/** A clientData listener, as game.addEventListener("clientData", ...) takes one. */
+type ClientDataListener = (event: ClientDataEvent) => void;
+
+// One hook for every listener, switched off while there is none.
+const clientDataListeners = new __Listeners<ClientDataListener>();
+const clientDataHook = new __Switch();
+// The one event the listeners get, made again for each player: this hook runs for every player each frame.
+const clientDataEvent = new ClientDataEvent();
+let clientDataHooked = false;
+
+function addClientDataListener(listener: ClientDataListener): void {
+	if (!clientDataHooked) {
+		clientDataHooked = true;
+		const fired = (player: number, b: number, c: number, d: number): void => clientDataFired(<i32>player);
+		const handle = _clientDataHook(hostIndex(fired, true));
+		clientDataHook.add((on: bool): void => _hookOn(handle, on ? 1 : 0));
+	}
+	clientDataListeners.push(listener);
+	clientDataHook.set(true);
+}
+
+function removeClientDataListener(listener: ClientDataListener): void {
+	clientDataListeners.remove(listener);
+	clientDataHook.set(clientDataListeners.count > 0);
+}
+
+function clientDataFired(player: i32): void {
+	const event = clientDataEvent;
+	event.__player = player;
+	const listeners = clientDataListeners;
 	const n = listeners.begin();
 	for (let i = 0; i < n; i++) {
 		const listener = listeners.at(i);

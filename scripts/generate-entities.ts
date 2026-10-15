@@ -1139,6 +1139,11 @@ const USE_TYPES: UseType[] = ["off", "on", "set", "toggle"];
 // The plugins' touch listeners, then the entity's Touch through its table.
 // @ts-ignore: decorator
 @external("env", "entity_touch") declare function _entityTouch(touched: i32, toucher: i32): void;
+// A weapon's view model body the module sends its animations with, its client not predicting them (runtime/src/clientdata.h).
+// @ts-ignore: decorator
+@external("env", "view_body_get") declare function _viewBodyGet(id: i32): i32;
+// @ts-ignore: decorator
+@external("env", "view_body_set") declare function _viewBodySet(id: i32, body: i32): void;
 
 // An action's options when none are given: made once, not at every call.
 const NO_ACTION_OPTIONS: ActionOptions = {};
@@ -1754,6 +1759,10 @@ export class Weapon extends Entity {
 	${methodDoc('Weapon.classname')}
 	get classname(): WeaponName { return keptText(this.id, ${offsetOf('var_classname')}, EV_SZ_classname) as WeaponName; }
 	set classname(value: WeaponName) { entity_set_string(this.id, EV_SZ_classname, value); }
+
+	${methodDoc('Weapon.viewBody')}
+	get viewBody(): number { return _viewBodyGet(<i32>this.id); }
+	set viewBody(value: number) { _viewBodySet(<i32>this.id, <i32>value); }
 
 ${weaponBody}
 

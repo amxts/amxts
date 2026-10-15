@@ -4339,6 +4339,12 @@ static void HudSlotReset(int id);
 static int32_t w_stateHook(wasm_exec_env_t env, int32_t classname, int32_t fn);
 static double w_stateGet(wasm_exec_env_t env, int32_t field);
 static void w_stateSet(wasm_exec_env_t env, int32_t field, double value);
+static int32_t w_clientDataHook(wasm_exec_env_t env, int32_t fn);
+static double w_clientDataGet(wasm_exec_env_t env, int32_t field);
+static void w_clientDataSet(wasm_exec_env_t env, int32_t field, double value);
+static int32_t w_viewBodyGet(wasm_exec_env_t env, int32_t weapon);
+static void w_viewBodySet(wasm_exec_env_t env, int32_t weapon, int32_t body);
+static void ForgetViewBodies();
 // The HUD lines plugins made (hud.h), let go at the map's end, as the plugins are.
 static std::vector<std::vector<uint8_t>> g_hudLines;
 static int32_t w_storeOpen(wasm_exec_env_t env, int32_t name);
@@ -4457,6 +4463,11 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "state_get",      (void *)w_stateGet,      "(i)F", NULL },
 	{ "move_get",       (void *)w_moveGet,       "(i)F", NULL },
 	{ "state_set",      (void *)w_stateSet,      "(iF)", NULL },
+	{ "client_data_hook", (void *)w_clientDataHook, "(i)i", NULL },
+	{ "client_data_get", (void *)w_clientDataGet, "(i)F", NULL },
+	{ "client_data_set", (void *)w_clientDataSet, "(iF)", NULL },
+	{ "view_body_get",  (void *)w_viewBodyGet,   "(i)i", NULL },
+	{ "view_body_set",  (void *)w_viewBodySet,   "(ii)", NULL },
 	{ "store_open",     (void *)w_storeOpen,     "(i)i",  NULL },
 	{ "store_get",      (void *)w_storeGet,      "(iiii)i", NULL },
 	{ "store_set",      (void *)w_storeSet,      "(iii)", NULL },
@@ -5098,6 +5109,7 @@ static void Teardown()
 	g_nextWatch = 0;
 	g_trace = false;
 	g_namesChanging = false;
+	ForgetViewBodies();
 	ForgetEdicts();
 
 	// The players' and the entities' fields start over with the plugins.
@@ -8137,6 +8149,9 @@ static cell AMX_NATIVE_CALL n_amxclientCmd(AMX *amx, cell *params)
 
 // What the server sends each player of each entity: the entityState event.
 #include "entitystate.h"
+
+// What the server sends each player of himself: the clientData event, and a weapon's viewBody.
+#include "clientdata.h"
 
 // ---------------------------------------------------------------- the frame
 
