@@ -16,6 +16,8 @@ let watched = 0;
 let finish = 0;
 /** The animations the watched bot was sent since the suite cleared them: "anim/body". */
 const sent: string[] = [];
+/** The weapons the watched bot deployed since the suite cleared them. */
+const deployed: string[] = [];
 let frames = 0;
 
 /** client-data-pawn.sma's handler of SVC_WEAPONANIM: an animation sent to `player`, drawn with `body`. */
@@ -24,8 +26,9 @@ export function client_data_pawn(player: number, anim: number, body: number) {
 }
 
 game.addEventListener("defaultDeploy", (event) => {
-	if (event.weapon.classname != "weapon_knife" || event.weapon.player?.id != watched) return;
-	event.weapon.viewBody = finish;
+	if (event.weapon.player?.id != watched) return;
+	deployed.push(event.weapon.classname);
+	if (event.weapon.classname == "weapon_knife") event.weapon.viewBody = finish;
 });
 
 function countFrame() {
@@ -54,8 +57,11 @@ async function run() {
 	finish = 2;
 
 	sent.length = 0;
-	check.expect(bot.switchWeapon("weapon_knife"), "switchWeapon(\"weapon_knife\")").toBe(true);
+	const before = bot.activeItem?.classname ?? "";
+	const switched = bot.switchWeapon("weapon_knife");
 	const knife = bot.activeItem;
+	check.expect(`${switched} ${before} -> ${knife?.classname ?? ""}, deployed ${deployed.join(" ")}, sent ${sent.join(" ")}`, "the switch to the knife")
+		.toBe(`true weapon_ak47 -> weapon_knife, deployed weapon_knife, sent ${KNIFE_DRAW}/2`);
 	check.expect(knife?.viewBody ?? -1, "the listener's viewBody on the knife").toBe(2);
 	check.expect(knife?.body ?? -1, "the knife's body with it").toBe(2);
 	check.expect(sent.join(" "), "the draw is sent with the body").toBe(`${KNIFE_DRAW}/2`);
