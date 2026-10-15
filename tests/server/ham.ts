@@ -13,7 +13,6 @@ let deploys = 0;
 game.addEventListener("think", onThink, { classname: "info_null" });
 game.addEventListener("restart", onRestart, { classname: "info_null" });
 game.addEventListener("jump", countJump);
-game.addEventListener("deploy", onDeploy, { classname: "weapon_knife" });
 
 function countJump() {
 	jumps++;
@@ -29,6 +28,8 @@ function onRestart() {
 	restarts++;
 }
 
+// It blocks every knife's draw: on only while its check runs, so the
+// suites after it - and the bots - draw their knives.
 function onDeploy() {
 	deploys++;
 	return false;
@@ -68,8 +69,11 @@ function run() {
 
 	const knife = bot.items.find(item => item.classname == "weapon_knife");
 	check.expect(knife != null, "the bot has a knife").toBe(true);
-	const drawn = deploys;
-	if (knife != null) check.expect(`${knife.deploy()} ${deploys - drawn}`, "drawing it is heard on its class, and the answer is the game's").toBe("false 1");
+	if (knife != null) {
+		game.addEventListener("deploy", onDeploy, { classname: "weapon_knife" });
+		check.expect(`${knife.deploy()} ${deploys}`, "drawing it is heard on its class, and the answer is the game's").toBe("false 1");
+		game.removeEventListener("deploy", onDeploy, { classname: "weapon_knife" });
+	}
 
 	// A function this game's gamedata has no offset for: Ham Sandwich refuses
 	// the call, and the plugin goes on calling natives.
