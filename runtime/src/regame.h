@@ -1006,30 +1006,31 @@ static int VirtualIndex(Method method)
 /**
  * Whether the original game's rules have `method` where OriginalRules does.
  * On Linux, whose game library names its functions (in its symbol table,
- * not the dynamic one), the place is checked against the name once, and a
- * function found elsewhere is not called; a Windows game has no names.
+ * not the dynamic one), the place is checked against the name once; a
+ * Windows game has no names, so its object's table must be the one of a
+ * build amxts knows. A function found elsewhere is not called.
  */
 template <typename Method>
 static bool OriginalSlotChecked(re::OriginalRules *rules, Method method, const char *symbol)
 {
-#ifdef _WIN32
-	(void)rules;
-	(void)method;
-	(void)symbol;
-	return true;
-#else
 	static std::map<std::string, bool> checked;
 	std::map<std::string, bool>::iterator it = checked.find(symbol);
 	if (it != checked.end())
 		return it->second;
 	void **table = *(void ***)rules;
+#ifdef _WIN32
+	(void)method;
+	// The file is read once: the rules object exists, so the game library is found.
+	static void **known = KnownRulesTable();
+	bool same = known && table == known;
+#else
 	void *named = LibrarySymbol(table, symbol);
 	bool same = !named || RulesSlotFunction(table, VirtualIndex(method)) == named;
+#endif
 	checked[symbol] = same;
 	if (!same)
 		MF_PrintSrvConsole("[amxts] the game rules' %s is not where amxts expects it in this game: it is not called\n", symbol);
 	return same;
-#endif
 }
 
 #define RULES_RESTART_ROUND 1
