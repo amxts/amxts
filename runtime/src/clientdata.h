@@ -13,6 +13,11 @@
 // whenever it is not the last animation it played itself, so the module
 // holds weaponanim at the deploy's and sends the deploy's again with the body
 // once his client has replayed it.
+// A spectator watching a player through his eyes is sent that player's
+// client data, and his client replays the weaponanim in it the same way; the
+// game's animations go to the player alone. For a viewBody in the watched
+// player's hands the spectator's weaponanim is held the same way, and each
+// animation the game plays of it is sent him with the body.
 // Both hooks are in Metamod's tables only while a listener or a viewBody
 // needs them: a server without either pays nothing.
 //
@@ -33,13 +38,26 @@ static std::vector<ViewBody> g_viewBodies;
 // The weapons with a viewBody; one removed with it keeps it counted till the map's end.
 static int g_viewBodyCount = 0;
 
-/** The weapon with a viewBody in a player's hands as his client data last had it, by his id: its edict and serial, the animation held for his client, and whether its redraw is still to be sent. */
+/**
+ * The weapon with a viewBody his client data last had - in his hands, or in
+ * the hands of the player he watches in-eye - by his id: its edict and
+ * serial, the animation held for his client, and whether its redraw is still
+ * to be sent. `played` counts the animations the game has played of a
+ * viewBody weapon in his own hands; `relayed` and `relayedAnim` are the
+ * watched player's count and weaponanim last sent to him.
+ */
 struct HeldAnim {
 	int weapon;
 	int serial;
 	int anim;
 	bool redraw;
+	int played;
+	int relayed;
+	int relayedAnim;
 };
+
+// pev->iuser1 of a spectator watching through the eyes of the player in pev->iuser2.
+static const int OBS_IN_EYE = 4;
 
 static HeldAnim g_heldAnims[CLIENT_SLOTS];
 
@@ -102,6 +120,9 @@ static int ActiveViewBody(const edict_t *player, int *weapon = NULL)
  * again on his next client data: both are reliable, and the netchan sends a
  * reliable only once the last is acknowledged, so the second reaches his
  * client after the replay at any ping.
+ * An in-eye spectator is held at the watched player's weapon the same way,
+ * and sent each of its animations the game has played since his last client
+ * data - the game's own go to the player alone.
  */
 static void HoldWeaponAnim(const edict_t *ent, int sendweapons, clientdata_t *cd)
 {
@@ -109,8 +130,11 @@ static void HoldWeaponAnim(const edict_t *ent, int sendweapons, clientdata_t *cd
 	if (id < 1 || id >= CLIENT_SLOTS)
 		return;
 	HeldAnim &held = g_heldAnims[id];
+	int holder = ent->v.iuser1 == OBS_IN_EYE ? ent->v.iuser2 : id;
+	if (holder < 1 || holder >= CLIENT_SLOTS)
+		holder = 0;
 	int weapon = 0;
-	int body = sendweapons ? ActiveViewBody(ent, &weapon) : 0;
+	int body = sendweapons && holder ? ActiveViewBody((const edict_t *)EdictOf(holder), &weapon) : 0;
 	if (!body) {
 		held.weapon = 0;
 		return;
@@ -119,15 +143,24 @@ static void HoldWeaponAnim(const edict_t *ent, int sendweapons, clientdata_t *cd
 	cd->m_flNextAttack = gpGlobals->time + 0.001f;
 	int serial = g_viewBodies[weapon].serial;
 	bool first = held.weapon != weapon || held.serial != serial;
+	int played = g_heldAnims[holder].played;
 	if (first) {
 		held.weapon = weapon;
 		held.serial = serial;
 		held.anim = cd->weaponanim;
+		held.relayed = played;
+		held.relayedAnim = cd->weaponanim;
 	}
-	if (first || held.redraw) {
+	// The watched player's animations since his last client data: the last of them is the weaponanim.
+	bool relay = holder != id && (held.relayed != played || held.relayedAnim != cd->weaponanim);
+	if (relay) {
+		held.relayed = played;
+		held.relayedAnim = cd->weaponanim;
+	}
+	if (first || held.redraw || relay) {
 		held.redraw = first;
 		MESSAGE_BEGIN(MSG_ONE, SVC_WEAPONANIM, NULL, (edict_t *)ent);
-		WRITE_BYTE(held.anim);
+		WRITE_BYTE(relay ? held.relayedAnim : held.anim);
 		WRITE_BYTE(body);
 		MESSAGE_END();
 	}
@@ -267,13 +300,18 @@ static ALIGNED_ENTRY void UpdateClientData_Post(const edict_t *ent, int sendweap
  * has had. A deploy's own draw is left to his client: on spawn the knife and
  * the pistol are deployed in one frame, and the knife's draw would play on
  * the pistol; the redraw sends it with the body if the weapon is still his.
+ * Each animation asked about is counted for his in-eye spectators, whatever
+ * the answer: a bot's, too.
  */
 static ALIGNED_ENTRY qboolean CanSkipPlayer(const edict_t *player)
 {
 	int weapon = 0;
 	int id = ENTINDEX((edict_t *)player);
-	if (id >= 1 && id < CLIENT_SLOTS && ActiveViewBody(player, &weapon)
-		&& g_heldAnims[id].weapon == weapon && g_heldAnims[id].serial == g_viewBodies[weapon].serial)
-		RETURN_META_VALUE(MRES_SUPERCEDE, 0);
+	if (id >= 1 && id < CLIENT_SLOTS && ActiveViewBody(player, &weapon)) {
+		HeldAnim &held = g_heldAnims[id];
+		held.played++;
+		if (held.weapon == weapon && held.serial == g_viewBodies[weapon].serial)
+			RETURN_META_VALUE(MRES_SUPERCEDE, 0);
+	}
 	RETURN_META_VALUE(MRES_IGNORED, 0);
 }
