@@ -5376,6 +5376,12 @@ const STATE_EFFECTS: i32 = 12;
 const STATE_MODEL_INDEX: i32 = 13;
 const STATE_BODY: i32 = 14;
 const STATE_SKIN: i32 = 15;
+const STATE_SEQUENCE: i32 = 16;
+const STATE_GAIT_SEQUENCE: i32 = 17;
+const STATE_FRAME: i32 = 18;
+const STATE_FRAME_RATE: i32 = 19;
+const STATE_ANIM_TIME: i32 = 20;
+const STATE_USE_HULL: i32 = 21;
 
 function stateVector(field: i32): Vector {
 	return new Vector(_stateGet(field), _stateGet(field + 1), _stateGet(field + 2));
@@ -5497,6 +5503,54 @@ export class EntityStateEvent {
 	 */
 	get skin(): number { return _stateGet(STATE_SKIN); }
 	set skin(value: number) { _stateSet(STATE_SKIN, value); }
+
+	/**
+	 * The number of the animation sequence he sees the model play.
+	 *
+	 * Pawn: `ES_Sequence`
+	 */
+	get sequence(): number { return _stateGet(STATE_SEQUENCE); }
+	set sequence(value: number) { _stateSet(STATE_SEQUENCE, value); }
+
+	/**
+	 * The number of the player's legs animation he sees, played on top of `sequence`; his client moves the legs as the player moves.
+	 *
+	 * Pawn: `ES_GaitSequence`
+	 */
+	get gaitSequence(): number { return _stateGet(STATE_GAIT_SEQUENCE); }
+	set gaitSequence(value: number) { _stateSet(STATE_GAIT_SEQUENCE, value); }
+
+	/**
+	 * The playback position he sees at `animTime`, `0` to `255` over the whole sequence; his client plays on from it at `frameRate`.
+	 *
+	 * Pawn: `ES_Frame`
+	 */
+	get frame(): number { return _stateGet(STATE_FRAME); }
+	set frame(value: number) { _stateSet(STATE_FRAME, value); }
+
+	/**
+	 * The animation playback rate he sees: `1` is normal speed, `0` holds the pose at `frame`.
+	 *
+	 * Pawn: `ES_FrameRate`
+	 */
+	get frameRate(): number { return _stateGet(STATE_FRAME_RATE); }
+	set frameRate(value: number) { _stateSet(STATE_FRAME_RATE, value); }
+
+	/**
+	 * The game time `frame` was at: his client plays the animation on from it.
+	 *
+	 * Pawn: `ES_AnimTime`
+	 */
+	get animTime(): number { return _stateGet(STATE_ANIM_TIME); }
+	set animTime(value: number) { _stateSet(STATE_ANIM_TIME, value); }
+
+	/**
+	 * Whether he is sent the player as crouched: his client then takes the player's crouched size and, watching through his eyes, the crouched eye height. The crouched pose is `sequence` and `gaitSequence`.
+	 *
+	 * Pawn: `ES_UseHull`
+	 */
+	get ducking(): boolean { return _stateGet(STATE_USE_HULL) != 0; }
+	set ducking(value: boolean) { _stateSet(STATE_USE_HULL, value ? 1 : 0); }
 
 	/** Hides the entity from him this frame. */
 	preventDefault(): void {

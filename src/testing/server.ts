@@ -2307,7 +2307,7 @@ export class FakeServer {
 	 * origin, angles, render mode, amount, colour, fx, effects, model index,
 	 * body, skin - and say what was sent, or that it was hidden.
 	 */
-	sendState(host: FakePlayer, entity: FakeEntity, state: number[] = Array.from({ length: 16 }).fill(0) as number[]): { hidden: boolean; state: number[] } {
+	sendState(host: FakePlayer, entity: FakeEntity, state: number[] = Array.from({ length: 22 }).fill(0) as number[]): { hidden: boolean; state: number[] } {
 		const sent = [...state];
 		let hidden = false;
 		this.sending = sent;

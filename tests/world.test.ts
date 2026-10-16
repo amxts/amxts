@@ -72,14 +72,16 @@ test('entityState: a listener of a class changes what one player is sent, and hi
 	const marker = server.createEntity('myplugin_marker');
 	const other = server.createEntity('info_target');
 
-	const toAlice = server.sendState(alice, marker, [1, 2, 3, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0]);
+	const sent = [1, 2, 3, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 128, 1, 10, 0];
+	const toAlice = server.sendState(alice, marker, sent);
 	const toBob = server.sendState(bob, marker);
-	const untouched = server.sendState(alice, other, [1, 2, 3, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0]);
+	const untouched = server.sendState(alice, other, sent);
 
-	// renderFx 19 is kRenderFxGlowShell; the origin moved up by 10.
-	expect(toAlice).toEqual({ hidden: false, state: [1, 2, 13, 0, 0, 0, 0, 255, 255, 0, 0, 19, 0, 0, 0, 0] });
+	// renderFx 19 is kRenderFxGlowShell; the origin moved up by 10; the
+	// animation's fields after body and skin, ducking (usehull) last.
+	expect(toAlice).toEqual({ hidden: false, state: [1, 2, 13, 0, 0, 0, 0, 255, 255, 0, 0, 19, 0, 0, 0, 0, 5, 6, 64, 0, 10.5, 1] });
 	expect(toBob.hidden).toBe(true);
-	expect(untouched).toEqual({ hidden: false, state: [1, 2, 3, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0] });
+	expect(untouched).toEqual({ hidden: false, state: sent });
 });
 
 test('clientData: a listener changes what one player\'s client is sent of him', async () => {

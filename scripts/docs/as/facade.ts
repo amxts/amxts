@@ -3924,6 +3924,78 @@ export default {
 			Pawn: \`ES_Skin\`
 		`,
 	},
+	'EntityStateEvent.sequence': {
+		en: `
+			The number of the animation sequence he sees the model play.
+
+			Pawn: \`ES_Sequence\`
+		`,
+		ru: `
+			Номер анимации, которую он видит у модели.
+
+			Pawn: \`ES_Sequence\`
+		`,
+	},
+	'EntityStateEvent.gaitSequence': {
+		en: `
+			The number of the player's legs animation he sees, played on top of \`sequence\`; his client moves the legs as the player moves.
+
+			Pawn: \`ES_GaitSequence\`
+		`,
+		ru: `
+			Номер анимации ног игрока, которую он видит, поверх \`sequence\`; его клиент двигает ноги, пока игрок движется.
+
+			Pawn: \`ES_GaitSequence\`
+		`,
+	},
+	'EntityStateEvent.frame': {
+		en: `
+			The playback position he sees at \`animTime\`, \`0\` to \`255\` over the whole sequence; his client plays on from it at \`frameRate\`.
+
+			Pawn: \`ES_Frame\`
+		`,
+		ru: `
+			Позиция в анимации, которую он видит на момент \`animTime\`, от \`0\` до \`255\` на всю последовательность; его клиент играет дальше от неё со скоростью \`frameRate\`.
+
+			Pawn: \`ES_Frame\`
+		`,
+	},
+	'EntityStateEvent.frameRate': {
+		en: `
+			The animation playback rate he sees: \`1\` is normal speed, \`0\` holds the pose at \`frame\`.
+
+			Pawn: \`ES_FrameRate\`
+		`,
+		ru: `
+			Скорость анимации, которую он видит: \`1\` — обычная, \`0\` держит позу на \`frame\`.
+
+			Pawn: \`ES_FrameRate\`
+		`,
+	},
+	'EntityStateEvent.animTime': {
+		en: `
+			The game time \`frame\` was at: his client plays the animation on from it.
+
+			Pawn: \`ES_AnimTime\`
+		`,
+		ru: `
+			Игровое время, когда анимация была на \`frame\`: его клиент играет её дальше от него.
+
+			Pawn: \`ES_AnimTime\`
+		`,
+	},
+	'EntityStateEvent.ducking': {
+		en: `
+			Whether he is sent the player as crouched: his client then takes the player's crouched size and, watching through his eyes, the crouched eye height. The crouched pose is \`sequence\` and \`gaitSequence\`.
+
+			Pawn: \`ES_UseHull\`
+		`,
+		ru: `
+			Получает ли он игрока присевшим: его клиент тогда берёт размер присевшего игрока и, при наблюдении его глазами, высоту глаз присевшего. Позу присевшего задают \`sequence\` и \`gaitSequence\`.
+
+			Pawn: \`ES_UseHull\`
+		`,
+	},
 	'EntityStateEvent.preventDefault': {
 		en: `
 			Hides the entity from him this frame.

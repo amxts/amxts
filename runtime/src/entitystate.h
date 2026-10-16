@@ -55,6 +55,12 @@ enum StateField {
 	STATE_MODEL_INDEX = 13,
 	STATE_BODY = 14,
 	STATE_SKIN = 15,
+	STATE_SEQUENCE = 16,
+	STATE_GAIT_SEQUENCE = 17,
+	STATE_FRAME = 18,
+	STATE_FRAME_RATE = 19,
+	STATE_ANIM_TIME = 20,
+	STATE_USE_HULL = 21,
 };
 
 /** state_get(field) - a field of the state being sent, as a number. */
@@ -79,6 +85,12 @@ static double w_stateGet(wasm_exec_env_t env, int32_t field)
 		case STATE_MODEL_INDEX:     return s->modelindex;
 		case STATE_BODY:            return s->body;
 		case STATE_SKIN:            return s->skin;
+		case STATE_SEQUENCE:        return s->sequence;
+		case STATE_GAIT_SEQUENCE:   return s->gaitsequence;
+		case STATE_FRAME:           return s->frame;
+		case STATE_FRAME_RATE:      return s->framerate;
+		case STATE_ANIM_TIME:       return s->animtime;
+		case STATE_USE_HULL:        return s->usehull;
 	}
 	return 0;
 }
@@ -110,6 +122,12 @@ static void w_stateSet(wasm_exec_env_t env, int32_t field, double value)
 		case STATE_MODEL_INDEX:     s->modelindex = cell; break;
 		case STATE_BODY:            s->body = cell; break;
 		case STATE_SKIN:            s->skin = (short)cell; break;
+		case STATE_SEQUENCE:        s->sequence = cell; break;
+		case STATE_GAIT_SEQUENCE:   s->gaitsequence = cell; break;
+		case STATE_FRAME:           s->frame = (float)value; break;
+		case STATE_FRAME_RATE:      s->framerate = (float)value; break;
+		case STATE_ANIM_TIME:       s->animtime = (float)value; break;
+		case STATE_USE_HULL:        s->usehull = cell; break;
 	}
 }
 

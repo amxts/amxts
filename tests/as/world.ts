@@ -41,6 +41,12 @@ game.addEventListener("entityState", (event) => {
 	event.renderFx = "glowShell";
 	event.renderColor = [255, 0, 0];
 	event.origin = event.origin.add([0, 0, 10]);
+	event.sequence = event.sequence + 1;
+	event.gaitSequence = 6;
+	event.frame = event.frame / 2;
+	event.frameRate = 0;
+	event.animTime = event.animTime + 0.5;
+	event.ducking = !event.ducking;
 }, { classname: "myplugin_marker" });
 game.addEventListener("clientData", (event) => {
 	if (event.player.name != "Bob") return;
