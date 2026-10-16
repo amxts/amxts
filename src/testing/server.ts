@@ -2322,9 +2322,10 @@ export class FakeServer {
 	}
 
 	/**
-	 * What the server sends `player` of himself (UpdateClientData): four
-	 * numbers by the module's field numbers - next attack, field of view,
-	 * weapon animation, top speed. A viewBody in his hands sets the next
+	 * What the server sends `player` of himself (UpdateClientData): numbers
+	 * by the module's field numbers - next attack, field of view, weapon
+	 * animation, top speed, then velocity, punch angle, view offset and
+	 * origin three each, and flags. A viewBody in his hands sets the next
 	 * attack far off, as the module does; then the listeners run on it, and
 	 * it is what was sent.
 	 */

@@ -5625,11 +5625,25 @@ const CLIENT_NEXT_ATTACK: i32 = 0;
 const CLIENT_FOV: i32 = 1;
 const CLIENT_WEAPON_ANIM: i32 = 2;
 const CLIENT_MAX_SPEED: i32 = 3;
+const CLIENT_VELOCITY: i32 = 4;
+const CLIENT_PUNCH_ANGLE: i32 = 7;
+const CLIENT_VIEW_OFFSET: i32 = 10;
+const CLIENT_ORIGIN: i32 = 13;
+const CLIENT_FLAGS: i32 = 16;
+
+function clientDataVector(field: i32): Vector {
+	return new Vector(_clientDataGet(field), _clientDataGet(field + 1), _clientDataGet(field + 2));
+}
+
+function setClientDataVector(field: i32, value: number[]): void {
+	for (let i = 0; i < 3; i++) _clientDataSet(field + i, i < value.length ? value[i] : 0);
+}
 
 /**
  * The data a player's client is sent of the player himself this frame. Writing a
  * field changes what his client has, not the player: the client predicts his
- * movement and his weapon from it.
+ * movement and his weapon from it. A spectator watching a player through his
+ * eyes is sent that player's data.
  *
  * ```ts
  * game.addEventListener("clientData", (event) => {
@@ -5679,6 +5693,49 @@ export class ClientDataEvent {
 	 */
 	get maxSpeed(): number { return _clientDataGet(CLIENT_MAX_SPEED); }
 	set maxSpeed(value: number) { _clientDataSet(CLIENT_MAX_SPEED, value); }
+
+	/**
+	 * The player's position, as his client predicts his movement from it.
+	 *
+	 * Pawn: `CD_Origin`
+	 */
+	get origin(): Vector { return clientDataVector(CLIENT_ORIGIN); }
+	set origin(value: number[]) { setClientDataVector(CLIENT_ORIGIN, value); }
+
+	/**
+	 * The player's velocity, units per second: his client predicts his movement
+	 * from it and bobs his view by its speed along the ground.
+	 *
+	 * Pawn: `CD_Velocity`
+	 */
+	get velocity(): Vector { return clientDataVector(CLIENT_VELOCITY); }
+	set velocity(value: number[]) { setClientDataVector(CLIENT_VELOCITY, value); }
+
+	/**
+	 * The player's view kick from recoil or a hit, in degrees, added to his view angles.
+	 *
+	 * Pawn: `CD_PunchAngle`
+	 */
+	get punchAngle(): Vector { return clientDataVector(CLIENT_PUNCH_ANGLE); }
+	set punchAngle(value: number[]) { setClientDataVector(CLIENT_PUNCH_ANGLE, value); }
+
+	/**
+	 * The player's eye position relative to `origin`, as his client draws his view
+	 * from it: `(0, 0, 17)` standing, `(0, 0, 12)` ducked.
+	 *
+	 * Pawn: `CD_ViewOfs`
+	 */
+	get viewOffset(): Vector { return clientDataVector(CLIENT_VIEW_OFFSET); }
+	set viewOffset(value: number[]) { setClientDataVector(CLIENT_VIEW_OFFSET, value); }
+
+	/**
+	 * The player's state flags, as his client predicts his movement with them:
+	 * `"onGround"`, `"ducking"` and the others of `player.flags`.
+	 *
+	 * Pawn: `CD_Flags`
+	 */
+	get flags(): EntityFlag[] { return <EntityFlag[]>ENTITY_FLAG.namesOf(<i32>_clientDataGet(CLIENT_FLAGS)); }
+	set flags(value: EntityFlag[]) { _clientDataSet(CLIENT_FLAGS, ENTITY_FLAG.maskOf(value)); }
 }
 
 /** A clientData listener, as game.addEventListener("clientData", ...) takes one. */
@@ -7685,7 +7742,7 @@ const storeRoom = new StaticArray<u8>(1024);
 
 // Flag enums and the array that stands for a mask - generated, see scripts/generate-flags.ts.
 export * from "./flags";
-import { Access, ACCESS, EFFECT, Effect, HIDE_HUD, HideHud } from "./flags";
+import { Access, ACCESS, EFFECT, Effect, ENTITY_FLAG, EntityFlag, HIDE_HUD, HideHud } from "./flags";
 
 // Hookchain events and game.addEventListener's hood - generated, see scripts/generate-hooks.ts.
 export * from "./hooks";

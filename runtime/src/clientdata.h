@@ -148,7 +148,23 @@ enum ClientDataField {
 	CLIENT_FOV = 1,
 	CLIENT_WEAPON_ANIM = 2,
 	CLIENT_MAX_SPEED = 3,
+	CLIENT_VELOCITY = 4,     // 4..6
+	CLIENT_PUNCH_ANGLE = 7,  // 7..9
+	CLIENT_VIEW_OFFSET = 10, // 10..12
+	CLIENT_ORIGIN = 13,      // 13..15
+	CLIENT_FLAGS = 16,
 };
+
+/** The vector a client data field number falls in, NULL for another field; `axis` gets its x, y or z. */
+static float *ClientDataVector(clientdata_t *cd, int32_t field, int *axis)
+{
+	float *vectors[4] = { cd->velocity, cd->punchangle, cd->view_ofs, cd->origin };
+	int i = field - CLIENT_VELOCITY;
+	if (i < 0 || i >= 12)
+		return NULL;
+	*axis = i % 3;
+	return vectors[i / 3];
+}
 
 /** client_data_get(field) - a field of the client data being sent, as a number. */
 static double w_clientDataGet(wasm_exec_env_t env, int32_t field)
@@ -157,11 +173,15 @@ static double w_clientDataGet(wasm_exec_env_t env, int32_t field)
 	clientdata_t *cd = g_clientData;
 	if (!cd)
 		return 0;
+	int axis;
+	if (float *vector = ClientDataVector(cd, field, &axis))
+		return vector[axis];
 	switch (field) {
 		case CLIENT_NEXT_ATTACK: return cd->m_flNextAttack;
 		case CLIENT_FOV:         return cd->fov;
 		case CLIENT_WEAPON_ANIM: return cd->weaponanim;
 		case CLIENT_MAX_SPEED:   return cd->maxspeed;
+		case CLIENT_FLAGS:       return cd->flags;
 	}
 	return 0;
 }
@@ -173,11 +193,17 @@ static void w_clientDataSet(wasm_exec_env_t env, int32_t field, double value)
 	clientdata_t *cd = g_clientData;
 	if (!cd)
 		return;
+	int axis;
+	if (float *vector = ClientDataVector(cd, field, &axis)) {
+		vector[axis] = (float)value;
+		return;
+	}
 	switch (field) {
 		case CLIENT_NEXT_ATTACK: cd->m_flNextAttack = (float)value; break;
 		case CLIENT_FOV:         cd->fov = (float)value; break;
 		case CLIENT_WEAPON_ANIM: cd->weaponanim = Whole(value); break;
 		case CLIENT_MAX_SPEED:   cd->maxspeed = (float)value; break;
+		case CLIENT_FLAGS:       cd->flags = Whole(value); break;
 	}
 }
 

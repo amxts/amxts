@@ -4008,7 +4008,8 @@ export default {
 		en: `
 			The data a player's client is sent of the player himself this frame. Writing a
 			field changes what his client has, not the player: the client predicts his
-			movement and his weapon from it.
+			movement and his weapon from it. A spectator watching a player through his
+			eyes is sent that player's data.
 
 			\`\`\`ts
 			game.addEventListener("clientData", (event) => {
@@ -4021,7 +4022,8 @@ export default {
 		ru: `
 			Данные о самом игроке, которые его клиент получает в этом кадре. Запись поля меняет
 			то, что есть у его клиента, а не самого игрока: по этим данным клиент
-			предсказывает его движение и оружие.
+			предсказывает его движение и оружие. Зритель, который смотрит глазами игрока,
+			получает данные этого игрока.
 
 			\`\`\`ts
 			game.addEventListener("clientData", (event) => {
@@ -4088,6 +4090,72 @@ export default {
 			Предельная скорость игрока, с которой клиент предсказывает его движение.
 
 			Pawn: \`CD_MaxSpeed\`
+		`,
+	},
+	'ClientDataEvent.origin': {
+		en: `
+			The player's position, as his client predicts his movement from it.
+
+			Pawn: \`CD_Origin\`
+		`,
+		ru: `
+			Позиция игрока, от которой его клиент предсказывает его движение.
+
+			Pawn: \`CD_Origin\`
+		`,
+	},
+	'ClientDataEvent.velocity': {
+		en: `
+			The player's velocity, units per second: his client predicts his movement
+			from it and bobs his view by its speed along the ground.
+
+			Pawn: \`CD_Velocity\`
+		`,
+		ru: `
+			Скорость игрока, юнитов в секунду: по ней клиент предсказывает его движение
+			и покачивает его взгляд по её величине вдоль земли.
+
+			Pawn: \`CD_Velocity\`
+		`,
+	},
+	'ClientDataEvent.punchAngle': {
+		en: `
+			The player's view kick from recoil or a hit, in degrees, added to his view angles.
+
+			Pawn: \`CD_PunchAngle\`
+		`,
+		ru: `
+			Отброс взгляда игрока от отдачи или попадания, в градусах; прибавляется к углам его взгляда.
+
+			Pawn: \`CD_PunchAngle\`
+		`,
+	},
+	'ClientDataEvent.viewOffset': {
+		en: `
+			The player's eye position relative to \`origin\`, as his client draws his view
+			from it: \`(0, 0, 17)\` standing, \`(0, 0, 12)\` ducked.
+
+			Pawn: \`CD_ViewOfs\`
+		`,
+		ru: `
+			Положение глаз игрока относительно \`origin\`, от которого клиент рисует его
+			взгляд: \`(0, 0, 17)\` стоя, \`(0, 0, 12)\` присев.
+
+			Pawn: \`CD_ViewOfs\`
+		`,
+	},
+	'ClientDataEvent.flags': {
+		en: `
+			The player's state flags, as his client predicts his movement with them:
+			\`"onGround"\`, \`"ducking"\` and the others of \`player.flags\`.
+
+			Pawn: \`CD_Flags\`
+		`,
+		ru: `
+			Флаги состояния игрока, с которыми клиент предсказывает его движение:
+			\`"onGround"\`, \`"ducking"\` и остальные из \`player.flags\`.
+
+			Pawn: \`CD_Flags\`
 		`,
 	},
 	'GameListenerOptions': {

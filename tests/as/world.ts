@@ -52,6 +52,11 @@ game.addEventListener("clientData", (event) => {
 	if (event.player.name != "Bob") return;
 	event.fov = 45;
 	event.maxSpeed = event.maxSpeed / 2;
+	event.velocity = [0, 0, 0];
+	event.punchAngle = event.punchAngle.add([1, 0, 0]);
+	event.viewOffset = [0, 0, 12];
+	event.origin = event.origin.add([0, 0, 10]);
+	event.flags = ["onGround", "ducking"];
 });
 
 server.addCommand("world_view_body", ({ player }) => {

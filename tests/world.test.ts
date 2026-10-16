@@ -89,8 +89,10 @@ test('clientData: a listener changes what one player\'s client is sent of him', 
 	const alice = server.join('Alice');
 	const bob = server.join('Bob');
 
-	expect(server.sendClientData(bob, [0, 90, 0, 250])).toEqual([0, 45, 0, 125]);
-	expect(server.sendClientData(alice, [0, 90, 0, 250])).toEqual([0, 90, 0, 250]);
+	// Velocity, punch angle, view offset, origin, then flags: 512 is FL_ONGROUND, 16384 FL_DUCKING.
+	const sent = [0, 90, 0, 250, 250, 0, 0, 2, 0, 0, 0, 0, 17, 100, 200, 300, 512];
+	expect(server.sendClientData(bob, sent)).toEqual([0, 45, 0, 125, 0, 0, 0, 3, 0, 0, 0, 0, 12, 100, 200, 310, 512 | 16384]);
+	expect(server.sendClientData(alice, sent)).toEqual(sent);
 });
 
 test('a weapon\'s viewBody is its body until it is set back to 0', async () => {
