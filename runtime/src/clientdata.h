@@ -48,14 +48,15 @@ static int g_viewBodyCount = 0;
 /**
  * The weapon with a viewBody his client data last had - in his hands, or in
  * the hands of the player he watches in-eye - by his id: its edict and
- * serial, the animation held for his client, and whether its redraw is still
- * to be sent. `played` counts the animations the game has played of a
+ * serial, whether it is in his own hands, the animation held for his client,
+ * and whether its redraw is still to be sent. `played` counts the animations the game has played of a
  * viewBody weapon in his own hands; `relayed` and `relayedAnim` are the
  * watched player's count and weaponanim last sent to him.
  */
 struct HeldAnim {
 	int weapon;
 	int serial;
+	bool own;
 	int anim;
 	bool redraw;
 	int played;
@@ -169,8 +170,9 @@ static void HoldWeaponAnim(const edict_t *ent, int sendweapons, clientdata_t *cd
 	bool hold = sendweapons && holder && ActiveViewBody((const edict_t *)EdictOf(holder), &weapon, &body);
 	// His own hands: a viewBody weapon that is no longer the one in them is let
 	// go - holstered, dropped, taken away - so it carries no body to its next
-	// holder. The watched player's weapon is let go when he himself is sent.
-	if (id == holder && held.weapon && held.weapon != weapon)
+	// holder. The watched player's weapon is let go only when he himself is
+	// sent: a spectator who joins the game leaves it in its holder's hands.
+	if (held.own && held.weapon != weapon)
 		ReleaseViewBody(held.weapon);
 	if (!hold) {
 		held.weapon = 0;
@@ -184,6 +186,7 @@ static void HoldWeaponAnim(const edict_t *ent, int sendweapons, clientdata_t *cd
 	if (first) {
 		held.weapon = weapon;
 		held.serial = serial;
+		held.own = holder == id;
 		held.anim = cd->weaponanim;
 		held.relayed = played;
 		held.relayedAnim = cd->weaponanim;
