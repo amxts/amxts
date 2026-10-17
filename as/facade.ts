@@ -1510,6 +1510,23 @@ export function __setUsercmdAngles(value: number[]): void {
 	for (let i = 0; i < 3; i++) _usercmdSet(USERCMD_ANGLES + i, i < value.length ? value[i] : 0);
 }
 
+/**
+ * @hidden A float field of the running command, by its engine_const.inc
+ * number (`usercmd_forwardmove`, `usercmd_viewangles`), through AMX Mod X's
+ * get_usercmd: what a kept cmdStart event reads into itself. Its __keep is
+ * compiled into every plugin that waits, so it takes no import of its own.
+ */
+export function __keptUsercmd(type: i32): Vector {
+	const values = new Vector();
+	get_usercmd(type, values);
+	return values;
+}
+
+/** @hidden A whole number field of the running command the same way (`usercmd_buttons`). */
+export function __keptUsercmdWhole(type: i32): f64 {
+	return get_usercmd(type);
+}
+
 /** @hidden A Vector of `value`'s first three numbers, 0 for those it lacks. */
 export function __vectorOf(value: number[]): Vector {
 	const n = value.length;
@@ -1808,7 +1825,7 @@ export interface KillOptions {
 
 // ---------------------------------------------------------------- bots
 
-import { __textFrom, __textInto, __textRoom, dllfunc, engfunc, global_get, set_pev } from "./natives";
+import { __textFrom, __textInto, __textRoom, dllfunc, engfunc, get_usercmd, global_get, set_pev } from "./natives";
 import { DLLFunc_ClientConnect, DLLFunc_ClientPutInServer, EngFunc_CreateFakeClient, EngFunc_RunPlayerMove, glb_frametime, MAX_PLAYERS, pev_health } from "./constants";
 import { BUTTON, Button } from "./flags";
 

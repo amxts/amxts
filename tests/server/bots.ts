@@ -1,9 +1,9 @@
 // A bot the plugin adds itself: it comes as any player does - connect,
 // authorized with "BOT", putInServer - is a bot in server.players, walks when
-// moved every frame, its command is read in cmdStart - and written there:
-// a forward speed taken away stops it - joins the spectators -
-// after the game's team, as a dead player who changed teams once a round may
-// only change to them - and leaves when kicked: disconnected with the
+// moved every frame, its command is read in cmdStart - after an await too -
+// and written there, which the next listener reads - joins the spectators
+// - after the game's team, as a dead player who changed teams once a round
+// may only change to them - and leaves when kicked: disconnected with the
 // reason, then remove. A bot that takes the slot of the one that left is not
 // heard spawning while the game counts it out (it spawns the bot as it joins,
 // with the fields the last one left), and its spawn in a team is heard.
@@ -19,8 +19,12 @@ let walking: Player | null = null;
 const heard: string[] = [];
 /** What cmdStart read off the walker's last command, "" before one. */
 let command = "";
+/** What an async cmdStart listener read of the walker's command after its await, "" before. */
+let kept = "";
 /** Whether cmdStart takes the walker's forward speed away. */
 let stopping = false;
+/** The forward speed a listener after that one read, "" before. */
+let written = "";
 
 server.addEventListener("connect", ({ player }) => {
 	heard.push(`${player.id} connect`);
@@ -44,6 +48,15 @@ function onCommand(event: ClientCmdStartEvent) {
 	if (event.player.id != walking?.id) return;
 	command = `${event.forward} ${event.side} ${event.buttons.join("+")} ${event.msec} ${Math.round(event.angles.y)}`;
 	if (stopping) event.forward = 0;
+}
+function onCommandAfter(event: ClientCmdStartEvent) {
+	if (event.player.id == walking?.id) written = `${event.forward}`;
+}
+async function onCommandLater(event: ClientCmdStartEvent) {
+	if (event.player.id != walking?.id || kept != "") return;
+	kept = "waiting";
+	await sleep(10);
+	kept = `${event.forward} ${event.side} ${event.buttons.join("+")} ${event.msec} ${Math.round(event.angles.y)}`;
 }
 server.addEventListener("frame", () => walking?.move({ forward: 250, side: -100, buttons: ["use"], angles: [0, 30, 0], msec: 10 }));
 /** The spawns heard, as `<id> <hasDisconnected>`. */
@@ -78,29 +91,28 @@ async function run() {
 
 	const from = bot.origin;
 	server.addEventListener("cmdStart", onCommand);
+	server.addEventListener("cmdStart", onCommandLater);
 	walking = bot;
 	await sleep(500);
 	walking = null;
 	server.removeEventListener("cmdStart", onCommand);
+	server.removeEventListener("cmdStart", onCommandLater);
 	const to = bot.origin;
 	const walked = Math.hypot(to.x - from.x, to.y - from.y);
 	check.expect(walked > 16, `moved forward over the frames (${Math.round(walked)} units)`).toBe(true);
 	check.expect(command, "cmdStart reads the command bot.move sent").toBe("250 -100 use 10 30");
+	check.expect(kept, "an async listener reads the command after its await").toBe("250 -100 use 10 30");
 
-	const still = bot.origin;
 	server.addEventListener("cmdStart", onCommand);
+	server.addEventListener("cmdStart", onCommandAfter);
 	stopping = true;
 	walking = bot;
-	await sleep(500);
+	await sleep(100);
 	walking = null;
 	stopping = false;
 	server.removeEventListener("cmdStart", onCommand);
-	const along = bot.origin.subtract(still);
-	// The move along yaw 30. A bot moves only by its commands, so the walk's
-	// speed dies down in the first of them: a forward speed of 250 would take
-	// it over 100 units.
-	const forwardPart = along.x * Math.cos(Math.PI / 6) + along.y * Math.sin(Math.PI / 6);
-	check.expect(Math.abs(forwardPart) < 40, `forward written 0 in cmdStart: no forward move (${Math.round(forwardPart)} units)`).toBe(true);
+	server.removeEventListener("cmdStart", onCommandAfter);
+	check.expect(written, "a forward speed written in cmdStart is the command's").toBe("0");
 
 	check.expect(bot.joinTeam("SPECTATOR"), "joinTeam(\"SPECTATOR\")").toBe(true);
 	check.expect(bot.team, "in the spectators").toBe("SPECTATOR");

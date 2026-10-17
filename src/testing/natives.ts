@@ -1119,6 +1119,17 @@ export const NATIVES: Record<string, Native> = {
 		if (type === constant('DLLFunc_ClientPutInServer')) c.server.engineCalls.push(`ClientPutInServer ${c.memory.cell(tail[0])}`);
 		return 0;
 	},
+	// The command of the running cmdStart (FakeServer.runCommand): a whole number returned, a float or the view angles written.
+	get_usercmd: (c, [type, out]) => {
+		const command = c.server.command;
+		if (!command) return 0;
+		const whole = [constant('usercmd_msec'), constant('usercmd_buttons'), constant('usercmd_impulse')].indexOf(type);
+		if (whole >= 0) return command[3 + whole];
+		const move = [constant('usercmd_forwardmove'), constant('usercmd_sidemove'), constant('usercmd_upmove')].indexOf(type);
+		if (move >= 0) c.memory.setFloat(out, command[move]);
+		if (type === constant('usercmd_viewangles')) c.memory.setVector(out, command.slice(6));
+		return 1;
+	},
 	global_get: (c, [field, ...tail]) => {
 		if (field === constant('glb_frametime') && tail[0]) c.memory.setFloat(tail[0], 0.01);
 		return 0;
