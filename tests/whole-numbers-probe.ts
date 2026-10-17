@@ -169,6 +169,56 @@ export function offsetDown(): number {
 	return sum;
 }
 
+/** An argmin: the index of the least value, a non-whole local carried round and set in the branch. */
+export function argMin(): number {
+	let best = 0;
+	let least = 1e30;
+	for (let i = 0; i < 4; i++) {
+		const value = 10 - i + 0.5;
+		if (value < least) {
+			least = value;
+			best = i;
+		}
+	}
+	return best;
+}
+
+function distance(ax: number, ay: number, bx: number, by: number): number {
+	const dx = ax - bx;
+	const dy = ay - by;
+	return Math.sqrt(dx * dx + dy * dy);
+}
+
+/** The nearest vertex: a square-root distance, `least` starting at Infinity, the index kept from the branch. */
+export function nearestVertex(): number {
+	const xs = [0, 100, 500, 900];
+	const ys = [0, 0, 3, 0];
+	let best = 0;
+	let least = Infinity;
+	for (let i = 0; i < xs.length; i++) {
+		const d = distance(xs[i], ys[i], 500, 0);
+		if (d < least) {
+			least = d;
+			best = i;
+		}
+	}
+	return best;
+}
+
+/** An argmax: the index of the greatest value, the running maximum a non-whole local set in the branch. */
+export function argMax(): number {
+	let best = 0;
+	let most = -1e30;
+	for (let i = 0; i < 6; i++) {
+		const value = i * 1.5 - 4.5;
+		if (value > most) {
+			most = value;
+			best = i;
+		}
+	}
+	return best;
+}
+
 /** An int32 that reaches -2^31, then wraps, made an int32 again. */
 export function minInt32(): number {
 	let x = 0;

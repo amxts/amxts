@@ -12536,10 +12536,10 @@ index 0000000..dcb8e23
 +}
 diff --git a/src/passes/wholenumbers.ts b/src/passes/wholenumbers.ts
 new file mode 100644
-index 0000000..18a1e25
+index 0000000..ad66aab
 --- /dev/null
 +++ b/src/passes/wholenumbers.ts
-@@ -0,0 +1,1419 @@
+@@ -0,0 +1,1430 @@
 +/**
 + * @fileoverview amxts: a plugin's whole numbers kept in i32.
 + *
@@ -13698,6 +13698,17 @@ index 0000000..18a1e25
 +
 +  /** `expr` with its kept locals in i32: of the same type, the same value. */
 +  private rewrite(expr: ExpressionRef): ExpressionRef {
++    // A kept local's reads always come from its i32 local. The original f64
++    // local is left unwritten once its sets move to i32, so any read left on
++    // it would give a stale 0. This is reached before the check below because
++    // such a read can sit where the analysis widened the value past i32 (a
++    // loop-carried index set only in a branch, never narrowed back) or judged
++    // the read unreachable - the kept decision rests on the sets, which are
++    // whole numbers within i32, so the i32 local holds the value at run time.
++    if (_BinaryenExpressionGetId(expr) == ExpressionId.LocalGet) {
++      let index = _BinaryenLocalGetGetIndex(expr);
++      if (this.kept.has(index)) return this.module.unary(UnaryOp.ConvertI32ToF64, this.module.local_get(this.kept.get(index)!, TypeRef.I32));
++    }
 +    if (!this.reached.has(expr)) return expr;
 +    let value = this.valueOf(expr);
 +    let module = this.module;
