@@ -54,7 +54,7 @@ jobs:
           sparse-checkout: scripts
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.3
       - name: The release, with its notes
         env:
           GH_TOKEN: ${{ github.token }}

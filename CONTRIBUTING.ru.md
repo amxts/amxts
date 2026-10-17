@@ -8,7 +8,7 @@
 
 ## Что нужно
 
-- [Git](https://git-scm.com), [Bun](https://bun.sh) (в CI — 1.4.2) и
+- [Git](https://git-scm.com), [Bun](https://bun.sh) (в CI — 1.4.3) и
   Node 24+.
 - Команда `amxts` и официальные модули рядом с ядром — так, как их
   подключает `package.json`:

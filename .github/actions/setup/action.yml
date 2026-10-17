@@ -41,7 +41,7 @@ runs:
         node-version: 24
     - uses: oven-sh/setup-bun@v2
       with:
-        bun-version: 1.4.2
+        bun-version: 1.4.3
 
     # What the caches below are keyed by, besides their files: Node's exact
     # version (node-version 24 takes the newest 24.x), the day, and where this

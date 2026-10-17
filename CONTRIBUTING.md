@@ -8,7 +8,7 @@ plugin author needs none of this: a project gets the core from its package
 
 ## What you need
 
-- [Git](https://git-scm.com), [Bun](https://bun.sh) (CI runs 1.4.2) and
+- [Git](https://git-scm.com), [Bun](https://bun.sh) (CI runs 1.4.3) and
   Node 24+.
 - The `amxts` command and the official modules checked out beside the core,
   as `package.json` links them:
