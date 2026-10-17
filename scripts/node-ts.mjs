@@ -1,0 +1,23 @@
+// The core's TypeScript under Node, for the compile processes (scripts/compile-pool.ts):
+// node --import <this file> scripts/compile-worker.ts. Node strips types itself,
+// but not under node_modules, where an installed core lives, and it does not
+// add the `.ts` the core's imports leave out: this hook does both.
+import { readFileSync } from 'node:fs';
+import { registerHooks, stripTypeScriptTypes } from 'node:module';
+import { fileURLToPath } from 'node:url';
+
+registerHooks({
+	resolve(specifier, context, next) {
+		try {
+			return next(specifier, context);
+		} catch (error) {
+			if (error?.code !== 'ERR_MODULE_NOT_FOUND' || !/^\.{1,2}\//.test(specifier)) throw error;
+			return next(`${specifier}.ts`, context);
+		}
+	},
+	load(url, context, next) {
+		if (!url.endsWith('.ts')) return next(url, context);
+		const source = stripTypeScriptTypes(readFileSync(fileURLToPath(url), 'utf8'), { mode: 'transform' });
+		return { format: 'module', source, shortCircuit: true };
+	},
+});
