@@ -1,13 +1,14 @@
 // Several plugins compiled at once. asc is not reentrant and a compile holds
 // about a gigabyte at its peak, so each runs in a process of its own
 // (scripts/compile-worker.ts), as many at once as the CPUs and the memory
-// budget allow: AMXTS_BUILD_MEMORY megabytes for all of them (3072), or
-// AMXTS_BUILD_JOBS compiles. A single plugin, or room for one, is compiled in
-// this process. Either way a plugin compiles to the same bytes.
+// budget allow: AMXTS_BUILD_MEMORY megabytes for all of them (half the free
+// memory, at least 3072), or AMXTS_BUILD_JOBS compiles. A single plugin, or
+// room for one, is compiled in this process. Either way a plugin compiles to
+// the same bytes.
 import type { Plugin } from './compile';
 import type { NativesBeside, PluginNative } from './plugin-natives';
 import { spawn } from 'node:child_process';
-import { availableParallelism, constants, setPriority } from 'node:os';
+import { availableParallelism, constants, freemem, setPriority } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setNativesBeside } from './plugin-natives';
@@ -17,16 +18,22 @@ const MB = 1024 * 1024;
 /** A compile's peak, asc's and wamrc's together: measured at about a gigabyte, with room. */
 export const COMPILE_MEMORY = 1280 * MB;
 
-/** What the compiles of a build may hold together, unless AMXTS_BUILD_MEMORY says otherwise. */
+/**
+ * The least the compiles of a build may hold together: they take half the
+ * memory free when it starts, unless AMXTS_BUILD_MEMORY says otherwise. A
+ * large plugin's compile holds more than COMPILE_MEMORY - one measured
+ * close to 3 GB - and the other half is room for it and for the machine's
+ * other work.
+ */
 export const BUILD_MEMORY = 3072 * MB;
 
 const WORKER = join(dirname(fileURLToPath(import.meta.url)), 'compile-worker.ts');
 
 /** How many compiles run at once: AMXTS_BUILD_JOBS, else as many as the memory budget holds, at most one per CPU. */
-export function compileSlots(env: Record<string, string | undefined> = process.env, cpus = availableParallelism()): number {
+export function compileSlots(env: Record<string, string | undefined> = process.env, cpus = availableParallelism(), free = freemem()): number {
 	const jobs = Number(env.AMXTS_BUILD_JOBS);
 	if (Number.isInteger(jobs) && jobs > 0) return jobs;
-	const budget = Number(env.AMXTS_BUILD_MEMORY) > 0 ? Number(env.AMXTS_BUILD_MEMORY) * MB : BUILD_MEMORY;
+	const budget = Number(env.AMXTS_BUILD_MEMORY) > 0 ? Number(env.AMXTS_BUILD_MEMORY) * MB : Math.max(BUILD_MEMORY, free / 2);
 	return Math.max(1, Math.min(cpus, Math.floor(budget / COMPILE_MEMORY)));
 }
 

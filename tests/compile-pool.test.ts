@@ -15,18 +15,22 @@ setDefaultTimeout(240_000);
 
 describe('how many compiles run at once', () => {
 	const GB = 1024;
-	test('as many as the memory budget holds - 3 GB unless AMXTS_BUILD_MEMORY says otherwise - at most one per CPU, at least one', () => {
-		expect(compileSlots({}, 8)).toBe(2);
-		expect(compileSlots({ AMXTS_BUILD_MEMORY: String(8 * GB) }, 8)).toBe(6);
-		expect(compileSlots({ AMXTS_BUILD_MEMORY: String(8 * GB) }, 4)).toBe(4);
-		expect(compileSlots({ AMXTS_BUILD_MEMORY: '512' }, 8)).toBe(1);
-		expect(compileSlots({ AMXTS_BUILD_MEMORY: 'lots' }, 8)).toBe(2);
+	// The free memory, in bytes as os.freemem() says it.
+	const free = (gb: number) => gb * 1024 ** 3;
+	test('as many as the memory budget holds - half the free memory, at least 3 GB, unless AMXTS_BUILD_MEMORY says otherwise - at most one per CPU, at least one', () => {
+		expect(compileSlots({}, 8, free(2))).toBe(2);
+		expect(compileSlots({}, 8, free(12))).toBe(4);
+		expect(compileSlots({}, 4, free(64))).toBe(4);
+		expect(compileSlots({ AMXTS_BUILD_MEMORY: String(8 * GB) }, 8, free(2))).toBe(6);
+		expect(compileSlots({ AMXTS_BUILD_MEMORY: String(8 * GB) }, 4, free(2))).toBe(4);
+		expect(compileSlots({ AMXTS_BUILD_MEMORY: '512' }, 8, free(64))).toBe(1);
+		expect(compileSlots({ AMXTS_BUILD_MEMORY: 'lots' }, 8, free(2))).toBe(2);
 	});
 
 	test('AMXTS_BUILD_JOBS says it outright', () => {
-		expect(compileSlots({ AMXTS_BUILD_JOBS: '5' }, 2)).toBe(5);
-		expect(compileSlots({ AMXTS_BUILD_JOBS: '1', AMXTS_BUILD_MEMORY: String(64 * GB) }, 16)).toBe(1);
-		expect(compileSlots({ AMXTS_BUILD_JOBS: '0' }, 8)).toBe(2);
+		expect(compileSlots({ AMXTS_BUILD_JOBS: '5' }, 2, free(2))).toBe(5);
+		expect(compileSlots({ AMXTS_BUILD_JOBS: '1', AMXTS_BUILD_MEMORY: String(64 * GB) }, 16, free(64))).toBe(1);
+		expect(compileSlots({ AMXTS_BUILD_JOBS: '0' }, 8, free(2))).toBe(2);
 	});
 });
 

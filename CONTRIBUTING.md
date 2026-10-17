@@ -203,8 +203,8 @@ word, and one file with bun's own output is
 `bun test --smol tests/<name>.test.ts`. `--changed` is for the
 edit-and-run loop; run the whole suite before a push.
 `bun run test:server` compiles its plugins several at once, as a project's
-build does: `AMXTS_BUILD_JOBS`, or `AMXTS_BUILD_MEMORY` in megabytes (3072,
-two at once), says how many. Locally they compile as `amxts dev` compiles,
+build does: `AMXTS_BUILD_JOBS`, or `AMXTS_BUILD_MEMORY` in megabytes (half
+the free memory, at least 3072), says how many. Locally they compile as `amxts dev` compiles,
 about twice as fast - all but `perf.ts`, which measures speed; in CI and with
 `--full`, as `amxts build` does. A compile is kept in the plugin cache and
 taken again while nothing it read changed, so a second run, or one after a
