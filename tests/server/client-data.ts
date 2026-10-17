@@ -2,10 +2,13 @@
 // its own switches to a knife whose deploy listener gives it a
 // viewBody, and every animation of the knife the game sends him - the draw,
 // one the plugin plays - carries that body (client-data-pawn.sma hears
-// SVC_WEAPONANIM); the rifle's draw carries its own, and viewBody 0
-// gives the knife its body back. A bot is sent no client data - the engine
-// sends it to a real client only - so the clientData listener is only added
-// and taken off here, the server running frames with the hooks in place.
+// SVC_WEAPONANIM); the rifle's draw carries its own, and a plain knife
+// (viewBody 0) draws with body 0. 0 is a body: writing it holds the weapon
+// the same way, and the getter reads it. A bot is sent no client data - the
+// engine sends it to a real client only - so the hold and the release of a
+// viewBody as the weapon leaves the hands only show with a real client;
+// here the clientData listener is only added and taken off, the server
+// running frames with the hooks in place.
 import { Checks } from "@amxts/core/check";
 
 const NAME = "amxts view bot";
@@ -83,10 +86,17 @@ async function run() {
 	if (rifle != null) rifle.viewBody = 4;
 	check.expect(`${rifle?.viewBody ?? -1} ${rifle?.body ?? -1}`, "viewBody set by hand, and the body with it").toBe("4 4");
 	if (rifle != null) rifle.viewBody = 0;
+	check.expect(rifle?.viewBody ?? -1, "viewBody 0 is a body, read back").toBe(0);
 
-	if (knife != null) knife.viewBody = 0;
-	check.expect(knife?.viewBody ?? -1, "viewBody 0").toBe(0);
-	check.expect(knife?.body ?? -1, "the knife's body back to 0").toBe(0);
+	// A plain knife: the deploy listener gives it viewBody 0, which holds it the
+	// same way; its draw carries body 0.
+	finish = 0;
+	sent.length = 0;
+	bot.switchWeapon("weapon_knife");
+	const plain = bot.activeItem;
+	check.expect(plain?.viewBody ?? -1, "viewBody 0 set on the plain knife").toBe(0);
+	check.expect(plain?.body ?? -1, "the plain knife's body is 0").toBe(0);
+	check.expect(sent.join(" "), "the plain knife's draw with body 0").toBe(`${KNIFE_DRAW}/0`);
 
 	game.addEventListener("clientData", countFrame);
 	await sleep(300);

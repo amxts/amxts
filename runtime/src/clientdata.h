@@ -1,6 +1,8 @@
 // What the server sends a player of himself each frame - the game DLL's
 // UpdateClientData, clientdata_t - for game.addEventListener("clientData",
 // ...), and a weapon's viewBody: the body its view model is drawn with.
+// Writing it holds the weapon (0 is a body too); the module lets it go and
+// forgets the value when the weapon leaves its holder's hands.
 //
 // A client with cl_lw 1 predicts his weapon's animations himself, drawn with
 // body 0, and the game sends him none of them (SendWeaponAnim skips a player
@@ -28,14 +30,19 @@ static int g_clientDataHooked = 0;
 // The client data the listeners are reading, while they run.
 static clientdata_t *g_clientData = NULL;
 
-/** A weapon's viewBody, by its edict: the body, and the edict's serial number when it was set. */
+/**
+ * A weapon's viewBody, by its edict: whether one is set (0 is a body, so it is
+ * kept apart from the body), the body, and the edict's serial number when it
+ * was set.
+ */
 struct ViewBody {
+	bool set;
 	int serial;
 	int body;
 };
 
 static std::vector<ViewBody> g_viewBodies;
-// The weapons with a viewBody; one removed with it keeps it counted till the map's end.
+// The weapons with a viewBody set; one removed with it still set keeps it counted till the map's end.
 static int g_viewBodyCount = 0;
 
 /**
@@ -89,8 +96,28 @@ static void ForgetViewBodies()
 	ClientDataHooks();
 }
 
-/** The viewBody of the weapon in a player's hands, 0 for none; `weapon` gets its edict's index. */
-static int ActiveViewBody(const edict_t *player, int *weapon = NULL)
+/** Let a weapon's viewBody go: it has left its holder's hands. */
+static void ReleaseViewBody(int weapon)
+{
+	if (weapon <= 0 || weapon >= (int)g_viewBodies.size())
+		return;
+	ViewBody &view = g_viewBodies[weapon];
+	if (!view.set)
+		return;
+	view.set = false;
+	view.body = 0;
+	edict_t *edict = (edict_t *)EdictOf(weapon);
+	if (edict && view.serial == edict->serialnumber)
+		edict->v.body = 0;
+	g_viewBodyCount--;
+	ClientDataHooks();
+}
+
+/**
+ * Whether the weapon in a player's hands has a viewBody set (0 is a body too),
+ * drawn with its own `body`; `weapon` gets its edict's index.
+ */
+static bool ActiveViewBody(const edict_t *player, int *weapon = NULL, int *body = NULL)
 {
 	// CBasePlayer::m_pActiveItem's offset, looked up once; -1 when the gamedata has none.
 	static int active = -2;
@@ -99,16 +126,20 @@ static int ActiveViewBody(const edict_t *player, int *weapon = NULL)
 		active = g_entityData && g_entityData->GetOffsetByClass("CBasePlayer", "m_pActiveItem", &type) ? type.fieldOffset : -1;
 	}
 	if (active < 0 || !player || !player->pvPrivateData)
-		return 0;
+		return false;
 	FindEdicts();
 	int index = IndexOfObject(*(void **)((char *)player->pvPrivateData + active));
 	if (index <= 0 || index >= (int)g_viewBodies.size())
-		return 0;
+		return false;
 	const ViewBody &view = g_viewBodies[index];
 	const edict_t *edict = (const edict_t *)EdictOf(index);
+	if (!view.set || !edict || view.serial != edict->serialnumber)
+		return false;
 	if (weapon)
 		*weapon = index;
-	return view.body && edict && view.serial == edict->serialnumber ? view.body : 0;
+	if (body)
+		*body = view.body;
+	return true;
 }
 
 /**
@@ -134,8 +165,14 @@ static void HoldWeaponAnim(const edict_t *ent, int sendweapons, clientdata_t *cd
 	if (holder < 1 || holder >= CLIENT_SLOTS)
 		holder = 0;
 	int weapon = 0;
-	int body = sendweapons && holder ? ActiveViewBody((const edict_t *)EdictOf(holder), &weapon) : 0;
-	if (!body) {
+	int body = 0;
+	bool hold = sendweapons && holder && ActiveViewBody((const edict_t *)EdictOf(holder), &weapon, &body);
+	// His own hands: a viewBody weapon that is no longer the one in them is let
+	// go - holstered, dropped, taken away - so it carries no body to its next
+	// holder. The watched player's weapon is let go when he himself is sent.
+	if (id == holder && held.weapon && held.weapon != weapon)
+		ReleaseViewBody(held.weapon);
+	if (!hold) {
 		held.weapon = 0;
 		return;
 	}
@@ -240,7 +277,7 @@ static void w_clientDataSet(wasm_exec_env_t env, int32_t field, double value)
 	}
 }
 
-/** view_body_get(weapon) - the weapon's viewBody, 0 for none. */
+/** view_body_get(weapon) - the weapon's viewBody, 0 when none is set. */
 static int32_t w_viewBodyGet(wasm_exec_env_t env, int32_t weapon)
 {
 	(void)env;
@@ -248,10 +285,10 @@ static int32_t w_viewBodyGet(wasm_exec_env_t env, int32_t weapon)
 	if (!edict || weapon >= (int32_t)g_viewBodies.size())
 		return 0;
 	const ViewBody &view = g_viewBodies[weapon];
-	return view.serial == edict->serialnumber ? view.body : 0;
+	return view.set && view.serial == edict->serialnumber ? view.body : 0;
 }
 
-/** view_body_set(weapon, body) - draws the weapon's view model with `body`, 0 the game's own way; its pev->body too. */
+/** view_body_set(weapon, body) - holds the weapon's view model at `body` (0 a body too) in its holder's hands; its pev->body too. */
 static void w_viewBodySet(wasm_exec_env_t env, int32_t weapon, int32_t body)
 {
 	(void)env;
@@ -261,7 +298,8 @@ static void w_viewBodySet(wasm_exec_env_t env, int32_t weapon, int32_t body)
 	if (weapon >= (int32_t)g_viewBodies.size())
 		g_viewBodies.resize(g_maxEdicts, ViewBody());
 	ViewBody &view = g_viewBodies[weapon];
-	g_viewBodyCount += (body != 0) - (view.body != 0);
+	g_viewBodyCount += !view.set;
+	view.set = true;
 	view.serial = edict->serialnumber;
 	view.body = body;
 	edict->v.body = body;

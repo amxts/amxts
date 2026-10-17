@@ -1981,10 +1981,10 @@ Pawn: \`pev->classname\`, \`get_weaponname\``,
 Pawn: \`pev->classname\`, \`get_weaponname\``,
 	},
 	'Weapon.viewBody': {
-		en: `The body the weapon's view model is drawn with in its holder's hands, \`0\` for the game's own: one model with several looks as body groups - \`weapon.viewBody = 2\` in a \`defaultDeploy\` listener. While the weapon is in his hands, every animation of it comes from the server with this body, and his client does not predict them; holstering it or \`0\` gives the prediction back.
+		en: `The body the weapon's view model is drawn with in its holder's hands: one model with several looks as body groups - set it in a \`defaultDeploy\` listener on every draw, \`weapon.viewBody = 2\`. Setting it holds the weapon, \`0\` among the bodies: while the weapon is in his hands, every animation of it comes from the server with this body, and his client does not predict them. When it leaves his hands - holstered, dropped, taken away - the hold is let go and the value forgotten; the getter reads \`0\` when none is set.
 
 Pawn: \`pev->body\`, \`register_forward(FM_UpdateClientData, ..., 1)\` with \`set_cd(cd, CD_flNextAttack, ...)\``,
-		ru: `Тело (body), с которым рисуется модель оружия от первого лица в руках владельца, \`0\` — как у игры: одна модель с несколькими видами в группах тел — \`weapon.viewBody = 2\` в слушателе \`defaultDeploy\`. Пока оружие у него в руках, каждая его анимация приходит с сервера с этим телом, и клиент их не предсказывает; убранное оружие или \`0\` возвращают предсказание.
+		ru: `Тело (body), с которым рисуется модель оружия от первого лица в руках владельца: одна модель с несколькими видами в группах тел — задавайте его в слушателе \`defaultDeploy\` при каждом доставании, \`weapon.viewBody = 2\`. Присвоение удерживает оружие, \`0\` — одно из тел: пока оружие у него в руках, каждая его анимация приходит с сервера с этим телом, и клиент их не предсказывает. Когда оружие покидает его руки — убрано, выброшено, отобрано — удержание отпускается, а значение забывается; геттер читает \`0\`, когда ничего не задано.
 
 Pawn: \`pev->body\`, \`register_forward(FM_UpdateClientData, ..., 1)\` с \`set_cd(cd, CD_flNextAttack, ...)\``,
 	},
