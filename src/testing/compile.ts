@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { ascMain } from '../../scripts/asc';
-import { ASYNC_EXPORTS, BASE_EXPORTS, compileToWasm, finishing, HoistImports, HOOD_EXPORTS, importsOf } from '../../scripts/compile';
+import { ASYNC_EXPORTS, BASE_EXPORTS, compileToWasm, finishing, HoistImports, HOOD_EXPORTS, MAKES_PROMISE } from '../../scripts/compile';
 import { playerFieldsBuild } from '../../scripts/player-fields';
 import { nativesBeside, nativesTransform, setNativesBeside } from '../../scripts/plugin-natives';
 import { ascPath, CONFIG_FILE, currentProjectDir, sourcesFor } from '../../scripts/project';
@@ -107,7 +107,7 @@ function lasting(built: Built): boolean {
 async function build(path: string): Promise<Compiled> {
 	const built = await cached<Built>(['plugin', process.cwd(), path, PLUGINS_ROOT, GC_STRESS], async () => {
 		try {
-			const fresh = await buildFresh(path);
+			const fresh = await buildWith(path, BASE_EXPORTS);
 			return { ...fresh, beside: nativesBeside(fresh.natives) };
 		} catch (problem) {
 			return { error: String((problem as Error).message ?? problem) };
@@ -121,18 +121,10 @@ async function build(path: string): Promise<Compiled> {
 
 /**
  * A plugin that makes a promise is compiled again with the scheduler's
- * exports, and run through Asyncify when it can park, as scripts/compile.ts
- * builds it for a server - so an async function parks and resumes here as it
- * does there.
+ * exports (finishing stops asc with MAKES_PROMISE), and run through Asyncify
+ * when it can park, as scripts/compile.ts builds it for a server - so an
+ * async function parks and resumes here as it does there.
  */
-async function buildFresh(path: string): Promise<Omit<Compiled, 'module'>> {
-	const first = await buildWith(path, BASE_EXPORTS);
-	if (!importsOf(first.binary).has('env.co_wake')) return first;
-
-	const second = await buildWith(path, ASYNC_EXPORTS);
-	return { ...second, async: true };
-}
-
 async function buildWith(path: string, hoodExports: string): Promise<Omit<Compiled, 'module'>> {
 	const sources = sourcesFor(PLUGINS_ROOT);
 	if (!existsSync(path) && !sources.exists(path)) throw new Error(`no plugin at ${path}`);
@@ -172,12 +164,13 @@ async function buildWith(path: string, hoodExports: string): Promise<Omit<Compil
 
 	if (sources.problems.length) throw new Error(sources.problems.join('\n'));
 	if (env.problems.length) throw new Error(env.problems.join('\n'));
+	if (error === MAKES_PROMISE) return buildWith(path, ASYNC_EXPORTS);
 
 	if (error || !binary) {
 		throw new Error(`${relative(process.cwd(), path)} does not compile:\n${stderr.toString() || String(error?.message ?? error)}`);
 	}
 
-	return { natives, binary, async: false, env: env.entries() };
+	return { natives, binary, async: hoodExports === ASYNC_EXPORTS, env: env.entries() };
 }
 
 /**

@@ -113,6 +113,14 @@ export const SUSPEND_IMPORT = 'env.co_suspend';
 const WAKE_IMPORT = 'env.co_wake';
 
 /**
+ * What finishing throws to stop asc as soon as a plugin compiled without the
+ * scheduler's exports turns out to make a promise: it is compiled again with
+ * them, and asc's optimiser - most of a compile's time - is not run on a
+ * module that goes. asc hands a transform's throw back as its error.
+ */
+export const MAKES_PROMISE = new Error('the plugin makes a promise: compile it with the scheduler\'s exports');
+
+/**
  * The imports that use the plugin's memory they are given only while they
  * run, and keep no address of it: an object whose address goes only to them
  * can be made in its function's frame (makeStackObjects).
@@ -275,17 +283,7 @@ export async function compileToWasm(
 	const level = plugin.quick ? OPTIMIZE.quick : null;
 	// A quick build compiles every plugin with the scheduler's exports, once,
 	// and one that never waits loses them (finishing).
-	const hoodExports = plugin.quick ? ASYNC_EXPORTS : BASE_EXPORTS;
-	let made = await compileWasm(plugin, hoodExports, flags, level, natives);
-
-	// A plugin that makes a promise - an async function, fetch, sleep - has
-	// the host drive its jobs, so a full build compiles it again with the
-	// scheduler's exports: asc's optimiser has the whole program, and one
-	// compiled with them would come out otherwise.
-	if (hoodExports === BASE_EXPORTS && typeof made !== 'string' && importsOf(made.binary).has(WAKE_IMPORT)) {
-		if (natives) natives.length = 0;
-		made = await compileWasm(plugin, ASYNC_EXPORTS, flags, level, natives);
-	}
+	const made = await compileWasm(plugin, plugin.quick ? ASYNC_EXPORTS : BASE_EXPORTS, flags, level, natives);
 	if (typeof made === 'string') return made;
 	mkdirSync(dirname(resolve(wasm)), { recursive: true });
 	const sections = withSection(withSection(made.binary, MAP_SECTION, mapText(made.map)), ABI_SECTION, pluginAbi(importsOf(made.binary)));
@@ -303,12 +301,17 @@ export async function compileToWasm(
  * calls once to write the module. `done` gets the functions' names, by wasm
  * index, as they are written.
  *
- * A plugin that makes a promise but was compiled without the scheduler's
- * exports is compiled again (compileToWasm), so nothing is done for it.
+ * A plugin that makes a promise - an async function, fetch, sleep - has the
+ * host drive its jobs, so one compiled without the scheduler's exports stops
+ * here, before asc's optimiser, with MAKES_PROMISE, to be compiled again with
+ * them: the optimiser has the whole program, and one compiled with them comes
+ * out otherwise. The optimiser only takes imports away, so a plugin that does
+ * not import co_wake here never does.
  */
 export function finishing(hoodExports: string, level: number | null, done: (first: number, names: string[]) => void = () => {}) {
 	return {
 		afterCompile(module: any) {
+			if (hoodExports === BASE_EXPORTS && functionsOf(module).some(each => each.imported === WAKE_IMPORT)) throw MAKES_PROMISE;
 			// Read before asc's optimiser, which folds the global away.
 			const dataEnd = (binaryen.getExpressionInfo(binaryen.getGlobalInfo(module.getGlobal(DATA_END)).init) as binaryen.ConstInfo).value as number;
 			const emit = module.emitBinary.bind(module);
@@ -321,17 +324,15 @@ export function finishing(hoodExports: string, level: number | null, done: (firs
 					module.runPasses(['remove-unused-module-elements']);
 					imports = new Set(functionsOf(module).map(each => each.imported));
 				}
-				if (hoodExports === ASYNC_EXPORTS || !imports.has(WAKE_IMPORT)) {
-					exportCallGlobals(module);
-					if (level === null) {
-						inlineSmall(module);
-						// A number that only ever holds a whole number within i32 is kept in an i32.
-						assemblyscript.keepWholeNumbers(module.ptr);
-						makeStackObjects(module, dataEnd);
-					}
-					if (imports.has(SUSPEND_IMPORT)) asyncify(module, level ?? OPTIMIZE.full);
-					else if (level !== null) optimize(module, level);
+				exportCallGlobals(module);
+				if (level === null) {
+					inlineSmall(module);
+					// A number that only ever holds a whole number within i32 is kept in an i32.
+					assemblyscript.keepWholeNumbers(module.ptr);
+					makeStackObjects(module, dataEnd);
 				}
+				if (imports.has(SUSPEND_IMPORT)) asyncify(module, level ?? OPTIMIZE.full);
+				else if (level !== null) optimize(module, level);
 				const functions = functionsOf(module);
 				const first = functions.filter(each => each.imported).length;
 				done(first, functions.slice(first).map(each => each.name));
@@ -426,7 +427,8 @@ interface Compiled {
  * the second entry and `level` a quick build's (finishing). With `natives`,
  * the plugin's `export function`s become its natives and are listed there;
  * without, they stay plain wasm exports - what a test host that calls a
- * fixture's functions by name wants. What went wrong, as text.
+ * fixture's functions by name wants. What went wrong, as text. A plugin
+ * that makes a promise is compiled with ASYNC_EXPORTS whatever it is given.
  */
 async function compileWasm(
 	plugin: Pick<Plugin, 'source' | 'root'>,
@@ -512,6 +514,10 @@ async function compileWasm(
 	// "not found" after it is only the consequence.
 	if (sources.problems.length) return [...sources.problems, stderr.toString()].join('\n').trim();
 	if (env.problems.length) return env.problems.join('\n');
+	if (error === MAKES_PROMISE) {
+		if (natives) natives.length = 0;
+		return compileWasm(plugin, ASYNC_EXPORTS, flags, level, natives);
+	}
 
 	// A transform's refusal - a native whose signature cannot cross - is an
 	// error with nothing written to stderr.
