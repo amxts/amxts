@@ -19,7 +19,7 @@ export type { TestKit } from './kits';
 export { bitsFloat, floatBits, Memory } from './memory';
 export type { Native, NativeCall } from './natives';
 export { FakeEntity, FakePlayer, FakeServer, FakeWeapon, PluginInstance } from './server';
-export type { ArgValue, HookResult, JoinOptions, Message, NativeResult, SentForward, ServerOptions, TeamName, UserMessage, Value } from './server';
+export type { ArgValue, FakeCommand, HookResult, JoinOptions, Message, NativeResult, SentForward, ServerOptions, TeamName, UserMessage, Value } from './server';
 export { setup } from './setup';
 export type { SetupOptions } from './setup';
 export { constant } from './tables';

@@ -95,6 +95,28 @@ test('clientData: a listener changes what one player\'s client is sent of him', 
 	expect(server.sendClientData(alice, sent)).toEqual(sent);
 });
 
+test('cmdStart: a listener reads and writes a player\'s move command', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	const bob = server.join('Bob');
+
+	// Buttons: 2 is IN_JUMP, 4 IN_DUCK.
+	const command = { forward: 400, side: 250, up: 0, msec: 10, buttons: 2, impulse: 100, angles: [5, 30, 0] };
+	expect(server.runCommand(bob, command)).toEqual({ forward: -400, side: 0, up: 10, msec: 5, buttons: 2 | 4, impulse: 0, angles: [5, 120, 0] });
+	expect(bob.console).toBe('400 250 0 5,30,0 jump 10 100');
+	expect(server.runCommand(alice, command)).toEqual(command);
+});
+
+test('cmdStart: a bot\'s move is its command, and an event kept by an async listener keeps it', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const carol = server.join('Carol', { bot: true });
+
+	server.runPlayerMove(carol.id, [0, 45, 0], 250, 0, 0, 2, 0, 20);
+	server.advance(20);
+
+	expect(carol.console).toBe('kept 250 45 jump 20');
+});
+
 test('a weapon\'s viewBody is its body until it is set back to 0', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');

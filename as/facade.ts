@@ -1481,6 +1481,41 @@ export function __logArgs(): string[] {
 	return args;
 }
 
+// The cmdStart event's move command (runtime: usercmd_t), read and written
+// while its listeners run; the fields by number: forward, side, up, msec,
+// buttons, impulse, then the view angles' three.
+// @ts-ignore: decorator
+@external("env", "usercmd_get") declare function _usercmdGet(field: i32): f64;
+// @ts-ignore: decorator
+@external("env", "usercmd_set") declare function _usercmdSet(field: i32, value: f64): void;
+const USERCMD_ANGLES: i32 = 6;
+
+/** @hidden A number of the running command, by its field's number. */
+export function __usercmd(field: i32): f64 {
+	return _usercmdGet(field);
+}
+
+/** @hidden Writes a number of the running command. */
+export function __setUsercmd(field: i32, value: f64): void {
+	_usercmdSet(field, value);
+}
+
+/** @hidden The running command's view angles. */
+export function __usercmdAngles(): Vector {
+	return new Vector(_usercmdGet(USERCMD_ANGLES), _usercmdGet(USERCMD_ANGLES + 1), _usercmdGet(USERCMD_ANGLES + 2));
+}
+
+/** @hidden Writes the running command's view angles. */
+export function __setUsercmdAngles(value: number[]): void {
+	for (let i = 0; i < 3; i++) _usercmdSet(USERCMD_ANGLES + i, i < value.length ? value[i] : 0);
+}
+
+/** @hidden A Vector of `value`'s first three numbers, 0 for those it lacks. */
+export function __vectorOf(value: number[]): Vector {
+	const n = value.length;
+	return new Vector(n > 0 ? value[0] : 0, n > 1 ? value[1] : 0, n > 2 ? value[2] : 0);
+}
+
 /** Whether a console command is a chat line. */
 function isChat(name: string): bool {
 	return name == "say" || name == "say_team";

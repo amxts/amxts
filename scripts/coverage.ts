@@ -117,6 +117,8 @@ export const API: Record<string, Words> = {
 	unregister_touch: 'game.removeEventListener',
 	register_impulse: 'server.addEventListener("impulse", listener)',
 	unregister_impulse: 'server.removeEventListener',
+	get_usercmd: 'ClientCmdStartEvent',
+	set_usercmd: 'ClientCmdStartEvent',
 	register_event: 'server.addMessageListener(name, listener)',
 	register_event_ex: 'server.addMessageListener(name, listener)',
 	enable_event: 'server.addMessageListener',

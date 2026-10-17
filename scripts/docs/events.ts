@@ -214,6 +214,45 @@ export const EVENTS: Record<string, EventDoc> = {
 			impulse: { en: `The impulse number: \`100\`, \`201\`.`, ru: `Номер impulse: \`100\`, \`201\`.` },
 		},
 	},
+	client_cmdStart: {
+		summary: {
+			en: `A player's move command arrived - every frame of his game, a bot's every \`bot.move\`. The game moves him by it after the listeners, so a field written here changes the move. Keep the listener tiny: it runs for every command of every player.`,
+			ru: `Пришла команда движения игрока — каждый кадр его игры, у бота каждый \`bot.move\`. Игра двигает его по ней после слушателей, так что поле, записанное здесь, меняет движение. Слушатель должен быть крошечным: он работает на каждую команду каждого игрока.`,
+		},
+		notes: [],
+		fields: {
+			player,
+			forward: {
+				en: `Forward speed in units a second, back when negative: \`400\` is the forward key held (\`cl_forwardspeed\`).`,
+				ru: `Скорость вперёд в юнитах в секунду, назад — отрицательная: \`400\` — зажата клавиша вперёд (\`cl_forwardspeed\`).`,
+			},
+			side: {
+				en: `Speed to the right in units a second, to the left when negative: \`400\` is the strafe key held (\`cl_sidespeed\`).`,
+				ru: `Скорость вправо в юнитах в секунду, влево — отрицательная: \`400\` — зажата клавиша стрейфа (\`cl_sidespeed\`).`,
+			},
+			up: {
+				en: `Speed up in units a second, down when negative: swimming and climbing a ladder.`,
+				ru: `Скорость вверх в юнитах в секунду, вниз — отрицательная: плавание и лестницы.`,
+			},
+			angles: {
+				en: `The direction the player looks in for this command, \`[pitch, yaw, roll]\` in degrees.`,
+				ru: `Направление взгляда игрока в этой команде, \`[pitch, yaw, roll]\` в градусах.`,
+			},
+			buttons: {
+				en: `The buttons held during the command: \`event.buttons.includes("jump")\`. A key and its speed are sent apart: a strafe key gives \`"moveLeft"\` or \`"moveRight"\` and a \`side\` speed.`,
+				ru: `Кнопки, зажатые во время команды: \`event.buttons.includes("jump")\`. Клавиша и её скорость приходят отдельно: клавиша стрейфа даёт \`"moveLeft"\` или \`"moveRight"\` и скорость \`side\`.`,
+			},
+			msec: {
+				en: `The command's length in milliseconds, \`1\` to \`255\`: how long the game moves the player by it.`,
+				ru: `Длина команды в миллисекундах, от \`1\` до \`255\`: сколько времени игра двигает игрока по ней.`,
+			},
+			impulse: {
+				en: `The command's impulse, \`0\` for none: \`100\` is the flashlight, \`201\` the spray. \`0\` takes it away.`,
+				ru: `Impulse команды, \`0\` — нет: \`100\` — фонарик, \`201\` — спрей. \`0\` его отменяет.`,
+			},
+		},
+		example: `server.addEventListener("cmdStart", (event) => {\n\tif (event.side != 0 && !event.buttons.includes("moveLeft") && !event.buttons.includes("moveRight")) event.side = 0;\n});`,
+	},
 	server_frame: {
 		summary: {
 			en: `A server frame, hundreds of times a second. Keep the listener tiny, or use \`setInterval\`.`,

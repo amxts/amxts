@@ -252,6 +252,21 @@ export type TeamName = 'UNASSIGNED' | 'TERRORIST' | 'CT' | 'SPECTATOR';
 
 export const TEAMS: TeamName[] = ['UNASSIGNED', 'TERRORIST', 'CT', 'SPECTATOR'];
 
+/**
+ * A player's move command, as server.runCommand takes and gives it: the
+ * speeds in units a second, the length in milliseconds, the buttons' bits
+ * (`IN_JUMP`...), the impulse and the view angles.
+ */
+export interface FakeCommand {
+	forward: number;
+	side: number;
+	up: number;
+	msec: number;
+	buttons: number;
+	impulse: number;
+	angles: number[];
+}
+
 export interface JoinOptions {
 	team?: TeamName;
 	health?: number;
@@ -950,6 +965,8 @@ export class FakeServer {
 	readonly clientDataHooks: Slot[] = [];
 	/** The client data being sent while its listeners run (sendClientData), by the module's field numbers. */
 	clientData: number[] | null = null;
+	/** The move command the cmdStart listeners read and write (runCommand), by the module's field numbers. */
+	command: number[] | null = null;
 	/** The weapons' viewBody, by id: set by weapon.viewBody, read by sendClientData. */
 	readonly viewBodies = new Map<number, number>();
 	/** register_logevent's callbacks: the number of arguments a line has, and the filters it passes. @internal */
@@ -1286,12 +1303,40 @@ export class FakeServer {
 		return storage;
 	}
 
-	/** A bot's move, through engfunc or the module's own call: written to engineCalls, and the bot carried along its yaw. @internal */
+	/**
+	 * A bot's move, through engfunc or the module's own call: written to
+	 * engineCalls, run as its command (runCommand), and the bot carried along
+	 * the command's yaw. @internal
+	 */
 	runPlayerMove(id: number, angles: number[], forward: number, side: number, up: number, buttons: number, impulse: number, msec: number): void {
 		this.engineCalls.push(`RunPlayerMove ${id} ${angles.join(',')} ${forward} ${side} ${up} ${buttons} ${impulse} ${msec}`);
 		const bot = this.players.find(each => each.id === id);
-		const turn = angles[1] * Math.PI / 180;
-		if (bot) bot.origin = [bot.origin[0] + Math.cos(turn) * forward * msec / 1000, bot.origin[1] + Math.sin(turn) * forward * msec / 1000, bot.origin[2]];
+		if (!bot) return;
+		const run = this.runCommand(bot, { forward, side, up, buttons, impulse, msec, angles });
+		const turn = run.angles[1] * Math.PI / 180;
+		const step = run.forward * run.msec / 1000;
+		bot.origin = [bot.origin[0] + Math.cos(turn) * step, bot.origin[1] + Math.sin(turn) * step, bot.origin[2]];
+	}
+
+	/**
+	 * A player's move command reaching the server, as the game's CmdStart
+	 * has it: `client_impulse` when it carries one (an answer above 0 takes
+	 * it away), then `client_cmdStart`, whose listeners read and write it.
+	 * Returns the command after them - what the game moves him by. A bot's
+	 * `bot.move` runs one too.
+	 */
+	runCommand(player: FakePlayer, command: Partial<FakeCommand> = {}): FakeCommand {
+		const angles = command.angles ?? [0, 0, 0];
+		const sent = [command.forward ?? 0, command.side ?? 0, command.up ?? 0, command.msec ?? 10, command.buttons ?? 0, command.impulse ?? 0, angles[0] ?? 0, angles[1] ?? 0, angles[2] ?? 0];
+		const outer = this.command;
+		this.command = sent;
+		try {
+			if (sent[5] && this.fire('client_impulse', player.id, sent[5]) > 0) sent[5] = 0;
+			this.fire('client_cmdStart', player.id);
+		} finally {
+			this.command = outer;
+		}
+		return { forward: sent[0], side: sent[1], up: sent[2], msec: sent[3], buttons: sent[4], impulse: sent[5], angles: sent.slice(6) };
 	}
 
 	// ------------------------------------------------------------ what a test does
@@ -3199,6 +3244,13 @@ export class FakeServer {
 		},
 		client_data_set(this: FakeServer, plugin: PluginInstance, field: number, value: number) {
 			if (this.clientData) this.clientData[field] = value;
+		},
+		usercmd_get(this: FakeServer, plugin: PluginInstance, field: number) {
+			return this.command?.[field] ?? 0;
+		},
+		usercmd_set(this: FakeServer, plugin: PluginInstance, field: number, value: number) {
+			// msec, the buttons and the impulse are whole numbers in the command.
+			if (this.command) this.command[field] = field >= 3 && field <= 5 ? Math.trunc(value) : value;
 		},
 		view_body_get(this: FakeServer, plugin: PluginInstance, weapon: number) {
 			return this.viewBodies.get(weapon) ?? 0;

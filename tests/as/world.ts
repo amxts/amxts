@@ -1,4 +1,4 @@
-// A fixture for tests/world.test.ts: traces, a player's aim and sight, and angles.
+// A fixture for tests/world.test.ts: traces, a player's aim and sight, angles, and what the server sends and is sent.
 
 const round = (v: number[]): string => `${Math.round(v[0] * 100) / 100},${Math.round(v[1] * 100) / 100},${Math.round(v[2] * 100) / 100}`;
 
@@ -57,6 +57,24 @@ game.addEventListener("clientData", (event) => {
 	event.viewOffset = [0, 0, 12];
 	event.origin = event.origin.add([0, 0, 10]);
 	event.flags = ["onGround", "ducking"];
+});
+
+server.addEventListener("cmdStart", (event) => {
+	if (event.player.name != "Bob") return;
+	event.player.print(`${event.forward} ${event.side} ${event.up} ${round(event.angles)} ${event.buttons.join("+")} ${event.msec} ${event.impulse}`, "console");
+	// A side speed without its strafe key is taken away.
+	if (event.side != 0 && !event.buttons.includes("moveLeft") && !event.buttons.includes("moveRight")) event.side = 0;
+	event.forward = -event.forward;
+	event.up = 10;
+	event.angles = event.angles.add([0, 90, 0]);
+	event.buttons = [...event.buttons, "duck"];
+	event.msec = event.msec / 2;
+	event.impulse = 0;
+});
+server.addEventListener("cmdStart", async (event) => {
+	if (event.player.name != "Carol") return;
+	await sleep(10);
+	event.player.print(`kept ${event.forward} ${event.angles.y} ${event.buttons.join("+")} ${event.msec}`, "console");
 });
 
 server.addCommand("world_view_body", ({ player }) => {

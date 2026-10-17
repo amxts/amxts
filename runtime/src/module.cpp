@@ -4344,6 +4344,8 @@ static double w_clientDataGet(wasm_exec_env_t env, int32_t field);
 static void w_clientDataSet(wasm_exec_env_t env, int32_t field, double value);
 static int32_t w_viewBodyGet(wasm_exec_env_t env, int32_t weapon);
 static void w_viewBodySet(wasm_exec_env_t env, int32_t weapon, int32_t body);
+static double w_usercmdGet(wasm_exec_env_t env, int32_t field);
+static void w_usercmdSet(wasm_exec_env_t env, int32_t field, double value);
 static void ForgetViewBodies();
 // The HUD lines plugins made (hud.h), let go at the map's end, as the plugins are.
 static std::vector<std::vector<uint8_t>> g_hudLines;
@@ -4468,6 +4470,8 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "client_data_set", (void *)w_clientDataSet, "(iF)", NULL },
 	{ "view_body_get",  (void *)w_viewBodyGet,   "(i)i", NULL },
 	{ "view_body_set",  (void *)w_viewBodySet,   "(ii)", NULL },
+	{ "usercmd_get",    (void *)w_usercmdGet,    "(i)F", NULL },
+	{ "usercmd_set",    (void *)w_usercmdSet,    "(iF)", NULL },
 	{ "store_open",     (void *)w_storeOpen,     "(i)i",  NULL },
 	{ "store_get",      (void *)w_storeGet,      "(iiii)i", NULL },
 	{ "store_set",      (void *)w_storeSet,      "(iii)", NULL },
@@ -7206,6 +7210,56 @@ static cell Usercmd(AMX *amx, cell *params, bool set)
 
 static cell AMX_NATIVE_CALL n_getUsercmd(AMX *amx, cell *params) { return Usercmd(amx, params, false); }
 static cell AMX_NATIVE_CALL n_setUsercmd(AMX *amx, cell *params) { return Usercmd(amx, params, true); }
+
+// The fields usercmd_get and usercmd_set read and write, by number.
+enum UsercmdField {
+	CMD_FORWARD = 0,
+	CMD_SIDE = 1,
+	CMD_UP = 2,
+	CMD_MSEC = 3,
+	CMD_BUTTONS = 4,
+	CMD_IMPULSE = 5,
+	CMD_ANGLES = 6, // 6..8
+};
+
+/** usercmd_get(field) - a field of the cmdStart event's command, as a number; 0 outside the event. */
+static double w_usercmdGet(wasm_exec_env_t env, int32_t field)
+{
+	(void)env;
+	usercmd_t *c = g_cmd;
+	if (!c)
+		return 0;
+	switch (field) {
+		case CMD_FORWARD: return c->forwardmove;
+		case CMD_SIDE:    return c->sidemove;
+		case CMD_UP:      return c->upmove;
+		case CMD_MSEC:    return c->msec;
+		case CMD_BUTTONS: return c->buttons;
+		case CMD_IMPULSE: return c->impulse;
+	}
+	unsigned axis = (unsigned)(field - CMD_ANGLES);
+	return axis < 3 ? c->viewangles[axis] : 0;
+}
+
+/** usercmd_set(field, value) - writes a field of the cmdStart event's command, which the game moves the player by after the event. */
+static void w_usercmdSet(wasm_exec_env_t env, int32_t field, double value)
+{
+	(void)env;
+	usercmd_t *c = g_cmd;
+	if (!c)
+		return;
+	switch (field) {
+		case CMD_FORWARD: c->forwardmove = (float)value; return;
+		case CMD_SIDE:    c->sidemove = (float)value; return;
+		case CMD_UP:      c->upmove = (float)value; return;
+		case CMD_MSEC:    c->msec = (byte)Whole(value); return;
+		case CMD_BUTTONS: c->buttons = (unsigned short)Whole(value); return;
+		case CMD_IMPULSE: c->impulse = (byte)Whole(value); return;
+	}
+	unsigned axis = (unsigned)(field - CMD_ANGLES);
+	if (axis < 3)
+		c->viewangles[axis] = (float)value;
+}
 
 /** The key and value the game gives an entity of the map, while the `keyValue` event runs (DispatchKeyValue). */
 static KeyValueData *g_keyValue = NULL;
