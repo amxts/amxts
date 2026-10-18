@@ -170,6 +170,9 @@ struct Plugin {
 	int32_t             *closureEnv = NULL;
 	int32_t             *argumentsLength = NULL;
 	int32_t             *ambientPlayer = NULL;
+	// How many try blocks its code is inside, which a handler is called with
+	// none of (Called). NULL for a plugin without a try, or built before.
+	int32_t             *tryDepth = NULL;
 	// The plugins.ini line - "shop.aot" - or what amxts_load was given.
 	std::string          name;
 	// The .aot, in plugins/ beside the list.
@@ -4626,11 +4629,24 @@ static ALWAYS_INLINE cell Called(int index, Plugin &p, cell fallback, Call call)
 
 	cell result = fallback;
 
+	// A handler is a call of its own, as a listener of dispatchEvent is: one
+	// entered from inside a try of the plugin - or an async function, whose
+	// body runs as in one - runs outside it, so that its error ends it with
+	// its message rather than reaching that try's catch. A trap that skipped
+	// the end of a try gets the count put back as well.
+	int32_t *depth = p.tryDepth;
+	int32_t tries = depth ? *depth : 0;
+	if (tries)
+		*depth = 0;
+
 	// Counted so that the plugin's jobs run when the last of its calls on the
 	// native stack returns, and never inside one of them - see DrainJobs.
 	p.depth++;
 	bool called = call();
 	p.depth--;
+
+	if ((tries || !called) && depth && p.tryDepth == depth)
+		*depth = tries;
 
 	if (!called) {
 		Failed(index, p.inst);
@@ -4989,7 +5005,7 @@ static void ReleasePlugin(int index)
 	p.inst = NULL;
 	p.env = NULL;
 	p.hasTable = false;
-	p.closureEnv = p.argumentsLength = p.ambientPlayer = NULL;
+	p.closureEnv = p.argumentsLength = p.ambientPlayer = p.tryDepth = NULL;
 	p.playerSlots = 0;
 	p.playerNames = 0;
 	p.title = p.version = p.author = p.description = "";
@@ -5584,6 +5600,7 @@ static bool LoadPlugin(int index)
 	p.closureEnv = ExportedGlobal(inst, "__env");
 	p.argumentsLength = ExportedGlobal(inst, "__argumentsLength");
 	p.ambientPlayer = ExportedGlobal(inst, "__co_ambient_player");
+	p.tryDepth = ExportedGlobal(inst, "__tryDepth");
 	BindAll(index);
 
 	p.env = wasm_runtime_create_exec_env(inst, 64 * 1024);

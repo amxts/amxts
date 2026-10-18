@@ -1935,12 +1935,17 @@ export class FakeServer {
 		const said = this.outcomeSaid;
 		const before = this.outcome;
 		this.outcomeSaid = false;
+		// A handler runs outside the try it may be entered from, as Called does.
+		const depth = handler.plugin.instance.exports.__tryDepth;
+		const tries = depth?.value;
+		if (depth) depth.value = 0;
 
 		try {
 			const via = handler.via;
 			this.within(handler.plugin, () => (via ? this.callVia(handler.plugin, via, args[0] ?? 0) : fn(...cells)));
 			return this.outcomeSaid ? this.outcome : fallback;
 		} finally {
+			if (depth) depth.value = tries;
 			this.outcomeSaid = said;
 			this.outcome = before;
 		}

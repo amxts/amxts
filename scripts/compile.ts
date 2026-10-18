@@ -392,13 +392,17 @@ function makeStackObjects(module: any, dataEnd: number) {
  * when it calls a listener itself rather than the plugin's walk of the
  * listeners (the module's Handler.via): the closure's variables, how many
  * arguments the call passes, the player an async function started there runs
- * under. Exported under the names the module looks up; one the plugin has
- * not got is not needed.
+ * under. And how many `try` blocks run, which the module sets to none for
+ * every listener it calls: one entered from inside a try - or an async
+ * function, whose body runs as in one - is a call of its own, and its error
+ * ends it with its message. Exported under the names the module looks up;
+ * one the plugin has not got is not needed.
  */
 const CALL_GLOBALS = [
 	['~lib/function/__env', '__env'],
 	['~argumentsLength', '__argumentsLength'],
 	['~lib/~/promise/__co_ambient_player', '__co_ambient_player'],
+	['~lib/error/__tryDepth', '__tryDepth'],
 ];
 
 function exportCallGlobals(module: any) {
