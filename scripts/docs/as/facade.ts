@@ -4204,6 +4204,24 @@ export default {
 			зрителем, или его \`view\`.
 		`,
 	},
+	'VisibilityEvent.addOrigin': {
+		en: `
+			Adds a point he sees from this frame: he is also sent what can be seen
+			from \`point\`, his own \`origin\` staying. Up to 15 points per frame.
+
+			\`\`\`ts
+			event.addOrigin(replay.origin); // the replay's place is sent him too
+			\`\`\`
+		`,
+		ru: `
+			Добавляет точку, откуда он видит в этом кадре: ему отправляется и то, что
+			видно из \`point\`, а его собственный \`origin\` остаётся. До 15 точек за кадр.
+
+			\`\`\`ts
+			event.addOrigin(replay.origin); // ему отправят и место повтора
+			\`\`\`
+		`,
+	},
 	'GameListenerOptions': {
 		en: `
 			The third argument of \`game.addEventListener\`: \`true\` stands for

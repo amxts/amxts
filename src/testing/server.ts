@@ -967,8 +967,10 @@ export class FakeServer {
 	clientData: number[] | null = null;
 	/** The visibility listeners' hooks. */
 	readonly visibilityHooks: Slot[] = [];
-	/** The point a player sees from while the visibility listeners run (sendVisibility). */
-	visibility: number[] | null = null;
+	/** The points a player sees from while the visibility listeners run (sendVisibility): his own first, then those added. */
+	visibility: number[][] | null = null;
+	/** The points the visibility listeners asked to add, past the module's bound too. */
+	visibilityAdds = 0;
 	/** The move command the cmdStart listeners read and write (runCommand), by the module's field numbers. */
 	command: number[] | null = null;
 	/** The weapons' viewBody, by id: set by weapon.viewBody, read by sendClientData. */
@@ -2398,12 +2400,14 @@ export class FakeServer {
 
 	/**
 	 * Where the server sees from for `player` (SetupVisibility): the
-	 * visibility listeners run on `origin` - his own by default - and it is
-	 * the point the entities sent him are picked from, as they left it.
+	 * visibility listeners run on `origin` - his own by default - and the
+	 * entities sent him are what can be seen from any of the points they
+	 * left: `origin` as they left it, then each one they added.
 	 */
-	sendVisibility(player: FakePlayer, origin: number[] = player.origin): number[] {
-		const seen = [...origin];
+	sendVisibility(player: FakePlayer, origin: number[] = player.origin): number[][] {
+		const seen = [[...origin]];
 		this.visibility = seen;
+		this.visibilityAdds = 0;
 		try {
 			for (const slot of this.visibilityHooks) this.withCallArgs([player.id], () => this.call(slot, [player.id], 0));
 		} finally {
@@ -3277,10 +3281,17 @@ export class FakeServer {
 			return this.hookSlots.size;
 		},
 		visibility_get(this: FakeServer, plugin: PluginInstance, axis: number) {
-			return this.visibility?.[axis] ?? 0;
+			return this.visibility?.[0][axis] ?? 0;
 		},
 		visibility_set(this: FakeServer, plugin: PluginInstance, axis: number, value: number) {
-			if (this.visibility) this.visibility[axis] = value;
+			if (this.visibility) this.visibility[0][axis] = value;
+		},
+		visibility_add(this: FakeServer, plugin: PluginInstance, axis: number, value: number) {
+			// x adds the point, up to the module's bound: 15 beside his own.
+			const seen = this.visibility;
+			if (!seen) return;
+			if (axis === 0 && ++this.visibilityAdds <= 15) seen.push([0, 0, 0]);
+			if (this.visibilityAdds > 0 && this.visibilityAdds <= 15) seen[this.visibilityAdds][axis] = value;
 		},
 		usercmd_get(this: FakeServer, plugin: PluginInstance, field: number) {
 			return this.command?.[field] ?? 0;

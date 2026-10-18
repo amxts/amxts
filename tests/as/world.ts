@@ -61,6 +61,11 @@ game.addEventListener("clientData", (event) => {
 game.addEventListener("visibility", (event) => {
 	if (event.player.name != "Bob") return;
 	event.origin = event.origin.add([0, 0, 1000]);
+	event.addOrigin([0, 0, 0]);
+});
+game.addEventListener("visibility", (event) => {
+	if (event.player.name != "Carol") return;
+	for (let i = 0; i < 20; i++) event.addOrigin([i, 0, 0]);
 });
 
 server.addEventListener("cmdStart", (event) => {

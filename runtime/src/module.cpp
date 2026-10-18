@@ -4348,6 +4348,7 @@ static void w_clientDataSet(wasm_exec_env_t env, int32_t field, double value);
 static int32_t w_visibilityHook(wasm_exec_env_t env, int32_t fn);
 static double w_visibilityGet(wasm_exec_env_t env, int32_t axis);
 static void w_visibilitySet(wasm_exec_env_t env, int32_t axis, double value);
+static void w_visibilityAdd(wasm_exec_env_t env, int32_t axis, double value);
 static int32_t w_viewBodyGet(wasm_exec_env_t env, int32_t weapon);
 static void w_viewBodySet(wasm_exec_env_t env, int32_t weapon, int32_t body);
 static double w_usercmdGet(wasm_exec_env_t env, int32_t field);
@@ -4477,6 +4478,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "visibility_hook", (void *)w_visibilityHook, "(i)i", NULL },
 	{ "visibility_get", (void *)w_visibilityGet, "(i)F", NULL },
 	{ "visibility_set", (void *)w_visibilitySet, "(iF)", NULL },
+	{ "visibility_add", (void *)w_visibilityAdd, "(iF)", NULL },
 	{ "view_body_get",  (void *)w_viewBodyGet,   "(i)i", NULL },
 	{ "view_body_set",  (void *)w_viewBodySet,   "(ii)", NULL },
 	{ "usercmd_get",    (void *)w_usercmdGet,    "(i)F", NULL },

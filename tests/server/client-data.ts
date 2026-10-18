@@ -9,7 +9,8 @@
 // viewBody as the weapon leaves the hands only show with a real client;
 // here the clientData listener is only added and taken off, the server
 // running frames with the hooks in place. The same for a visibility listener
-// that moves the point a player sees from: a bot is sent no entities.
+// that moves and adds the points a player sees from: a bot is sent no
+// entities.
 import { Checks } from "@amxts/core/check";
 
 const NAME = "amxts view bot";
@@ -44,6 +45,7 @@ function countFrame() {
 function lookFromAbove(event: VisibilityEvent) {
 	frames++;
 	event.origin = event.origin.add([0, 0, 1000]);
+	event.addOrigin([0, 0, 0]);
 }
 
 server.addServerCommand("amxts_test_client_data", run);

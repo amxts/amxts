@@ -5845,6 +5845,8 @@ function clientDataFired(player: i32): void {
 @external("env", "visibility_get")  declare function _visibilityGet(axis: i32): f64;
 // @ts-ignore: decorator
 @external("env", "visibility_set")  declare function _visibilitySet(axis: i32, value: f64): void;
+// @ts-ignore: decorator
+@external("env", "visibility_add")  declare function _visibilityAdd(axis: i32, value: f64): void;
 
 /**
  * The point a player sees from this frame: the server sends him the entities
@@ -5874,6 +5876,18 @@ export class VisibilityEvent {
 	get origin(): Vector { return new Vector(_visibilityGet(0), _visibilityGet(1), _visibilityGet(2)); }
 	set origin(value: number[]) {
 		for (let i = 0; i < 3; i++) _visibilitySet(i, i < value.length ? value[i] : 0);
+	}
+
+	/**
+	 * Adds a point he sees from this frame: he is also sent what can be seen
+	 * from `point`, his own `origin` staying. Up to 15 points per frame.
+	 *
+	 * ```ts
+	 * event.addOrigin(replay.origin); // the replay's place is sent him too
+	 * ```
+	 */
+	addOrigin(point: number[]): void {
+		for (let i = 0; i < 3; i++) _visibilityAdd(i, i < point.length ? point[i] : 0);
 	}
 }
 

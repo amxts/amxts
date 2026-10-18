@@ -95,14 +95,18 @@ test('clientData: a listener changes what one player\'s client is sent of him', 
 	expect(server.sendClientData(alice, sent)).toEqual(sent);
 });
 
-test('visibility: a listener moves the point one player sees from', async () => {
+test('visibility: a listener moves and adds the points one player sees from', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
 	const bob = server.join('Bob');
 	bob.origin = [100, 200, 300];
 
-	expect(server.sendVisibility(bob)).toEqual([100, 200, 1300]);
-	expect(server.sendVisibility(alice, [1, 2, 3])).toEqual([1, 2, 3]);
+	expect(server.sendVisibility(bob)).toEqual([[100, 200, 1300], [0, 0, 0]]);
+	expect(server.sendVisibility(alice, [1, 2, 3])).toEqual([[1, 2, 3]]);
+	// 15 points beside his own, the rest left out.
+	const carol = server.sendVisibility(server.join('Carol'));
+	expect(carol.length).toBe(16);
+	expect(carol[15]).toEqual([14, 0, 0]);
 });
 
 test('cmdStart: a listener reads and writes a player\'s move command', async () => {

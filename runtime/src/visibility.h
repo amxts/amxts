@@ -3,7 +3,8 @@
 // engine sends him the entities the PVS lets through (AddToFullPack is asked
 // only of those). A listener that writes the origin moves both sets for that
 // frame: the module sets them again from it after the listeners, as the game
-// does from the eyes. The hook is in
+// does from the eyes. A listener that adds a point has him sent what is seen
+// from it too: the sets become the union of each point's. The hook is in
 // Metamod's table only while a listener exists: a server without one pays
 // nothing.
 //
@@ -17,6 +18,17 @@ static edict_t *g_visibilityClient = NULL;
 static edict_t *g_visibilityView = NULL;
 static float g_visibilityOrigin[3];
 static bool g_visibilityMoved = false;
+// The points the listeners added, a bound that keeps the work per client per
+// frame small: each is two walks of the map's tree and two ORs of a set.
+#define VISIBILITY_POINTS 15
+static float g_visibilityPoints[VISIBILITY_POINTS][3];
+// How many points the listeners asked to add, past the bound too.
+static int g_visibilityAdds = 0;
+// A set is a bit per leaf of the map; the engine's own buffers are this size
+// (MAX_MAP_LEAFS / 8), and it reads only the bits of the map's leaves.
+#define VISIBILITY_BYTES 1024
+static unsigned char g_visibilityPvs[VISIBILITY_BYTES];
+static unsigned char g_visibilityPas[VISIBILITY_BYTES];
 
 static void SetupVisibility_Post(edict_t *view, edict_t *client, unsigned char **pvs, unsigned char **pas);
 
@@ -83,8 +95,43 @@ static void w_visibilitySet(wasm_exec_env_t env, int32_t axis, double value)
 }
 
 /**
+ * visibility_add(axis, value) - x, y or z of one more point the player sees
+ * from, x first: x adds the point. Past the bound it is left out.
+ */
+static void w_visibilityAdd(wasm_exec_env_t env, int32_t axis, double value)
+{
+	(void)env;
+	if (!g_visibilityClient || axis < 0 || axis > 2)
+		return;
+	if (axis == 0)
+		g_visibilityAdds++;
+	if (g_visibilityAdds > 0 && g_visibilityAdds <= VISIBILITY_POINTS)
+		g_visibilityPoints[g_visibilityAdds - 1][axis] = (float)value;
+}
+
+/**
+ * `set` joined with the set of each added point, in `joined`. The engine
+ * computes a set into one buffer of its own, reused by the next call, so
+ * `set` is copied before the first. A NULL set lets everything through already.
+ */
+static unsigned char *VisibilityJoin(unsigned char *set, unsigned char *joined, unsigned char *(*of)(float *origin))
+{
+	if (!set)
+		return NULL;
+	memcpy(joined, set, VISIBILITY_BYTES);
+	int added = g_visibilityAdds < VISIBILITY_POINTS ? g_visibilityAdds : VISIBILITY_POINTS;
+	for (int p = 0; p < added; p++) {
+		const unsigned char *more = of(g_visibilityPoints[p]);
+		for (int i = 0; i < VISIBILITY_BYTES; i++)
+			joined[i] |= more[i];
+	}
+	return joined;
+}
+
+/**
  * The game DLL's SetupVisibility, after it: the listeners get (player), and
- * an origin one wrote sets his PVS and PAS again from there. The engine
+ * an origin one wrote sets his PVS and PAS again from there, a point one
+ * added joins its sets to them. The engine
  * filters by them right after, for this frame only.
  */
 static ALIGNED_ENTRY void SetupVisibility_Post(edict_t *view, edict_t *client, unsigned char **pvs, unsigned char **pas)
@@ -95,6 +142,7 @@ static ALIGNED_ENTRY void SetupVisibility_Post(edict_t *view, edict_t *client, u
 	g_visibilityClient = client;
 	g_visibilityView = view;
 	g_visibilityMoved = false;
+	g_visibilityAdds = 0;
 	{
 		ChainCall call(g_visibilityPoint, roles, 1);
 		call.Edict(0, client);
@@ -104,6 +152,10 @@ static ALIGNED_ENTRY void SetupVisibility_Post(edict_t *view, edict_t *client, u
 	if (g_visibilityMoved) {
 		*pvs = ENGINE_SET_PVS(g_visibilityOrigin);
 		*pas = ENGINE_SET_PAS(g_visibilityOrigin);
+	}
+	if (g_visibilityAdds) {
+		*pvs = VisibilityJoin(*pvs, g_visibilityPvs, g_engfuncs.pfnSetFatPVS);
+		*pas = VisibilityJoin(*pas, g_visibilityPas, g_engfuncs.pfnSetFatPAS);
 	}
 	RETURN_META(MRES_IGNORED);
 }

@@ -44,8 +44,8 @@ export const GAME: Record<string, GameDoc> = {
 	},
 	visibility: {
 		summary: {
-			en: `The point a player sees from each frame: the server sends him the entities seen from \`event.origin\` - his eyes, or those of the player he watches. Write it to move that point for him alone.`,
-			ru: `Точка, откуда игрок видит каждый кадр: сервер отправляет ему сущности, видные из \`event.origin\`, — это его глаза или глаза того, за кем он наблюдает. Запишите его, чтобы перенести эту точку только для него.`,
+			en: `The point a player sees from each frame: the server sends him the entities seen from \`event.origin\` - his eyes, or those of the player he watches. \`event.addOrigin(point)\` sends him what is seen from one more point; writing \`event.origin\` moves his own.`,
+			ru: `Точка, откуда игрок видит каждый кадр: сервер отправляет ему сущности, видные из \`event.origin\`, — это его глаза или глаза того, за кем он наблюдает. \`event.addOrigin(point)\` отправляет ему и то, что видно ещё из одной точки; запись \`event.origin\` переносит его собственную.`,
 		},
 	},
 	touch: {
