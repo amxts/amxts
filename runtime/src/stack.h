@@ -335,10 +335,15 @@ static Failure TakeFailure(int index, wasm_module_inst_t inst, const char *ex)
 	return failure;
 }
 
-/** A failure on the console: "[amxts] name: message<context>", then its stack. */
+/**
+ * A failure on the console: "[amxts] name: message<context>", then its stack.
+ * Its first line goes to AMX Mod X's log too: a host's panel often keeps no
+ * console, and the log is what is sent when something goes wrong.
+ */
 static void PrintFailure(int index, const Failure &failure, const char *context = "")
 {
 	MF_PrintSrvConsole("[amxts] %s: %s%s\n", PluginName(index), failure.message.c_str(), context);
+	MF_Log("%s: %s%s", PluginName(index), failure.message.c_str(), context);
 	for (size_t i = 0; i < failure.lines.size(); i++)
 		MF_PrintSrvConsole("%s\n", failure.lines[i].c_str());
 }
