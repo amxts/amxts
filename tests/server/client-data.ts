@@ -8,7 +8,8 @@
 // engine sends it to a real client only - so the hold and the release of a
 // viewBody as the weapon leaves the hands only show with a real client;
 // here the clientData listener is only added and taken off, the server
-// running frames with the hooks in place.
+// running frames with the hooks in place. The same for a visibility listener
+// that moves the point a player sees from: a bot is sent no entities.
 import { Checks } from "@amxts/core/check";
 
 const NAME = "amxts view bot";
@@ -38,6 +39,11 @@ game.addEventListener("deploy", (event) => {
 
 function countFrame() {
 	frames++;
+}
+
+function lookFromAbove(event: VisibilityEvent) {
+	frames++;
+	event.origin = event.origin.add([0, 0, 1000]);
 }
 
 server.addServerCommand("amxts_test_client_data", run);
@@ -102,6 +108,10 @@ async function run() {
 	await sleep(300);
 	game.removeEventListener("clientData", countFrame);
 	check.expect(frames, "a bot is sent no client data").toBe(0);
+	game.addEventListener("visibility", lookFromAbove);
+	await sleep(300);
+	game.removeEventListener("visibility", lookFromAbove);
+	check.expect(frames, "nor entities, so no visibility").toBe(0);
 
 	watched = 0;
 	bot.kick();

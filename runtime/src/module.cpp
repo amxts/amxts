@@ -4345,6 +4345,9 @@ static void w_stateSet(wasm_exec_env_t env, int32_t field, double value);
 static int32_t w_clientDataHook(wasm_exec_env_t env, int32_t fn);
 static double w_clientDataGet(wasm_exec_env_t env, int32_t field);
 static void w_clientDataSet(wasm_exec_env_t env, int32_t field, double value);
+static int32_t w_visibilityHook(wasm_exec_env_t env, int32_t fn);
+static double w_visibilityGet(wasm_exec_env_t env, int32_t axis);
+static void w_visibilitySet(wasm_exec_env_t env, int32_t axis, double value);
 static int32_t w_viewBodyGet(wasm_exec_env_t env, int32_t weapon);
 static void w_viewBodySet(wasm_exec_env_t env, int32_t weapon, int32_t body);
 static double w_usercmdGet(wasm_exec_env_t env, int32_t field);
@@ -4471,6 +4474,9 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "client_data_hook", (void *)w_clientDataHook, "(i)i", NULL },
 	{ "client_data_get", (void *)w_clientDataGet, "(i)F", NULL },
 	{ "client_data_set", (void *)w_clientDataSet, "(iF)", NULL },
+	{ "visibility_hook", (void *)w_visibilityHook, "(i)i", NULL },
+	{ "visibility_get", (void *)w_visibilityGet, "(i)F", NULL },
+	{ "visibility_set", (void *)w_visibilitySet, "(iF)", NULL },
 	{ "view_body_get",  (void *)w_viewBodyGet,   "(i)i", NULL },
 	{ "view_body_set",  (void *)w_viewBodySet,   "(ii)", NULL },
 	{ "usercmd_get",    (void *)w_usercmdGet,    "(i)F", NULL },
@@ -8223,6 +8229,9 @@ static cell AMX_NATIVE_CALL n_amxclientCmd(AMX *amx, cell *params)
 
 // What the server sends each player of himself: the clientData event, and a weapon's viewBody.
 #include "clientdata.h"
+
+// Where each player sees and hears from: the visibility event.
+#include "visibility.h"
 
 // ---------------------------------------------------------------- the frame
 

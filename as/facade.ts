@@ -5094,6 +5094,11 @@ export class Game extends GameFields {
 			addClientDataListener(changetype<ClientDataListener>(listener));
 			return;
 		}
+		if (idof<GameEventMap[K]>() == idof<VisibilityEvent>()) {
+			if (!isVoid<R>()) ERROR("a visibility listener answers nothing: write event.origin");
+			addVisibilityListener(changetype<VisibilityListener>(listener));
+			return;
+		}
 		addGameListener<GameEventMap[K], R>(listener, given.post == true, given.classname ?? "");
 	}
 
@@ -5112,6 +5117,10 @@ export class Game extends GameFields {
 		}
 		if (idof<GameEventMap[K]>() == idof<ClientDataEvent>()) {
 			removeClientDataListener(changetype<ClientDataListener>(listener));
+			return;
+		}
+		if (idof<GameEventMap[K]>() == idof<VisibilityEvent>()) {
+			removeVisibilityListener(changetype<VisibilityListener>(listener));
 			return;
 		}
 		removeGameListener<GameEventMap[K], R>(listener, given.post == true, given.classname ?? "");
@@ -5820,6 +5829,84 @@ function clientDataFired(player: i32): void {
 	const event = clientDataEvent;
 	event.__player = player;
 	const listeners = clientDataListeners;
+	const n = listeners.begin();
+	for (let i = 0; i < n; i++) {
+		const listener = listeners.at(i);
+		if (listener) listener(event);
+	}
+	listeners.end();
+}
+
+// Where a player sees from (runtime/src/visibility.h): its
+// listeners, the origin read and written while they run.
+// @ts-ignore: decorator
+@external("env", "visibility_hook") declare function _visibilityHook(fn: i32): i32;
+// @ts-ignore: decorator
+@external("env", "visibility_get")  declare function _visibilityGet(axis: i32): f64;
+// @ts-ignore: decorator
+@external("env", "visibility_set")  declare function _visibilitySet(axis: i32, value: f64): void;
+
+/**
+ * The point a player sees from this frame: the server sends him the entities
+ * that can be seen from `origin`. Writing it moves that point for this frame alone -
+ * his view and the player stay as they are.
+ *
+ * ```ts
+ * game.addEventListener("visibility", (event) => {
+ *   event.origin = [0, 0, 1000]; // he is sent what is seen from up there
+ * });
+ * ```
+ *
+ * Pawn: `register_forward(FM_SetupVisibility, ..., 1)`, `engfunc(EngFunc_SetFatPVS, ...)`
+ */
+export class VisibilityEvent {
+	/** @hidden */ __player: i32 = 0;
+
+	/** The player it is about. */
+	get player(): Player {
+		return __playerOf(this.__player);
+	}
+
+	/**
+	 * The point he sees from: his eyes, or the eyes of the player he watches as
+	 * a spectator, or of his `view`.
+	 */
+	get origin(): Vector { return new Vector(_visibilityGet(0), _visibilityGet(1), _visibilityGet(2)); }
+	set origin(value: number[]) {
+		for (let i = 0; i < 3; i++) _visibilitySet(i, i < value.length ? value[i] : 0);
+	}
+}
+
+/** A visibility listener, as game.addEventListener("visibility", ...) takes one. */
+type VisibilityListener = (event: VisibilityEvent) => void;
+
+// One hook for every listener, switched off while there is none.
+const visibilityListeners = new __Listeners<VisibilityListener>();
+const visibilityHook = new __Switch();
+// The one event the listeners get, made again for each player: this hook runs for every player each frame.
+const visibilityEvent = new VisibilityEvent();
+let visibilityHooked = false;
+
+function addVisibilityListener(listener: VisibilityListener): void {
+	if (!visibilityHooked) {
+		visibilityHooked = true;
+		const fired = (player: number, b: number, c: number, d: number): void => visibilityFired(<i32>player);
+		const handle = _visibilityHook(hostIndex(fired, true));
+		visibilityHook.add((on: bool): void => _hookOn(handle, on ? 1 : 0));
+	}
+	visibilityListeners.push(listener);
+	visibilityHook.set(true);
+}
+
+function removeVisibilityListener(listener: VisibilityListener): void {
+	visibilityListeners.remove(listener);
+	visibilityHook.set(visibilityListeners.count > 0);
+}
+
+function visibilityFired(player: i32): void {
+	const event = visibilityEvent;
+	event.__player = player;
+	const listeners = visibilityListeners;
 	const n = listeners.begin();
 	for (let i = 0; i < n; i++) {
 		const listener = listeners.at(i);

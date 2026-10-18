@@ -58,6 +58,10 @@ game.addEventListener("clientData", (event) => {
 	event.origin = event.origin.add([0, 0, 10]);
 	event.flags = ["onGround", "ducking"];
 });
+game.addEventListener("visibility", (event) => {
+	if (event.player.name != "Bob") return;
+	event.origin = event.origin.add([0, 0, 1000]);
+});
 
 server.addEventListener("cmdStart", (event) => {
 	if (event.player.name != "Bob") return;

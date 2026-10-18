@@ -4158,6 +4158,52 @@ export default {
 			Pawn: \`CD_Flags\`
 		`,
 	},
+	'VisibilityEvent': {
+		en: `
+			The point a player sees from this frame: the server sends him the entities
+			that can be seen from \`origin\`. Writing it moves that point for this frame alone -
+			his view and the player stay as they are.
+
+			\`\`\`ts
+			game.addEventListener("visibility", (event) => {
+			  event.origin = [0, 0, 1000]; // he is sent what is seen from up there
+			});
+			\`\`\`
+
+			Pawn: \`register_forward(FM_SetupVisibility, ..., 1)\`, \`engfunc(EngFunc_SetFatPVS, ...)\`
+		`,
+		ru: `
+			Точка, откуда игрок видит в этом кадре: сервер отправляет ему сущности, которые
+			видны из \`origin\`. Запись переносит эту точку только на этот кадр — его вид и сам
+			игрок остаются как были.
+
+			\`\`\`ts
+			game.addEventListener("visibility", (event) => {
+			  event.origin = [0, 0, 1000]; // ему отправят то, что видно оттуда, сверху
+			});
+			\`\`\`
+
+			Pawn: \`register_forward(FM_SetupVisibility, ..., 1)\`, \`engfunc(EngFunc_SetFatPVS, ...)\`
+		`,
+	},
+	'VisibilityEvent.player': {
+		en: `
+			The player it is about.
+		`,
+		ru: `
+			Игрок, о котором событие.
+		`,
+	},
+	'VisibilityEvent.origin': {
+		en: `
+			The point he sees from: his eyes, or the eyes of the player he watches as
+			a spectator, or of his \`view\`.
+		`,
+		ru: `
+			Точка, откуда он видит: его глаза, или глаза игрока, за которым он наблюдает
+			зрителем, или его \`view\`.
+		`,
+	},
 	'GameListenerOptions': {
 		en: `
 			The third argument of \`game.addEventListener\`: \`true\` stands for

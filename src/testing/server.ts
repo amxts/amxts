@@ -965,6 +965,10 @@ export class FakeServer {
 	readonly clientDataHooks: Slot[] = [];
 	/** The client data being sent while its listeners run (sendClientData), by the module's field numbers. */
 	clientData: number[] | null = null;
+	/** The visibility listeners' hooks. */
+	readonly visibilityHooks: Slot[] = [];
+	/** The point a player sees from while the visibility listeners run (sendVisibility). */
+	visibility: number[] | null = null;
 	/** The move command the cmdStart listeners read and write (runCommand), by the module's field numbers. */
 	command: number[] | null = null;
 	/** The weapons' viewBody, by id: set by weapon.viewBody, read by sendClientData. */
@@ -2393,6 +2397,22 @@ export class FakeServer {
 	}
 
 	/**
+	 * Where the server sees from for `player` (SetupVisibility): the
+	 * visibility listeners run on `origin` - his own by default - and it is
+	 * the point the entities sent him are picked from, as they left it.
+	 */
+	sendVisibility(player: FakePlayer, origin: number[] = player.origin): number[] {
+		const seen = [...origin];
+		this.visibility = seen;
+		try {
+			for (const slot of this.visibilityHooks) this.withCallArgs([player.id], () => this.call(slot, [player.id], 0));
+		} finally {
+			this.visibility = null;
+		}
+		return seen;
+	}
+
+	/**
 	 * One entity moving into another: the register_touch callbacks whose
 	 * classes match ("*" or "" is any), called as the engine module calls
 	 * them - (touched, toucher). The largest answer, as the module takes it.
@@ -3249,6 +3269,18 @@ export class FakeServer {
 		},
 		client_data_set(this: FakeServer, plugin: PluginInstance, field: number, value: number) {
 			if (this.clientData) this.clientData[field] = value;
+		},
+		visibility_hook(this: FakeServer, plugin: PluginInstance, fn: number) {
+			const slot = this.takeSlot(plugin, fn, SHAPE_WIDE, '', 0);
+			this.visibilityHooks.push(slot);
+			this.hookSlots.set(this.hookSlots.size + 1, slot);
+			return this.hookSlots.size;
+		},
+		visibility_get(this: FakeServer, plugin: PluginInstance, axis: number) {
+			return this.visibility?.[axis] ?? 0;
+		},
+		visibility_set(this: FakeServer, plugin: PluginInstance, axis: number, value: number) {
+			if (this.visibility) this.visibility[axis] = value;
 		},
 		usercmd_get(this: FakeServer, plugin: PluginInstance, field: number) {
 			return this.command?.[field] ?? 0;

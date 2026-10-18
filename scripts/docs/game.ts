@@ -42,6 +42,12 @@ export const GAME: Record<string, GameDoc> = {
 			ru: `Данные о самом игроке, которые его клиент получает каждый кадр: время до его следующей атаки, угол обзора, анимация оружия, предельная скорость, — их можно читать и менять только для его клиента.`,
 		},
 	},
+	visibility: {
+		summary: {
+			en: `The point a player sees from each frame: the server sends him the entities seen from \`event.origin\` - his eyes, or those of the player he watches. Write it to move that point for him alone.`,
+			ru: `Точка, откуда игрок видит каждый кадр: сервер отправляет ему сущности, видные из \`event.origin\`, — это его глаза или глаза того, за кем он наблюдает. Запишите его, чтобы перенести эту точку только для него.`,
+		},
+	},
 	touch: {
 		summary: {
 			en: `An entity touched another: \`event.toucher\` moved into \`event.touched\`. Pass the classes it is about as the third argument - \`{ toucher: "player", touched: "player" }\` - so only those touches reach the plugin; \`event.preventDefault()\` blocks the touch.`,
