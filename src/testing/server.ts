@@ -3506,6 +3506,13 @@ export class FakeServer {
 			this.callNativeImpl(plugin, 'emessage_end', []);
 		},
 
+		// A UserMessage registered: its id, as get_user_msgid then finds it.
+		msg_register(this: FakeServer, plugin: PluginInstance, name: number) {
+			const text = plugin.memory.string(name);
+			if (!this.messageIds.has(text)) this.messageIds.set(text, 100 + this.messageIds.size);
+			return this.messageIds.get(text)!;
+		},
+
 		// A message of one or two numbers in one call: each written as its two bits of `kinds` say, 0 for none.
 		send_cells(this: FakeServer, plugin: PluginInstance, player: number, type: number, first: number, second: number, kinds: number) {
 			if (this.callNativeImpl(plugin, 'is_user_connected', [player]) === 0 || this.callNativeImpl(plugin, 'emessage_begin', [MSG_ONE, type, 0, player]) === 0) return;

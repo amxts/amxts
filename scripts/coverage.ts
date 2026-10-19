@@ -447,6 +447,7 @@ const DISPLAY: Record<string, string> = {
 	'Storage': 'new Storage(name)',
 	'Forward': 'new Forward(name)',
 	'Menu': 'new Menu(title, options)',
+	'UserMessage': 'new UserMessage(name)',
 	'Screen': 'player.screen',
 	'Game': 'game',
 	'lang': 'lang',
@@ -455,7 +456,7 @@ const DISPLAY: Record<string, string> = {
 };
 
 /** The instance a class's member is reached through. */
-const INSTANCES: Record<string, string> = { Client: 'player', Screen: 'player.screen', HudLine: 'hudLine', ServerPlugin: 'plugin', TraceResult: 'hit', Stats: 'stats', ServerVersions: 'server.versions', Aim: 'player.aim' };
+const INSTANCES: Record<string, string> = { Client: 'player', Screen: 'player.screen', HudLine: 'hudLine', UserMessage: 'message', ServerPlugin: 'plugin', TraceResult: 'hit', Stats: 'stats', ServerVersions: 'server.versions', Aim: 'player.aim' };
 
 export interface Native {
 	name: string;

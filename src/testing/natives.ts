@@ -1162,6 +1162,7 @@ const SAME_AS: Record<string, string> = {
 	write_char: 'write_byte',
 	write_short: 'write_byte',
 	write_long: 'write_byte',
+	write_entity: 'write_byte',
 	// A message sent through the engine, which every plugin's message hooks hear (emessage_end).
 	emessage_begin: 'message_begin',
 	emessage_begin_f: 'message_begin_f',
@@ -1171,6 +1172,7 @@ const SAME_AS: Record<string, string> = {
 	ewrite_angle_f: 'write_coord_f',
 	ewrite_long: 'write_byte',
 	ewrite_short: 'write_byte',
+	ewrite_entity: 'write_byte',
 	ewrite_string: 'write_string',
 };
 for (const [name, same] of Object.entries(SAME_AS)) NATIVES[name] = NATIVES[same];

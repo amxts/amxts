@@ -28,7 +28,8 @@ import {
 	get_pcvar_float, get_pcvar_num, get_pcvar_string, set_pcvar_float, set_pcvar_num, set_pcvar_string,
 	get_localinfo, register_dictionary,
 	precache_model, precache_sound, precache_generic, get_user_userid,
-	emessage_begin, emessage_begin_f, ewrite_byte, ewrite_short, ewrite_string, emessage_end, elog_message
+	emessage_begin, emessage_begin_f, ewrite_byte, ewrite_short, ewrite_string, emessage_end, elog_message,
+	ewrite_char, ewrite_long, ewrite_angle_f, ewrite_coord_f, ewrite_entity
 } from "./natives";
 import { readFileSync } from "./fs";
 // Promise, async/await and AbortSignal, as the globals they are in JavaScript.
@@ -4161,6 +4162,158 @@ export class __MessageOut {
 			this.numbers.push(0);
 			this.texts.push("");
 		}
+	}
+}
+
+// What the engine takes of a plugin's own message: a name of at most 11
+// characters (ReHLDS takes 14, Valve's HLDS 11), and at most 192 bytes
+// written into one of any length.
+const USER_MESSAGE_NAME = 11;
+const USER_MESSAGE_BYTES = 192;
+
+// How a UserMessage writes each of its values.
+const WRITE_BYTE = 0;
+const WRITE_CHAR = 1;
+const WRITE_SHORT = 2;
+const WRITE_LONG = 3;
+const WRITE_ANGLE = 4;
+const WRITE_COORD = 5;
+const WRITE_TEXT = 6;
+const WRITE_ENTITY = 7;
+
+// @ts-ignore: decorator
+@external("env", "msg_register") declare function _msgRegister(name: string): i32;
+
+/**
+ * A message of the plugin's own, for a client-side mod that reads it by its
+ * name. Made at the top level, it is registered as the server starts; its
+ * values are written one after another and sent to one player or to
+ * everyone:
+ *
+ * ```ts
+ * const jump = new UserMessage("KzJump");
+ *
+ * jump.byte(1).coord(distance).text(player.name).send(player);
+ * jump.byte(2).sendAll();
+ * ```
+ *
+ * A name is at most 11 characters, and a message carries at most 192 bytes.
+ *
+ * Pawn: `engfunc(EngFunc_RegUserMsg, ...)`
+ */
+export class UserMessage {
+	private id: i32 = 0;
+	private kinds: i32[] = [];
+	private numbers: f64[] = [];
+	private texts: string[] = [];
+	private size: i32 = 0;
+
+	constructor(
+		/** The message's name, as the client's mod hooks it, e.g. `"KzJump"`; at most 11 characters. */
+		public readonly name: string
+	) {
+		// Registered once the game has registered its own: at plugin_init.
+		const message = this;
+		__whenUp((): void => message.register());
+	}
+
+	/** Writes a byte, `0` to `255`. */
+	byte(value: number): UserMessage {
+		return this.write(WRITE_BYTE, value, 1);
+	}
+
+	/** Writes a signed byte, `-128` to `127`. */
+	char(value: number): UserMessage {
+		return this.write(WRITE_CHAR, value, 1);
+	}
+
+	/** Writes a number of two bytes, `-32768` to `32767`. */
+	short(value: number): UserMessage {
+		return this.write(WRITE_SHORT, value, 2);
+	}
+
+	/** Writes a whole number of four bytes. */
+	long(value: number): UserMessage {
+		return this.write(WRITE_LONG, value, 4);
+	}
+
+	/** Writes an angle in degrees, in one byte: to the nearest 1.4 degrees. */
+	angle(value: number): UserMessage {
+		return this.write(WRITE_ANGLE, value, 1);
+	}
+
+	/** Writes a coordinate, in two bytes: to an eighth of a unit, `-4096` to `4096`. */
+	coord(value: number): UserMessage {
+		return this.write(WRITE_COORD, value, 2);
+	}
+
+	/** Writes a text: its UTF-8 bytes and a zero byte after them. */
+	text(value: string): UserMessage {
+		this.texts.push(value);
+		return this.write(WRITE_TEXT, 0, String.UTF8.byteLength(value) + 1);
+	}
+
+	/** Writes an entity - a player too - as its id, in two bytes; `0` for `null`. */
+	entity(value: Entity | null): UserMessage {
+		return this.write(WRITE_ENTITY, value != null ? value.id : 0, 2);
+	}
+
+	/**
+	 * Sends the player what was written since the last send. A message of more
+	 * than 192 bytes is not sent, and the server's console says so.
+	 */
+	send(player: Player): void {
+		this.flush(MSG_ONE, <i32>player.id);
+	}
+
+	/** Sends everyone what was written since the last send: `jump.byte(2).sendAll()`. */
+	sendAll(): void {
+		this.flush(MSG_ALL, 0);
+	}
+
+	private write(kind: i32, value: f64, size: i32): UserMessage {
+		this.kinds.push(kind);
+		this.numbers.push(value);
+		this.size += size;
+		return this;
+	}
+
+	private register(): void {
+		const length = String.UTF8.byteLength(this.name);
+		if (length == 0 || length > USER_MESSAGE_NAME) {
+			console.error(`UserMessage "${this.name}": a message's name is 1 to ${USER_MESSAGE_NAME} characters`);
+			return;
+		}
+
+		this.id = _msgRegister(this.name);
+		if (this.id == 0) console.error(`UserMessage "${this.name}": the engine did not register it (the server's console says why)`);
+	}
+
+	// Through the engine, as the game's messages go, so other plugins' message hooks hear it.
+	private flush(dest: i32, player: i32): void {
+		if (this.size > USER_MESSAGE_BYTES) console.error(`UserMessage "${this.name}": ${this.size} bytes, more than the ${USER_MESSAGE_BYTES} a message carries; not sent`);
+		else if (this.id > 0 && emessage_begin(dest, this.id, [0, 0, 0], player) != 0) this.writeAll();
+		this.kinds.length = 0;
+		this.numbers.length = 0;
+		this.texts.length = 0;
+		this.size = 0;
+	}
+
+	private writeAll(): void {
+		let text = 0;
+		for (let i = 0; i < this.kinds.length; i++) {
+			const kind = this.kinds[i];
+			const value = this.numbers[i];
+			if (kind == WRITE_BYTE) ewrite_byte(<i32>value);
+			else if (kind == WRITE_CHAR) ewrite_char(<i32>value);
+			else if (kind == WRITE_SHORT) ewrite_short(<i32>value);
+			else if (kind == WRITE_LONG) ewrite_long(<i32>value);
+			else if (kind == WRITE_ANGLE) ewrite_angle_f(value);
+			else if (kind == WRITE_COORD) ewrite_coord_f(value);
+			else if (kind == WRITE_ENTITY) ewrite_entity(<i32>value);
+			else ewrite_string(this.texts[text++]);
+		}
+		emessage_end();
 	}
 }
 

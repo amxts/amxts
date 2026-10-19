@@ -1768,6 +1768,92 @@ export default {
 			файл не прекэширован.
 		`,
 	},
+	'UserMessage': {
+		en: `
+			A message of the plugin's own, for a client-side mod that reads it by its
+			name. Made at the top level, it is registered as the server starts; its
+			values are written one after another and sent to one player or to
+			everyone:
+
+			\`\`\`ts
+			const jump = new UserMessage("KzJump");
+
+			jump.byte(1).coord(distance).text(player.name).send(player);
+			jump.byte(2).sendAll();
+			\`\`\`
+
+			A name is at most 11 characters, and a message carries at most 192 bytes.
+
+			Pawn: \`engfunc(EngFunc_RegUserMsg, ...)\`
+		`,
+		ru: `
+			Собственное сообщение плагина — для клиентского мода, который читает его по
+			имени. Созданное на верхнем уровне, оно регистрируется при запуске сервера;
+			его значения пишутся одно за другим и отправляются одному игроку или
+			всем:
+
+			\`\`\`ts
+			const jump = new UserMessage("KzJump");
+
+			jump.byte(1).coord(distance).text(player.name).send(player);
+			jump.byte(2).sendAll();
+			\`\`\`
+
+			Имя — не длиннее 11 символов, сообщение несёт не больше 192 байт.
+
+			Pawn: \`engfunc(EngFunc_RegUserMsg, ...)\`
+		`,
+	},
+	'UserMessage.name': {
+		en: `The message's name, as the client's mod hooks it, e.g. \`"KzJump"\`; at most 11 characters.`,
+		ru: `Имя сообщения, по которому его ловит мод клиента, например \`"KzJump"\`; не длиннее 11 символов.`,
+	},
+	'UserMessage.byte': {
+		en: `Writes a byte, \`0\` to \`255\`.`,
+		ru: `Пишет байт, от \`0\` до \`255\`.`,
+	},
+	'UserMessage.char': {
+		en: `Writes a signed byte, \`-128\` to \`127\`.`,
+		ru: `Пишет байт со знаком, от \`-128\` до \`127\`.`,
+	},
+	'UserMessage.short': {
+		en: `Writes a number of two bytes, \`-32768\` to \`32767\`.`,
+		ru: `Пишет число в два байта, от \`-32768\` до \`32767\`.`,
+	},
+	'UserMessage.long': {
+		en: `Writes a whole number of four bytes.`,
+		ru: `Пишет целое число в четыре байта.`,
+	},
+	'UserMessage.angle': {
+		en: `Writes an angle in degrees, in one byte: to the nearest 1.4 degrees.`,
+		ru: `Пишет угол в градусах, в один байт: с точностью до 1,4 градуса.`,
+	},
+	'UserMessage.coord': {
+		en: `Writes a coordinate, in two bytes: to an eighth of a unit, \`-4096\` to \`4096\`.`,
+		ru: `Пишет координату, в два байта: с точностью до восьмой доли юнита, от \`-4096\` до \`4096\`.`,
+	},
+	'UserMessage.text': {
+		en: `Writes a text: its UTF-8 bytes and a zero byte after them.`,
+		ru: `Пишет текст: его байты в UTF-8 и нулевой байт после них.`,
+	},
+	'UserMessage.entity': {
+		en: `Writes an entity - a player too - as its id, in two bytes; \`0\` for \`null\`.`,
+		ru: `Пишет сущность — и игрока — её номером, в два байта; \`0\` для \`null\`.`,
+	},
+	'UserMessage.send': {
+		en: `
+			Sends the player what was written since the last send. A message of more
+			than 192 bytes is not sent, and the server's console says so.
+		`,
+		ru: `
+			Отправляет игроку то, что записано после прошлой отправки. Сообщение
+			больше 192 байт не отправляется, и консоль сервера говорит об этом.
+		`,
+	},
+	'UserMessage.sendAll': {
+		en: `Sends everyone what was written since the last send: \`jump.byte(2).sendAll()\`.`,
+		ru: `Отправляет всем то, что записано после прошлой отправки: \`jump.byte(2).sendAll()\`.`,
+	},
 	'FadeDirection': {
 		en: `A fade's direction, one of: \`"in"\` from the colour to a clear view, \`"out"\` from a clear view to the colour.`,
 		ru: `Направление затемнения, одно из: \`"in"\` — от цвета к чистому экрану, \`"out"\` — от чистого экрана к цвету.`,

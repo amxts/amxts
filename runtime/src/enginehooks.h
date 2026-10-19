@@ -391,6 +391,29 @@ static void w_sendEnd(wasm_exec_env_t env)
 	g_hookedEngine->pfnMessageEnd();
 }
 
+/**
+ * msg_register(name): a message of a plugin's own, of any length, registered
+ * through Metamod's table as the game registers its own, so Metamod and AMX
+ * Mod X know it by its name (get_user_msgid, message_begin); its id - the
+ * engine keeps it, so the same for the name on every map - or 0 for one the
+ * engine refuses or that is known with a fixed size, which a plugin's
+ * message would not match.
+ */
+static int32_t w_msgRegister(wasm_exec_env_t env, int32_t name)
+{
+	std::string text = AsString(Inst(env), name);
+	int size = -1;
+	int id = GET_USER_MSG_ID(PLID, text.c_str(), &size);
+	if (id > 0 && size != -1)
+		MF_PrintSrvConsole("[amxts] the message %s is registered with a fixed size of %d bytes: a UserMessage of that name is not sent\n", text.c_str(), size);
+	if (id > 0)
+		return size == -1 ? id : 0;
+	if (!g_hookedEngine)
+		GET_HOOK_TABLES(PLID, &g_hookedEngine, NULL, NULL);
+	// Metamod keeps the name's pointer.
+	return g_hookedEngine ? g_hookedEngine->pfnRegUserMsg(strdup(text.c_str()), -1) : 0;
+}
+
 // ---------------------------------------------------------------- the log
 
 // A log line's most arguments, and AMX Mod X's.
@@ -1060,4 +1083,5 @@ static void ForgetOtherPoints()
 	{ "send_long",      (void *)w_sendLong,       "(i)",     NULL }, \
 	{ "send_string",    (void *)w_sendString,     "(i)",     NULL }, \
 	{ "send_end",       (void *)w_sendEnd,        "()",      NULL }, \
-	{ "send_cells",     (void *)w_sendCells,      "(iiiii)", NULL },
+	{ "send_cells",     (void *)w_sendCells,      "(iiiii)", NULL }, \
+	{ "msg_register",   (void *)w_msgRegister,    "(i)i",    NULL },
