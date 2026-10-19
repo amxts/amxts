@@ -58,7 +58,7 @@ function run() {
 
 	jump.byte(7).char(-5).short(300).long(100000).angle(90).coord(12.5).text("héllo").entity(bot).sendAll();
 	hear();
-	check.expect(heard, "a Pawn plugin's hook hears it to everyone, each value as written").toBe(`8 7 -5 300 100000 90 12.5 héllo ${bot.id}`);
+	check.expect(heard, "a Pawn plugin's hook hears it to everyone, each value as written").toBe(`8 7 -5 300 100000 90 100 héllo ${bot.id}`);
 
 	jump.byte(1).text("one").send(bot);
 	hear();

@@ -28,7 +28,8 @@ public heard(msgid, dest, receiver)
 				format(line, charsmax(line), "%s %s", line, text);
 			}
 			case ARG_ANGLE: format(line, charsmax(line), "%s %d", line, floatround(get_msg_arg_float(i)));
-			case ARG_COORD: format(line, charsmax(line), "%s %.1f", line, get_msg_arg_float(i));
+			// In eighths of a unit: AMX Mod X 1.9 and 1.10 print 12.5 as "12.4".
+			case ARG_COORD: format(line, charsmax(line), "%s %d", line, floatround(get_msg_arg_float(i) * 8.0));
 			default: format(line, charsmax(line), "%s %d", line, get_msg_arg_int(i));
 		}
 	}
