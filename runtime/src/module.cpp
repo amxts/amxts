@@ -7371,6 +7371,71 @@ static cell AMX_NATIVE_CALL n_executeHamB(AMX *amx, cell *params)
 	return HamRuns(amx, params) ? g_executeHamB(amx, params) : 0;
 }
 
+// AMX Mod X's natives of a message a plugin writes, which the module's stand
+// in for (g_ownNatives). The engine stops the server at a write or an end
+// with no message begun, and at a begin while one is; AMX Mod X's begin
+// begins none when it fails - an id the engine does not know, a player out
+// of range - yet hands the writes and the end that follow to the engine. So
+// a plugin's writes and end reach the engine only while its message is
+// begun: after a begin that failed they are dropped, the begin's error said.
+enum PluginMessage { MESSAGE_NONE, MESSAGE_BEGUN, MESSAGE_FAILED };
+static PluginMessage g_pluginMessage = MESSAGE_NONE;
+
+#define MESSAGE_BEGINS(X) X(message_begin, false) X(message_begin_f, false) X(emessage_begin, true) X(emessage_begin_f, true)
+#define MESSAGE_ENDS(X) X(message_end) X(emessage_end)
+#define MESSAGE_WRITES(X) \
+	X(write_byte) X(write_char) X(write_short) X(write_long) X(write_entity) \
+	X(write_angle) X(write_angle_f) X(write_coord) X(write_coord_f) X(write_string) \
+	X(ewrite_byte) X(ewrite_char) X(ewrite_short) X(ewrite_long) X(ewrite_entity) \
+	X(ewrite_angle) X(ewrite_angle_f) X(ewrite_coord) X(ewrite_coord_f) X(ewrite_string)
+
+/** A plugin's message_begin(dest, type, origin, player), or emessage_begin's (`engine`), checked where the engine would stop the server. */
+static cell PluginMessageBegin(AMX_NATIVE begin, bool engine, AMX *amx, cell *params)
+{
+	cell dest = params[1];
+	const char *wrong = g_pluginMessage == MESSAGE_BEGUN ? "another message is begun and not ended"
+		: dest < MSG_BROADCAST || dest > MSG_SPEC || (engine && dest == MSG_INIT) ? "the engine does not send a message there"
+		: (dest == MSG_ONE || dest == MSG_ONE_UNRELIABLE) && (params[4] < 1 || params[4] > gpGlobals->maxClients) ? "no player has that id"
+		: NULL;
+	if (wrong) {
+		MF_LogError(amx, AMX_ERR_NATIVE, "%smessage_begin(%d, %d, ..., %d): %s", engine ? "e" : "", (int)dest, (int)params[2], (int)params[4], wrong);
+		// The begun one goes on, its end to come.
+		if (g_pluginMessage != MESSAGE_BEGUN)
+			g_pluginMessage = MESSAGE_FAILED;
+		return 0;
+	}
+	cell begun = begin(amx, params);
+	g_pluginMessage = begun ? MESSAGE_BEGUN : MESSAGE_FAILED;
+	return begun;
+}
+
+/** A plugin's message_end or emessage_end: the engine's only for a message begun. */
+static cell PluginMessageEnd(AMX_NATIVE end, AMX *amx, cell *params)
+{
+	PluginMessage was = g_pluginMessage;
+	// Cleared first: the end runs the message's hooks, which may begin another.
+	g_pluginMessage = MESSAGE_NONE;
+	if (was == MESSAGE_BEGUN)
+		return end(amx, params);
+	if (was == MESSAGE_NONE)
+		MF_LogError(amx, AMX_ERR_NATIVE, "message_end with no message begun");
+	return 0;
+}
+
+#define MESSAGE_BEGIN_NATIVE(name, engine) \
+	static AMX_NATIVE g_##name; \
+	static cell AMX_NATIVE_CALL n_##name(AMX *amx, cell *params) { return PluginMessageBegin(g_##name, engine, amx, params); }
+#define MESSAGE_END_NATIVE(name) \
+	static AMX_NATIVE g_##name; \
+	static cell AMX_NATIVE_CALL n_##name(AMX *amx, cell *params) { return PluginMessageEnd(g_##name, amx, params); }
+#define MESSAGE_WRITE_NATIVE(name) \
+	static AMX_NATIVE g_##name; \
+	static cell AMX_NATIVE_CALL n_##name(AMX *amx, cell *params) { return g_pluginMessage == MESSAGE_BEGUN ? g_##name(amx, params) : 0; }
+
+MESSAGE_BEGINS(MESSAGE_BEGIN_NATIVE)
+MESSAGE_ENDS(MESSAGE_END_NATIVE)
+MESSAGE_WRITES(MESSAGE_WRITE_NATIVE)
+
 /**
  * Natives of the image's table the module does itself, in place of the
  * module that registers them: what they work on is the module's event now,
@@ -7407,6 +7472,11 @@ static const OwnNativeInfo g_ownNatives[] = {
 	{ "callfunc_end",        n_callfuncEnd,       &g_callfuncEnd },
 	{ "ExecuteHam",          n_executeHam,        &g_executeHam },
 	{ "ExecuteHamB",         n_executeHamB,       &g_executeHamB },
+#define OWN_MESSAGE_BEGIN(name, engine) { #name, n_##name, &g_##name },
+#define OWN_MESSAGE_NATIVE(name) { #name, n_##name, &g_##name },
+	MESSAGE_BEGINS(OWN_MESSAGE_BEGIN)
+	MESSAGE_ENDS(OWN_MESSAGE_NATIVE)
+	MESSAGE_WRITES(OWN_MESSAGE_NATIVE)
 };
 
 static AMX_NATIVE OwnNative(const char *name, AMX_NATIVE fn)
