@@ -1763,8 +1763,12 @@ static void SendChat(int id, const char *line, const char *swapTo)
 		ChatMessage(to, g_msgTeamInfo, id, team.c_str());
 }
 
-/** The bytes a chat line is read into: more than a message to a client holds. */
-#define CHAT_ROOM 512
+/**
+ * The bytes a chat line is read into, its end included: a user message holds
+ * 192 bytes, and SayText's are the sender's byte, the line and its end. A
+ * longer one the engine refuses with a Host_Error, which stops the server.
+ */
+#define CHAT_ROOM (192 - 1)
 
 /**
  * The plugin's string at `ptr` in its memory (`base`, `size` bytes) as UTF-8
