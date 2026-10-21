@@ -233,6 +233,10 @@ struct Plugin {
 	// What its last run kept for it (server.keep), by key: read while it
 	// starts (server.kept), dropped once its start is over (FireInit).
 	std::map<std::string, std::string> kept;
+	// By what it listened to, when a call of it that held the frame was last
+	// said (Slow), and how many more did since: a slow listener every frame
+	// is said once a while.
+	std::map<std::string, std::pair<double, int> > slow;
 };
 
 /**
@@ -1147,6 +1151,23 @@ struct CallContext {
 };
 static CallContext  g_noCall;
 static CallContext *g_call = &g_noCall;
+
+/**
+ * What the module is calling the plugins for, while it does: a forward's
+ * name, "a timer" - what a call that held the frame long is said to be a
+ * listener of (Slow). A game event's is its chain's, read off g_call.
+ */
+static const char *g_firing = NULL;
+
+struct Firing {
+	const char *saved;
+	ALWAYS_INLINE Firing(const char *what) : saved(g_firing) { g_firing = what; }
+	ALWAYS_INLINE ~Firing() { g_firing = saved; }
+};
+
+// Firing's words for a timer, and for a player's or the console's command, whose name Slow reads.
+static const char FIRING_TIMER[] = "a timer";
+static const char FIRING_COMMAND[] = "a command";
 static cell ChainResult();
 static const char *ChainText(int32_t index);
 static float *ChainVector(int32_t index);
@@ -2541,6 +2562,7 @@ static void AddCommand(Commands &commands, const std::string &lower, int32_t fn,
  */
 static cell RunCommand(Forward &f, int id)
 {
+	Firing firing(FIRING_COMMAND);
 	f.depth++;
 	cell result = 0;
 	int flags = -1;
@@ -3277,6 +3299,7 @@ static void RunTimers()
 			QueueTimer(due[i].slot, now + t.every);
 
 		uint32_t argv[1] = { (uint32_t)due[i].slot };
+		Firing firing(FIRING_TIMER);
 		Fire(h, argv, 1, 0);
 	}
 }
@@ -4676,6 +4699,35 @@ static bool FireSlow(const Handler &h, Plugin &p, const uint32_t *call, int n)
  * says whether it ended without a trap. Written into its callers: Fire, and
  * RaiseDirect, which has no frame of its own between a hook and a listener.
  */
+/**
+ * The milliseconds since the module attached, kept by the clock thread
+ * (Ticker) about every millisecond. A call into a plugin reads it before
+ * and after (Called): two loads, where asking the system twice a call is a
+ * measurable part of an event's cost.
+ */
+static std::atomic<uint32_t> g_clock(0);
+static std::atomic<bool>     g_ticking(false);
+static std::thread           g_ticker;
+// amxts_slow_ms: what a call has to take beyond to be said; above any call
+// while it is 0, off.
+static uint32_t              g_slowMs = UINT32_MAX;
+static cvar_t                g_slowCvar = { (char *)"amxts_slow_ms", (char *)"5", 0, 5.0f, NULL };
+static cvar_t               *g_slowCvarSet = NULL;
+// The time calls into plugins took, counted as each ends: what a call
+// takes off its own for the calls it made.
+static uint32_t              g_innerMs = 0;
+
+static void Ticker()
+{
+	int64_t start = Now();
+	while (g_ticking) {
+		g_clock.store((uint32_t)MillisecondsSince(start), std::memory_order_relaxed);
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+}
+
+static void Slow(int index, uint32_t ms);
+
 template <typename Call>
 static ALWAYS_INLINE cell Called(int index, Plugin &p, cell fallback, Call call)
 {
@@ -4699,11 +4751,25 @@ static ALWAYS_INLINE cell Called(int index, Plugin &p, cell fallback, Call call)
 	if (tries)
 		*depth = 0;
 
+	// Its own time, the calls it made into plugins left out: the slow one is
+	// the plugin whose code held the frame. A call shorter than the clock's
+	// step - nearly every one - changes nothing.
+	uint32_t started = g_clock.load(std::memory_order_relaxed);
+	uint32_t inner = g_innerMs;
+
 	// Counted so that the plugin's jobs run when the last of its calls on the
 	// native stack returns, and never inside one of them - see DrainJobs.
 	p.depth++;
 	bool called = call();
 	p.depth--;
+
+	uint32_t spent = g_clock.load(std::memory_order_relaxed) - started;
+	if (spent) {
+		uint32_t own = spent - (g_innerMs - inner);
+		g_innerMs = inner + spent;
+		if (own > g_slowMs)
+			Slow(index, own);
+	}
 
 	if ((tries || !called) && depth && p.tryDepth == depth)
 		*depth = tries;
@@ -5897,6 +5963,7 @@ static void LoadScripts(const PluginList &before = PluginList())
 /** Forward `index` to the plugin at `only`, or to every plugin. */
 static void RaiseTo(int index, int only = -1)
 {
+	Firing firing(g_forwardNames[index]);
 	Forward &f = g_forwards[index];
 	f.depth++;
 	for (size_t i = 0, end = f.handlers.size(); i < end; i++)
@@ -7066,6 +7133,7 @@ static bool Heard(int index)
  */
 static cell Raise(int index, cell *args, int argc)
 {
+	Firing firing(g_forwardNames[index]);
 	CallArgs context(args, argc, g_image);
 	return Dispatch(g_forwards[index], args, argc);
 }
@@ -7100,6 +7168,7 @@ static ALWAYS_INLINE cell RaiseDirect(int index, cell *args, int argc)
 	if (!h.via || h.whereArg >= 0 || !Running(plugin))
 		return Raise(index, args, argc);
 
+	Firing firing(g_forwardNames[index]);
 	CallArgs context(args, argc, g_image);
 	Plugin &p = g_plugins[plugin];
 	uint32_t first = argc > 0 ? (uint32_t)args[0] : 0;
@@ -8534,8 +8603,67 @@ static cell AMX_NATIVE_CALL n_amxclientCmd(AMX *amx, cell *params)
  * frame's listeners.
  * The watcher last, since a reload throws the instances away.
  */
+/** The game event a hook point hears, by the name its Pawn hook has; NULL for one not named here. */
+static const char *PointName(const HookPoint *point)
+{
+	static const char *const stocks[STOCK_COUNT] = {
+		"SetModel", "EmitSound", "Voice_SetClientListening", "PrecacheModel", "PrecacheSound",
+		"PrecacheGeneric", "GetGameDescription", "CvarValue2", "PM_Move",
+	};
+	for (int i = 0; i < CHAIN_COUNT; i++)
+		if (point == &g_chainPoints[i])
+			return g_chainInfo[i].name;
+	for (int i = 0; i < STOCK_COUNT; i++)
+		if (point == &g_stockPoints[i])
+			return stocks[i];
+	for (int i = 0; i < HAM_COUNT; i++)
+		for (const HookPoint *ham : g_hamByFunction[i])
+			if (point == ham)
+				return g_hamInfo[i].key;
+	for (int i = 1; i < MESSAGE_TYPES; i++)
+		if (point == &g_messagePoints[i])
+			return GET_USER_MSG_NAME(PLID, i, NULL);
+	return NULL;
+}
+
+/**
+ * A call of the plugin at `index` held the frame `ms` milliseconds of its
+ * own, past amxts_slow_ms: the console and AMX Mod X's log name the plugin,
+ * the event and the time - at most once in SLOW_QUIET seconds a plugin and
+ * event, with how many more there were meanwhile.
+ */
+#define SLOW_QUIET 10.0
+static void Slow(int index, uint32_t ms)
+{
+	if (index < 0 || (size_t)index >= g_plugins.size())
+		return;
+	Plugin &p = g_plugins[index];
+	double now = g_clock.load(std::memory_order_relaxed) / 1000.0;
+	std::string what = g_firing == FIRING_COMMAND ? std::string("the command ") + CMD_ARGV(0)
+		: g_firing == FIRING_TIMER ? std::string(FIRING_TIMER)
+		: g_firing ? std::string("a listener of ") + g_firing : "a call";
+	if (g_call->chain) {
+		const char *point = PointName(&g_call->chain->point);
+		what = std::string("a listener of ") + (point ? point : "a game event");
+	}
+
+	std::pair<double, int> &said = p.slow.insert(std::make_pair(what, std::make_pair(-1e9, 0))).first->second;
+	if (now - said.first < SLOW_QUIET) {
+		said.second++;
+		return;
+	}
+	char more[96] = "";
+	if (said.second > 0)
+		snprintf(more, sizeof(more), " - and %d more such call(s) in the last %d s", said.second, (int)(now - said.first));
+	MF_PrintSrvConsole("[amxts] %s: %s held the frame %u ms (amxts_slow_ms %g)%s\n", p.name.c_str(), what.c_str(), ms, g_slowCvar.value, more);
+	MF_Log("%s: %s held the frame %u ms (amxts_slow_ms %g)%s", p.name.c_str(), what.c_str(), ms, g_slowCvar.value, more);
+	said = std::make_pair(now, 0);
+}
+
 void StartFrame_Post()
 {
+	if (g_slowCvarSet)
+		g_slowMs = g_slowCvarSet->value > 0 ? (uint32_t)g_slowCvarSet->value : UINT32_MAX;
 	RaiseAuthorized();
 	if (g_namesChanging)
 		NamesChanged();
@@ -8556,6 +8684,7 @@ void StartFrame_Post()
 
 	Forward &f = g_forwards[FORWARD_SERVER_FRAME];
 	if (!f.handlers.empty() || !f.subscribers.empty()) {
+		Firing firing(g_forwardNames[FORWARD_SERVER_FRAME]);
 		CallArgs context(NULL, 0, NULL);
 		Dispatch(f, NULL, 0);
 	}
@@ -8679,6 +8808,10 @@ void OnAmxxAttach()
 
 	MF_AddNatives(g_natives);
 	MF_AddNatives(g_exportedList);
+	CVAR_REGISTER(&g_slowCvar);
+	g_slowCvarSet = CVAR_GET_POINTER(g_slowCvar.name);
+	g_ticking = true;
+	g_ticker = std::thread(Ticker);
 	HookModuleForwards();
 	WarnModulesAbove();
 	if (g_pengfuncsTable)
@@ -8739,5 +8872,8 @@ void OnAmxxDetach()
 	NetShutdown();
 	JobsShutdown();
 	DbShutdown();
+	g_ticking = false;
+	if (g_ticker.joinable())
+		g_ticker.join();
 	wasm_runtime_destroy();
 }
