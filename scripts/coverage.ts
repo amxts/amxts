@@ -506,7 +506,8 @@ export async function tooltips(names: Set<string>): Promise<{ whole: Map<string,
 	const dir = join(CORE, 'scripts', 'docs', 'as');
 	const whole = new Map<string, Words>();
 	const partly = new Map<string, { use: string; what: Words }>();
-	for (const file of readdirSync(dir).filter(name => name.endsWith('.ts'))) {
+	// In name order: the first file to name a native wins, and Linux lists a folder in no order.
+	for (const file of readdirSync(dir).filter(name => name.endsWith('.ts')).sort()) {
 		const source = join(CORE, 'as', file);
 		const methods = existsSync(source) ? methodsOf(readFileSync(source, 'utf8')) : new Set<string>();
 		const table: Record<string, { en: string }> = (await import(join(dir, file))).default;
