@@ -4719,9 +4719,18 @@ static uint32_t              g_innerMs = 0;
 
 static void Ticker()
 {
+	// In whole numbers: a double made whole goes through the x87 (Whole), and
+	// overflows an int past 24 days of uptime, where the clock wraps instead.
+#ifdef _WIN32
+	LARGE_INTEGER frequency;
+	QueryPerformanceFrequency(&frequency);
+	const int64_t perSecond = frequency.QuadPart;
+#else
+	const int64_t perSecond = 1000000000LL;
+#endif
 	int64_t start = Now();
 	while (g_ticking) {
-		g_clock.store((uint32_t)MillisecondsSince(start), std::memory_order_relaxed);
+		g_clock.store((uint32_t)((Now() - start) * 1000 / perSecond), std::memory_order_relaxed);
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 }
@@ -8654,7 +8663,7 @@ static void Slow(int index, uint32_t ms)
 	}
 	char more[96] = "";
 	if (said.second > 0)
-		snprintf(more, sizeof(more), " - and %d more such call(s) in the last %d s", said.second, (int)(now - said.first));
+		snprintf(more, sizeof(more), " - and %d more such call(s) in the last %d s", said.second, Whole(now - said.first));
 	MF_PrintSrvConsole("[amxts] %s: %s held the frame %u ms (amxts_slow_ms %g)%s\n", p.name.c_str(), what.c_str(), ms, g_slowCvar.value, more);
 	MF_Log("%s: %s held the frame %u ms (amxts_slow_ms %g)%s", p.name.c_str(), what.c_str(), ms, g_slowCvar.value, more);
 	said = std::make_pair(now, 0);
@@ -8663,7 +8672,7 @@ static void Slow(int index, uint32_t ms)
 void StartFrame_Post()
 {
 	if (g_slowCvarSet)
-		g_slowMs = g_slowCvarSet->value > 0 ? (uint32_t)g_slowCvarSet->value : UINT32_MAX;
+		g_slowMs = g_slowCvarSet->value > 0 ? (uint32_t)Whole(g_slowCvarSet->value) : UINT32_MAX;
 	RaiseAuthorized();
 	if (g_namesChanging)
 		NamesChanged();
