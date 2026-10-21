@@ -2606,6 +2606,12 @@ export class FakeServer {
 			return this.network.read(plugin, id, out, max);
 		},
 
+		// How many models, sounds and other files are precached, as the module's precache_count: the kind by the file's ending.
+		precache_count(this: FakeServer, _plugin: PluginInstance, kind: number) {
+			const kindOf = (path: string) => /\.(?:mdl|spr)$/i.test(path) ? 0 : /\.wav$/i.test(path) ? 1 : 2;
+			return this.precached.filter(path => kindOf(path) === kind).length;
+		},
+
 		// What a plugin keeps for its file's next start, as the module's keep_set and keep_get.
 		keep_set(this: FakeServer, plugin: PluginInstance, key: number, data: number, length: number) {
 			const kept = this.keptFor.get(plugin.source) ?? new Map<string, Uint8Array>();

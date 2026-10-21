@@ -3594,6 +3594,18 @@ export default {
 			Pawn: \`get_amxx_verstring\`, \`is_rehlds\`, \`is_regamedll\`
 		`,
 	},
+	'Server.precached': {
+		en: `
+			The map's share of the engine's room for precached files, of 512
+			for each kind: \`server.precached.models\`. Counted from what has been
+			precached so far; the console warns once a kind is near its room.
+		`,
+		ru: `
+			Доля места движка для прекешированных файлов, занятая картой, из 512
+			на каждый вид: \`server.precached.models\`. Считается по уже сделанным
+			прекешам; консоль предупреждает, когда вид близок к пределу.
+		`,
+	},
 	'Server.mapExists': {
 		en: `
 			Whether the server has the map: \`server.mapExists("de_dust2")\`.
@@ -3670,6 +3682,42 @@ export default {
 			теги работают как в \`player.print\`.
 
 			Pawn: \`client_print(0, ...)\`, \`client_print_color(0, ...)\`
+		`,
+	},
+	'Precached': {
+		en: `
+			The map's share of the engine's room for precached files:
+			\`server.precached.models\`. Each kind has room for 512, the map's own
+			models included; one more stops the server.
+		`,
+		ru: `
+			Доля места движка для прекешированных файлов, занятая картой:
+			\`server.precached.models\`. На каждый вид — 512, вместе с моделями самой
+			карты; ещё один останавливает сервер.
+		`,
+	},
+	'Precached.models': {
+		en: `
+			The models and sprites precached, the map's own included, e.g. \`230\`.
+		`,
+		ru: `
+			Прекешированные модели и спрайты, вместе с моделями карты, например \`230\`.
+		`,
+	},
+	'Precached.sounds': {
+		en: `
+			The sounds precached, e.g. \`180\`.
+		`,
+		ru: `
+			Прекешированные звуки, например \`180\`.
+		`,
+	},
+	'Precached.files': {
+		en: `
+			The other files precached for players to download, e.g. \`12\`.
+		`,
+		ru: `
+			Другие прекешированные файлы, которые скачивают игроки, например \`12\`.
 		`,
 	},
 	'ServerVersions': {

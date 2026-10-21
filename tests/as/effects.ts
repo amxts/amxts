@@ -14,6 +14,7 @@ server.addEventListener("precache", () => {
 });
 
 server.addCommand("fx_indexes", indexes);
+server.addCommand("fx_precached", () => console.log(`precached ${server.precached.models} ${server.precached.sounds} ${server.precached.files}`));
 server.addCommand("fx_cylinder", ({ player }) => cylinder(player));
 server.addCommand("fx_follow", ({ player }) => follow(player));
 server.addCommand("fx_explosion", explosion);

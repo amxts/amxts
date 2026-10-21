@@ -1627,6 +1627,22 @@ export class ServerVersions {
 	) {}
 }
 
+/**
+ * The map's share of the engine's room for precached files:
+ * `server.precached.models`. Each kind has room for 512, the map's own
+ * models included; one more stops the server.
+ */
+export class Precached {
+	constructor(
+		/** The models and sprites precached, the map's own included, e.g. `230`. */
+		readonly models: number,
+		/** The sounds precached, e.g. `180`. */
+		readonly sounds: number,
+		/** The other files precached for players to download, e.g. `12`. */
+		readonly files: number,
+	) {}
+}
+
 /** The options of `player.removeAllItems`: what goes with the weapons. */
 export interface RemoveAllItemsOptions {
 	/** The suit too - his armour and the HUD; `false` when left out. */
@@ -5003,6 +5019,15 @@ export class Server {
 	}
 
 	/**
+	 * The map's share of the engine's room for precached files, of 512
+	 * for each kind: `server.precached.models`. Counted from what has been
+	 * precached so far; the console warns once a kind is near its room.
+	 */
+	get precached(): Precached {
+		return new Precached(_precacheCount(PRECACHE_MODELS), _precacheCount(PRECACHE_SOUNDS), _precacheCount(PRECACHE_FILES));
+	}
+
+	/**
 	 * Whether the server has the map: `server.mapExists("de_dust2")`.
 	 *
 	 * Pawn: `is_map_valid`
@@ -5217,6 +5242,13 @@ export class Server {
 		return resource;
 	}
 }
+
+// How much of each of the engine's precache tables the map has taken (runtime/src/enginehooks.h).
+// @ts-ignore: decorator
+@external("env", "precache_count") declare function _precacheCount(kind: i32): i32;
+const PRECACHE_MODELS: i32 = 0;
+const PRECACHE_SOUNDS: i32 = 1;
+const PRECACHE_FILES: i32 = 2;
 
 // What a plugin keeps for its next start (runtime/src/module.cpp, g_keptForNext).
 // @ts-ignore: decorator

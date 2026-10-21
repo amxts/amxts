@@ -5231,6 +5231,7 @@ static void Teardown()
 	g_plugins.clear();
 	// What plugins kept for a reload: the next map starts them over.
 	g_keptForNext.clear();
+	ForgetPrecaches();
 	for (Forward &f : g_forwards)
 		f = Forward();
 	g_subscriptions.clear();
@@ -7449,7 +7450,7 @@ static void UnhookDrops()
  * event. The engine takes a precache only while the map loads, and a late
  * one stops the server, so these refuse outside the event too.
  */
-static cell Precache(AMX *amx, cell *params, int (*precache)(char *))
+static cell Precache(AMX *amx, cell *params, int (*precache)(char *), int kind)
 {
 	if (!g_precaching) {
 		MF_LogError(amx, AMX_ERR_NATIVE, "Precaching not allowed");
@@ -7457,16 +7458,20 @@ static cell Precache(AMX *amx, cell *params, int (*precache)(char *))
 	}
 	int length = 0;
 	const char *path = MF_GetAmxString(amx, params[1], 0, &length);
-	return precache((char *)STRING(ALLOC_STRING(path)));
+	char *kept = (char *)STRING(ALLOC_STRING(path));
+	int index = precache(kept);
+	// The module calls the engine past Metamod's hooks, which count the others' precaches.
+	CountPrecache(kind, kept, index);
+	return index;
 }
 
 static int PrecacheModelNow(char *path) { return PRECACHE_MODEL(path); }
 static int PrecacheSoundNow(char *path) { return PRECACHE_SOUND(path); }
 static int PrecacheGenericNow(char *path) { return PRECACHE_GENERIC(path); }
 
-static cell AMX_NATIVE_CALL n_precacheModel(AMX *amx, cell *params) { return Precache(amx, params, PrecacheModelNow); }
-static cell AMX_NATIVE_CALL n_precacheSound(AMX *amx, cell *params) { return Precache(amx, params, PrecacheSoundNow); }
-static cell AMX_NATIVE_CALL n_precacheGeneric(AMX *amx, cell *params) { return Precache(amx, params, PrecacheGenericNow); }
+static cell AMX_NATIVE_CALL n_precacheModel(AMX *amx, cell *params) { return Precache(amx, params, PrecacheModelNow, 0); }
+static cell AMX_NATIVE_CALL n_precacheSound(AMX *amx, cell *params) { return Precache(amx, params, PrecacheSoundNow, 1); }
+static cell AMX_NATIVE_CALL n_precacheGeneric(AMX *amx, cell *params) { return Precache(amx, params, PrecacheGenericNow, 2); }
 
 /** The command a cmdStart event is about, while its listeners run. */
 static usercmd_t *g_cmd = NULL;

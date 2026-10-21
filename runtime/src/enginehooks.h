@@ -985,7 +985,66 @@ static int HearPrecache(int function, const char *path, bool post)
 	return call.Pre() ? -1 : 0;
 }
 
-#define PRECACHE_HOOKS(Name, function) \
+// ---- how full the engine's precache tables are
+
+// The engine's tables of what a map precaches: models (sprites among them),
+// sounds and other files, 512 each on ReHLDS and on Valve's HLDS (MAX_MODELS,
+// MAX_SOUNDS, MAX_GENERIC). A precache past one stops the server.
+#define PRECACHE_KINDS 3
+#define PRECACHE_ROOM  512
+static const char *const g_precacheKinds[PRECACHE_KINDS] = { "models", "sounds", "files" };
+
+// The highest index the engine gave a precache of each kind this map, -1 for
+// none: it fills a table in order, so every index below is taken - the map's
+// own models included, which it puts there before any precache.
+static int g_precacheTop[PRECACHE_KINDS] = { -1, -1, -1 };
+// What was said of each kind this map: 1 near the room, 2 full.
+static int g_precacheSaid[PRECACHE_KINDS] = { 0, 0, 0 };
+
+/** The map ends: its tables start over with the next one. */
+static void ForgetPrecaches()
+{
+	for (int kind = 0; kind < PRECACHE_KINDS; kind++)
+		g_precacheTop[kind] = -1, g_precacheSaid[kind] = 0;
+}
+
+/**
+ * The engine gave `path` the index `index` in table `kind`. Once the table is
+ * at nine tenths of its room, and again once it is full, the console and AMX
+ * Mod X's log say so, with the file and who precached it - a crash on the
+ * next one names nothing.
+ */
+static void CountPrecache(int kind, const char *path, int index)
+{
+	if (index <= g_precacheTop[kind])
+		return;
+	g_precacheTop[kind] = index;
+	int used = index + 1;
+	int step = used >= PRECACHE_ROOM ? 2 : used * 10 >= PRECACHE_ROOM * 9 ? 1 : 0;
+	if (step <= g_precacheSaid[kind])
+		return;
+	g_precacheSaid[kind] = step;
+
+	std::string who = g_currentPlugin >= 0 ? PluginName(g_currentPlugin) : "a Pawn plugin or the game";
+	char line[384];
+	if (step == 2)
+		snprintf(line, sizeof(line), "the map has precached %d %s, the engine's room: one more stops the server - the last, \"%s\", by %s",
+		         used, g_precacheKinds[kind], path, who.c_str());
+	else
+		snprintf(line, sizeof(line), "the map has precached %d %s of the engine's %d - one past that stops the server; the last, \"%s\", by %s",
+		         used, g_precacheKinds[kind], PRECACHE_ROOM, path, who.c_str());
+	MF_PrintSrvConsole("[amxts] %s\n", line);
+	MF_Log("%s", line);
+}
+
+/** precache_count(kind) - how much of the engine's table of `kind` this map has taken: 0 models, 1 sounds, 2 files. */
+static int32_t w_precacheCount(wasm_exec_env_t env, int32_t kind)
+{
+	(void)env;
+	return kind >= 0 && kind < PRECACHE_KINDS ? g_precacheTop[kind] + 1 : 0;
+}
+
+#define PRECACHE_HOOKS(Name, function, kind) \
 	int Name(const char *path) \
 	{ \
 		int blocked = HearPrecache(function, path, false); \
@@ -995,13 +1054,15 @@ static int HearPrecache(int function, const char *path, bool post)
 	} \
 	int Name##_Post(const char *path) \
 	{ \
+		if (path) \
+			CountPrecache(kind, path, META_RESULT_ORIG_RET(int)); \
 		HearPrecache(function, path, true); \
 		RETURN_META_VALUE(MRES_IGNORED, 0); \
 	}
 
-PRECACHE_HOOKS(PrecacheModel, STOCK_PRECACHE_MODEL)
-PRECACHE_HOOKS(PrecacheSound, STOCK_PRECACHE_SOUND)
-PRECACHE_HOOKS(PrecacheGeneric, STOCK_PRECACHE_GENERIC)
+PRECACHE_HOOKS(PrecacheModel, STOCK_PRECACHE_MODEL, 0)
+PRECACHE_HOOKS(PrecacheSound, STOCK_PRECACHE_SOUND, 1)
+PRECACHE_HOOKS(PrecacheGeneric, STOCK_PRECACHE_GENERIC, 2)
 
 /** The game's name in the server browser: a listener answers another with chain_set_text(-1, ...) and handled(). */
 const char *GetGameDescription()
@@ -1084,4 +1145,5 @@ static void ForgetOtherPoints()
 	{ "send_string",    (void *)w_sendString,     "(i)",     NULL }, \
 	{ "send_end",       (void *)w_sendEnd,        "()",      NULL }, \
 	{ "send_cells",     (void *)w_sendCells,      "(iiiii)", NULL }, \
-	{ "msg_register",   (void *)w_msgRegister,    "(i)i",    NULL },
+	{ "msg_register",   (void *)w_msgRegister,    "(i)i",    NULL }, \
+	{ "precache_count", (void *)w_precacheCount,  "(i)i",    NULL },

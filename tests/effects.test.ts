@@ -23,6 +23,13 @@ test('precache: a file asked for at the top level is precached as the map loads,
 	expect(server.log).toContain('indexes 1 2 sprites/shockwave.spr');
 });
 
+test('precache: server.precached counts the models, sounds and other files precached', async () => {
+	const server = await loadPlugin(PLUGIN);
+	server.join('Alice').command('fx_precached');
+
+	expect(server.log).toContain('precached 3 0 0');
+});
+
 test('precache: after the map has loaded, a precached file is found again, one not precached is said in the console', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
