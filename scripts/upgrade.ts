@@ -304,6 +304,9 @@ function bindingsOf(source: ts.SourceFile) {
 	const options: ts.CompilerOptions = { noLib: true, noResolve: true, types: [] };
 	const host = ts.createCompilerHost(options);
 	host.getSourceFile = name => name === source.fileName ? source : undefined;
+	// noResolve leaves an import's file out, yet still looks it up - a stat of
+	// every node_modules up to the root - for each import of each file.
+	host.resolveModuleNameLiterals = literals => literals.map(() => ({ resolvedModule: undefined }));
 	const checker = ts.createProgram([source.fileName], options, host).getTypeChecker();
 	return {
 		declaration: (name: ts.Identifier): ts.Declaration | undefined =>
@@ -790,9 +793,13 @@ export function upgradeFlags(file: string, text: string): { text: string; change
 /** Folders that are not the project's code: what is installed, built or generated. */
 const SKIP = new Set(['node_modules', 'dist', '.amxts', '.git']);
 
-/** The project's TypeScript files: its plugins, its tests and fixtures, a module's sources. */
+/**
+ * The project's TypeScript files: its plugins, its tests and fixtures, a
+ * module's sources - by name, folder by folder, as readdir does not promise
+ * an order on Linux.
+ */
 function codeFiles(dir: string, skip: Set<string>): string[] {
-	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+	return readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1)).flatMap((entry) => {
 		const path = join(dir, entry.name);
 		if (entry.isDirectory()) return SKIP.has(entry.name) || skip.has(path) || entry.name.startsWith('.') || SERVER_FOLDER.test(path) ? [] : codeFiles(path, skip);
 		return /\.(?:ts|mts|cts)$/.test(entry.name) ? [path] : [];
