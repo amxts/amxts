@@ -1,7 +1,6 @@
-// How the amxts command runs one of these scripts, with Bun or Node
+// How the amxts command runs one of these scripts, on Node
 // (src/cli-api.mjs, task):
 //
-//   bun scripts/run.ts check.ts
 //   node --import ./scripts/node-ts.mjs scripts/run.ts build-wasm.ts --deploy
 //
 // The script sees its own arguments, as if it were started by itself, and

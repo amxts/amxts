@@ -7,14 +7,13 @@
 // core's TypeScript runs as a task the command starts.
 //
 //   const core = await import('@amxts/core/cli-api');
-//   core.cliApi              5 - the contract below; the command checks it
+//   core.cliApi              6 - the contract below; the command checks it
 //   core.task('build', ['--deploy'])   { runtime: 'node', args: [...] }
 //   core.includeSources().reapi        the ReAPI release the API is built from
-//   core.bunBinary()                   the Bun the tasks run on, installed with the core
 //   core.serverSystem([], env)         { system: 'linux', from: 'server', reason: 'hlds_linux' }
 //   core.release('windows')            where this version's server files are, and where they go
 //   core.moduleVersion(file)           '0.2.0': the release a server's module is of
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
@@ -34,7 +33,7 @@ export const version = String(pkg.version);
  * returns changes in a way an older command would misread; the command says
  * which of the two to update when they differ.
  */
-export const cliApi = 5;
+export const cliApi = 6;
 
 /** Whether the core runs from a checkout (a .git folder beside it) rather than from npm. */
 export const fromSource = existsSync(join(coreDir, '.git'));
@@ -69,8 +68,8 @@ const SCRIPTS = {
 
 /**
  * @typedef {object} Task
- * @property {'bun' | 'node'} runtime what runs it
- * @property {string[]} args its arguments - the runtime's flags, then the script; the project is the current folder
+ * @property {'node'} runtime what runs it: the Node the command runs on
+ * @property {string[]} args its arguments - Node's flags, then the script; the project is the current folder
  */
 
 /**
@@ -99,13 +98,11 @@ export function task(name, args = []) {
 	}
 	const script = SCRIPTS[name];
 	if (!script) throw new Error(`@amxts/core ${version} has no task "${name}"`);
-	const run = [join(coreDir, 'scripts', 'run.ts'), script, ...args];
-	// The build runs on Node, with the hook that loads the core's TypeScript
-	// and the project's .env, as Bun reads it: V8 runs Binaryen's wasm faster
-	// than Bun, in less memory, and a dev that runs for hours keeps less of
-	// what its compiles grew.
-	if (name === 'build') return { runtime: 'node', args: ['--env-file-if-exists=.env', '--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(coreDir, 'scripts', 'node-ts.mjs')).href, ...run] };
-	return { runtime: 'bun', args: run };
+	// On Node, with the hook that loads the core's TypeScript and the
+	// project's .env (Node does not read it on its own): V8 runs Binaryen's
+	// wasm faster than Bun, in less memory, and a dev that runs for hours
+	// keeps less of what its compiles grew.
+	return { runtime: 'node', args: ['--env-file-if-exists=.env', '--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(coreDir, 'scripts', 'node-ts.mjs')).href, join(coreDir, 'scripts', 'run.ts'), script, ...args] };
 }
 
 /**
@@ -120,39 +117,6 @@ export function task(name, args = []) {
  */
 export function includeSources() {
 	return JSON.parse(readFileSync(join(coreDir, 'includes', 'sources.json'), 'utf8'));
-}
-
-/**
- * The Bun a `bun` task runs on: the binary of the `bun` package the core
- * depends on, so a project needs no Bun of its own. It is looked for in the
- * platform package (`@oven/bun-<os>-<arch>`), which every package manager
- * installs as an optional dependency without running a script, then where
- * `bun`'s own postinstall puts it (`bun/bin/bun.exe`, a placeholder until
- * then). Null when neither is there - the command then takes a Bun on PATH.
- *
- * @returns {string | null} the binary's path
- */
-export function bunBinary() {
-	let bunDir;
-	try {
-		bunDir = dirname(require.resolve('bun/package.json'));
-	} catch {
-		return null;
-	}
-	const from = createRequire(join(bunDir, 'package.json'));
-	const os = process.platform === 'win32' ? 'windows' : process.platform;
-	const arch = process.arch === 'arm64' ? 'aarch64' : process.arch;
-	// On musl (Alpine) only the -musl build runs; a package manager that does
-	// not read `libc` may have installed the glibc one beside it.
-	const musl = process.platform === 'linux' && !process.report?.getReport?.().header?.glibcVersionRuntime;
-	const exe = process.platform === 'win32' ? 'bun.exe' : 'bun';
-	try {
-		const binary = join(dirname(from.resolve(`@oven/bun-${os}-${arch}${musl ? '-musl' : ''}/package.json`)), 'bin', exe);
-		if (existsSync(binary)) return binary;
-	} catch {}
-	// The placeholder is a few hundred bytes; the binary is tens of megabytes.
-	const placed = join(bunDir, 'bin', 'bun.exe');
-	return existsSync(placed) && statSync(placed).size > 1_000_000 ? placed : null;
 }
 
 /**

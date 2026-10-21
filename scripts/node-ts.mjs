@@ -1,10 +1,15 @@
-// The core's TypeScript under Node, for the compile processes (scripts/compile-pool.ts):
-// node --import <this file> scripts/compile-worker.ts. Node strips types itself,
-// but not under node_modules, where an installed core lives, and it does not
-// add the `.ts` the core's imports leave out: this hook does both.
+// The core's TypeScript under Node, for the tasks the amxts command runs
+// (src/cli-api.mjs) and the compile processes (scripts/compile-pool.ts):
+// node --import <this file> scripts/run.ts build-wasm.ts. Node strips types
+// itself, but not under node_modules, where an installed core lives, and it
+// does not add the `.ts` the core's imports leave out: this hook does both.
+// Node's compile cache keeps what it compiled - TypeScript's own compiler
+// most of all - for the next task.
 import { readFileSync } from 'node:fs';
-import { registerHooks, stripTypeScriptTypes } from 'node:module';
+import { enableCompileCache, registerHooks, stripTypeScriptTypes } from 'node:module';
 import { fileURLToPath } from 'node:url';
+
+enableCompileCache();
 
 registerHooks({
 	resolve(specifier, context, next) {

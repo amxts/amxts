@@ -61,8 +61,8 @@ On the server:
   not at all.
 - **AMX Mod X 1.9** or later.
 
-To write plugins: [Node.js](https://nodejs.org) 20.12+. The build runs on
-[Bun](https://bun.sh), which the core installs itself - nothing to set up.
+To write plugins: [Node.js](https://nodejs.org) 24 or newer - the build runs
+on it.
 
 ## Getting started
 

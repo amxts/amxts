@@ -20,21 +20,18 @@ async function cliApi() {
 test('the cli-api: the core\'s version, the contract\'s, where the core is', async () => {
 	const api = await cliApi();
 	expect(api.version).toBe(require('@amxts/core/package.json').version);
-	expect(api.cliApi).toBe(5);
+	expect(api.cliApi).toBe(6);
 	expect(api.coreDir).toBe(CORE);
 });
 
-test('the tasks: the build and the type check with Node, the other scripts with Bun', async () => {
+test('the tasks: every one with Node', async () => {
 	const api = await cliApi();
-	for (const [name, script] of [['prepare', 'prepare.ts'], ['check', 'check.ts'], ['upgrade', 'upgrade.ts']]) {
+	for (const [name, script] of [['prepare', 'prepare.ts'], ['build', 'build-wasm.ts'], ['check', 'check.ts'], ['upgrade', 'upgrade.ts']]) {
 		const task = api.task(name, ['--deploy']);
-		expect(task.runtime).toBe('bun');
-		expect(task.args).toEqual([join(CORE, 'scripts', 'run.ts'), script, '--deploy']);
+		expect(task.runtime).toBe('node');
+		expect(task.args).toEqual(['--env-file-if-exists=.env', '--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(CORE, 'scripts', 'node-ts.mjs')).href, join(CORE, 'scripts', 'run.ts'), script, '--deploy']);
 		expect(existsSync(join(CORE, 'scripts', script))).toBe(true);
 	}
-	const build = api.task('build', ['--deploy']);
-	expect(build.runtime).toBe('node');
-	expect(build.args).toEqual(['--env-file-if-exists=.env', '--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(CORE, 'scripts', 'node-ts.mjs')).href, join(CORE, 'scripts', 'run.ts'), 'build-wasm.ts', '--deploy']);
 	const typecheck = api.task('typecheck');
 	expect(typecheck.runtime).toBe('node');
 	expect(existsSync(typecheck.args[0])).toBe(true);
@@ -61,15 +58,6 @@ test('the includes the API is generated from: pinned releases with a sha256', as
 		expect(source.sha256).toMatch(/^[0-9a-f]{64}$/);
 	}
 	expect(sources.reapi.include).toBe('addons/amxmodx/scripting/include/');
-});
-
-test('the Bun the tasks run on: the one installed with the core', async () => {
-	const api = await cliApi();
-	const binary = api.bunBinary();
-	expect(binary).toBeString();
-	const run = spawnSync(binary, ['--version'], { encoding: 'utf8' });
-	expect(run.status).toBe(0);
-	expect(run.stdout.trim()).toBe(require('bun/package.json').version);
 });
 
 test('the core\'s bin starts @amxts/cli', () => {
