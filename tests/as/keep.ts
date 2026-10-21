@@ -17,7 +17,7 @@ console.log(`start ${starts}: ${frames == null ? "no frames" : frames.join(",")}
 server.addEventListener("end", () => {
 	server.keep("starts", starts);
 	server.keep("frames", new Uint8Array(3).fill(starts));
-	server.keep("note", `привет ${starts}`);
+	server.keep("note", `hello ${starts}`);
 	server.keep<Run>("run", { player: "Alice", time: 3.95 });
 });
 
