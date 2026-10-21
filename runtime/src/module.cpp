@@ -230,6 +230,9 @@ struct Plugin {
 	// Its table of each slot's count of name changes (player_names); 0 until
 	// it gives one.
 	int32_t              playerNames = 0;
+	// What its last run kept for it (server.keep), by key: read while it
+	// starts (server.kept), dropped once its start is over (FireInit).
+	std::map<std::string, std::string> kept;
 };
 
 /**
@@ -3770,6 +3773,43 @@ static int PluginOf(wasm_module_inst_t inst)
 }
 
 /**
+ * What plugins keep for their next start (server.keep), by the plugin's
+ * name and the key. The next load of that name takes it into its entry
+ * (Plugin.kept); a map's end drops it all (Teardown).
+ */
+static std::map<std::string, std::map<std::string, std::string> > g_keptForNext;
+
+// keep_set(key, data, length) - keeps `length` bytes under `key` for the plugin's next start.
+static void w_keepSet(wasm_exec_env_t env, int32_t key, int32_t data, int32_t length)
+{
+	wasm_module_inst_t inst = Inst(env);
+	int index = PluginOf(inst);
+	if (index < 0 || length < 0 || (length > 0 && !wasm_runtime_validate_app_addr(inst, (uint64_t)data, (uint64_t)length)))
+		return;
+	const char *bytes = length > 0 ? (const char *)wasm_runtime_addr_app_to_native(inst, (uint64_t)data) : "";
+	g_keptForNext[g_plugins[index].name][AsString(inst, key)].assign(bytes, (size_t)length);
+}
+
+// keep_get(key, out, max) - what the plugin's last run kept under `key`: its
+// length, `max` bytes of it copied to `out`; -1 when there is none.
+static int32_t w_keepGet(wasm_exec_env_t env, int32_t key, int32_t out, int32_t max)
+{
+	wasm_module_inst_t inst = Inst(env);
+	int index = PluginOf(inst);
+	if (index < 0)
+		return -1;
+	const std::map<std::string, std::string> &kept = g_plugins[index].kept;
+	std::map<std::string, std::string>::const_iterator found = kept.find(AsString(inst, key));
+	if (found == kept.end())
+		return -1;
+	int32_t size = (int32_t)found->second.size();
+	int32_t copied = size < max ? size : max;
+	if (copied > 0 && wasm_runtime_validate_app_addr(inst, (uint64_t)out, (uint64_t)copied))
+		memcpy(wasm_runtime_addr_app_to_native(inst, (uint64_t)out), found->second.data(), (size_t)copied);
+	return size;
+}
+
+/**
  * player_slots(at): the facade's table of PLAYER_DATA_SLOTS cells, one a
  * player id, where the module writes 1 when a new player takes that slot
  * (NewPlayer).
@@ -4568,6 +4608,8 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "amxts_rpc_take",   (void *)w_rpcTake,   "(i)",     NULL },
 	{ "amxts_rpc_reply",  (void *)w_rpcReply,  "(ii)",    NULL },
 	{ "amxts_rpc_result", (void *)w_rpcResult, "(i)",     NULL },
+	{ "keep_set",         (void *)w_keepSet,   "(iii)",   NULL },
+	{ "keep_get",         (void *)w_keepGet,   "(iii)i",  NULL },
 	{ "net_open",      (void *)w_net_open,      "(i)i",    NULL },
 	{ "net_option",    (void *)w_net_option,    "(iii)i",  NULL },
 	{ "net_body",      (void *)w_net_body,      "(iii)",   NULL },
@@ -5033,6 +5075,7 @@ static void ReleasePlugin(int index)
 	p.stackTop = 0;
 	p.coroutines.clear();
 	p.running.clear();
+	p.kept.clear();
 
 	for (Forward &f : g_forwards) {
 		DropFrom(f, f.handlers, [index](const Handler &h) { return h.plugin == index; });
@@ -5111,6 +5154,8 @@ static void Teardown()
 	}
 
 	g_plugins.clear();
+	// What plugins kept for a reload: the next map starts them over.
+	g_keptForNext.clear();
 	for (Forward &f : g_forwards)
 		f = Forward();
 	g_subscriptions.clear();
@@ -5592,6 +5637,13 @@ static bool LoadPlugin(int index)
 		return false;
 	}
 
+	// What its last run kept for it, which its start reads from the top level on.
+	std::map<std::string, std::map<std::string, std::string> >::iterator kept = g_keptForNext.find(name);
+	if (kept != g_keptForNext.end()) {
+		g_plugins[index].kept.swap(kept->second);
+		g_keptForNext.erase(kept);
+	}
+
 	// The plugin is made current for its instantiation, because a plugin
 	// registers at the top level of its file and WebAssembly runs that during
 	// instantiation. Anything registered there has to know which plugin it
@@ -5868,12 +5920,17 @@ static void RaiseTo(int index, int only = -1)
 static void FireInit(int only = -1)
 {
 	RaiseTo(FORWARD_PLUGIN_INIT, only);
-	if (g_mapStage < 1)
-		return;
-	RaiseTo(FORWARD_PLUGIN_CFG, only);
-	RaiseTo(FORWARD_ONAUTOCONFIGSBUFFERED, only);
-	if (g_mapStage >= 2)
-		RaiseTo(FORWARD_ONCONFIGSEXECUTED, only);
+	if (g_mapStage >= 1) {
+		RaiseTo(FORWARD_PLUGIN_CFG, only);
+		RaiseTo(FORWARD_ONAUTOCONFIGSBUFFERED, only);
+		if (g_mapStage >= 2)
+			RaiseTo(FORWARD_ONCONFIGSEXECUTED, only);
+	}
+
+	// What their last runs kept was for their start, which is over: read or not, it goes.
+	for (size_t i = 0; i < g_plugins.size(); i++)
+		if (only < 0 || (int)i == only)
+			g_plugins[i].kept.clear();
 }
 
 /**

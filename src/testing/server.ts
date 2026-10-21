@@ -745,6 +745,8 @@ export class PluginInstance {
 	playerSlots = 0;
 	/** Where its facade's count of each slot's name changes is (player_names); 0 until it gives one. */
 	playerNames = 0;
+	/** What its file's last run kept for it (server.keep), read while it starts (keep_get). */
+	kept = new Map<string, Uint8Array>();
 
 	/** The coroutine scheduler, for a plugin that awaits; null for one that does not. */
 	readonly coroutines: Coroutines | null;
@@ -821,6 +823,8 @@ export class FakeServer {
 	readonly walls: { x: number; entity?: number; hitGroup?: number }[] = [];
 	/** What plugins asked of plugins (server.plugins), in order: "stop shop.aot", "reload shop.aot". */
 	readonly pluginActions: string[] = [];
+	/** What plugins keep for their file's next start (server.keep), by file and key. */
+	readonly keptFor = new Map<string, Map<string, Uint8Array>>();
 	/** What the game rules were asked to run, in order: "restartRound", "checkWinConditions". */
 	readonly rulesRuns: string[] = [];
 	/** Whether reapi finds Reunion (has_reunion). */
@@ -1105,6 +1109,8 @@ export class FakeServer {
 		const missing = envProblems(env, this.variables());
 		if (missing.length) throw new Error(`[amxts] ${basename(source, '.ts')} needs ${missing.join(', ')} in addons/amxts/.env`);
 		const plugin = new PluginInstance(this, source, module, natives, async ? binary : undefined);
+		plugin.kept = this.keptFor.get(source) ?? plugin.kept;
+		this.keptFor.delete(source);
 		this.plugins.push(plugin);
 		for (const native of natives) {
 			if (!this.pluginNatives.has(native.name)) this.pluginNatives.set(native.name, native);
@@ -2082,6 +2088,8 @@ export class FakeServer {
 		this.unload(plugin);
 		const fresh = await this.load(plugin.source);
 		for (const name of ['plugin_init', 'plugin_cfg', 'OnAutoConfigsBuffered', 'OnConfigsExecuted']) this.fireTo(fresh, name);
+		// What the last run kept was for this start: read or not, it goes.
+		fresh.kept.clear();
 		return fresh;
 	}
 
@@ -2596,6 +2604,19 @@ export class FakeServer {
 		},
 		net_read(this: FakeServer, plugin: PluginInstance, id: number, out: number, max: number) {
 			return this.network.read(plugin, id, out, max);
+		},
+
+		// What a plugin keeps for its file's next start, as the module's keep_set and keep_get.
+		keep_set(this: FakeServer, plugin: PluginInstance, key: number, data: number, length: number) {
+			const kept = this.keptFor.get(plugin.source) ?? new Map<string, Uint8Array>();
+			kept.set(plugin.memory.string(key), new Uint8Array(plugin.instance.exports.memory.buffer, data, length).slice());
+			this.keptFor.set(plugin.source, kept);
+		},
+		keep_get(this: FakeServer, plugin: PluginInstance, key: number, out: number, max: number) {
+			const bytes = plugin.kept.get(plugin.memory.string(key));
+			if (!bytes) return -1;
+			if (out && max > 0) plugin.memory.setRaw(out, bytes.subarray(0, max));
+			return bytes.length;
 		},
 
 		// A file's bytes, in files: as the module's fs_read and fs_write, a path that leaves the game folder is refused.

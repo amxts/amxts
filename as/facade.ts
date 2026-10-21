@@ -5119,6 +5119,40 @@ export class Server {
 	}
 
 	/**
+	 * Keeps `value` under `key` for the plugin's next start - a reload, a new
+	 * `.aot`, `amxts dev` - which reads it with `server.kept`:
+	 * `server.addEventListener("end", () => server.keep("run", run))`. Text is
+	 * kept as it is, a `Uint8Array` as its bytes, anything else as JSON. It
+	 * waits in the server's memory: a map change drops it.
+	 */
+	keep<T>(key: string, value: T): void {
+		if (isReference<T>() && idof<T>() == idof<Uint8Array>()) {
+			const bytes = changetype<Uint8Array>(value);
+			_keepSet(key, bytes.dataStart, bytes.length);
+			return;
+		}
+		const text = String.UTF8.encode(isString<T>() ? changetype<string>(value) : JSON.stringify(value));
+		_keepSet(key, changetype<usize>(text), text.byteLength);
+	}
+
+	/**
+	 * The value the plugin's last run kept under `key` with `server.keep`, or
+	 * `undefined` when it kept nothing there: `server.kept<Uint8Array>("run")`.
+	 * It is there while the plugin starts - its top level and its start's
+	 * events - and gone after.
+	 */
+	kept<T>(key: string): T | undefined {
+		const length = _keepGet(key, 0, 0);
+		if (length < 0) return undefined;
+		const bytes = new Uint8Array(length);
+		_keepGet(key, bytes.dataStart, length);
+		if (isReference<T>() && idof<T>() == idof<Uint8Array>()) return changetype<T>(bytes);
+		const text = String.UTF8.decodeUnsafe(bytes.dataStart, length);
+		if (isString<T>()) return changetype<T>(text);
+		return JSON.parse<T>(text);
+	}
+
+	/**
 	 * @hidden A player's command, its words read by `run` - the parser the
 	 * build writes for each `addCommand` call (scripts/typed-commands.ts).
 	 * `console`: the build's function the module calls for the command typed
@@ -5183,6 +5217,12 @@ export class Server {
 		return resource;
 	}
 }
+
+// What a plugin keeps for its next start (runtime/src/module.cpp, g_keptForNext).
+// @ts-ignore: decorator
+@external("env", "keep_set") declare function _keepSet(key: string, data: usize, length: i32): void;
+// @ts-ignore: decorator
+@external("env", "keep_get") declare function _keepGet(key: string, out: usize, max: i32): i32;
 
 // What the server tells once a map, read the first time it is asked: a
 // plugin is loaded anew with each map.

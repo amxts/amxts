@@ -3080,6 +3080,36 @@ export default {
 			Pawn: \`amxts_load\`
 		`,
 	},
+	'Server.keep': {
+		en: `
+			Keeps \`value\` under \`key\` for the plugin's next start - a reload, a new
+			\`.aot\`, \`amxts dev\` - which reads it with \`server.kept\`:
+			\`server.addEventListener("end", () => server.keep("run", run))\`. Text is
+			kept as it is, a \`Uint8Array\` as its bytes, anything else as JSON. It
+			waits in the server's memory: a map change drops it.
+		`,
+		ru: `
+			Сохраняет \`value\` под ключом \`key\` для следующего запуска плагина —
+			перезагрузки, нового \`.aot\`, \`amxts dev\`, — который читает его через \`server.kept\`:
+			\`server.addEventListener("end", () => server.keep("run", run))\`. Текст
+			сохраняется как есть, \`Uint8Array\` — как байты, остальное — как JSON. Оно
+			ждёт в памяти сервера: смена карты его удаляет.
+		`,
+	},
+	'Server.kept': {
+		en: `
+			The value the plugin's last run kept under \`key\` with \`server.keep\`, or
+			\`undefined\` when it kept nothing there: \`server.kept<Uint8Array>("run")\`.
+			It is there while the plugin starts - its top level and its start's
+			events - and gone after.
+		`,
+		ru: `
+			Значение, которое прошлый запуск плагина сохранил под ключом \`key\` через \`server.keep\`,
+			или \`undefined\`, если там ничего нет: \`server.kept<Uint8Array>("run")\`.
+			Оно доступно, пока плагин запускается, — на верхнем уровне и в событиях
+			запуска, — и пропадает после.
+		`,
+	},
 	'PluginLanguage': {
 		en: `
 			The language a plugin is written in, one of \`"typescript"\` or \`"pawn"\`.
