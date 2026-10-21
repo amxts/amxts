@@ -1,10 +1,12 @@
-// How the amxts command runs one of these scripts with Bun:
+// How the amxts command runs one of these scripts, with Bun or Node
+// (src/cli-api.mjs, task):
 //
-//   bun scripts/run.ts build-wasm.ts --deploy
+//   bun scripts/run.ts check.ts
+//   node --import ./scripts/node-ts.mjs scripts/run.ts build-wasm.ts --deploy
 //
 // The script sees its own arguments, as if it were started by itself, and
 // whatever it throws - a config it cannot read, a module that is not
-// installed - is printed as the error it is, without Bun's stack (that is
+// installed - is printed as the error it is, without the runtime's stack (that is
 // for --debug, which sets AMXTS_DEBUG).
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

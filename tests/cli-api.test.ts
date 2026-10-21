@@ -24,14 +24,17 @@ test('the cli-api: the core\'s version, the contract\'s, where the core is', asy
 	expect(api.coreDir).toBe(CORE);
 });
 
-test('the tasks: the build scripts with Bun, the type check with Node', async () => {
+test('the tasks: the build and the type check with Node, the other scripts with Bun', async () => {
 	const api = await cliApi();
-	for (const [name, script] of [['prepare', 'prepare.ts'], ['build', 'build-wasm.ts'], ['check', 'check.ts'], ['upgrade', 'upgrade.ts']]) {
+	for (const [name, script] of [['prepare', 'prepare.ts'], ['check', 'check.ts'], ['upgrade', 'upgrade.ts']]) {
 		const task = api.task(name, ['--deploy']);
 		expect(task.runtime).toBe('bun');
 		expect(task.args).toEqual([join(CORE, 'scripts', 'run.ts'), script, '--deploy']);
 		expect(existsSync(join(CORE, 'scripts', script))).toBe(true);
 	}
+	const build = api.task('build', ['--deploy']);
+	expect(build.runtime).toBe('node');
+	expect(build.args).toEqual(['--env-file-if-exists=.env', '--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(CORE, 'scripts', 'node-ts.mjs')).href, join(CORE, 'scripts', 'run.ts'), 'build-wasm.ts', '--deploy']);
 	const typecheck = api.task('typecheck');
 	expect(typecheck.runtime).toBe('node');
 	expect(existsSync(typecheck.args[0])).toBe(true);

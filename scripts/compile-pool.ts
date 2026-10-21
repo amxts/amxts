@@ -5,8 +5,9 @@
 // memory, at least 3072), or AMXTS_BUILD_JOBS compiles. The processes run
 // under Node when there is one: V8 runs Binaryen's wasm much faster than Bun,
 // in less memory. A single plugin, or room for one, is compiled in this
-// process when there is no Node or the build is quick (`amxts dev`, where a
-// save finds asc warm here). Either way a plugin compiles to the same bytes.
+// process when it runs on Node (the amxts command's build), when there is no
+// Node, or when the build is quick (`amxts dev`, where a save finds asc warm
+// here). Either way a plugin compiles to the same bytes.
 import type { Plugin } from './compile';
 import type { NativesBeside, PluginNative } from './plugin-natives';
 import { spawn } from 'node:child_process';
@@ -114,12 +115,13 @@ export interface CompileAll {
 
 /**
  * The plugins compiled, several at once when there is room - in this process
- * when there is room for one and no Node, or for a quick build. After a
+ * when there is room for one and this is Node, or there is no Node, or the
+ * build is quick. After a
  * failure no other compile starts: those that did not are null.
  */
 export async function compileAll(plugins: Plugin[], options: CompileAll): Promise<(Compiled | null)[]> {
 	const slots = Math.min(plugins.length, compileSlots());
-	const workers = slots > 1 || (NODE && plugins.some(each => !each.quick)) ? Array.from({ length: slots }, () => worker(options.low ?? false)) : [];
+	const workers = slots > 1 || (process.versions.bun && NODE && plugins.some(each => !each.quick)) ? Array.from({ length: slots }, () => worker(options.low ?? false)) : [];
 	let failed = false;
 	const compile = async (plugin: Plugin, slot: number): Promise<Compiled> => {
 		if (workers.length === 0) {

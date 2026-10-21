@@ -3,12 +3,12 @@
 // The command is its own package, @amxts/cli. It finds the core a project
 // installed and imports this file - never a path inside the core - so the
 // core can move its scripts without breaking it.
-// Plain JavaScript: the command runs on Node, and so does this file; what
-// compiles runs on Bun, as a task the command starts.
+// Plain JavaScript: the command runs on Node, and so does this file; the
+// core's TypeScript runs as a task the command starts.
 //
 //   const core = await import('@amxts/core/cli-api');
 //   core.cliApi              5 - the contract below; the command checks it
-//   core.task('build', ['--deploy'])   { runtime: 'bun', args: [...] }
+//   core.task('build', ['--deploy'])   { runtime: 'node', args: [...] }
 //   core.includeSources().reapi        the ReAPI release the API is built from
 //   core.bunBinary()                   the Bun the tasks run on, installed with the core
 //   core.serverSystem([], env)         { system: 'linux', from: 'server', reason: 'hlds_linux' }
@@ -18,7 +18,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { manifestName, serverFiles, serverImage, wamrcPath } from './system.mjs';
 
 /** The core's folder: the package this file ships in. */
@@ -59,7 +59,7 @@ export function localModules() {
 	return found;
 }
 
-/** The scripts a task runs, each with Bun through scripts/run.ts. */
+/** The scripts a task runs, each through scripts/run.ts. */
 const SCRIPTS = {
 	prepare: 'prepare.ts',
 	build: 'build-wasm.ts',
@@ -70,7 +70,7 @@ const SCRIPTS = {
 /**
  * @typedef {object} Task
  * @property {'bun' | 'node'} runtime what runs it
- * @property {string[]} args its arguments, the script first; the project is the current folder
+ * @property {string[]} args its arguments - the runtime's flags, then the script; the project is the current folder
  */
 
 /**
@@ -99,7 +99,13 @@ export function task(name, args = []) {
 	}
 	const script = SCRIPTS[name];
 	if (!script) throw new Error(`@amxts/core ${version} has no task "${name}"`);
-	return { runtime: 'bun', args: [join(coreDir, 'scripts', 'run.ts'), script, ...args] };
+	const run = [join(coreDir, 'scripts', 'run.ts'), script, ...args];
+	// The build runs on Node, with the hook that loads the core's TypeScript
+	// and the project's .env, as Bun reads it: V8 runs Binaryen's wasm faster
+	// than Bun, in less memory, and a dev that runs for hours keeps less of
+	// what its compiles grew.
+	if (name === 'build') return { runtime: 'node', args: ['--env-file-if-exists=.env', '--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(coreDir, 'scripts', 'node-ts.mjs')).href, ...run] };
+	return { runtime: 'bun', args: run };
 }
 
 /**
