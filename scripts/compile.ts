@@ -174,6 +174,9 @@ const STACK_FLAGS = ['--enable-dump-call-stack', '--call-stack-features=bounds-c
  */
 const QUICK_LEVELS = [['--opt-level=0'], ['--opt-level=0', '--mllvm=-optimize-regalloc'], []];
 
+/** The level of QUICK_LEVELS each plugin's last quick build ended at, by its .aot: `dev`'s next save starts there. */
+const quickLevels = new Map<string, number>();
+
 /**
  * The map goes into the .aot either way, and so do the ABI the plugin is
  * compiled against and the variables it requires, which the module checks
@@ -235,12 +238,11 @@ export function compileToMachineCode(plugin: Plugin, wasm: string, natives: Plug
 		part,
 		wasm,
 	], { encoding: 'utf-8' });
-	const [first, ...again] = plugin.quick ? QUICK_LEVELS : [[]];
-	let compile = wamrc(first);
-	for (const level of again) {
-		if (compile.status !== 0 || !readFileSync(part).includes('_chkstk')) break;
-		compile = wamrc(level);
-	}
+	const levels = plugin.quick ? QUICK_LEVELS : [[]];
+	let level = plugin.quick ? quickLevels.get(plugin.output) ?? 0 : 0;
+	let compile = wamrc(levels[level]);
+	while (level < levels.length - 1 && compile.status === 0 && readFileSync(part).includes('_chkstk')) compile = wamrc(levels[++level]);
+	if (plugin.quick) quickLevels.set(plugin.output, level);
 
 	const out = `${compile.stdout}${compile.stderr}`;
 
