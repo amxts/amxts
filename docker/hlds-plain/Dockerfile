@@ -15,7 +15,7 @@ FROM debian:bookworm-slim
 # HLDS_BETA=steam_legacy` gives the build before the 25th anniversary update.
 ARG HLDS_BETA=
 ARG METAMOD_P=1.21p109
-ARG AMXX=1.10.0-git5474
+ARG AMXX=1.10.0-git5484
 ARG YAPB=4.4.957
 
 RUN dpkg --add-architecture i386 \
@@ -50,7 +50,7 @@ RUN mkdir -p /hlds/cstrike/addons/metamod \
 	&& curl -fsSL "https://github.com/Bots-United/metamod-p/releases/download/v${METAMOD_P}/metamod-p-v${METAMOD_P}-linux_ubuntu1804.tar.xz" | tar -xJ -C /hlds/cstrike \
 	&& sed -i 's|^gamedll_linux .*|gamedll_linux "addons/metamod/dlls/metamod.so"|' /hlds/cstrike/liblist.gam \
 	&& for part in base cstrike; do \
-		curl -fsSL "https://www.amxmodx.org/amxxdrop/1.10/amxmodx-${AMXX}-${part}-linux.tar.gz" | tar -xz -C /hlds/cstrike; \
+		curl -fsSL "https://github.com/alliedmodders/amxmodx/releases/download/${AMXX%-git*}.${AMXX#*-git}/amxmodx-${AMXX}-${part}-linux.tar.gz" | tar -xz -C /hlds/cstrike; \
 	done \
 	&& curl -fsSL "https://github.com/yapb/yapb/releases/download/${YAPB}/yapb-${YAPB}-linux.tar.xz" | tar -xJ -C /hlds/cstrike \
 	&& printf 'linux addons/amxmodx/dlls/amxmodx_mm_i386.so\nlinux addons/yapb/bin/yapb.so\n' > /hlds/cstrike/addons/metamod/plugins.ini \

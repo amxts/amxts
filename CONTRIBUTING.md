@@ -153,7 +153,7 @@ CI runs it on every Linux server.
 
 `--amxx <build>` runs the Linux server on another AMX Mod X build, any one
 whose packages' sha256 are in `docker/hlds/amxmodx.sha256`. CI runs the
-server suites on three: the image's own (1.10.0-git5474), 1.9.0-git5303 and
+server suites on three: the image's own (1.10.0-git5484), 1.9.0-git5303 and
 1.10.0-git5486.
 
 `--sanitize` runs the Linux server with the module of `bun run build:linux

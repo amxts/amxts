@@ -50,7 +50,7 @@ try {
 	mkdirSync(BASE, { recursive: true });
 	for (const [part, sha256] of Object.entries(PACKAGES[HOST_SYSTEM])) {
 		const file = `amxmodx-${BUILD}-${part}-${HOST_SYSTEM}.${HOST_SYSTEM === 'windows' ? 'zip' : 'tar.gz'}`;
-		const url = `https://www.amxmodx.org/amxxdrop/1.10/${file}`;
+		const url = `https://github.com/alliedmodders/amxmodx/releases/download/${BUILD.replace('-git', '.')}/${file}`;
 		const response = await fetch(url, { signal: AbortSignal.timeout(120_000) });
 		if (!response.ok) fail(`${url} answered ${response.status}`);
 		const data = new Uint8Array(await response.arrayBuffer());

@@ -25,7 +25,7 @@ FROM debian:bookworm-slim AS get
 ARG REHLDS=3.15.0.896
 ARG REGAMEDLL=5.30.0.814
 ARG METAMOD=1.3.0.149
-ARG AMXX=1.10.0-git5474
+ARG AMXX=1.10.0-git5484
 ARG REAPI=5.29.0.358
 
 RUN apt-get update \
@@ -58,7 +58,7 @@ RUN curl -fsSLo rehlds.zip "https://github.com/rehlds/ReHLDS/releases/download/$
 	&& cp metamod/addons/metamod/metamod_i386.so /hlds/cstrike/addons/metamod/ \
 	&& sed -i 's|^gamedll_linux .*|gamedll_linux "addons/metamod/metamod_i386.so"|' /hlds/cstrike/liblist.gam \
 	&& for part in base cstrike; do \
-		curl -fsSL "https://www.amxmodx.org/amxxdrop/1.10/amxmodx-${AMXX}-${part}-linux.tar.gz" | tar -xz -C /hlds/cstrike; \
+		curl -fsSL "https://github.com/alliedmodders/amxmodx/releases/download/${AMXX%-git*}.${AMXX#*-git}/amxmodx-${AMXX}-${part}-linux.tar.gz" | tar -xz -C /hlds/cstrike; \
 	done \
 	&& curl -fsSLo reapi.zip "https://github.com/rehlds/ReAPI/releases/download/${REAPI}/reapi-bin-${REAPI}.zip" \
 	&& unzip -q reapi.zip -d reapi && cp reapi/addons/amxmodx/modules/reapi_amxx_i386.so /hlds/cstrike/addons/amxmodx/modules/ \

@@ -65,16 +65,16 @@ RUN curl -fsSLo rehlds.zip "https://github.com/rehlds/ReHLDS/releases/download/$
 	&& printf 'linux addons/amxmodx/dlls/amxmodx_mm_i386.so\nlinux addons/yapb/bin/yapb.so\n' > /hlds/cstrike/addons/metamod/plugins.ini \
 	&& rm -rf /tmp/get/*
 
-# AMX Mod X's base and cstrike packages, from the build's drop folder
-# (amxxdrop/1.10 for 1.10.0-git5474), each checked against amxmodx.sha256: a
+# AMX Mod X's base and cstrike packages, from the build's GitHub release
+# (1.10.0.5484 for 1.10.0-git5484), each checked against amxmodx.sha256: a
 # build without its lines there is refused.
-ARG AMXX=1.10.0-git5474
+ARG AMXX=1.10.0-git5484
 COPY amxmodx.sha256 .
 RUN for part in base cstrike; do \
 		file="amxmodx-${AMXX}-${part}-linux.tar.gz"; \
 		grep "  ${file}\$" amxmodx.sha256 > "${file}.sha256" \
 			|| { echo "AMX Mod X ${AMXX}: no sha256 of ${file} in amxmodx.sha256" >&2; exit 1; }; \
-		curl -fsSLo "${file}" "https://www.amxmodx.org/amxxdrop/${AMXX%.*}/${file}" \
+		curl -fsSLo "${file}" "https://github.com/alliedmodders/amxmodx/releases/download/${AMXX%-git*}.${AMXX#*-git}/${file}" \
 			&& sha256sum -c "${file}.sha256" \
 			&& tar -xzf "${file}" -C /hlds/cstrike || exit 1; \
 	done \
