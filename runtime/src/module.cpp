@@ -19,6 +19,7 @@
 #include <curl/curl.h>
 #include <mutex>
 #include <thread>
+#include <atomic>
 #include "amxxmodule.h"
 #include "usercmd.h"
 #include <resdk/engine/rehlds_api.h>
@@ -190,6 +191,11 @@ struct Plugin {
 	std::string          reason;
 	unsigned char       *file = NULL;
 	wasm_module_t        module = NULL;
+	// A changed .aot the loader thread has read and loaded, for LoadPlugin to
+	// take instead of reading it again (WatchPlugins); NULL when there is none.
+	unsigned char       *nextFile = NULL;
+	size_t               nextSize = 0;
+	wasm_module_t        nextModule = NULL;
 	// The function table the plugin exports (asc --exportTable), for reading
 	// a handler's parameter types before calling it. See Fire.
 	wasm_table_inst_t    table;
@@ -5089,8 +5095,11 @@ static PluginList UnloadPlugins()
  * from it. What lives as long as the process stays: WAMR, the network
  * thread, the gamedata and its members, the plugin list's file.
  */
+static void StopLoader();
+
 static void Teardown()
 {
+	StopLoader();
 	for (size_t i = 0; i < g_plugins.size(); i++) {
 		Plugin &p = g_plugins[i];
 		// Their requests and queries are let go; the network worker and the database connections go on for the next map.
@@ -5505,6 +5514,21 @@ static int32_t w_envGet(wasm_exec_env_t env, int32_t name, int32_t out, int32_t 
 
 static std::string Stem(const std::string &name);
 
+/** A file's bytes, malloc'd, and how many in `got`; NULL when it cannot be opened. */
+static unsigned char *ReadAll(const std::string &path, size_t *got)
+{
+	FILE *f = fopen(path.c_str(), "rb");
+	if (!f)
+		return NULL;
+	fseek(f, 0, SEEK_END);
+	long len = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	unsigned char *file = (unsigned char *)malloc(len > 0 ? len : 1);
+	*got = fread(file, 1, len, f);
+	fclose(f);
+	return file;
+}
+
 /**
  * Loads the .aot of the plugin at `index` - an entry of the list or of
  * amxts_load, not running - and runs its top level. false, with g_refusal
@@ -5516,21 +5540,22 @@ static bool LoadPlugin(int index)
 	const std::string path = g_plugins[index].path;
 	FileState(path.c_str(), &g_plugins[index].stamp, &g_plugins[index].size);
 
-	FILE *f = fopen(path.c_str(), "rb");
-	if (!f) {
+	// A changed file the loader thread has read, and loaded, already.
+	Plugin &entry = g_plugins[index];
+	unsigned char *file = entry.nextFile;
+	size_t got = entry.nextSize;
+	wasm_module_t module = entry.nextModule;
+	entry.nextFile = NULL;
+	entry.nextModule = NULL;
+	if (!file)
+		file = ReadAll(path, &got);
+	entry.file = file;
+	entry.module = module;
+	if (!file) {
 		MF_PrintSrvConsole("[amxts] missing %s\n", path.c_str());
 		g_refusal = "its file is missing";
 		return false;
 	}
-
-	fseek(f, 0, SEEK_END);
-	long len = ftell(f);
-	fseek(f, 0, SEEK_SET);
-
-	unsigned char *file = (unsigned char *)malloc(len);
-	g_plugins[index].file = file;
-	size_t got = fread(file, 1, len, f);
-	fclose(f);
 
 	const char *other = AotBuiltForOtherSystem(file, got);
 	if (other) {
@@ -5558,7 +5583,8 @@ static bool LoadPlugin(int index)
 	}
 
 	char err[192];
-	wasm_module_t module = wasm_runtime_load(file, (uint32_t)got, err, sizeof(err));
+	if (!module)
+		module = wasm_runtime_load(file, (uint32_t)got, err, sizeof(err));
 	g_plugins[index].module = module;
 	if (!module) {
 		MF_PrintSrvConsole("[amxts] %s: %s\n", name.c_str(), err);
@@ -6033,33 +6059,50 @@ static void LoadOne(const std::string &wanted)
 }
 
 /**
- * amxts_reload <plugin>: starts it over from disk. The plugins that call its module start over after it: they
- * hold handles and functions of the old instance.
+ * Starts these plugins over from disk, in the list's order. The plugins that
+ * call their modules start over after them, each once - one of these among
+ * them too: they hold handles and functions of the old instances.
  */
-static void ReloadOne(const std::string &wanted)
+static void ReloadSome(const std::vector<int> &plugins)
 {
-	int index = PluginFor(wanted);
-	if (index < 0)
-		return;
+	std::vector<int> dependents;
+	for (int index : plugins)
+		for (int dependent : Dependents(index))
+			if (std::find(dependents.begin(), dependents.end(), dependent) == dependents.end())
+				dependents.push_back(dependent);
+	std::sort(dependents.begin(), dependents.end());
 
-	std::vector<int> dependents = Dependents(index);
-	std::vector<int> group(1, index);
+	std::vector<int> group;
+	for (int index : plugins)
+		if (std::find(dependents.begin(), dependents.end(), index) == dependents.end())
+			group.push_back(index);
+	std::vector<int> owners = group;
 	group.insert(group.end(), dependents.begin(), dependents.end());
 	if (Busy(group))
 		return;
 
 	if (dependents.empty())
-		MF_PrintSrvConsole("[amxts] reloading %s\n", g_plugins[index].name.c_str());
+		MF_PrintSrvConsole("[amxts] reloading %s\n", Names(owners).c_str());
 	else
-		MF_PrintSrvConsole("[amxts] reloading %s, and what uses its module: %s\n", g_plugins[index].name.c_str(), Names(dependents).c_str());
+		MF_PrintSrvConsole("[amxts] reloading %s, and what uses %s: %s\n", Names(owners).c_str(),
+		                   owners.size() == 1 ? "its module" : "their modules", Names(dependents).c_str());
 	FireEnd(group);
 	for (size_t i = group.size(); i-- > 0;)
 		ReleasePlugin(group[i]);
 	StartPlugins(group);
 }
 
+/** amxts_reload <plugin>: starts it over from disk, and the plugins that call its module after it. */
+static void ReloadOne(const std::string &wanted)
+{
+	int index = PluginFor(wanted);
+	if (index >= 0)
+		ReloadSome(std::vector<int>(1, index));
+}
+
 /**
- * Reloads when a plugin's .aot has been written since it was loaded.
+ * Reloads a plugin when its .aot has been written since it was loaded, and
+ * the plugins that call its module; the others run on.
  *
  * A rebuild is the only thing that changes that file, so this is what makes
  * `bun run plugins --deploy` land on a running server without a map change or
@@ -6071,7 +6114,9 @@ static void ReloadOne(const std::string &wanted)
  * find the file's time and size alike: an upload writes it in pieces, and a
  * half-written .aot read before its end is refused as incomplete. The new
  * time is taken before the reload, not after, so a plugin that fails to load
- * is not retried every second - only once its file changes again.
+ * is not retried every second - only once its file changes again. The file
+ * is read and loaded on the loader thread meanwhile (PreloadAll), so the
+ * frame that swaps it in (SwapIn) holds the game only for the plugin's start.
  */
 static void WatchPlugins();
 
@@ -6198,9 +6243,117 @@ static int32_t w_pawnPluginPause(wasm_exec_env_t env, int32_t file, int32_t on)
 	return (int32_t)done;
 }
 
+// ---------------------------------------------------------------- the loader thread
+
+/**
+ * A changed .aot that the loader thread reads and loads, while the plugins
+ * run on, for the frame to swap in (WatchPlugins). It names its plugin rather
+ * than indexing it: a reload of every plugin or a map's end may replace the
+ * entries meanwhile.
+ *
+ * wasm_runtime_load is safe beside the game thread's calls: WAMR allocates
+ * with the C library's malloc (OnAmxxAttach), keeps no list of modules
+ * without multi-module, and reads the natives registered once at attach.
+ */
+struct Preload {
+	std::string    name;
+	std::string    path;
+	time_t         stamp;
+	long           size;
+	unsigned char *file = NULL;
+	size_t         got = 0;
+	wasm_module_t  module = NULL;
+};
+
+// The thread's while it runs; the game thread's once g_preloaded is set.
+static std::vector<Preload> g_preloads;
+static std::thread          g_loader;
+static std::atomic<bool>    g_preloaded(false);
+
+/**
+ * The loader thread: each file read, and loaded when LoadPlugin would load
+ * it - a file it refuses earlier is left to it, which says why.
+ */
+static void PreloadAll()
+{
+	for (Preload &l : g_preloads) {
+		l.file = ReadAll(l.path, &l.got);
+		bool whole = false;
+		if (l.file && !AotBuiltForOtherSystem(l.file, l.got))
+			AotSection(l.file, l.got, ABI_SECTION, &whole);
+		char err[192];
+		if (whole)
+			l.module = wasm_runtime_load(l.file, (uint32_t)l.got, err, sizeof(err));
+	}
+	g_preloaded = true;
+}
+
+/** Lets go of a file the loader thread read and the module it loaded from it. */
+static void DropLoaded(unsigned char *&file, wasm_module_t &module)
+{
+	if (module)
+		wasm_runtime_unload(module);
+	free(file);
+	file = NULL;
+	module = NULL;
+}
+
+/** Waits for the loader thread, and drops what it loaded: the map ends. */
+static void StopLoader()
+{
+	if (g_loader.joinable())
+		g_loader.join();
+	for (Preload &l : g_preloads)
+		DropLoaded(l.file, l.module);
+	g_preloads.clear();
+}
+
+/**
+ * Reloads the plugins whose files the loader thread is done with, from what
+ * it loaded. A file written again since is dropped, for the watcher to see
+ * anew, and so is one whose plugin was unloaded, or loaded from disk by a
+ * command meanwhile.
+ */
+static void SwapIn()
+{
+	g_loader.join();
+	std::vector<int> changed;
+	for (Preload &l : g_preloads) {
+		int index = Named(g_plugins, l.name);
+		time_t now;
+		long size;
+		if (index < 0 || g_plugins[index].state == PLUGIN_UNLOADED || (g_plugins[index].stamp == l.stamp && g_plugins[index].size == l.size)
+		    || !FileState(l.path.c_str(), &now, &size) || now != l.stamp || size != l.size) {
+			DropLoaded(l.file, l.module);
+			continue;
+		}
+		Plugin &p = g_plugins[index];
+		// Taken before the reload, so one that fails to load is not tried again until its file changes.
+		p.stamp = l.stamp;
+		p.size = l.size;
+		p.nextFile = l.file;
+		p.nextSize = l.got;
+		p.nextModule = l.module;
+		changed.push_back(index);
+	}
+	g_preloads.clear();
+	if (changed.empty())
+		return;
+
+	ReloadSome(changed);
+	// What a refused reload left untaken.
+	for (int index : changed)
+		DropLoaded(g_plugins[index].nextFile, g_plugins[index].nextModule);
+}
+
 static void WatchPlugins()
 {
-	bool changed = false;
+	// Nothing is looked at while the loader thread reads what changed.
+	if (g_loader.joinable()) {
+		if (g_preloaded)
+			SwapIn();
+		return;
+	}
 
 	for (size_t i = 0; i < g_plugins.size(); i++) {
 		Plugin &p = g_plugins[i];
@@ -6223,14 +6376,19 @@ static void WatchPlugins()
 			continue;
 		}
 		MF_PrintSrvConsole("[amxts] %s changed on disk\n", p.name.c_str());
-		p.stamp = now;
-		p.size = size;
 		p.seenSize = -1;
-		changed = true;
+		Preload l;
+		l.name = p.name;
+		l.path = p.path;
+		l.stamp = now;
+		l.size = size;
+		g_preloads.push_back(l);
 	}
 
-	if (changed)
-		ReloadPlugins();
+	if (!g_preloads.empty()) {
+		g_preloaded = false;
+		g_loader = std::thread(PreloadAll);
+	}
 }
 
 static void ListPlugins()
