@@ -11,7 +11,7 @@ import { expect, test } from 'bun:test';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const pkg = JSON.parse(readFileSync(join(CORE, 'package.json'), 'utf8'));
-const ENTRIES = ['bin/amxts.mjs', 'src/cli-api.mjs', 'src/testing/index.ts', 'lint/oxlint-plugin.mjs', 'scripts/run.ts', 'scripts/prepare.ts', 'scripts/build-wasm.ts', 'scripts/compile-worker.ts', 'scripts/check.ts', 'scripts/upgrade.ts'];
+const ENTRIES = ['bin/amxts.mjs', 'src/cli-api.mjs', 'src/testing/index.ts', 'lint/oxlint-plugin.mjs', 'scripts/run.ts', 'scripts/prepare.ts', 'scripts/build-wasm.ts', 'scripts/compile-worker.ts', 'scripts/node-ts.mjs', 'scripts/check.ts', 'scripts/upgrade.ts'];
 
 /** The files an entry imports, itself included, by relative imports. */
 function reached(entries: string[]) {
