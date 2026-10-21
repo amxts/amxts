@@ -46,8 +46,8 @@ export interface Plugin {
 	system?: System;
 	/**
 	 * Compiled for a development loop (`amxts dev`): Binaryen's -O1 in place
-	 * of asc's full optimisation, and wamrc at -O0 - a few seconds for a small
-	 * plugin rather than ten. It does the same, a little slower.
+	 * of asc's full optimisation, and wamrc at -O0 (QUICK_LEVELS) - a few
+	 * seconds for a small plugin rather than ten. It does the same, a little slower.
 	 */
 	quick?: boolean;
 }
@@ -163,6 +163,18 @@ const QUIET_IMPORTS = new Set(['env.abort', 'env.ent_vector', ...[...LEAF_NATIVE
 const STACK_FLAGS = ['--enable-dump-call-stack', '--call-stack-features=bounds-checks,ip,func-idx,trap-ip'];
 
 /**
+ * wamrc's levels for a quick build, each tried while the .aot names
+ * _chkstk. At -O0 LLVM's fast register allocator gives every value it
+ * spills a slot of its own, so a big function - an async one after Asyncify -
+ * keeps a frame over 4 KB, and for such a frame LLVM calls _chkstk on
+ * Windows, which the module's loader does not have ("resolve symbol _chkstk
+ * failed"). The optimising allocator shares the slots: still -O0's code, in
+ * a fraction of what -O1 costs a large plugin. wamrc's own level is the last
+ * resort.
+ */
+const QUICK_LEVELS = [['--opt-level=0'], ['--opt-level=0', '--mllvm=-optimize-regalloc'], []];
+
+/**
  * The map goes into the .aot either way, and so do the ABI the plugin is
  * compiled against and the variables it requires, which the module checks
  * before it loads it (scripts/build-identity.ts, scripts/server-env.ts).
@@ -223,12 +235,12 @@ export function compileToMachineCode(plugin: Plugin, wasm: string, natives: Plug
 		part,
 		wasm,
 	], { encoding: 'utf-8' });
-	let compile = wamrc(plugin.quick ? ['--opt-level=0'] : []);
-	// At -O0 a big function keeps a big stack frame, and for a frame over
-	// 4 KB LLVM calls _chkstk on Windows, which the module's loader does not
-	// have ("resolve symbol _chkstk failed"): such a plugin - menu-core is
-	// one - is compiled again at wamrc's own level. The .aot names the symbol.
-	if (plugin.quick && compile.status === 0 && readFileSync(part).includes('_chkstk')) compile = wamrc([]);
+	const [first, ...again] = plugin.quick ? QUICK_LEVELS : [[]];
+	let compile = wamrc(first);
+	for (const level of again) {
+		if (compile.status !== 0 || !readFileSync(part).includes('_chkstk')) break;
+		compile = wamrc(level);
+	}
 
 	const out = `${compile.stdout}${compile.stderr}`;
 
