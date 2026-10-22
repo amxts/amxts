@@ -3957,6 +3957,9 @@ static const char *PluginName(int index)
 // async functions: co_spawn, co_suspend and the rest, and DrainJobs.
 #include "coroutines.h"
 
+// DrainJobs timed as a call is, for amxts_slow_ms: below, with the clock.
+static void TimedJobs(int index);
+
 // ---------------------------------------------------------------- shared modules
 
 /**
@@ -4075,7 +4078,7 @@ static bool RunRequest(int target, int32_t from)
 	g_currentPlugin = prev;
 
 	if (p.depth == 0 && p.wake)
-		DrainJobs(target);
+		TimedJobs(target);
 	return called;
 }
 
@@ -4784,7 +4787,7 @@ static void Ticker()
 	}
 }
 
-static void Slow(int index, uint32_t ms);
+static void Slow(int index, uint32_t ms, const char *what = NULL);
 
 template <typename Call>
 static ALWAYS_INLINE cell Called(int index, Plugin &p, cell fallback, Call call)
@@ -4849,8 +4852,27 @@ static ALWAYS_INLINE cell Called(int index, Plugin &p, cell fallback, Call call)
 	// What this event settled - a timer, a response, a player leaving - may
 	// resume a coroutine; the answer to the game has already been given.
 	if (p.depth == 0 && p.wake)
-		DrainJobs(index);
+		TimedJobs(index);
 	return result;
+}
+
+/**
+ * A plugin's jobs (DrainJobs) - its promises' reactions and the async
+ * functions they resume - timed as Called times a call: they run after the
+ * call that woke them, outside its time, and hold the frame all the same.
+ */
+static void TimedJobs(int index)
+{
+	uint32_t started = g_clock.load(std::memory_order_relaxed);
+	uint32_t inner = g_innerMs;
+	DrainJobs(index);
+	uint32_t spent = g_clock.load(std::memory_order_relaxed) - started;
+	if (spent) {
+		uint32_t own = spent - (g_innerMs - inner);
+		g_innerMs = inner + spent;
+		if (own > g_slowMs)
+			Slow(index, own, "its async functions and promise reactions");
+	}
 }
 
 /** Whether `index` is a running plugin a handler of it can be called in. */
@@ -5836,7 +5858,7 @@ static bool LoadPlugin(int index)
 	if (wasm_runtime_lookup_function(inst, "__co_stack"))
 		p.stackTop = CoCall(p.env, "__co_stack");
 
-	DrainJobs(index);
+	TimedJobs(index);
 	return true;
 }
 
@@ -5869,7 +5891,7 @@ static void InitPlugin(int index)
 	LeftMessage(index);
 
 	g_currentPlugin = previous;
-	DrainJobs(index);
+	TimedJobs(index);
 }
 
 /** Whether `name` ends in `ending`. */
@@ -6273,10 +6295,22 @@ static void ReloadSome(const std::vector<int> &plugins)
 	else
 		MF_PrintSrvConsole("[amxts] reloading %s, and what uses %s: %s\n", Names(owners).c_str(),
 		                   owners.size() == 1 ? "its module" : "their modules", Names(dependents).c_str());
+	// The reload holds the frame from its end listeners to its start ones: past
+	// amxts_slow_ms, the console and the log say how long, and where.
+	uint32_t began = g_clock.load(std::memory_order_relaxed);
 	FireEnd(group);
+	uint32_t ended = g_clock.load(std::memory_order_relaxed);
 	for (size_t i = group.size(); i-- > 0;)
 		ReleasePlugin(group[i]);
+	uint32_t released = g_clock.load(std::memory_order_relaxed);
 	StartPlugins(group);
+	uint32_t started = g_clock.load(std::memory_order_relaxed);
+	if (started - began > g_slowMs) {
+		MF_PrintSrvConsole("[amxts] reloading %s held the frame %u ms: end %u, release %u, load and start %u\n",
+		                   Names(group).c_str(), started - began, ended - began, released - ended, started - released);
+		MF_Log("reloading %s held the frame %u ms: end %u, release %u, load and start %u",
+		       Names(group).c_str(), started - began, ended - began, released - ended, started - released);
+	}
 }
 
 /** amxts_reload <plugin>: starts it over from disk, and the plugins that call its module after it. */
@@ -8877,18 +8911,20 @@ static const char *PointName(const HookPoint *point)
  * A call of the plugin at `index` held the frame `ms` milliseconds of its
  * own, past amxts_slow_ms: the console and AMX Mod X's log name the plugin,
  * the event and the time - at most once in SLOW_QUIET seconds a plugin and
- * event, with how many more there were meanwhile.
+ * event, with how many more there were meanwhile. `named` says what held it
+ * where the event being fired does not: its async functions.
  */
-static void Slow(int index, uint32_t ms)
+static void Slow(int index, uint32_t ms, const char *named)
 {
 	if (index < 0 || (size_t)index >= g_plugins.size())
 		return;
 	Plugin &p = g_plugins[index];
 	double now = g_clock.load(std::memory_order_relaxed) / 1000.0;
-	std::string what = g_firing == FIRING_COMMAND ? std::string("the command ") + CMD_ARGV(0)
+	std::string what = named ? std::string(named)
+		: g_firing == FIRING_COMMAND ? std::string("the command ") + CMD_ARGV(0)
 		: g_firing == FIRING_TIMER ? std::string(FIRING_TIMER)
 		: g_firing ? std::string("a listener of ") + g_firing : "a call";
-	if (g_call->chain) {
+	if (!named && g_call->chain) {
 		const char *point = PointName(&g_call->chain->point);
 		what = std::string("a listener of ") + (point ? point : "a game event");
 	}

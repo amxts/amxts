@@ -3,6 +3,7 @@
 // and a plugin slow on every call is said once in a while, not every time.
 // @log [amxts] slow.aot: a timer held the frame
 // @log [amxts] slow.aot: the command amxts_slow_busy held the frame
+// @log [amxts] slow.aot: its async functions and promise reactions held the frame
 import { server_exec } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
@@ -19,6 +20,11 @@ function busy(ms: number) {
 	busyRuns++;
 }
 
+async function wakeBusy() {
+	await sleep(10);
+	busy(30);
+}
+
 function slow() {
 	const check = new Checks("slow");
 	check.expect(slowMs.number, "amxts_slow_ms is 5 unless the server says otherwise").toBe(5);
@@ -31,8 +37,11 @@ function slow() {
 		server_exec();
 		for (let i = 0; i < 3; i++) setTimeout(() => busy(10), 50 * i);
 	}, 400);
+	// An async function, held after its await: it runs after the timer that
+	// woke it, outside the timer's time, and is said all the same.
+	setTimeout(() => wakeBusy(), 600);
 	setTimeout(() => {
-		check.expect(busyRuns, "every slow call ran").toBe(5);
+		check.expect(busyRuns, "every slow call ran").toBe(6);
 		check.done();
 	}, 1000);
 }
