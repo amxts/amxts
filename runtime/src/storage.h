@@ -25,6 +25,8 @@ struct Store {
 
 static std::deque<Store> g_stores;
 static float g_storesFlushed = 0;
+// The process is exiting (AtExit): a store that cannot be written is not said - AMX Mod X may be gone.
+static bool g_storesQuiet = false;
 
 /** AMX Mod X's data folder and `sub` in it, a full path. */
 static std::string DataPath(const char *sub)
@@ -241,7 +243,9 @@ static void SaveStore(Store &store)
 	out += "\n}\n";
 
 	// The folders on the way, each named whole: a path through one not made yet does not resolve.
-	std::string parent = DataPath("amxts"), folder = StoreFolder();
+	// They are the store's path's own, so a write asks AMX Mod X nothing (AtExit writes after it is gone).
+	std::string folder = store.path.substr(0, store.path.find_last_of("/\\"));
+	std::string parent = folder.substr(0, folder.find_last_of("/\\"));
 #ifdef _WIN32
 	CreateDirectoryA(parent.c_str(), NULL);
 	CreateDirectoryA(folder.c_str(), NULL);
@@ -254,7 +258,8 @@ static void SaveStore(Store &store)
 	if (!file || fwrite(out.data(), 1, out.size(), file) != out.size()) {
 		if (file)
 			fclose(file);
-		MF_PrintSrvConsole("[amxts] storage %s: %s cannot be written\n", store.name.c_str(), store.path.c_str());
+		if (!g_storesQuiet)
+			MF_PrintSrvConsole("[amxts] storage %s: %s cannot be written\n", store.name.c_str(), store.path.c_str());
 		return;
 	}
 	fclose(file);

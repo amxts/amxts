@@ -8909,6 +8909,7 @@ static void AtExit()
 	if (g_detached)
 		return;
 	g_detached = true;
+	g_storesQuiet = true;
 	FlushStores(true);
 #ifdef _WIN32
 	if (g_loader.joinable())
