@@ -3883,17 +3883,22 @@ export function __playbackBlock(): void {
 // @ts-ignore: decorator
 @external("env", "sound_to") declare function _soundTo(ids: usize, count: i32): void;
 
-/** @hidden startSound's `recipients`: the module plays the sound to these players alone. */
-export function __soundTo(players: Player[]): void {
+/** The players' ids, as the module reads a `recipients`. */
+function recipientIds(players: Player[]): StaticArray<i32> {
 	const ids = new StaticArray<i32>(players.length);
 	for (let i = 0; i < players.length; i++) unchecked(ids[i] = <i32>players[i].id);
+	return ids;
+}
+
+/** @hidden startSound's `recipients`: the module plays the sound to these players alone. */
+export function __soundTo(players: Player[]): void {
+	const ids = recipientIds(players);
 	_soundTo(changetype<usize>(ids), ids.length);
 }
 
 /** @hidden playbackEvent's `recipients`: the module plays the event to these players alone. */
 export function __playbackTo(players: Player[]): void {
-	const ids = new StaticArray<i32>(players.length);
-	for (let i = 0; i < players.length; i++) unchecked(ids[i] = <i32>players[i].id);
+	const ids = recipientIds(players);
 	_playbackTo(changetype<usize>(ids), ids.length);
 }
 
@@ -4020,6 +4025,17 @@ export class ClientMessage {
 		handled();
 	}
 
+	/**
+	 * Sends the message only to these of the players it would reach, a copy
+	 * each - `event.recipients = players.filter(...)`; the others do not get it.
+	 *
+	 * Pawn: `message_begin(MSG_ONE, ...)` for each player
+	 */
+	set recipients(players: Player[]) {
+		const ids = recipientIds(players);
+		_msgTo(changetype<usize>(ids), ids.length);
+	}
+
 	// A field reads an argument by its number, 1 for the first. One the
 	// message did not write - StatusIcon's colour when it hides the icon, a
 	// game text without words to put in - reads as 0 or "", and writing it
@@ -4099,6 +4115,41 @@ export class ClientMessage {
 	protected __setBit(arg: i32, bit: i32, on: bool): void {
 		const mask = <i32>this.__number(arg);
 		this.__setNumber(arg, on ? mask | bit : mask & ~bit);
+	}
+}
+
+/**
+ * A temporary effect the game sends - a decal on a wall, a spray, a spark,
+ * a beam - heard before it leaves:
+ *
+ * ```ts
+ * server.addMessageListener("tempEntity", (event) => {
+ *   const maker = event.source?.owner ?? 0; // a spray can's player
+ *   if (maker != 0) event.recipients = server.players.filter(p => p.id == maker || !hidesOthers.has(p.id));
+ * });
+ * ```
+ *
+ * `type` is the effect's `TE_*` number; the rest of its arguments are read
+ * by place, through `event.args`, the first after the type at `1`.
+ *
+ * Pawn: `register_message(SVC_TEMPENTITY, ...)`
+ */
+export class TempEntityMessage extends ClientMessage {
+	private readonly kind: string = "SVC_TEMPENTITY";
+
+	/** The effect, by its `TE_*` number: `TE_DECAL`, `TE_PLAYERDECAL`, `TE_SPARKS`, ... */
+	get type(): number {
+		return this.__number(1);
+	}
+
+	/**
+	 * The effect's maker: the entity whose think is running - a spray's
+	 * decal is the spray can's, whose `owner` is the player - else the
+	 * player whose command is running; `null` when neither.
+	 */
+	get source(): Entity | null {
+		const id = _effectSource();
+		return id <= 0 ? null : id <= get_maxplayers() ? __playerOf(id) : new Entity(id);
 	}
 }
 
@@ -4375,7 +4426,7 @@ function stopListeningToMessage<E>(name: string, listener: (event: E) => void): 
 }
 
 function registerMessage(channel: MessageChannel): void {
-	const id = get_user_msgid(channel.name);
+	const id = channel.name == "SVC_TEMPENTITY" ? SVC_TEMPENTITY : get_user_msgid(channel.name);
 
 	if (id == 0) {
 		console.error(`${channel.name} - the game has no message by that name`);
@@ -6224,7 +6275,7 @@ import {
 	NATIVE_server_cmd, NATIVE_client_cmd, NATIVE_CreateMultiForward, NATIVE_ExecuteForward, get_gametime, get_mapname,
 	client_print
 } from "./natives";
-import { ET_IGNORE, ET_STOP, FP_ARRAY, FP_CELL, FP_FLOAT, FP_STRING } from "./constants";
+import { ET_IGNORE, ET_STOP, FP_ARRAY, FP_CELL, FP_FLOAT, FP_STRING, SVC_TEMPENTITY } from "./constants";
 import { ROUND_NONE, ROUND_CTS_WIN, ROUND_TERRORISTS_WIN, ROUND_END_DRAW, RG_RoundEnd, print_center } from "./constants";
 import { PluginInitEvent, PluginPrecacheEvent, ServerEventMap, ServerMessageMap, ServerSendMap, __sendMessage, addServerListener, protocolMessageNames, removeServerListener } from "./events";
 
@@ -7271,6 +7322,10 @@ export function __setField<T>(call: Call, kind: i32, value: T, element: number, 
 @external("env", "msg_set_number") declare function _msgSetNumber(index: i32, value: f64): void;
 // @ts-ignore: decorator
 @external("env", "msg_set_text")   declare function _msgSetText(index: i32, text: string): void;
+// @ts-ignore: decorator
+@external("env", "msg_to")         declare function _msgTo(ids: usize, count: i32): void;
+// @ts-ignore: decorator
+@external("env", "effect_source")  declare function _effectSource(): i32;
 // @ts-ignore: decorator
 @external("env", "log_hook")       declare function _logHook(argc: i32, filter: string, fn: i32): i32;
 // @ts-ignore: decorator

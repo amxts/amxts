@@ -436,6 +436,12 @@ export const MESSAGES: Record<string, EventDoc> = {
 	},
 };
 
+/** The words of `tempEntity`, the engine's own message rather than the game's. */
+export const TEMP_ENTITY: Text = {
+	en: `A temporary effect the server sends - a decal on a wall, a spray, a spark, a beam: \`type\` is its \`TE_*\` number, \`source\` what made it, and the rest of its arguments are read by place, through \`event.args\`. The engine's \`SVC_TEMPENTITY\` message.`,
+	ru: `Временный эффект, который шлёт сервер, — след на стене, спрей, искра, луч: \`type\` — его номер \`TE_*\`, \`source\` — что его создало, остальные аргументы читаются по месту, через \`event.args\`. Сообщение движка \`SVC_TEMPENTITY\`.`,
+};
+
 /** Names in code, joined as a sentence lists them: `A`, `B` and `C`. */
 function listed(names: string[], and: string) {
 	const quoted = names.map(name => `\`${name}\``);

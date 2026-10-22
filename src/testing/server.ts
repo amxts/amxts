@@ -308,8 +308,12 @@ const ARG_COORD = 6;
 const ARG_STRING = 7;
 
 // A message's destination, as the module hands it to a message's hook.
+const MSG_BROADCAST = 0;
 const MSG_ONE = 1;
 const MSG_ALL = 2;
+const MSG_ONE_UNRELIABLE = 8;
+// The engine's temporary entity, which has no name get_user_msgid hands out.
+const SVC_TEMPENTITY = 23;
 
 // The functions stock_hook takes, by number (STOCK_* in as/facade.ts), and
 // the fakemeta function each is.
@@ -959,6 +963,10 @@ export class FakeServer {
 	readonly moduleMessageHooks = new Map<number, Slot[]>();
 	/** The message register_message's callbacks are reading and writing: its arguments and their ARG_* types. @internal */
 	hookedMessage: { args: (number | string)[]; types: number[] } | null = null;
+	/** What made the effect being heard, as effect_source answers: an entity's id, 0 none. @internal */
+	effectSource = 0;
+	/** The players the heard message's listeners chose (msg_to), `null` for all it reaches. @internal */
+	messageTo: number[] | null = null;
 	/** register_touch's callbacks. */
 	readonly touches: { touched: string; toucher: string; slot: Slot }[] = [];
 	/** The entityState listeners' hooks: the class each is about, "" any. */
@@ -1602,15 +1610,17 @@ export class FakeServer {
 	 * gives each argument's ARG_*.
 	 * Returns whether a callback stopped it, and the arguments as they left.
 	 */
-	sendMessage(name: string, args: (number | string)[], options: { player?: FakePlayer; types?: number[] } = {}): { prevented: boolean; args: (number | string)[] } {
-		const id = this.messageIds.get(name);
+	sendMessage(name: string, args: (number | string)[], options: { player?: FakePlayer; types?: number[]; dest?: number } = {}): { prevented: boolean; args: (number | string)[]; recipients: number[] | null } {
+		const id = this.messageIds.get(name) ?? (name === 'SVC_TEMPENTITY' ? SVC_TEMPENTITY : undefined);
 		const message = {
 			args: [...args],
 			types: options.types ?? args.map(a => typeof a === 'string' ? ARG_STRING : Number.isInteger(a) ? ARG_BYTE : ARG_COORD),
 		};
 		const receiver = options.player?.id ?? 0;
 		const previous = this.hookedMessage;
+		const previousTo = this.messageTo;
 		this.hookedMessage = message;
+		this.messageTo = null;
 		try {
 			let prevented = false;
 			for (const slot of [...(id !== undefined ? this.messageHooks.get(id) ?? [] : [])]) {
@@ -1619,7 +1629,7 @@ export class FakeServer {
 			}
 			// The module's hooks: the receiver, the id, the destination; any answer blocks it.
 			for (const slot of [...(id !== undefined ? this.moduleMessageHooks.get(id) ?? [] : [])]) {
-				const handed = [receiver, id ?? 0, receiver ? MSG_ONE : MSG_ALL, 0];
+				const handed = [receiver, id ?? 0, options.dest ?? (receiver ? MSG_ONE : MSG_ALL), 0];
 				if (this.withCallArgs(handed, () => this.call(slot, handed, 0)) !== 0) prevented = true;
 			}
 			// register_event's callbacks hear it once it is sent, when its conditions hold.
@@ -1630,9 +1640,40 @@ export class FakeServer {
 			for (const { slot } of this.messageEvents.filter(one => one.name === name && one.conditions.every(holds))) {
 				if (!prevented) this.withCallArgs([receiver], () => this.call(slot, [receiver, 0, 0, 0], 0));
 			}
-			return { prevented, args: message.args };
+			return { prevented, args: message.args, recipients: this.messageTo };
 		} finally {
 			this.hookedMessage = previous;
+			this.messageTo = previousTo;
+		}
+	}
+
+	/**
+	 * Sends a temporary entity the way the game would - a spray's decal, a
+	 * spark - through the listeners of `tempEntity`, with `source` as what made
+	 * it (`event.source`): the entity whose think made it, or the player whose
+	 * command did.
+	 *
+	 * ```ts
+	 * const sent = server.sendTempEntity([TE_DECAL, 10, 20, 30, 5], { source: can });
+	 * sent.players;   // [1, 3]: who got it - all but the players a listener left out of `recipients`
+	 * ```
+	 *
+	 * `args` start with the effect's `TE_*` number; a whole number is written
+	 * as a byte, a fraction as a coordinate, unless `types` gives each
+	 * argument's ARG_*. It goes to every player, or to `player` alone. Returns
+	 * whether a listener stopped it, the arguments as they left, and the ids of
+	 * the players who got it.
+	 */
+	sendTempEntity(args: number[], options: { source?: FakeEntity | number; player?: FakePlayer; types?: number[] } = {}): { prevented: boolean; args: (number | string)[]; players: number[] } {
+		const previous = this.effectSource;
+		this.effectSource = typeof options.source === 'number' ? options.source : options.source?.id ?? 0;
+		try {
+			const sent = this.sendMessage('SVC_TEMPENTITY', args, { player: options.player, types: options.types, dest: options.player ? MSG_ONE_UNRELIABLE : MSG_BROADCAST });
+			const reached = options.player ? [options.player.id] : this.players.map(player => player.id);
+			const players = sent.prevented ? [] : reached.filter(id => !sent.recipients || sent.recipients.includes(id));
+			return { prevented: sent.prevented, args: sent.args, players };
+		} finally {
+			this.effectSource = previous;
 		}
 	}
 
@@ -3259,6 +3300,14 @@ export class FakeServer {
 		msg_set_text(this: FakeServer, plugin: PluginInstance, index: number, text: number) {
 			const message = this.hookedMessage;
 			if (message?.types[index] === ARG_STRING) message.args[index] = plugin.memory.string(text);
+		},
+
+		msg_to(this: FakeServer, plugin: PluginInstance, ids: number, count: number) {
+			if (this.hookedMessage) this.messageTo = Array.from({ length: count }, (_, i) => plugin.memory.cell(ids + i * 4));
+		},
+
+		effect_source(this: FakeServer, _plugin: PluginInstance) {
+			return this.effectSource;
 		},
 
 		log_hook(this: FakeServer, plugin: PluginInstance, argc: number, filter: number, fn: number) {

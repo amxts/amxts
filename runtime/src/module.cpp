@@ -8109,6 +8109,7 @@ void ServerActivate_Post(edict_t *edicts, int count, int clients)
 	if (g_pengfuncsTable)
 		g_pengfuncsTable->pfnAlertMessage = AlertMessage;
 	MessageHooks(g_messagesHooked > 0);
+	SourceHooks(g_sourcesHooked);
 
 	g_configTick = gpGlobals->time;
 	g_configsDue = gpGlobals->time + 6.1f;

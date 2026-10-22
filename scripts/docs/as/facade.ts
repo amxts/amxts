@@ -1732,6 +1732,71 @@ export default {
 			Pawn: \`return PLUGIN_HANDLED\`
 		`,
 	},
+	'ClientMessage.recipients': {
+		en: `
+			Sends the message only to these of the players it would reach, a copy
+			each - \`event.recipients = players.filter(...)\`; the others do not get it.
+
+			Pawn: \`message_begin(MSG_ONE, ...)\` for each player
+		`,
+		ru: `
+			Отправляет сообщение только этим игрокам из тех, до кого оно дошло бы, —
+			каждому копию: \`event.recipients = players.filter(...)\`; остальные его не
+			получат.
+
+			Pawn: \`message_begin(MSG_ONE, ...)\` для каждого игрока
+		`,
+	},
+	'TempEntityMessage': {
+		en: `
+			A temporary effect the game sends - a decal on a wall, a spray, a spark,
+			a beam - heard before it leaves:
+
+			\`\`\`ts
+			server.addMessageListener("tempEntity", (event) => {
+			  const maker = event.source?.owner ?? 0; // a spray can's player
+			  if (maker != 0) event.recipients = server.players.filter(p => p.id == maker || !hidesOthers.has(p.id));
+			});
+			\`\`\`
+
+			\`type\` is the effect's \`TE_*\` number; the rest of its arguments are read
+			by place, through \`event.args\`, the first after the type at \`1\`.
+
+			Pawn: \`register_message(SVC_TEMPENTITY, ...)\`
+		`,
+		ru: `
+			Временный эффект, который шлёт игра, — след на стене, спрей, искра, луч, —
+			услышанный до того, как ушёл:
+
+			\`\`\`ts
+			server.addMessageListener("tempEntity", (event) => {
+			  const maker = event.source?.owner ?? 0; // игрок банки спрея
+			  if (maker != 0) event.recipients = server.players.filter(p => p.id == maker || !hidesOthers.has(p.id));
+			});
+			\`\`\`
+
+			\`type\` — номер эффекта \`TE_*\`; остальные аргументы читаются по месту,
+			через \`event.args\`, первый после типа — на месте \`1\`.
+
+			Pawn: \`register_message(SVC_TEMPENTITY, ...)\`
+		`,
+	},
+	'TempEntityMessage.type': {
+		en: `The effect, by its \`TE_*\` number: \`TE_DECAL\`, \`TE_PLAYERDECAL\`, \`TE_SPARKS\`, ...`,
+		ru: `Эффект по его номеру \`TE_*\`: \`TE_DECAL\`, \`TE_PLAYERDECAL\`, \`TE_SPARKS\`, ...`,
+	},
+	'TempEntityMessage.source': {
+		en: `
+			The effect's maker: the entity whose think is running - a spray's
+			decal is the spray can's, whose \`owner\` is the player - else the
+			player whose command is running; \`null\` when neither.
+		`,
+		ru: `
+			Создатель эффекта: сущность, чей think сейчас идёт, — след спрея
+			принадлежит банке спрея, чей \`owner\` — игрок, — иначе игрок, чья команда
+			сейчас идёт; \`null\`, если ни то ни другое.
+		`,
+	},
 	'Resource': {
 		en: `
 			A file the game has precached - a sprite, a model, a sound - as

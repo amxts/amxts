@@ -74,10 +74,15 @@ struct HeldMessage {
 	// The module sends it: no Pawn plugin holds it.
 	bool                    sent = true;
 	bool                    changed = false;
+	// The players a listener chose (recipients), by id: a copy goes to each
+	// of them the message would reach, and to nobody else.
+	bool                    chosen = false;
+	bool                    to[CLIENT_SLOTS];
 };
 
 static int g_messagesHooked = 0;
 static void MessagesAttach(bool on);
+static void TempEntitiesAttach(bool on);
 static void MessageHooks(bool on);
 
 static HookPoint   g_messagePoints[MESSAGE_TYPES];
@@ -98,7 +103,7 @@ static int32_t w_msg_hook(wasm_exec_env_t env, int32_t id, int32_t fn)
 		TakeTag();
 		return 0;
 	}
-	g_messagePoints[id].attach = MessagesAttach;
+	g_messagePoints[id].attach = id == SVC_TEMPENTITY ? TempEntitiesAttach : MessagesAttach;
 	return AddOtherHook(g_messagePoints[id], fn, 0);
 }
 
@@ -153,6 +158,21 @@ static void w_msg_set_number(wasm_exec_env_t env, int32_t index, double value)
 	g_message->changed = true;
 }
 
+/** msg_to(ids, count) - the players the message heard goes to (event.recipients), of those it would reach. */
+static void w_msg_to(wasm_exec_env_t env, int32_t ids, int32_t count)
+{
+	wasm_module_inst_t inst = Inst(env);
+	if (!g_message || count < 0 || (count > 0 && !wasm_runtime_validate_app_addr(inst, (uint64_t)ids, (uint64_t)count * 4)))
+		return;
+	const int32_t *id = count > 0 ? (const int32_t *)wasm_runtime_addr_app_to_native(inst, (uint64_t)ids) : NULL;
+	memset(g_message->to, 0, sizeof(g_message->to));
+	for (int32_t i = 0; i < count; i++)
+		if (id[i] > 0 && id[i] < CLIENT_SLOTS)
+			g_message->to[id[i]] = true;
+	g_message->chosen = true;
+	g_message->changed = true;
+}
+
 /** msg_set_text(index, text) - a text argument written. */
 static void w_msg_set_text(wasm_exec_env_t env, int32_t index, int32_t text)
 {
@@ -161,6 +181,13 @@ static void w_msg_set_text(wasm_exec_env_t env, int32_t index, int32_t text)
 		return;
 	arg->text = AsString(Inst(env), text);
 	g_message->changed = true;
+}
+
+/** A message's name for the console: the game's, or the engine's own temporary entity's. */
+static const char *MessageName(int type)
+{
+	const char *name = type == SVC_TEMPENTITY ? "SVC_TEMPENTITY" : GET_USER_MSG_NAME(PLID, type, NULL);
+	return name ? name : "?";
 }
 
 /** The message's listeners, with its receiver, its id and its destination as the call's cells; whether one blocked it. */
@@ -184,18 +211,18 @@ static bool HearMessage(HeldMessage &m)
 	if (!m.sent && (!go || m.changed)) {
 		static bool said[MESSAGE_TYPES];
 		if (!said[m.type])
-			MF_PrintSrvConsole("[amxts] a Pawn plugin hooks the message %s too (register_message): it goes out as that plugin leaves it, and a TypeScript listener's change or preventDefault() of it is not sent\n",
-			                   GET_USER_MSG_NAME(PLID, m.type, NULL) ? GET_USER_MSG_NAME(PLID, m.type, NULL) : "?");
+			MF_PrintSrvConsole("[amxts] a Pawn plugin hooks the message %s too (register_message): it goes out as that plugin leaves it, and a TypeScript listener's change, recipients or preventDefault() of it is not sent\n",
+			                   MessageName(m.type));
 		said[m.type] = true;
 	}
 	return !go;
 }
 
-/** A held message sent through the engine's own functions, which no Metamod plugin hears. */
-static void SendHeld(const HeldMessage &m)
+/** A held message sent through the engine's own functions, which no Metamod plugin hears: to `dest` and `ed`, as the game wrote it or a copy to one player. */
+static void SendHeld(const HeldMessage &m, int dest, edict_t *ed)
 {
 	g_sending = true;
-	g_engfuncs.pfnMessageBegin(m.dest, m.type, m.hasOrigin ? m.origin : NULL, m.ed);
+	g_engfuncs.pfnMessageBegin(dest, m.type, m.hasOrigin ? m.origin : NULL, ed);
 	for (const MessageArg &arg : m.args) {
 		switch (arg.type) {
 		case MESSAGE_BYTE:   g_engfuncs.pfnWriteByte(arg.number); break;
@@ -210,6 +237,49 @@ static void SendHeld(const HeldMessage &m)
 	}
 	g_engfuncs.pfnMessageEnd();
 	g_sending = false;
+}
+
+/** The trace's words for the copies sent to the chosen players - ` to 2 players "a" "b"` - by their ids; "" for -1, none sent so. */
+static std::string TracedTo(const int *sent, int count)
+{
+	std::string to = count < 0 ? "" : " to " + std::to_string(count) + (count == 1 ? " player" : " players");
+	for (int i = 0; i < count; i++)
+		to += std::string(" \"") + STRING(INDEXENT(sent[i])->v.netname) + "\"";
+	return to;
+}
+
+/**
+ * A held message to the chosen players alone: a copy to each of them it would
+ * reach - everyone in the game for a broadcast, the one player for a message
+ * to one, those whose PVS or PAS holds the origin, as the engine checks it -
+ * reliable for a reliable message, unreliable else. The engine's init string
+ * and its proxies' messages go as they are (-1). The ids it went to are
+ * written into `sent`; how many.
+ */
+static int SendChosen(const HeldMessage &m, int *sent)
+{
+	if (m.dest == MSG_INIT || m.dest == MSG_SPEC) {
+		SendHeld(m, m.dest, m.ed);
+		return -1;
+	}
+	bool one = m.dest == MSG_ONE || m.dest == MSG_ONE_UNRELIABLE;
+	bool reliable = m.dest == MSG_ALL || m.dest == MSG_ONE || m.dest == MSG_PVS_R || m.dest == MSG_PAS_R;
+	float origin[3] = { m.origin[0], m.origin[1], m.origin[2] };
+	unsigned char *set = !m.hasOrigin ? NULL
+		: m.dest == MSG_PVS || m.dest == MSG_PVS_R ? g_engfuncs.pfnSetFatPVS(origin)
+		: m.dest == MSG_PAS || m.dest == MSG_PAS_R ? g_engfuncs.pfnSetFatPAS(origin)
+		: NULL;
+	int count = 0;
+	for (int id = 1; id < CLIENT_SLOTS && id <= gpGlobals->maxClients; id++) {
+		if (!m.to[id] || !InGame(id))
+			continue;
+		edict_t *e = INDEXENT(id);
+		if ((one && e != m.ed) || (set && !(e->v.flags & FL_PROXY) && !g_engfuncs.pfnCheckVisibility(e, set)))
+			continue;
+		SendHeld(m, reliable ? MSG_ONE : MSG_ONE_UNRELIABLE, e);
+		sent[count++] = id;
+	}
+	return count;
 }
 
 void MessageBegin(int dest, int type, const float *origin, edict_t *ed)
@@ -238,6 +308,7 @@ void MessageBegin(int dest, int type, const float *origin, edict_t *ed)
 	g_held.args.clear();
 	g_held.sent = META_RESULT_STATUS < MRES_SUPERCEDE;
 	g_held.changed = false;
+	g_held.chosen = false;
 	RETURN_META(g_held.sent ? MRES_SUPERCEDE : MRES_IGNORED);
 }
 
@@ -283,14 +354,18 @@ void MessageEnd()
 	HeldMessage message;
 	std::swap(message, g_held);
 	bool blocked = HearMessage(message);
+	int sent[CLIENT_SLOTS];
+	int count = -1;
 	if (message.sent && !blocked) {
 		MenuMessage(message.type, message.ed);
-		SendHeld(message);
+		if (message.chosen)
+			count = SendChosen(message, sent);
+		else
+			SendHeld(message, message.dest, message.ed);
 	}
 	if (g_trace) {
-		const char *name = GET_USER_MSG_NAME(PLID, message.type, NULL);
-		MF_PrintSrvConsole("[amxts] TRACE message %s %s\n", name ? name : "?",
-		                   !message.sent ? "heard" : blocked ? "blocked" : message.changed ? "sent changed" : "sent");
+		MF_PrintSrvConsole("[amxts] TRACE message %s %s%s\n", MessageName(message.type),
+		                   !message.sent ? "heard" : blocked ? "blocked" : message.changed ? "sent changed" : "sent", TracedTo(sent, count).c_str());
 	}
 	if (!g_messagesHooked)
 		MessageHooks(false);
@@ -323,6 +398,84 @@ static void MessagesAttach(bool on)
 	g_messagesHooked += on ? 1 : -1;
 	if (g_messagesHooked == (on ? 1 : 0))
 		MessageHooks(on);
+}
+
+// ---------------------------------------------------------------- what made a temporary entity
+
+// A temporary entity names nothing that made it - a spray's decal is the
+// spray can's think - so its listeners are told the entity whose think is
+// running, else the player whose command is. The module keeps both while a
+// temporary entity is listened to; its hooks of them are out of Metamod's
+// tables while none is, as every entity's think of every frame passes there.
+extern DLL_FUNCTIONS *g_pFunctionTable;
+extern DLL_FUNCTIONS *g_pFunctionTable_Post;
+
+// The thinks running, the innermost last: a think may make another think.
+#define THINKS_KEPT 8
+static edict_t *g_thinking[THINKS_KEPT];
+static int      g_thinks = 0;
+// The player whose command is running, between CmdStart and CmdEnd.
+static edict_t *g_commanding = NULL;
+static bool     g_sourcesHooked = false;
+
+static void DispatchThink_Source(edict_t *e)
+{
+	if (g_thinks < THINKS_KEPT)
+		g_thinking[g_thinks] = e;
+	g_thinks++;
+	// The module's own hook, which answers Metamod for this one.
+	DispatchThink(e);
+}
+
+static void DispatchThink_SourcePost(edict_t *e)
+{
+	(void)e;
+	if (g_thinks > 0)
+		g_thinks--;
+	RETURN_META(MRES_IGNORED);
+}
+
+static void CmdStart_Source(const edict_t *player, const struct usercmd_s *cmd, unsigned int seed)
+{
+	(void)cmd;
+	(void)seed;
+	g_commanding = (edict_t *)player;
+	RETURN_META(MRES_IGNORED);
+}
+
+static void CmdEnd_SourcePost(const edict_t *player)
+{
+	(void)player;
+	g_commanding = NULL;
+	RETURN_META(MRES_IGNORED);
+}
+
+/** The hooks that keep a temporary entity's source, in Metamod's tables or out of them; either way from nothing running. */
+static void SourceHooks(bool on)
+{
+	g_thinks = 0;
+	g_commanding = NULL;
+	if (!g_pFunctionTable || !g_pFunctionTable_Post)
+		return;
+	g_pFunctionTable->pfnThink = on ? DispatchThink_Source : DispatchThink;
+	g_pFunctionTable_Post->pfnThink = on ? DispatchThink_SourcePost : NULL;
+	g_pFunctionTable->pfnCmdStart = on ? CmdStart_Source : NULL;
+	g_pFunctionTable_Post->pfnCmdEnd = on ? CmdEnd_SourcePost : NULL;
+}
+
+static void TempEntitiesAttach(bool on)
+{
+	MessagesAttach(on);
+	g_sourcesHooked = on;
+	SourceHooks(on);
+}
+
+/** effect_source() - what made the temporary entity heard: the entity whose think is running, else the player whose command is; 0 for neither. */
+static int32_t w_effect_source(wasm_exec_env_t env)
+{
+	(void)env;
+	edict_t *e = g_thinks == 0 ? g_commanding : g_thinks <= THINKS_KEPT ? g_thinking[g_thinks - 1] : NULL;
+	return e && !e->free ? (int32_t)ENTINDEX(e) : 0;
 }
 
 // ---------------------------------------------------------------- the facade's messages
@@ -1131,6 +1284,8 @@ static void ForgetOtherPoints()
 	{ "msg_text",       (void *)w_msg_text,       "(iii)i",  NULL }, \
 	{ "msg_set_number", (void *)w_msg_set_number, "(iF)",    NULL }, \
 	{ "msg_set_text",   (void *)w_msg_set_text,   "(ii)",    NULL }, \
+	{ "msg_to",         (void *)w_msg_to,         "(ii)",    NULL }, \
+	{ "effect_source",  (void *)w_effect_source,  "()i",     NULL }, \
 	{ "log_hook",       (void *)w_log_hook,       "(iii)i",  NULL }, \
 	{ "log_text",       (void *)w_logText,        "(iii)i",  NULL }, \
 	{ "log_count",      (void *)w_logCount,       "()i",     NULL }, \
