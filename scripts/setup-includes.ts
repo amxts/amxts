@@ -2,7 +2,7 @@
 // The third-party includes the API is generated from, fetched into
 // includes/vendor/ - they are not kept in the repository:
 //
-//   bun run setup            (also the first step of `bun run generate`)
+//   npm run setup            (also the first step of `npm run generate`)
 //
 // includes/sources.json pins each one: the release, its URL and the sha256
 // of what that URL gives. A download that does not match stops here - a

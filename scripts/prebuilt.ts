@@ -12,7 +12,7 @@
 // the same terms as the .aot, but for what only the machine code depends on:
 // the system and the forwards' declarations.
 //
-//   bun scripts/prebuilt.ts      in a project: compile every module it lists
+//   node --import ./scripts/node-ts.mjs scripts/prebuilt.ts      in a project: compile every module it lists
 //                                into the module's prebuilt/, for every
 //                                system (scripts/publish.ts runs it on the
 //                                packages it stages)

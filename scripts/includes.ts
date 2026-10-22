@@ -4,7 +4,7 @@
  * standard set; the core's includes/ carries its own - order.txt and the
  * contracts of the Pawn plugins the official modules stand in for - and
  * includes/vendor/ the third-party ones the API is generated from (ReAPI and
- * the rehlds constants, resemiclip), which `bun run setup` fetches
+ * the rehlds constants, resemiclip), which `npm run setup` fetches
  * as includes/sources.json pins them.
  *
  * A project looks in its own folders first: its includes/ (the includes of
@@ -26,7 +26,7 @@ import { existsSync, readdirSync, readFileSync } from './tracked-fs';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
-/** The third-party includes the core generates the API from: `bun run setup` fetches them. */
+/** The third-party includes the core generates the API from: `npm run setup` fetches them. */
 export const VENDOR = join(CORE, 'includes', 'vendor');
 
 function same(a: string, b: string): boolean {

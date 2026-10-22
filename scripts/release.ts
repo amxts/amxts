@@ -1,10 +1,10 @@
 // A release: one GitHub Release per tag, a draft until both systems' files
 // are on it.
 //
-//   bun run release:windows [--dry-run]   build the Windows files on Windows, attach them
-//   bun run release:linux   [--dry-run]   the same for Linux (CI on a tag; on Windows through Docker)
-//   bun run release:upload  [--dry-run]   attach what dist-release/ holds for the tag
-//   bun run release:publish [--dry-run]   check both are there, of one version, then publish
+//   npm run release:windows -- [--dry-run]   build the Windows files on Windows, attach them
+//   npm run release:linux   -- [--dry-run]   the same for Linux (CI on a tag; on Windows through Docker)
+//   npm run release:upload  -- [--dry-run]   attach what dist-release/ holds for the tag
+//   npm run release:publish -- [--dry-run]   check both are there, of one version, then publish
 //
 // Each system's build makes dist-release/<system>/: the module, wamrc (for
 // the npm package @amxts/wamrc-<system>), the server kit as one archive, and amxts-<system>.json - the version,
@@ -42,7 +42,7 @@ import { ABI_LOCK } from './build-identity';
 import { releaseNotes } from './changelog';
 import { manifestName, releaseProblems } from './release-check';
 import { releaseLine } from './release-line';
-import { executable, HOST_SYSTEM, modulePath, serverFiles, SYSTEM_NAME, wamrcPath } from './system';
+import { executable, HOST_SYSTEM, modulePath, NODE_TS, serverFiles, SYSTEM_NAME, wamrcPath } from './system';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const args = process.argv.slice(2);
@@ -67,7 +67,7 @@ function run(file: string, argv: string[], options: { cwd?: string; quiet?: bool
 		cwd: options.cwd ?? CORE,
 		encoding: 'utf-8',
 		stdio: options.quiet ? 'pipe' : ['ignore', 'inherit', 'inherit'],
-		// bun, npm and gh may be .cmd shims on Windows.
+		// npm and gh may be .cmd shims on Windows.
 		shell: process.platform === 'win32' && !/[\\/]/.test(file),
 		maxBuffer: 64 * 1024 * 1024,
 	});
@@ -97,7 +97,7 @@ function releaseTag(): string {
 	const lock = join(CORE, ABI_LOCK);
 	const locked = existsSync(lock) ? readFileSync(lock, 'utf8').split(/\r?\n/).find(line => line && !line.startsWith('#')) : undefined;
 	if (locked !== VERSION) {
-		const said = `${ABI_LOCK} is of ${locked ?? 'no release'}, this is ${VERSION}: run bun run abi:lock and commit it`;
+		const said = `${ABI_LOCK} is of ${locked ?? 'no release'}, this is ${VERSION}: run npm run abi:lock and commit it`;
 		if (!dryRun) throw new ReleaseError(said);
 		console.log(said);
 	}
@@ -106,7 +106,7 @@ function releaseTag(): string {
 
 function commitState(): { commit: string; dirty: boolean } {
 	const commit = run('git', ['rev-parse', 'HEAD'], { quiet: true }).trim();
-	// CI checks the tag out as it is; what it changes there is `bun run
+	// CI checks the tag out as it is; what it changes there is `npm run
 	// generate` writing the tooltips into the facade's files, which a fresh
 	// clone has no clean filter for - not an edit of the code.
 	if (process.env.GITHUB_ACTIONS === 'true') return { commit, dirty: false };
@@ -139,10 +139,10 @@ function buildWindows(): string[] {
 	if (HOST_SYSTEM !== 'windows') throw new ReleaseError('the Windows files are built on Windows (Visual Studio, cmake -A Win32)');
 	const notes: string[] = [];
 	step('the generated API');
-	run('bun', ['run', 'generate']);
+	run(process.execPath, ['--run', 'generate']);
 	// Before the module, which carries it.
 	step('the natives\' image');
-	run('bun', ['run', 'image']);
+	run(process.execPath, ['--run', 'image']);
 
 	step('amxts_amxx.dll');
 	ensureSdks();
@@ -163,19 +163,19 @@ function buildWindows(): string[] {
 	}
 
 	step('the server kit');
-	run('bun', ['scripts/pack-server.ts', '--os', 'windows']);
+	run(process.execPath, [...NODE_TS, 'scripts/pack-server.ts', '--os', 'windows']);
 	return notes;
 }
 
 function buildLinux(): string[] {
 	step('the generated API');
-	run('bun', ['run', 'generate']);
+	run(process.execPath, ['--run', 'generate']);
 	step('the natives\' image');
-	run('bun', ['run', 'image']);
+	run(process.execPath, ['--run', 'image']);
 	step('amxts_amxx_i386.so and wamrc (Docker)');
-	run('bun', ['scripts/build-linux.ts']);
+	run(process.execPath, [...NODE_TS, 'scripts/build-linux.ts']);
 	step('the server kit');
-	run('bun', ['scripts/pack-server.ts', '--os', 'linux']);
+	run(process.execPath, [...NODE_TS, 'scripts/pack-server.ts', '--os', 'linux']);
 	return [];
 }
 
@@ -207,7 +207,7 @@ function pack(system: System, tag: string): string[] {
 
 	// The kit as one archive: a zip for Windows, a tar.gz for Linux.
 	const kit = join(CORE, 'dist-server', system);
-	if (!existsSync(join(kit, 'addons'))) throw new ReleaseError(`${kit} is missing - bun run serverkit --os ${system}`);
+	if (!existsSync(join(kit, 'addons'))) throw new ReleaseError(`${kit} is missing - npm run serverkit -- --os ${system}`);
 	const archive = system === 'windows' ? `amxts-server-${system}-x64.zip` : `amxts-server-${system}-x64.tar.gz`;
 	// Windows' own tar (bsdtar) makes a zip; a GNU tar earlier on PATH would not.
 	const tar = HOST_SYSTEM === 'windows' ? join(process.env.SystemRoot ?? 'C:/Windows', 'System32', 'tar.exe') : 'tar';
@@ -259,7 +259,7 @@ function upload(tag: string, files: string[]): void {
 
 function createRelease(tag: string): void {
 	const changes = releaseNotes(CORE, VERSION);
-	if (changes === null && !dryRun) throw new ReleaseError(`CHANGELOG.md has no section v${VERSION}: bun run changelog, commit it, then tag again`);
+	if (changes === null && !dryRun) throw new ReleaseError(`CHANGELOG.md has no section v${VERSION}: npm run changelog, commit it, then tag again`);
 	const notes = [
 		changes ?? '(dry run: CHANGELOG.md has no section for this version yet)',
 		'',
@@ -289,7 +289,7 @@ function packed(tag: string): string[] {
 		console.log(`  ${system}: ${manifest.files.length} files, ${manifest.commit.slice(0, 10)}`);
 		return [...manifest.files.map(each => join(OUT, system, each.name)), join(OUT, system, manifestName(system as System))];
 	});
-	if (files.length === 0) throw new ReleaseError(`dist-release/ holds nothing for ${tag}: bun run release:windows|linux --no-upload first`);
+	if (files.length === 0) throw new ReleaseError(`dist-release/ holds nothing for ${tag}: npm run release:windows|linux -- --no-upload first`);
 	return files;
 }
 
@@ -346,7 +346,7 @@ try {
 		const files = pack(command, tag);
 		if (!noUpload) upload(tag, files);
 		for (const note of notes) console.log(`note: ${note}`);
-		const where = dryRun || noUpload ? ' are in dist-release, not uploaded' : ' are on the draft release; bun run release:publish once both systems are there';
+		const where = dryRun || noUpload ? ' are in dist-release, not uploaded' : ' are on the draft release; npm run release:publish once both systems are there';
 		console.log(`\n${dryRun ? '(dry run) ' : ''}✅ ${SYSTEM_NAME[command]} files for ${tag}${where}`);
 	} else if (command === 'upload') {
 		const tag = releaseTag();
@@ -356,7 +356,7 @@ try {
 	} else if (command === 'publish') {
 		publish(releaseTag());
 	} else {
-		throw new ReleaseError('bun scripts/release.ts windows|linux|upload|publish [--tag v<version>] [--dry-run] [--skip-build] [--no-upload] [--local]');
+		throw new ReleaseError('npm run release:windows|linux|upload|publish -- [--tag v<version>] [--dry-run] [--skip-build] [--no-upload] [--local]');
 	}
 } catch (error) {
 	if (!(error instanceof ReleaseError)) throw error;

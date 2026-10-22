@@ -26,7 +26,7 @@ import type { HamFunction, HamParam } from './ham-functions';
 // ham-functions.ts lists: thiscall on Windows (__fastcall with a register
 // to spare), the object first on Linux.
 //
-// Run: bun scripts/generate-chains.ts (after generate-wasm-api, which writes as/constants.ts)
+// Run by npm run generate (after generate-wasm-api, which writes as/constants.ts)
 import { readFileSync, writeFileSync } from 'node:fs';
 import { HAM_FUNCTIONS } from './ham-functions';
 

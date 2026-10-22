@@ -1,6 +1,6 @@
 // perf's figures against its own past on the same CPU, for CI:
 //
-//   bun scripts/perf-history.ts <test:server's output> <history.json> <the CPU's name>
+//   node --import ./scripts/node-ts.mjs scripts/perf-history.ts <test:server's output> <history.json> <the CPU's name>
 //
 // perf's limits are ratios to Pawn with room for every runner, and a measure
 // can grow severalfold inside its room - or past it on one CPU only, and pass
@@ -35,7 +35,7 @@ interface History {
 
 const [log, file, cpu] = process.argv.slice(2);
 if (!log || !file || !cpu) {
-	process.stderr.write('usage: bun scripts/perf-history.ts <test:server output> <history.json> <cpu>\n');
+	process.stderr.write('usage: node --import ./scripts/node-ts.mjs scripts/perf-history.ts <test:server output> <history.json> <cpu>\n');
 	process.exit(2);
 }
 

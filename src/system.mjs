@@ -221,7 +221,7 @@ function packagedWamrc() {
  * wamrc as the core has it for this machine: AMXTS_WAMRC, else the one of
  * its package for this system (an installed core), else the one built in
  * runtime/deps/wamr (a multi-config build puts it in Release/, a Makefile
- * build beside it), else the one `bun run build:linux` made in
+ * build beside it), else the one `npm run build:linux` made in
  * runtime/build/linux. Either system's wamrc compiles for either system.
  * A checkout links the package's folder, which has no wamrc of its own.
  * @param {Record<string, string | undefined>} [env]

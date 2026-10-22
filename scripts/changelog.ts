@@ -4,8 +4,8 @@
 // with its commit or pull request - with a link comparing the two tags and who
 // took part.
 //
-//   bun run changelog [--dry-run]       each checkout's CHANGELOG.md gets its version's section
-//   bun run changelog release <tag> [--dir <repo>] [--dry-run]
+//   npm run changelog [-- --dry-run]    each checkout's CHANGELOG.md gets its version's section
+//   npm run changelog -- release <tag> [--dir <repo>] [--dry-run]
 //                                       the repository's GitHub Release of <tag>, with that
 //                                       section as its notes (CI on the tag)
 //
@@ -92,7 +92,7 @@ function contributors(repo: string, dir: string, from: string, names: string[]):
 	const head = git(dir, ['rev-parse', 'HEAD']);
 	// GitHub knows a commit's login only once the commit is there.
 	if (!git(dir, ['branch', '-r', '--contains', 'HEAD'])) {
-		process.stderr.write(`⚠ ${basename(dir)}: HEAD is not on its remote yet, so the contributors are names, not GitHub logins - push, then run bun run changelog\n`);
+		process.stderr.write(`⚠ ${basename(dir)}: HEAD is not on its remote yet, so the contributors are names, not GitHub logins - push, then run npm run changelog\n`);
 	}
 	const known = new Map<string, string>();
 	const compare = from && head && spawnSync('gh', ['api', `repos/${repo}/compare/${from}...${head}`, '--jq', '.commits[] | [.commit.author.name, .author.login // ""] | @tsv'], { encoding: 'utf8' });
@@ -189,7 +189,7 @@ async function writeChangelogs(dryRun: boolean): Promise<void> {
 /** The GitHub Release of `tag` in the repository at `dir`, with its section as the notes: created, or its notes replaced. */
 function githubRelease(dir: string, tag: string, dryRun: boolean): void {
 	const notes = releaseNotes(dir, tag.replace(/^v/, ''));
-	if (notes === null) throw new ChangelogError(`${join(dir, 'CHANGELOG.md')} has no section ${tag}: bun run changelog, commit it, then tag again`);
+	if (notes === null) throw new ChangelogError(`${join(dir, 'CHANGELOG.md')} has no section ${tag}: npm run changelog, commit it, then tag again`);
 	const repo = process.env.GITHUB_REPOSITORY ?? git(dir, ['remote', 'get-url', 'origin'])?.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/)?.[1];
 	if (!repo) throw new ChangelogError(`${dir}: no GitHub repository - set GITHUB_REPOSITORY`);
 	const file = join(mkdtempSync(join(tmpdir(), 'amxts-notes-')), 'notes.md');
@@ -212,7 +212,7 @@ if (import.meta.main) {
 	try {
 		if (args[0] === 'release') {
 			const dir = args.includes('--dir') ? resolve(args[args.indexOf('--dir') + 1]) : process.cwd();
-			if (!/^v\d/.test(args[1] ?? '')) throw new ChangelogError('bun run changelog release v<version> [--dir <repo>] [--dry-run]');
+			if (!/^v\d/.test(args[1] ?? '')) throw new ChangelogError('npm run changelog -- release v<version> [--dir <repo>] [--dry-run]');
 			githubRelease(dir, args[1], dryRun);
 		} else {
 			await writeChangelogs(dryRun);

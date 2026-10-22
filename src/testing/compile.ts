@@ -1,6 +1,6 @@
 import type { NativesBeside, PluginNative } from '../../scripts/plugin-natives';
 // A plugin compiled for a test: the same AssemblyScript, the same facade and
-// the same flags as scripts/compile.ts, stopping at the .wasm - bun runs that
+// the same flags as scripts/compile.ts, stopping at the .wasm - the test runs that
 // directly, so wamrc and its .aot are not needed.
 import { spawnSync } from 'node:child_process';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';

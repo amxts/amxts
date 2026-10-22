@@ -79,7 +79,7 @@ test('an import is its line of the natives table: its name, its types, how its a
 });
 
 test('an import the natives table lacks stops the build: the table is older than the code', () => {
-	expect(() => pluginAbi(['env.add', 'env.no_such_import'])).toThrow('the natives table has no no_such_import: it is older than the core\'s code - run bun run generate');
+	expect(() => pluginAbi(['env.add', 'env.no_such_import'])).toThrow('the natives table has no no_such_import: it is older than the core\'s code - run npm run generate');
 });
 
 test('within a line a released import keeps its shape, and is not taken away', () => {

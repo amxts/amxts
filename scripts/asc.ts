@@ -1,12 +1,10 @@
 // asc - the patched AssemblyScript compiler (runtime/patches explains what it
 // carries and why) - as every build here runs it.
-import process from 'node:process';
 // @ts-ignore - shipped as JavaScript, with types beside it we do not need here
 import asc from '../runtime/deps/assemblyscript/dist/asc.js';
 
-// A full collection: Bun's own; elsewhere the runtime's `gc`, when it exposes one (`node --expose-gc`).
-// @ts-ignore - bun's own module
-const fullGC: () => void = process.versions.bun ? (await import('bun:jsc')).fullGC : () => globalThis.gc?.();
+// A full collection, when Node exposes one (`node --expose-gc`).
+const fullGC = () => globalThis.gc?.();
 
 /**
  * asc.main, and nothing of the compile kept alive after it.

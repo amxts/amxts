@@ -1,6 +1,6 @@
 // The build a module is of: the version and the commit, as a release's
 // manifest names them - `0.2.0+1bf291c0ab`, SemVer's build metadata.
-// `bun run generate` writes it into the module (runtime/src/embedded.h).
+// `npm run generate` writes it into the module (runtime/src/embedded.h).
 //
 // A plugin carries an identity of its own: the ABI it was compiled against,
 // which the module checks before it loads the plugin (abiIdentity, below).
@@ -14,7 +14,7 @@ import * as tracked from './tracked-fs';
 
 /**
  * The version the core builds as: its package.json's, or AMXTS_AS_VERSION's.
- * `bun run publish:local --as 0.2.0` stages the packages as another version
+ * `npm run publish:local -- --as 0.2.0` stages the packages as another version
  * than the checkout's; the modules it compiles for them, and a module built
  * for a server that runs their plugins, are of that version only with it set.
  */
@@ -118,13 +118,13 @@ export function pluginAbi(imports: Iterable<string>): string {
 	// A table older than the facade lacks its new imports: a plugin carrying
 	// a bare name is refused by every module, so the build stops here.
 	const missing = used.filter(name => !shapes.has(name));
-	if (missing.length > 0) throw new Error(`the natives table has no ${missing.join(', ')}: it is older than the core's code - run bun run generate`);
+	if (missing.length > 0) throw new Error(`the natives table has no ${missing.join(', ')}: it is older than the core's code - run npm run generate`);
 	return [abiIdentity(), ...used.map(name => shapes.get(name)!).sort()].join('\n');
 }
 
 /**
  * The imports of the line's last release, each with its shape, relative to
- * the core: `bun run abi:lock` writes it when a version is released.
+ * the core: `npm run abi:lock` writes it when a version is released.
  */
 export const ABI_LOCK = 'runtime/abi-lock.txt';
 

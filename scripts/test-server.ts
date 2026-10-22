@@ -1,21 +1,22 @@
 // Runs the plugin API's server checks on a real HLDS, with nobody in the game.
 //
-//   bun run test:server            build, run every suite, stop, clean up
-//   bun run test:server --keep     leave the test server running afterwards
-//   bun run test:server --stop     stop a server left by --keep and clean up
-//   bun run test:server --linux    the same suites on a Linux server, in Docker
-//   bun run test:server --plain    the same on Linux without ReHLDS, ReGameDLL, ReAPI
-//   bun run test:server --linux --amxx 1.9.0-git5303   on another AMX Mod X build
-//   bun run test:server --linux --sanitize   the module under AddressSanitizer and UBSan
-//   bun run test:server --full     the suites compiled fully, as `amxts build` does
-//   bun run test:server --only cvar,player   only these suites
-//   bun run test:server --no-reapi   the server without ReAPI: ReHLDS and ReGameDLL alone
-//   bun run test:server --build-only   build the suites, start no server
-//   bun run test:server --prebuilt     run the suites --build-only left, building nothing
+//   npm run test:server            build, run every suite, stop, clean up
+//   npm run test:server -- --keep     leave the test server running afterwards
+//   npm run test:server -- --stop     stop a server left by --keep and clean up
+//   npm run test:server -- --linux    the same suites on a Linux server, in Docker
+//   npm run test:server -- --plain    the same on Linux without ReHLDS, ReGameDLL, ReAPI
+//   npm run test:server -- --linux --amxx 1.9.0-git5303   on another AMX Mod X build
+//   npm run test:server -- --linux --sanitize   the module under AddressSanitizer and UBSan
+//   npm run test:server -- --full     the suites compiled fully, as `amxts build` does
+//   npm run test:server -- --only cvar,player   only these suites
+//   npm run test:server -- --no-reapi   the server without ReAPI: ReHLDS and ReGameDLL alone
+//   npm run test:server -- --build-only   build the suites, start no server
+//   npm run test:server -- --prebuilt     run the suites --build-only left, building nothing
 //
 // It runs the suites of the project in the current folder, as the build does
 // (scripts/project.ts): the core's own in tests/server, a project's in
-// test/server (`bun node_modules/@amxts/core/scripts/test-server.ts` there).
+// test/server (`node --import ./node_modules/@amxts/core/scripts/node-ts.mjs
+// node_modules/@amxts/core/scripts/test-server.ts` there).
 // Beside the suites the server loads the modules amxts.config.ts lists, as
 // their owners, and the project's own plugins - the plugins its suites check.
 //
@@ -86,7 +87,7 @@
 //
 // With --linux the server is a container of the amxts-hlds image
 // (docker/hlds/Dockerfile, built on first use): the same suites, compiled for
-// Linux, with runtime/build/linux's module (bun run build:linux). Nothing is
+// Linux, with runtime/build/linux's module (npm run build:linux). Nothing is
 // shared with it - the project's game files (PROJECT_GAME_FOLDERS), then the
 // test's folder and the module are copied into the container before it
 // starts, its console is `docker logs`, and it is
@@ -98,7 +99,7 @@
 // Valve's HLDS with metamod-p and AMX Mod X's stock modules, no reapi. Its
 // container, its build folder and its port (27017) are its own, so it runs
 // beside a --linux one.
-// --sanitize is --linux with the module of `bun run build:linux --sanitize`:
+// --sanitize is --linux with the module of `npm run build:linux -- --sanitize`:
 // hlds starts with the sanitizers' runtime preloaded (hlds_linux itself is not
 // built with it), and a sanitizer's report in the console fails the run.
 // A Linux server starts with core dumps on: when it exits on its own, the
@@ -109,6 +110,7 @@ import { spawnSync } from 'node:child_process';
 import { createSocket } from 'node:dgram';
 import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { ABI_SECTION, abiIdentity, abiLine, releaseLine } from './build-identity';
 import { compileAll } from './compile-pool';
 import { coreDumpArgs, crashReport } from './core-dumps';
@@ -169,7 +171,7 @@ try {
 	process.exit(1);
 }
 if (!amxtsDir && !linux) {
-	fail('AMXTS_SERVER is not set: point it at the amxts folder of the server install, as for bun run dev.');
+	fail('AMXTS_SERVER is not set: point it at the amxts folder of the server install, as for amxts dev.');
 	process.exit(1);
 }
 
@@ -239,7 +241,7 @@ async function startWeb(suites: Suite[]): Promise<void> {
 	await startFtp(suites);
 	const file = join(CORE_DIR, 'tests/http-server.ts');
 	if (!suites.some(suite => suite.name === 'fetch') || !existsSync(file)) return;
-	const { startTestHttp } = await import(file);
+	const { startTestHttp } = await import(pathToFileURL(file).href);
 	web = await startTestHttp(...HOST_ADDRESSES);
 }
 
@@ -253,7 +255,7 @@ let ftpServers: { ftp: { url: string; stop: () => Promise<void> }; sftp: { url: 
 async function startFtp(suites: Suite[]): Promise<void> {
 	const file = join(CORE_DIR, 'tests/ftp-servers.ts');
 	if (!suites.some(suite => suite.name === 'net-request') || !existsSync(file)) return;
-	const { startTestFtp, startTestSftp } = await import(file);
+	const { startTestFtp, startTestSftp } = await import(pathToFileURL(file).href);
 	const [ftp, sftp] = await Promise.all([startTestFtp(false, ...HOST_ADDRESSES), startTestSftp(...HOST_ADDRESSES)]);
 	ftpServers = { ftp, sftp };
 }
@@ -269,7 +271,7 @@ let databasesSkipped = '';
 async function startDatabases(suites: Suite[]): Promise<void> {
 	const file = join(CORE_DIR, 'tests/database-servers.ts');
 	if (!suites.some(suite => suite.name === 'database') || !existsSync(file)) return;
-	const { dockerRunning, startTestDatabases } = await import(file);
+	const { dockerRunning, startTestDatabases } = await import(pathToFileURL(file).href);
 	if (!process.env.CI && !dockerRunning()) {
 		databasesSkipped = 'skipped: no Docker on this machine (CI runs it)';
 		return;
@@ -781,8 +783,8 @@ function moduleStale(): boolean {
 /**
  * The module under test, built again when it would refuse every plugin of
  * the run - built before the version's line or the hood moved on - with a
- * line saying so: `bun run generate`, then cmake's build in runtime/build,
- * or `bun run build:linux`; and, without generating, when its sources
+ * line saying so: `npm run generate`, then cmake's build in runtime/build,
+ * or `npm run build:linux`; and, without generating, when its sources
  * changed after it was built. One given with AMXTS_TEST_MODULE, or of a core
  * that is no checkout, is not built here: the run stops and says what to run.
  */
@@ -791,7 +793,7 @@ function freshModule(): boolean {
 	const fits = moduleFits();
 	if (fits && !(ours && moduleStale())) return true;
 	const was = fits ? `${moduleDll} is older than its sources` : `${moduleDll} is of ${moduleAbiOf(moduleDll) ?? 'no amxts ABI'}, the checkout builds plugins of ${abiIdentity()}`;
-	const steps = [...(fits ? [] : [['bun', 'run', 'generate']]), linux ? ['bun', 'run', 'build:linux', ...(sanitize ? ['--sanitize'] : [])] : ['cmake', '--build', 'runtime/build', '--config', 'Release']];
+	const steps = [...(fits ? [] : [['npm', 'run', 'generate']]), linux ? ['npm', 'run', 'build:linux', ...(sanitize ? ['--', '--sanitize'] : [])] : ['cmake', '--build', 'runtime/build', '--config', 'Release']];
 	const commands = steps.map(step => step.join(' ')).join(' && ');
 	if (!ours) {
 		fail(`${was} - build it again: ${commands}`);
@@ -799,7 +801,8 @@ function freshModule(): boolean {
 	}
 	console.log(`${was} - building it again: ${commands}`);
 	for (const [program, ...args] of steps) {
-		const run = spawnSync(program === 'bun' ? process.execPath : program, args, { cwd: CORE_DIR, encoding: 'utf-8' });
+		// `npm run` by Node's own runner, which starts faster than npm.
+		const run = program === 'npm' ? spawnSync(process.execPath, ['--run', ...args.slice(1)], { cwd: CORE_DIR, encoding: 'utf-8' }) : spawnSync(program, args, { cwd: CORE_DIR, encoding: 'utf-8' });
 		if (run.status !== 0) {
 			const said = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim().split('\n').slice(-20).join('\n');
 			fail(`${[program, ...args].join(' ')} failed${run.error ? `: ${run.error.message}` : ''}\n${said}`);
@@ -1070,7 +1073,7 @@ async function main(): Promise<number> {
 	// --prebuilt compiles nothing, --build-only starts nothing.
 	for (const needed of [...(linux || buildOnly ? [] : [hlds]), moduleDll, ...(prebuilt ? [] : [amxxpc, wamrc]), signatures]) {
 		if (!existsSync(needed)) {
-			fail(`missing ${needed}${needed === moduleDll && linux ? ` - bun run build:linux${sanitize ? ' --sanitize' : ''} builds it` : ''}`);
+			fail(`missing ${needed}${needed === moduleDll && linux ? ` - npm run build:linux${sanitize ? ' -- --sanitize' : ''} builds it` : ''}`);
 			return 1;
 		}
 	}
@@ -1222,7 +1225,7 @@ async function main(): Promise<number> {
 		if (keep && isAlive(pid)) {
 			console.log(`\nleft running: ${linux ? `container ${CONTAINER}` : `pid ${pid}`}, 127.0.0.1:${PORT}, rcon_password "${password}"`);
 			console.log(`its console: ${linux ? `docker logs ${CONTAINER}` : join(rootDir, 'qconsole.log')}`);
-			console.log(`stop it and remove its folders with: bun run test:server --stop${plain ? ' --plain' : linux ? ' --linux' : ''}`);
+			console.log(`stop it and remove its folders with: npm run test:server -- --stop${plain ? ' --plain' : linux ? ' --linux' : ''}`);
 		} else {
 			if (isAlive(pid)) stopProcess(pid);
 			await until(10_000, () => (isAlive(pid) ? null : true), () => true);

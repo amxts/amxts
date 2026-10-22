@@ -1,7 +1,7 @@
 // Compiles the natives' image, runtime/host/amxts_natives.sma, with the AMX
 // Mod X distribution's amxxpc in amxmodx/base - amxxpc.exe on Windows,
 // amxxpc on Linux - and writes it into runtime/src/image.h, which the module
-// carries and loads every map. `bun run image` writes the .sma first
+// carries and loads every map. `npm run image` writes the .sma first
 // (scripts/generate-image.ts); the module is built after it.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -12,7 +12,7 @@ import { amxxpcPath } from './system';
 
 const amxxpc = amxxpcPath();
 if (!existsSync(amxxpc)) {
-	process.stderr.write(`${amxxpc} is missing - the scripting/ folder of AMX Mod X 1.10 goes in amxmodx/base (bun run setup:amxmodx)\n`);
+	process.stderr.write(`${amxxpc} is missing - the scripting/ folder of AMX Mod X 1.10 goes in amxmodx/base (npm run setup:amxmodx)\n`);
 	process.exit(1);
 }
 

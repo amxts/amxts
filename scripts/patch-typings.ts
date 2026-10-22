@@ -1,6 +1,6 @@
 // Makes AssemblyScript's editor typings say what a plugin author expects.
 //
-//   bun scripts/patch-typings.ts        (run by `bun run generate`, and by `npm install` in the core
+//   node --import ./scripts/node-ts.mjs scripts/patch-typings.ts        (run by `npm run generate`, and by `npm install` in the core
 //                                        as its `prepare`: a project installing the core never runs it)
 //
 // An editor reads plugins through node_modules/assemblyscript/std, the

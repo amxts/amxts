@@ -16,7 +16,7 @@ import { c } from './ui';
 /**
  * The server image of this core's version. Its module loads only the .aot of
  * the same release's wamrc, so a project runs on the image of its own core;
- * `bun run server:image` builds it from a checkout under the same name.
+ * `npm run server:image` builds it from a checkout under the same name.
  */
 export const SERVER_IMAGE = serverImage(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
 

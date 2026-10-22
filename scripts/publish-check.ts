@@ -1,21 +1,22 @@
 // The packages as a user gets them, before they go to npm: published to the
-// local registry (bun run publish:local --reset), then a project created from
+// local registry (npm run publish:local -- --reset), then a project created from
 // it in an empty folder outside the checkouts - built, tested and type-checked,
 // its modules taken as they came compiled and analysed.
 //
-//   bun run publish:check [--wamrc <folder>] [--skip-generate] [--keep]
+//   npm run publish:check -- [--wamrc <folder>] [--skip-generate] [--keep]
 //
 // Nothing of the checkouts reaches the project: npm installs the packages from
 // the registry, with a cache of its own, and whatever else they need from npm
 // through it. The project is for `--target hlds`, so no includes are fetched
 // from GitHub. The folder is removed when everything passes, unless --keep;
-// the registry keeps running (bun run publish:local --stop).
+// the registry keeps running (npm run publish:local -- --stop).
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { NODE_TS } from './system';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const VERSION = String(JSON.parse(readFileSync(join(CORE, 'package.json'), 'utf8')).version);
@@ -37,11 +38,11 @@ function step(title: string, cwd: string, file: string, argv: string[], env: Nod
 	if (result.status !== 0) fail(`${title} (exit ${result.status ?? result.error?.message})`);
 }
 
-step('the packages, into the local registry', CORE, process.execPath, ['scripts/publish.ts', 'local', '--reset', ...args.filter(arg => arg !== '--keep')]);
+step('the packages, into the local registry', CORE, process.execPath, [...NODE_TS, 'scripts/publish.ts', 'local', '--reset', ...args.filter(arg => arg !== '--keep')]);
 
 const folder = realpathSync(mkdtempSync(join(tmpdir(), 'amxts-check-')));
 // The user's shell, without this checkout's settings - AMXTS_*, and the npm_*
-// that `bun run` sets - and with the registry and a cache of its own.
+// that `npm run` sets - and with the registry and a cache of its own.
 const env: NodeJS.ProcessEnv = {
 	...Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(?:amxts_|npm_)/i.test(name))),
 	NPM_CONFIG_REGISTRY: REGISTRY,

@@ -13,7 +13,7 @@
 //   line has commits of its own. A line that does not take the tag cleanly is
 //   left as it is, and the words say so; a line that is missing is cut at it.
 //
-//   bun scripts/release-line.ts <tag> [--repo <owner/name>] [--dry-run]
+//   node --import ./scripts/node-ts.mjs scripts/release-line.ts <tag> [--repo <owner/name>] [--dry-run]
 //
 // The repository is --repo, else GITHUB_REPOSITORY in CI, else amxts/amxts.
 // `gh` does the talking (GH_TOKEN in CI, with contents: write). release.ts's
@@ -71,7 +71,7 @@ if (import.meta.main) {
 	const repo = at >= 0 ? args[at + 1] : process.env.GITHUB_REPOSITORY ?? 'amxts/amxts';
 	const tag = args.find((arg, i) => !arg.startsWith('--') && args[i - 1] !== '--repo');
 	if (!tag || !repo) {
-		process.stderr.write('bun scripts/release-line.ts <tag> [--repo <owner/name>] [--dry-run]\n');
+		process.stderr.write('node --import ./scripts/node-ts.mjs scripts/release-line.ts <tag> [--repo <owner/name>] [--dry-run]\n');
 		process.exit(1);
 	}
 	try {

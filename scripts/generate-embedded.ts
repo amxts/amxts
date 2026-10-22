@@ -3,7 +3,7 @@
 // plugin's imports are checked against (runtime/natives.txt), as C string
 // literals.
 //
-//   bun scripts/generate-embedded.ts    the last step of `bun run generate`
+//   node --import ./scripts/node-ts.mjs scripts/generate-embedded.ts    the last step of `npm run generate`
 //
 // Last, because the natives table is the generated API's.
 import { readFileSync, writeFileSync } from 'node:fs';

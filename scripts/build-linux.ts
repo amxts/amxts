@@ -1,7 +1,7 @@
 // Builds the Linux module and wamrc in Docker, on any machine that has it:
 //
-//   bun run build:linux             runtime/build/linux/amxts_amxx_i386.so and wamrc
-//   bun run build:linux --sanitize  the same under AddressSanitizer and UBSan, in
+//   npm run build:linux             runtime/build/linux/amxts_amxx_i386.so and wamrc
+//   npm run build:linux -- --sanitize  the same under AddressSanitizer and UBSan, in
 //                                   runtime/build/linux-sanitize, with the
 //                                   sanitizers' runtimes beside it
 //
@@ -12,7 +12,7 @@
 // what changed. What it builds is docker/build/build.sh.
 //
 // The module carries the generated natives.h and embedded.h and the compiled
-// natives' image (image.h), so this comes after `bun run generate` and `bun run
+// natives' image (image.h), so this comes after `npm run generate` and `npm run
 // image`, like the Windows build.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -41,7 +41,7 @@ function docker(args: string[]): void {
 }
 
 for (const [file, step] of [['runtime/src/natives.h', 'generate'], ['runtime/src/forwards.h', 'generate'], ['runtime/src/embedded.h', 'generate'], ['runtime/src/version.h', 'generate'], ['runtime/src/image.h', 'image']]) {
-	if (!existsSync(join(CORE, file))) fail(`${file} is missing - run bun run ${step} first`);
+	if (!existsSync(join(CORE, file))) fail(`${file} is missing - run npm run ${step} first`);
 }
 
 mkdirSync(OUT, { recursive: true });

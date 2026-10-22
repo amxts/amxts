@@ -6,11 +6,11 @@ import { createSocket } from 'node:dgram';
 // amxts.config.ts names the modules it uses and where its plugins are
 // (scripts/project.ts). In this repository that is as/ and dist-wasm/.
 //
-//   bun run plugins            build into dist-wasm/     (npx amxts build)
-//   bun run plugins --deploy   build, copy to the server, write its plugins.ini
+//   npm run plugins            build into dist-wasm/     (npx amxts build)
+//   npm run plugins -- --deploy   build, copy to the server, write its plugins.ini
 //                              and reload the running server over rcon
-//   bun scripts/build-wasm.ts --deploy --watch   that on every save   (npx amxts dev)
-//   bun scripts/build-wasm.ts --watch            only the build, on every save, for a
+//   node --import ./scripts/node-ts.mjs scripts/build-wasm.ts --deploy --watch   that on every save   (npx amxts dev)
+//   node --import ./scripts/node-ts.mjs scripts/build-wasm.ts --watch            only the build, on every save, for a
 //                                                server that reads dist/ (npx amxts build --watch)
 //   --watch --docker --os linux   that, for the Docker server that mounts the project,
 //                                 with its console's amxts lines (npx amxts dev --docker)
@@ -144,7 +144,7 @@ if (!existsSync(wamrc)) {
 }
 
 if (!existsSync(signatures)) {
-	fail(`${signatures} is missing`, 'Run bun run generate in the core.');
+	fail(`${signatures} is missing`, 'Run npm run generate in the core.');
 	process.exit(1);
 }
 

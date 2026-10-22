@@ -16,7 +16,7 @@ import type { HamFunction, HamKind, HamParam } from './ham-functions';
 // get_entvar's shapes it went through - which is the point: the rendermode
 // glow bug came from an int field written as a float.
 //
-// Run: bun scripts/generate-entities.ts
+// Run by npm run generate
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dedent, docsLang, pick, renderDoc } from './apply-docs';
 import { ENTITY_FIELDS, ENTITY_METHODS, ENTITY_TYPES } from './docs/entities';

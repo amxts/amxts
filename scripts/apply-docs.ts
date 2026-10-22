@@ -1,13 +1,13 @@
 // The tooltips of the hand-written API, in the language the developer reads.
 //
-//   bun scripts/apply-docs.ts               the core's hood and the project's
+//   node --import ./scripts/node-ts.mjs scripts/apply-docs.ts               the core's hood and the project's
 //                                           modules, in AMXTS_DOCS_LANG (run by
-//                                           `bun run generate` and `amxts prepare`)
-//   bun scripts/apply-docs.ts --lang ru     that language, whatever .env says
-//   bun scripts/apply-docs.ts --format      the tables rewritten in one form: both
+//                                           `npm run generate` and `amxts prepare`)
+//   node --import ./scripts/node-ts.mjs scripts/apply-docs.ts --lang ru     that language, whatever .env says
+//   node --import ./scripts/node-ts.mjs scripts/apply-docs.ts --format      the tables rewritten in one form: both
 //                                           languages in backticks, laid out alike
 //                                           (code-style rule 29)
-//   bun scripts/apply-docs.ts --clean <f>   git's clean filter: stdin in English
+//   node --import ./scripts/node-ts.mjs scripts/apply-docs.ts --clean <f>   git's clean filter: stdin in English
 //                                           to stdout, so a tree written in
 //                                           Russian commits - and diffs - as English
 //
@@ -437,8 +437,9 @@ export const FILTER = 'amxts-docs';
 export function registerFilter(root: string): boolean {
 	const top = spawnSync('git', ['-C', root, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
 	if (top.status !== 0 || resolve(top.stdout.trim()) !== resolve(root)) return false;
-	const script = fileURLToPath(import.meta.url).replace(/\\/g, '/');
-	const command = `bun "${script}" --clean %f`;
+	const script = fileURLToPath(import.meta.url);
+	const hook = pathToFileURL(join(dirname(script), 'node-ts.mjs')).href;
+	const command = `node --disable-warning=ExperimentalWarning --import ${hook} "${script.replace(/\\/g, '/')}" --clean %f`;
 	const current = spawnSync('git', ['-C', root, 'config', '--local', `filter.${FILTER}.clean`], { encoding: 'utf8' });
 	if (current.stdout.trim() !== command) spawnSync('git', ['-C', root, 'config', '--local', `filter.${FILTER}.clean`, command]);
 	return true;

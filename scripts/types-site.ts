@@ -2,8 +2,8 @@
 // site's hovers on code (Twoslash): `~/facade` (and `@amxts/core`), the
 // official modules by package name, `~/modules/<name>` and the testing library.
 //
-//   bun run types:site                ->  dist-docs-types/en/  (English)
-//   bun run types:site -- --lang ru   ->  dist-docs-types/ru/  (Russian, for /ru pages)
+//   npm run types:site                ->  dist-docs-types/en/  (English)
+//   npm run types:site -- --lang ru   ->  dist-docs-types/ru/  (Russian, for /ru pages)
 //
 // dist-docs-types/<lang>/
 //   as-types.d.ts       the AssemblyScript types the hood's own declarations
@@ -26,7 +26,7 @@
 // (scripts/apply-docs.ts writes them into the emitted .d.ts), the generated
 // API's by generating it in that language for the emit and back after.
 //
-// Generated; the site copies the folder (its `bun run docs:types`) and
+// Generated; the site copies the folder (its `npm run docs:types`) and
 // maps `~/*` and `@amxts/core/*` to amxts/* (`@amxts/core/kit` is
 // amxts/kit.d.ts), `@amxts/core` to amxts/facade.d.ts, `@amxts/core/test-utils`
 // to root/src/testing/index.d.ts and `@amxts/<name>` to
@@ -39,6 +39,7 @@ import process from 'node:process';
 import { applyTable, docsLang, loadTable } from './apply-docs';
 import { coreImports, importsDeclaration, importTable } from './auto-imports';
 import { loadProject, NOT_PLUGINS, readPackage } from './project';
+import { NODE_TS } from './system';
 
 const langAt = process.argv.indexOf('--lang');
 const lang = docsLang(langAt >= 0 ? process.argv[langAt + 1] : 'en');
@@ -61,7 +62,7 @@ function emit(project: string, outDir: string, rootDir?: string) {
 /** The generators whose output carries tooltips, run in `language`. */
 function generate(language: string) {
 	for (const script of ['generate-image.ts', 'generate-entities.ts', 'generate-hooks.ts']) {
-		const run = spawnSync(process.execPath, [join('scripts', script)], { encoding: 'utf8', env: { ...process.env, AMXTS_DOCS_LANG: language } });
+		const run = spawnSync(process.execPath, [...NODE_TS, join('scripts', script)], { encoding: 'utf8', env: { ...process.env, AMXTS_DOCS_LANG: language } });
 		if (run.status !== 0) throw new Error(`${script} failed:\n${run.stdout}${run.stderr}`);
 	}
 }

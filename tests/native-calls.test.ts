@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
  * register_srvcmd reads its info[] from whatever an earlier call left on
  * the stack.
  *
- * Reads runtime/natives.txt; run `bun run generate` first.
+ * Reads runtime/natives.txt; run `npm run generate` first.
  */
 import { expect, test } from 'vitest';
 

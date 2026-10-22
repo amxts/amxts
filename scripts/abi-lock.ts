@@ -1,11 +1,11 @@
 // Writes runtime/abi-lock.txt: the version being released and every import
 // of its natives table, each with its shape (scripts/build-identity.ts).
 //
-//   bun run abi:lock    once package.json has the version to release
+//   npm run abi:lock    once package.json has the version to release
 //
 // Within a line an import keeps its shape: a plugin built for this release
 // loads on every later patch's module only while each import it uses is
-// there unchanged. `bun run generate` refuses a natives table that breaks the
+// there unchanged. `npm run generate` refuses a natives table that breaks the
 // lock, and the release refuses a lock of another version than its own.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

@@ -3,7 +3,7 @@
 // is generated from and amxxpc, which compiles the natives' image and the
 // Pawn suites.
 //
-//   bun run setup:amxmodx
+//   npm run setup:amxmodx
 //
 // The build is pinned, with the sha256 of each package, for this machine's
 // system: amxxpc.exe on Windows, amxxpc (32-bit, with amxxpc32.so) on Linux.

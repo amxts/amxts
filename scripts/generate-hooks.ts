@@ -25,7 +25,7 @@ import type { HeardEvent } from './hlds-events';
 // The chain names are the ones as/constants.ts already gives `hook()` - read
 // back from its hookIdOf, so the two can never disagree.
 //
-// Run: bun scripts/generate-hooks.ts (after generate-wasm-api and generate-flags)
+// Run by npm run generate (after generate-wasm-api and generate-flags)
 import { readFileSync, writeFileSync } from 'node:fs';
 import { docsLang, docText, pick, renderDoc } from './apply-docs';
 import { GAME } from './docs/game';

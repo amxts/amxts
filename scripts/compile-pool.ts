@@ -2,19 +2,17 @@
 // about a gigabyte at its peak, so each runs in a process of its own
 // (scripts/compile-worker.ts), as many at once as the CPUs and the memory
 // budget allow: AMXTS_BUILD_MEMORY megabytes for all of them (half the free
-// memory, at least 3072), or AMXTS_BUILD_JOBS compiles. The processes run
-// under Node when there is one: V8 runs Binaryen's wasm much faster than Bun,
-// in less memory. A single plugin, or room for one, is compiled in this
-// process when it runs on Node (the amxts command's build), when there is no
-// Node, or when the build is quick (`amxts dev`, where a save finds asc warm
-// here). Either way a plugin compiles to the same bytes.
+// memory, at least 3072), or AMXTS_BUILD_JOBS compiles. A single plugin, or
+// room for one, is compiled in this process (`amxts dev` finds asc warm here
+// on a save). Either way a plugin compiles to the same bytes.
 import type { Plugin } from './compile';
 import type { NativesBeside, PluginNative } from './plugin-natives';
 import { spawn } from 'node:child_process';
 import { availableParallelism, constants, freemem, setPriority } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { setNativesBeside } from './plugin-natives';
+import { NODE_TS } from './system';
 
 const MB = 1024 * 1024;
 
@@ -33,9 +31,8 @@ export const BUILD_MEMORY = 3072 * MB;
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WORKER = join(HERE, 'compile-worker.ts');
 
-/** Node, which the compile processes run under, with the hook that loads the core's TypeScript; null: none on the PATH. */
-const NODE = process.versions.bun ? (globalThis as unknown as { Bun: { which: (name: string) => string | null } }).Bun.which('node') : process.execPath;
-const COMMAND = NODE ? [NODE, '--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(HERE, 'node-ts.mjs')).href, WORKER] : [process.execPath, WORKER];
+/** A compile process: Node, with the hook that loads the core's TypeScript. */
+const COMMAND = [process.execPath, ...NODE_TS, WORKER];
 
 /** How many compiles run at once: AMXTS_BUILD_JOBS, else as many as the memory budget holds, at most one per CPU. */
 export function compileSlots(env: Record<string, string | undefined> = process.env, cpus = availableParallelism(), free = freemem()): number {
@@ -115,13 +112,12 @@ export interface CompileAll {
 
 /**
  * The plugins compiled, several at once when there is room - in this process
- * when there is room for one and this is Node, or there is no Node, or the
- * build is quick. After a
- * failure no other compile starts: those that did not are null.
+ * when there is room for one. After a failure no other compile starts: those
+ * that did not are null.
  */
 export async function compileAll(plugins: Plugin[], options: CompileAll): Promise<(Compiled | null)[]> {
 	const slots = Math.min(plugins.length, compileSlots());
-	const workers = slots > 1 || (process.versions.bun && NODE && plugins.some(each => !each.quick)) ? Array.from({ length: slots }, () => worker(options.low ?? false)) : [];
+	const workers = slots > 1 ? Array.from({ length: slots }, () => worker(options.low ?? false)) : [];
 	let failed = false;
 	const compile = async (plugin: Plugin, slot: number): Promise<Compiled> => {
 		if (workers.length === 0) {

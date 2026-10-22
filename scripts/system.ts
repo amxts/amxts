@@ -3,13 +3,16 @@
 import type { System } from '../src/system.mjs';
 import { readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { executable, MODULE_FILE } from '../src/system.mjs';
 
 export type { ServerSystem, System } from '../src/system.mjs';
 export { describeSystem, detectServerSystem, executable, HOST_SYSTEM, manifestName, MODULE_FILE, moduleAbiOf, moduleVersion, parseSystem, serverFiles, serverFolder, serverImage, serverSystem, SYSTEM_NAME, SYSTEMS, TARGET_ABI, WAMRC_PACKAGE, wamrcPath } from '../src/system.mjs';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+/** What Node needs before one of the core's .ts scripts: `spawn(process.execPath, [...NODE_TS, script])`. */
+export const NODE_TS = ['--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(CORE, 'scripts/node-ts.mjs')).href];
 
 /** Where the amxts module of a system is built: CMake's Release folder on Windows, runtime/build/linux from the Linux toolchain. */
 export function modulePath(system: System): string {

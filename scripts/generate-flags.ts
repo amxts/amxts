@@ -1,6 +1,6 @@
 // Flag families as string literal types, and the array that stands for a mask.
 //
-//   bun scripts/generate-flags.ts        (after `bun run generate`)
+//   node --import ./scripts/node-ts.mjs scripts/generate-flags.ts        (after `npm run generate`)
 //
 // A Pawn plugin sets a HUD element hidden with `flags |= HIDEHUD_MONEY` and
 // asks whether a button is held with `(buttons & IN_JUMP) != 0`. A plugin here
@@ -9,7 +9,7 @@
 //
 // Each family is a union of string literals, which is what a TypeScript
 // developer writes for a closed set of names, lowerCamelCase like every
-// other union value of the API: the editor completes them and `bun run check`
+// other union value of the API: the editor completes them and `npm run check`
 // refuses a misspelled one. AssemblyScript reads the union as
 // `string` (a compiler patch, see runtime/patches), and the list below turns
 // the names into bits.

@@ -1,12 +1,12 @@
 // The npm packages of a release: packed from their folders with their `file:`
 // links as versions, and published in order.
 //
-//   bun run publish:npm --dry-run       pack every package into dist-npm/packs, say what each carries
-//   bun run publish:npm [--otp <code>]  pack them and publish them to npm, in order
-//   bun run publish:npm --only <names>  pack them all, publish the ones named (comma-separated)
-//   bun run publish:local [--reset]     pack them and publish them to a local registry (Verdaccio)
-//   bun run publish:local --as 0.3.0    the same, the core staged as that version
-//   bun run publish:local --stop        stop the local registry
+//   npm run publish:npm -- --dry-run       pack every package into dist-npm/packs, say what each carries
+//   npm run publish:npm -- [--otp <code>]  pack them and publish them to npm, in order
+//   npm run publish:npm -- --only <names>  pack them all, publish the ones named (comma-separated)
+//   npm run publish:local -- [--reset]     pack them and publish them to a local registry (Verdaccio)
+//   npm run publish:local -- --as 0.3.0    the same, the core staged as that version
+//   npm run publish:local -- --stop        stop the local registry
 //
 // The packages, in order: wamrc for each system, the core, the official
 // modules, the command and create-amxts. The core is this folder; the others
@@ -41,7 +41,7 @@
 //   as dist-release/ does; a relative folder is the core's), else, for npm,
 //   from the GitHub Release of v<version> through gh. A dry run and the local
 //   registry take the wamrc built from this checkout, as test:release does:
-//   dist-release/ when `bun run release` made it, else this system's local
+//   dist-release/ when `npm run release` made it, else this system's local
 //   build and runtime/build/linux's. It says which it took.
 // - the core: the generated API, generated again in English
 //   (--skip-generate takes what is there), and the patched AssemblyScript as
@@ -74,7 +74,7 @@
 // through it. --reset empties it first, so the same version can go in again,
 // and takes the packages out of Bun's cache, which would install the earlier
 // tarball of that version. AMXTS_NPM_DIR moves dist-npm/ and AMXTS_REGISTRY_PORT
-// the port: a registry of its own beside this one (bun run test:release).
+// the port: a registry of its own beside this one (npm run test:release).
 import type { Manifest } from './release-check';
 import type { System } from './system';
 import { spawn, spawnSync } from 'node:child_process';
@@ -85,7 +85,7 @@ import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { PREBUILT_DIR } from './prebuilt';
-import { HOST_SYSTEM, SYSTEMS, wamrcPath } from './system';
+import { HOST_SYSTEM, NODE_TS, SYSTEMS, wamrcPath } from './system';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const NEIGHBOURS = resolve(CORE, '..');
@@ -197,7 +197,7 @@ function sha256(file: string) {
 
 /**
  * Whether a git checkout has changes to its tracked files. In CI a checkout is
- * the commit it was checked out at: what changes there is `bun run generate`
+ * the commit it was checked out at: what changes there is `npm run generate`
  * writing the tooltips into the facade's files, which a fresh clone has no
  * clean filter for (scripts/release.ts trusts it the same way).
  */
@@ -328,9 +328,9 @@ function releaseWamrcFolder(): string {
 }
 
 /**
- * wamrc built from this checkout, for a try: dist-release/ when `bun run
- * release` made it, else this system's local build (`wamrcPath()`) and the
- * Linux one `bun run build:linux` makes. A wamrc of an earlier release does
+ * wamrc built from this checkout, for a try: dist-release/ when `npm run
+ * release:<system>` made it, else this system's local build (`wamrcPath()`) and the
+ * Linux one `npm run build:linux` makes. A wamrc of an earlier release does
  * not take this one's flags.
  */
 function checkoutWamrc(): Record<System, string> {
@@ -339,7 +339,7 @@ function checkoutWamrc(): Record<System, string> {
 	const built: Record<System, string> = { windows: join(CORE, 'runtime/deps/wamr/wamr-compiler/build/Release/wamrc.exe'), linux: join(CORE, 'runtime/build/linux/wamrc') };
 	built[HOST_SYSTEM] = wamrcPath();
 	const missing = Object.values(built).filter(file => !existsSync(file));
-	if (missing.length) throw new PublishError(`no dist-release/ and no ${missing.join(', ')}: bun run release makes them all, or pass --wamrc <folder>`);
+	if (missing.length) throw new PublishError(`no dist-release/ and no ${missing.join(', ')}: npm run release:<system> makes them all, or pass --wamrc <folder>`);
 	return built;
 }
 
@@ -367,7 +367,7 @@ function stageFiles(pkg: Package, stage: string) {
 /** The core's additions: the patched AssemblyScript and the editor's typings. */
 function stageCore(stage: string, manifest: any) {
 	const missing = CORE_NEEDS.filter(file => !existsSync(join(stage, file)));
-	if (missing.length) throw new PublishError(`the core's package would miss ${missing.join(', ')}: bun run setup:amxmodx, then bun run generate`);
+	if (missing.length) throw new PublishError(`the core's package would miss ${missing.join(', ')}: npm run setup:amxmodx, then npm run generate`);
 
 	const compiler = join(CORE, 'runtime/deps/assemblyscript');
 	for (const file of ASSEMBLYSCRIPT_FILES) {
@@ -451,7 +451,7 @@ function prebuildModules(modules: Staged[], wamrc: string) {
 	writeJson(join(project, 'package.json'), { name: 'amxts-prebuilt', private: true });
 	writeFileSync(join(project, 'amxts.config.ts'), `export default defineConfig({ modules: ${JSON.stringify(modules.map(each => each.name))} });\n`);
 	const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('AMXTS_')));
-	run(process.execPath, [join(CORE, 'scripts/prebuilt.ts')], { cwd: project, env: { ...env, AMXTS_WAMRC: wamrc, AMXTS_AS_VERSION: VERSION } });
+	run(process.execPath, [...NODE_TS, join(CORE, 'scripts/prebuilt.ts')], { cwd: project, env: { ...env, AMXTS_WAMRC: wamrc, AMXTS_AS_VERSION: VERSION } });
 	for (const each of modules) {
 		cpSync(join(project, 'node_modules', each.name, PREBUILT_DIR), join(each.dir, PREBUILT_DIR), { recursive: true });
 		each.manifest.files = [...each.manifest.files, PREBUILT_DIR];
@@ -488,8 +488,8 @@ function describe(pack: Pack) {
 /** Generates the API afresh, in English, and patches the editor's typings, as a checkout's install does. */
 function prepareCore(skipGenerate: boolean) {
 	const env = { ...process.env, AMXTS_DOCS_LANG: 'en' };
-	if (!skipGenerate) run(process.execPath, ['run', 'generate'], { env });
-	run(process.execPath, ['scripts/patch-typings.ts'], { env, quiet: true });
+	if (!skipGenerate) run(process.execPath, ['--run', 'generate'], { env });
+	run(process.execPath, [...NODE_TS, 'scripts/patch-typings.ts'], { env, quiet: true });
 }
 
 /** Stages and packs every package; `strict` is for npm - clean folders and a released wamrc. */
@@ -503,7 +503,7 @@ function packAll(options: { strict: boolean; wamrcFolder?: string; skipGenerate:
 	const wamrc = wamrcFor(options.strict, options.wamrcFolder);
 	for (const system of SYSTEMS) console.log(`wamrc for ${system}: ${wamrc[system]}`);
 	prepareCore(options.skipGenerate);
-	if (options.strict && dirty(CORE)) throw new PublishError('bun run generate changed the core\'s committed files: commit them in English first');
+	if (options.strict && dirty(CORE)) throw new PublishError('npm run generate changed the core\'s committed files: commit them in English first');
 
 	rmSync(STAGE, { recursive: true, force: true });
 	rmSync(PACKS, { recursive: true, force: true });
@@ -585,7 +585,7 @@ function publishAll(packs: Pack[], registry: string, extra: string[]) {
 	console.log(`\npublished: ${published.join(', ') || 'nothing new'}`);
 }
 
-const VERDACCIO_CONFIG = `# The local registry of bun run publish:local: the amxts packages live here,
+const VERDACCIO_CONFIG = `# The local registry of npm run publish:local: the amxts packages live here,
 # everything else comes from npm through it.
 storage: ./storage
 auth:
@@ -680,7 +680,7 @@ async function localToken(): Promise<string> {
 		body: JSON.stringify({ name: 'amxts', password: 'amxts-local', type: 'user', roles: [] }),
 	});
 	const body = await response.json() as { token?: string; error?: string };
-	if (!body.token) throw new PublishError(`the local registry gave no token: ${body.error ?? response.status} - bun run publish:local --reset starts it afresh`);
+	if (!body.token) throw new PublishError(`the local registry gave no token: ${body.error ?? response.status} - npm run publish:local -- --reset starts it afresh`);
 	writeFileSync(saved, body.token);
 	return body.token;
 }
@@ -748,7 +748,7 @@ async function main(args: string[]) {
 	const skipGenerate = args.includes('--skip-generate');
 	if (command === 'npm' && args.includes('--dry-run')) {
 		packAll({ strict: false, wamrcFolder, skipGenerate });
-		console.log('\nA dry run: nothing was published. bun run publish:check tries these packages as a user would.');
+		console.log('\nA dry run: nothing was published. npm run publish:check tries these packages as a user would.');
 	} else if (command === 'npm') {
 		if (!run('npm', ['whoami'], { quiet: true, allowFail: true }).ok) throw new PublishError('npm has no user logged in: npm login, then run it again');
 		const wanted = onlyNames(option(args, '--only'));
@@ -772,18 +772,18 @@ async function main(args: string[]) {
 			'  npx amxts dev',
 			'',
 			'After --reset, clear npm\'s cache of the old packages too (Bun\'s is cleared): npm cache clean --force',
-			'Stop the registry: bun run publish:local --stop',
+			'Stop the registry: npm run publish:local -- --stop',
 		];
 		if (VERSION !== CORE_VERSION) {
 			lines.push(
 				'',
 				`The core is ${VERSION}, the checkout ${CORE_VERSION}: a server loads the modules' plugins with a module built as ${VERSION} -`,
-				`AMXTS_AS_VERSION=${VERSION} bun run generate, then build the module; bun run generate and a build again take it back to ${CORE_VERSION}.`,
+				`AMXTS_AS_VERSION=${VERSION} npm run generate, then build the module; npm run generate and a build again take it back to ${CORE_VERSION}.`,
 			);
 		}
 		console.log(lines.join('\n'));
 	} else {
-		throw new PublishError('bun run publish:npm [--dry-run] [--otp <code>] [--only <names>] | bun run publish:local [--reset | --stop] [--as <version>]; both take --wamrc <folder> and --skip-generate');
+		throw new PublishError('npm run publish:npm -- [--dry-run] [--otp <code>] [--only <names>] | npm run publish:local -- [--reset | --stop] [--as <version>]; both take --wamrc <folder> and --skip-generate');
 	}
 }
 

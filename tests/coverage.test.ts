@@ -1,7 +1,7 @@
 /**
  * The "From Pawn" pages are written from the API's tooltips and the coverage
  * tables of scripts/coverage.ts, so a covered native shows up there the day
- * its element gets a `Pawn:` line. `bun scripts/coverage.ts --write` rewrites
+ * its element gets a `Pawn:` line. `node --import ./scripts/node-ts.mjs scripts/coverage.ts --write` rewrites
  * them.
  */
 import { readFileSync } from 'node:fs';

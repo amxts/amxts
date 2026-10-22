@@ -5,16 +5,16 @@
 // module add` and used in its plugin, type-checked, built and tested, and its
 // build run on the server image of the release's Linux kit, in Docker.
 //
-//   bun run test:release [--wamrc <folder>] [--image <name>] [--skip-generate] [--keep]
+//   npm run test:release -- [--wamrc <folder>] [--image <name>] [--skip-generate] [--keep]
 //
 // Nothing stale reaches it: the registry's storage, npm's and Bun's caches,
 // npm's user config and global folder, HOME and the temporary folder are this
 // run's own, in one folder of the system's temporary folder, and the registry
-// listens on a free port - a registry of `bun run publish:local` is left as it
+// listens on a free port - a registry of `npm run publish:local` is left as it
 // is. The release's
 // files are dist-release/ (or --wamrc): both systems' wamrc for the packages,
-// and the Linux server kit the image is built with - `bun run release:linux
-// --no-upload` makes it. --image takes an image built already (CI builds it
+// and the Linux server kit the image is built with - `npm run release:linux
+// -- --no-upload` makes it. --image takes an image built already (CI builds it
 // with a cache).
 //
 // Whatever happens, the registry, the container and the folder are removed at
@@ -29,7 +29,7 @@ import { basename, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { coreDumpArgs, crashReport } from './core-dumps';
-import { HOST_SYSTEM } from './system';
+import { HOST_SYSTEM, NODE_TS } from './system';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const VERSION = String(JSON.parse(readFileSync(join(CORE, 'package.json'), 'utf8')).version);
@@ -124,7 +124,7 @@ const caches = {
 };
 const publishEnv = { ...process.env, ...caches, AMXTS_NPM_DIR: join(root, 'dist-npm'), AMXTS_REGISTRY_PORT: port };
 // The user's shell, without this checkout's settings - AMXTS_*, and the npm_*
-// that `bun run` sets - and with the registry.
+// that `npm run` sets - and with the registry.
 const userEnv: NodeJS.ProcessEnv = {
 	...Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(?:amxts_|npm_)/i.test(name))),
 	...caches,
@@ -210,7 +210,7 @@ function fail(problems: (string | false)[]) {
 /** The image of the release's Linux kit, docker/server, as Publish builds it. */
 function serverImage(): string {
 	if (IMAGE) return IMAGE;
-	if (!existsSync(KIT)) throw new CheckError(`${KIT} is missing: bun run release:linux --no-upload makes it`);
+	if (!existsSync(KIT)) throw new CheckError(`${KIT} is missing: npm run release:linux -- --no-upload makes it`);
 	const kit = join(root, 'kit');
 	mkdirSync(kit);
 	// Windows' own tar reads a .tar.gz; a GNU tar earlier on PATH takes C: for a host.
@@ -322,7 +322,7 @@ function cleanUp() {
 	for (const name of [container, fresh]) {
 		if (docker(['container', 'inspect', name]).status === 0) docker(['rm', '-f', name]);
 	}
-	spawnSync(process.execPath, [join(CORE, 'scripts/publish.ts'), 'local', '--stop'], { cwd: CORE, env: publishEnv, stdio: 'ignore' });
+	spawnSync(process.execPath, [...NODE_TS, join(CORE, 'scripts/publish.ts'), 'local', '--stop'], { cwd: CORE, env: publishEnv, stdio: 'ignore' });
 	if (args.includes('--keep')) {
 		console.log(`the folder stays: ${root}`);
 		return;
@@ -333,7 +333,7 @@ function cleanUp() {
 			rmSync(root, { recursive: true, force: true });
 			return;
 		} catch {
-			spawnSync(process.execPath, ['-e', 'await Bun.sleep(500)']);
+			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
 		}
 	}
 	console.log(`could not remove ${root}`);
@@ -355,7 +355,7 @@ async function main() {
 	const image = serverImage();
 
 	// 1. The nine packages, into an empty registry of this run's.
-	step('the packages, into an empty local registry', CORE, process.execPath, [join(CORE, 'scripts/publish.ts'), 'local', '--reset', ...passOn], publishEnv);
+	step('the packages, into an empty local registry', CORE, process.execPath, [...NODE_TS, join(CORE, 'scripts/publish.ts'), 'local', '--reset', ...passOn], publishEnv);
 
 	// 2. A project, as a user makes one: no server, menu-core.
 	step('npx create-amxts', work, 'npx', [`create-amxts@${CREATE_VERSION}`, 'my-server', '--yes', '--pm', 'npm', '--modules', 'menu-core', '--no-git'], userEnv);

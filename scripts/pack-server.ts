@@ -1,8 +1,8 @@
 import type { System } from './system';
 // Assembles what goes on a server, into dist-server/<os>/.
 //
-//   bun run serverkit                  for a server of this machine's system
-//   bun run serverkit --os linux       for a Linux server (bun run build:linux first)
+//   npm run serverkit                  for a server of this machine's system
+//   npm run serverkit -- --os linux       for a Linux server (npm run build:linux first)
 //
 // A server loads .aot files only, as AMX Mod X loads .amxx: plugins are built
 // on the author's machine (npx amxts build) and uploaded. So the kit is the
@@ -40,7 +40,7 @@ const module_ = modulePath(system);
 
 for (const file of ['as/facade.ts', 'runtime/natives.txt', wamrcPath()]) {
 	if (!existsSync(file)) {
-		fail(`${file} is missing — run bun run generate, and see CONTRIBUTING.md for wamrc`);
+		fail(`${file} is missing — run npm run generate, and see CONTRIBUTING.md for wamrc`);
 		process.exit(1);
 	}
 }

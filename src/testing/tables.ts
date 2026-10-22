@@ -1,6 +1,6 @@
 // What the fake server needs to know about the generated layer, read out of
 // the generated files themselves rather than copied: a constant, a dispatcher
-// id or a hookchain number that moves when `bun run generate` runs moves here
+// id or a hookchain number that moves when `npm run generate` runs moves here
 // too, and a test never disagrees with the plugin it loads.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -13,7 +13,7 @@ function generated(file: string): string {
 	try {
 		return readFileSync(join(PLUGINS_ROOT, file), 'utf-8');
 	} catch {
-		throw new Error(`as/${file} is missing - run \`bun run generate\` before testing plugins`);
+		throw new Error(`as/${file} is missing - run \`npm run generate\` before testing plugins`);
 	}
 }
 

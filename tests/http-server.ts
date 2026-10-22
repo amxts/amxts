@@ -1,7 +1,7 @@
 // The web server fetch and useFetch are tested against: HTTP and HTTPS (a
 // certificate of its own, tests/server/fixtures/https-cert.pem) on ports of
 // this machine, started by the test that needs it - tests/fetch.test.ts on
-// the fake server, `bun run test:server` for the network suite
+// the fake server, `npm run test:server` for the network suite
 // (tests/server/fetch.ts). Nothing goes to the internet. The paths:
 //
 //   json         200, a JSON object

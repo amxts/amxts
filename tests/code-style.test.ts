@@ -840,8 +840,8 @@ export async function docFindings(source: DocSource, lang: Lang): Promise<string
 		const internal = LANGS.map(l => INTERNALS.exec(entry[l])?.[0]).find(Boolean);
 		if (internal) findings.push(`${at(element.line)}  28: ${element.key} - "${internal}" in its words: say what it means for the plugin author (${docs})`);
 		const words = pick(entry, lang);
-		if (!element.doc) findings.push(`${at(element.line)}  28: ${element.key} - no comment above it: bun run generate writes it`);
-		else if (element.doc.text !== words) findings.push(`${at(element.line)}  28: ${element.key} - its comment is not the ${lang} words of ${docs}: edit them there, then bun run generate`);
+		if (!element.doc) findings.push(`${at(element.line)}  28: ${element.key} - no comment above it: npm run generate writes it`);
+		else if (element.doc.text !== words) findings.push(`${at(element.line)}  28: ${element.key} - its comment is not the ${lang} words of ${docs}: edit them there, then npm run generate`);
 	}
 
 	const keys = new Set(found.map(e => e.key));
