@@ -5690,7 +5690,7 @@ static bool LoadPlugin(int index)
 	const std::string path = g_plugins[index].path;
 	FileState(path.c_str(), &g_plugins[index].stamp, &g_plugins[index].size);
 
-	// A changed file the loader thread has read, and loaded, already.
+	// A file the loader thread has read, and loaded, already.
 	Plugin &entry = g_plugins[index];
 	unsigned char *file = entry.nextFile;
 	size_t got = entry.nextSize;
@@ -6278,8 +6278,9 @@ static void ReloadOne(const std::string &wanted)
  * half-written .aot read before its end is refused as incomplete. The new
  * time is taken before the reload, not after, so a plugin that fails to load
  * is not retried every second - only once its file changes again. The file
- * is read and loaded on the loader thread meanwhile (PreloadAll), so the
- * frame that swaps it in (SwapIn) holds the game only for the plugin's start.
+ * is read and loaded on the loader thread meanwhile (PreloadAll), with the
+ * files of the plugins that call its module, so the frame that swaps them in
+ * (SwapIn) holds the game only for their start.
  */
 static void WatchPlugins();
 
@@ -6409,10 +6410,10 @@ static int32_t w_pawnPluginPause(wasm_exec_env_t env, int32_t file, int32_t on)
 // ---------------------------------------------------------------- the loader thread
 
 /**
- * A changed .aot that the loader thread reads and loads, while the plugins
- * run on, for the frame to swap in (WatchPlugins). It names its plugin rather
- * than indexing it: a reload of every plugin or a map's end may replace the
- * entries meanwhile.
+ * A changed .aot, or one of a plugin that calls its module, that the loader
+ * thread reads and loads while the plugins run on, for the frame to swap in
+ * (WatchPlugins). It names its plugin rather than indexing it: a reload of
+ * every plugin or a map's end may replace the entries meanwhile.
  *
  * wasm_runtime_load is safe beside the game thread's calls: WAMR allocates
  * with the C library's malloc (OnAmxxAttach), keeps no list of modules
@@ -6426,6 +6427,8 @@ struct Preload {
 	unsigned char *file = NULL;
 	size_t         got = 0;
 	wasm_module_t  module = NULL;
+	// A plugin that calls a changed one's module, and starts over with it.
+	bool           dependent = false;
 };
 
 // The thread's while it runs; the game thread's once g_preloaded is set.
@@ -6475,38 +6478,40 @@ static void StopLoader()
 /**
  * Reloads the plugins whose files the loader thread is done with, from what
  * it loaded. A file written again since is dropped, for the watcher to see
- * anew, and so is one whose plugin was unloaded, or loaded from disk by a
- * command meanwhile.
+ * anew, and so is one whose plugin was unloaded, or a changed one loaded
+ * from disk by a command meanwhile.
  */
 static void SwapIn()
 {
 	g_loader.join();
-	std::vector<int> changed;
+	std::vector<int> changed, taken;
 	for (Preload &l : g_preloads) {
 		int index = Named(g_plugins, l.name);
 		time_t now;
 		long size;
-		if (index < 0 || g_plugins[index].state == PLUGIN_UNLOADED || (g_plugins[index].stamp == l.stamp && g_plugins[index].size == l.size)
+		if (index < 0 || g_plugins[index].state == PLUGIN_UNLOADED || (!l.dependent && g_plugins[index].stamp == l.stamp && g_plugins[index].size == l.size)
 		    || !FileState(l.path.c_str(), &now, &size) || now != l.stamp || size != l.size) {
 			DropLoaded(l.file, l.module);
 			continue;
 		}
 		Plugin &p = g_plugins[index];
-		// Taken before the reload, so one that fails to load is not tried again until its file changes.
-		p.stamp = l.stamp;
-		p.size = l.size;
 		p.nextFile = l.file;
 		p.nextSize = l.got;
 		p.nextModule = l.module;
+		taken.push_back(index);
+		if (l.dependent)
+			continue;
+		// Taken before the reload, so one that fails to load is not tried again until its file changes.
+		p.stamp = l.stamp;
+		p.size = l.size;
 		changed.push_back(index);
 	}
 	g_preloads.clear();
-	if (changed.empty())
-		return;
 
-	ReloadSome(changed);
-	// What a refused reload left untaken.
-	for (int index : changed)
+	if (!changed.empty())
+		ReloadSome(changed);
+	// What a refused reload, or one that no longer starts a dependent over, left untaken.
+	for (int index : taken)
 		DropLoaded(g_plugins[index].nextFile, g_plugins[index].nextModule);
 }
 
@@ -6548,6 +6553,21 @@ static void WatchPlugins()
 		l.size = size;
 		g_preloads.push_back(l);
 	}
+
+	// The plugins that call a changed one's module start over with it: their
+	// files are read and loaded on the thread too.
+	for (size_t i = 0, changed = g_preloads.size(); i < changed; i++)
+		for (int index : Dependents(Named(g_plugins, g_preloads[i].name))) {
+			const Plugin &p = g_plugins[index];
+			Preload l;
+			if (std::any_of(g_preloads.begin(), g_preloads.end(), [&](const Preload &other) { return other.name == p.name; })
+			    || !FileState(p.path.c_str(), &l.stamp, &l.size))
+				continue;
+			l.name = p.name;
+			l.path = p.path;
+			l.dependent = true;
+			g_preloads.push_back(l);
+		}
 
 	if (!g_preloads.empty()) {
 		g_preloaded = false;
