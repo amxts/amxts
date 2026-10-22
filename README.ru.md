@@ -40,7 +40,7 @@ Mod X рядом с Pawn-плагинами. Они вызывают друг д
 - **Сохранил — играешь.** `amxts dev` пересобирает сохранённое, выкладывает и
   перезагружает работающий сервер — без смены карты, никого не выкидывает.
 - **Тесты без сервера.** Плагин работает на поддельном сервере под
-  `bun test`, и тест ведёт его, как вели бы игроки.
+  Vitest или `bun test`, и тест ведёт его, как вели бы игроки.
 - **Машинный код.** Плагин компилируется в машинный код до того, как сервер
   его загрузит ([производительность](docs/ru/2.core/05.performance.md)).
 - **Модули — по одному на сервер.** `amxts.config.ts` их перечисляет,
@@ -146,7 +146,7 @@ Studio (32-битная сборка) и LLVM 18 для `wamrc`, для моду
 ```sh
 npm install --no-package-lock   # npm, not bun: it links the file: folders
 bun run generate    # after the compilers are built and patched
-bun run test
+npm test
 ```
 
 [`CONTRIBUTING.ru.md`](CONTRIBUTING.ru.md) — все шаги, проверки и то, как

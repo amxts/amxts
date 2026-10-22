@@ -39,7 +39,7 @@ plugin.
 - **Save and play.** `amxts dev` rebuilds what you saved, deploys it and
   reloads the running server - no map change, nobody disconnected.
 - **Tests without a server.** Your plugin runs on a fake server under
-  `bun test`, driven as players would drive it.
+  Vitest or `bun test`, driven as players would drive it.
 - **Machine code.** Plugins are compiled to machine code before the server
   loads them ([performance](docs/en/2.core/05.performance.md)).
 - **Modules, one per server.** `amxts.config.ts` lists them, `amxts module add`
@@ -145,7 +145,7 @@ checked out beside the core. The compilers are patched - AssemblyScript
 ```sh
 npm install --no-package-lock   # npm, not bun: it links the file: folders
 bun run generate    # after the compilers are built and patched
-bun run test
+npm test
 ```
 
 [`CONTRIBUTING.md`](CONTRIBUTING.md) has every step, the checks and how to

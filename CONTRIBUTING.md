@@ -131,10 +131,10 @@ Run them one at a time:
 ```sh
 bun run check          # tsc over src/, scripts/ and tests/
 bun run lint           # oxlint and oxfmt --check; bun run lint:fix fixes what it can
-bun run test           # the suite, on a fake server, several files at once
-bun run test --changed # only the files a change since origin/next reaches
-AMXTS_GC_STRESS=1 bun run test   # the same with a step of the collector on every allocation (CI runs both)
-bun run test:fast      # the quick ones: the style test, the generators, the include parser
+npm test               # the suite, on Vitest under Node, on a fake server, several files at once
+npm test -- --changed  # only the files a change since origin/next reaches
+AMXTS_GC_STRESS=1 npm test   # the same with a step of the collector on every allocation (CI runs both)
+npm run test:fast      # the quick ones: the style test, the generators, the include parser
 bun run test:server    # the server suites, on a test server of the AMXTS_SERVER install
 bun run test:server --linux   # the same suites on a Linux server, in Docker
 bun run test:server --plain   # the same on Linux without ReHLDS, ReGameDLL, ReAPI
@@ -193,14 +193,14 @@ made its GitHub Release (`wamrc` comes from it): a maintainer runs `npm
 login`, then `bun run publish:npm` - all nine, in order, skipping what npm
 has, so a run after a failure finishes it.
 
-`bun run test` runs each test file in a `bun test --smol` of its own, half
-as many at once as the machine has CPUs, below normal priority (`--jobs N` or `AMXTS_TEST_JOBS`
-for fewer, when memory is short), and prints a line as each file ends, a
-failed test at once, and the slowest files at the end;
-`dist/test-progress.txt` says where a run is - `cat` it while one runs in
-the background. `bun run test showcase` runs the files whose names hold the
-word, and one file with bun's own output is
-`bun test --smol tests/<name>.test.ts`. `--changed` is for the
+`npm test` runs the test files on Vitest under Node, each in a process of
+its own, half as many at once as the machine has CPUs, below normal priority
+(`--jobs N` or `AMXTS_TEST_JOBS` for fewer, when memory is short), and
+prints a line as each file ends, a failed test at once, and the slowest
+files at the end; `dist/test-progress.txt` says where a run is - `cat` it
+while one runs in the background. `npm test showcase` runs the files whose
+names hold the word, and one file with Vitest's own output is
+`npx vitest run tests/<name>.test.ts`. `--changed` is for the
 edit-and-run loop; run the whole suite before a push.
 `bun run test:server` compiles its plugins several at once, as a project's
 build does: `AMXTS_BUILD_JOBS`, or `AMXTS_BUILD_MEMORY` in megabytes (half

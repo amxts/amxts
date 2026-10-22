@@ -131,10 +131,10 @@ bun run build:linux --sanitize            # runtime/build/linux-sanitize: the sa
 ```sh
 bun run check          # tsc over src/, scripts/ and tests/
 bun run lint           # oxlint and oxfmt --check; bun run lint:fix fixes what it can
-bun run test           # the suite, on a fake server, several files at once
-bun run test --changed # only the files a change since origin/next reaches
-AMXTS_GC_STRESS=1 bun run test   # the same with a step of the collector on every allocation (CI runs both)
-bun run test:fast      # the quick ones: the style test, the generators, the include parser
+npm test               # the suite, on Vitest under Node, on a fake server, several files at once
+npm test -- --changed  # only the files a change since origin/next reaches
+AMXTS_GC_STRESS=1 npm test   # the same with a step of the collector on every allocation (CI runs both)
+npm run test:fast      # the quick ones: the style test, the generators, the include parser
 bun run test:server    # the server suites, on a test server of the AMXTS_SERVER install
 bun run test:server --linux   # the same suites on a Linux server, in Docker
 bun run test:server --plain   # the same on Linux without ReHLDS, ReGameDLL, ReAPI
@@ -193,14 +193,14 @@ npm, — чтобы проверить `amxts upgrade` до выпуска. Се
 login`, затем `bun run publish:npm` — все девять, по порядку, пропуская то,
 что в npm уже есть, так что повторный запуск после сбоя доводит дело до конца.
 
-`bun run test` запускает каждый файл тестов в своём `bun test --smol`,
-одновременно вдвое меньше, чем у машины процессоров, с пониженным приоритетом (`--jobs N` или
-`AMXTS_TEST_JOBS` — меньше, когда не хватает памяти), и печатает строку,
-как только файл закончился, упавший тест сразу, а в конце — самые медленные
-файлы; где сейчас прогон, говорит `dist/test-progress.txt` — `cat` его, пока
-прогон идёт в фоне. `bun run test showcase` запускает файлы, в имени которых
-есть это слово, а один файл с собственным выводом bun —
-`bun test --smol tests/<имя>.test.ts`. `--changed` — для цикла «поправил —
+`npm test` запускает файлы тестов на Vitest под Node, каждый в своём
+процессе, одновременно вдвое меньше, чем у машины процессоров, с пониженным
+приоритетом (`--jobs N` или `AMXTS_TEST_JOBS` — меньше, когда не хватает
+памяти), и печатает строку, как только файл закончился, упавший тест сразу,
+а в конце — самые медленные файлы; где сейчас прогон, говорит
+`dist/test-progress.txt` — `cat` его, пока прогон идёт в фоне.
+`npm test showcase` запускает файлы, в имени которых есть это слово, а один
+файл с собственным выводом Vitest — `npx vitest run tests/<имя>.test.ts`. `--changed` — для цикла «поправил —
 запустил»; перед пушем гоняйте весь набор.
 `bun run test:server` компилирует свои плагины по нескольку сразу, как сборка
 проекта: сколько — говорит `AMXTS_BUILD_JOBS` или `AMXTS_BUILD_MEMORY` в
