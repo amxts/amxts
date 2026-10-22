@@ -6,9 +6,11 @@ import * as fs from "@amxts/core/fs";
 import { Checks } from "@amxts/core/check";
 
 const FILES = 465;
-const WARNING = "the map has precached 461 files of the engine's 512 - one past that stops the server; the last, \"amxts-test/precached/460.txt\", by precached.aot";
+// A folder of this run's own: AMX Mod X's logs are kept from run to run.
+const RUN = `${Math.floor(Math.random() * 1e9)}`;
+const WARNING = `the map has precached 461 files of the engine's 512 - one past that stops the server; the last, "amxts-test/precached/${RUN}/460.txt", by precached.aot`;
 
-for (let i = 0; i < FILES; i++) server.precache(`amxts-test/precached/${i}.txt`);
+for (let i = 0; i < FILES; i++) server.precache(`amxts-test/precached/${RUN}/${i}.txt`);
 
 server.addServerCommand("amxts_test_precached", () => {
 	const check = new Checks("precached");
