@@ -5,8 +5,14 @@ interface Profile {
 	title: string;
 }
 
+interface Visit {
+	count: number;
+	map?: string;
+}
+
 const names = new Storage("storage_names");
 const profiles = new Storage<Profile>("storage_profiles");
+const visits = new Storage<Visit>("storage_visits");
 
 server.addCommand("storage_write", ({ player }) => {
 	names.set("b", "Bob");
@@ -31,4 +37,14 @@ server.addCommand("storage_lengths", ({ player }) => {
 });
 server.addCommand("storage_bad", () => {
 	new Storage("bad/name").set("key", "value");
+});
+server.addCommand("storage_old", ({ player }) => {
+	const old = visits.get("old")!;
+	let bad = "";
+	try {
+		visits.get("bad");
+	} catch (error) {
+		bad = (error as Error).message;
+	}
+	player.print(`${old.count} ${old.map ?? "none"} | ${bad}`, "console");
 });

@@ -112,6 +112,27 @@ export function text(): string {
 			].join('|'));
 		});
 
+		test('a field the text leaves out keeps its class default, with or without a constructor taking arguments', async () => {
+			const { error, text } = await compile(`
+class Profile {
+	kills: number = 0;
+	title: string = "rookie";
+	tags: string[] = ["new"];
+}
+class Spot {
+	name: string = "start";
+	constructor(public x: number) {}
+}
+export function text(): string {
+	const old = JSON.parse<Profile>('{"kills": 3}');
+	const spot = JSON.parse<Spot>('{"x": 2}');
+	return \`\${old.kills} \${old.title} \${old.tags.join(",")} \${spot.x} \${spot.name}\`;
+}
+`, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('3 rookie new 2 start');
+		});
+
 		test('JSON.stringify writes objects in field order, leaves undefined out, escapes text, indents', async () => {
 			const { error, text } = await compile(`${TYPES}
 class Point {

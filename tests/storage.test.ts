@@ -16,6 +16,18 @@ test('a Storage of objects keeps them as JSON; get gives undefined for a key not
 	expect(JSON.parse(server.storage('storage_profiles').get('STEAM_0:0:1')!)).toEqual({ kills: 2, title: 'rookie' });
 });
 
+test('a record kept before an optional field was added reads without it; one that still does not read names the storage, key and field', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	server.storage('storage_visits').set('old', '{"count":3}');
+	server.storage('storage_visits').set('bad', '{"count":"three"}');
+
+	alice.command('storage_old');
+
+	expect(alice.console).toBe('3 none | Storage "storage_visits", key "bad": JSON: count is text, a number was expected');
+	expect(server.storage('storage_visits').get('bad')).toBe('{"count":"three"}');
+});
+
 test('prune removes what was set before the moment; delete tells whether the key was there', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');

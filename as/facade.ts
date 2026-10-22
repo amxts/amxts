@@ -8005,7 +8005,10 @@ export class Storage<T = string> {
 
 	/**
 	 * The value under `key`, or `undefined` when there is none, as
-	 * `Map.get` gives: `points.get(player.steamId) ?? 0`.
+	 * `Map.get` gives: `points.get(player.steamId) ?? 0`. A field the value
+	 * was kept without takes its default, or is `undefined` when optional; a
+	 * value that still does not read as `T` is a `TypeError` naming the
+	 * storage, the key and the field, and stays on disk.
 	 *
 	 * Pawn: `nvault_get`, `nvault_lookup`
 	 */
@@ -8013,7 +8016,12 @@ export class Storage<T = string> {
 		const text = this.text(key);
 		if (text == null) return undefined;
 		if (isString<T>()) return changetype<T>(text);
-		return JSON.parse<T>(text);
+		try {
+			return JSON.parse<T>(text);
+		}
+		catch (error) {
+			throw new TypeError(`Storage "${this.name}", key "${key}": ${(error as Error).message}`);
+		}
 	}
 
 	/**

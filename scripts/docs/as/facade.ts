@@ -5387,13 +5387,19 @@ export default {
 	'Storage.get': {
 		en: `
 			The value under \`key\`, or \`undefined\` when there is none, as
-			\`Map.get\` gives: \`points.get(player.steamId) ?? 0\`.
+			\`Map.get\` gives: \`points.get(player.steamId) ?? 0\`. A field the value
+			was kept without takes its default, or is \`undefined\` when optional; a
+			value that still does not read as \`T\` is a \`TypeError\` naming the
+			storage, the key and the field, and stays on disk.
 
 			Pawn: \`nvault_get\`, \`nvault_lookup\`
 		`,
 		ru: `
 			Значение по ключу \`key\` или \`undefined\`, если его нет, как у \`Map.get\`:
-			\`points.get(player.steamId) ?? 0\`.
+			\`points.get(player.steamId) ?? 0\`. Поле, без которого значение было
+			сохранено, получает значение по умолчанию, а необязательное — \`undefined\`;
+			значение, которое всё равно не читается как \`T\`, — \`TypeError\` с именем
+			хранилища, ключом и полем, а само оно остаётся на диске.
 
 			Pawn: \`nvault_get\`, \`nvault_lookup\`
 		`,
