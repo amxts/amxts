@@ -5,8 +5,11 @@
 // the engine checks it) - so the next message begins: a begin of the plugin's
 // own, the screen's progress bar heard as it was written, and the game's own
 // HideWeapon, whose begin would stop the server while a message is open.
-// @log [amxts] message-left.aot: a message (ScreenFade) was begun and not ended - dropped
-// @log [amxts] message-left.aot: a message (engine message 23) was begun and not ended - dropped
+// Valve's HLDS gives no way to drop a message, so there the console says the
+// halfway ones went out as written; a bot gets no packets, so whether a real
+// client takes one is not seen here.
+// @log [amxts] message-left.aot: a message (ScreenFade) was begun and not ended
+// @log [amxts] message-left.aot: a message (engine message 23) was begun and not ended
 // @log [amxts] message-left.aot: a message (AmxtsLeft) was begun and not ended - ended for it
 // @log message-left.aot: Error: halfway through a message
 import { MSG_ALL, MSG_ONE, SVC_TEMPENTITY, TE_BEAMPOINTS } from "@amxts/core/constants";
@@ -66,6 +69,8 @@ async function test() {
 		return;
 	}
 
+	// Past the rcon command that started the suite: what the commands print goes to the console, not to rcon's answer.
+	await sleep(50);
 	target = bot.id;
 	for (const command of ["amxts_message_left_fixed", "amxts_message_left_temp", "amxts_message_left_whole"]) {
 		run(command);
@@ -87,5 +92,6 @@ async function test() {
 	}
 	check.expect(hidden.includes("money"), "the game's HideWeapon goes out and is heard").toBe(true);
 	bot.hideHud = [];
+	check.expect(bot.isConnected, "the bot is still on the server").toBe(true);
 	check.done();
 }
