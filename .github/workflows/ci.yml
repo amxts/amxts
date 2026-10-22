@@ -4,16 +4,16 @@
 # test suite in three parts, and again with a step of the collector on every
 # allocation (AMXTS_GC_STRESS); and the Linux module, wamrc and the server suites
 # built once, in Docker, then the suites run on a Linux test server in Docker
-# (bun run test:server --linux), on three AMX Mod X builds, on plain HLDS
+# (npm run test:server -- --linux), on three AMX Mod X builds, on plain HLDS
 # and under sanitizers. On a tag v*, the Windows files are
-# built too, on a Windows runner (bun run release:windows), then the nine npm
-# packages are tried end to end with both systems' files (bun run
+# built too, on a Windows runner (npm run release:windows), then the nine npm
+# packages are tried end to end with both systems' files (npm run
 # test:release: a local registry, npx create-amxts, typecheck, build, test,
 # the server image in Docker); once everything passes, both systems' files go
 # to the tag's draft release (created with the version's section of
 # CHANGELOG.md as its notes), and the Publish workflow is started: the draft
 # taken off, the server image; the npm packages are published by hand after it
-# (bun run publish:npm). Run by hand (workflow_dispatch), it builds the
+# (npm run publish:npm). Run by hand (workflow_dispatch), it builds the
 # Windows files as a dry run and tries the packages - a release's rehearsal -
 # and keeps the Windows files as an artifact.
 #
@@ -51,13 +51,13 @@ jobs:
       - name: The release's notes
         if: startsWith(github.ref, 'refs/tags/v')
         working-directory: amxts
-        run: bun scripts/changelog.ts release "$GITHUB_REF_NAME" --dry-run
+        run: npm run changelog -- release "$GITHUB_REF_NAME" --dry-run
       - name: Type check
         working-directory: amxts
-        run: bun run check
+        run: npm run check
       - name: Lint
         working-directory: amxts
-        run: bun run lint
+        run: npm run lint
 
   # Under stress the collector runs on every allocation: an object nothing
   # the collector visits still references is freed at once, and the test that
@@ -138,22 +138,22 @@ jobs:
       # The natives' image first: the module carries it.
       - name: The natives' image
         working-directory: amxts
-        run: bun run image
+        run: npm run image
       - name: The Linux module and wamrc
         working-directory: amxts
         env:
           JOBS: 4
           AMXTS_BUILD_VOLUME: ${{ github.workspace }}/linux-work
-        run: bun run build:linux
+        run: npm run build:linux
       - name: The sanitized module, and the suites
         working-directory: amxts
         env:
           JOBS: 2
           AMXTS_BUILD_VOLUME: ${{ github.workspace }}/linux-work
         run: |
-          bun run build:linux --sanitize > "$RUNNER_TEMP/sanitize.log" 2>&1 &
+          npm run build:linux -- --sanitize > "$RUNNER_TEMP/sanitize.log" 2>&1 &
           sanitized=$!
-          bun run test:server --linux --build-only
+          npm run test:server -- --linux --build-only
           wait $sanitized || { cat "$RUNNER_TEMP/sanitize.log"; exit 1; }
       - uses: actions/upload-artifact@v7
         with:
@@ -167,7 +167,7 @@ jobs:
 
       - name: The Linux server kit
         working-directory: amxts
-        run: bun run serverkit --os linux
+        run: npm run serverkit -- --os linux
       - name: The Linux files
         uses: actions/upload-artifact@v7
         with:
@@ -355,11 +355,11 @@ jobs:
         run: |
           set -o pipefail
           [ "$SUITES" = dist-wasm/test-server-linux ] || mv dist-wasm/test-server-linux "$SUITES"
-          bun run test:server --linux --prebuilt $PLAIN $SANITIZE ${AMXX:+--amxx "$AMXX"} | tee "$RUNNER_TEMP/server.log"
+          npm run test:server -- --linux --prebuilt $PLAIN $SANITIZE ${AMXX:+--amxx "$AMXX"} | tee "$RUNNER_TEMP/server.log"
       - name: perf against its past on this CPU
         if: ${{ !cancelled() && env.PERF == 'true' }}
         working-directory: amxts
-        run: bun scripts/perf-history.ts "$RUNNER_TEMP/server.log" ../perf-history.json "${{ steps.cpu.outputs.name }}"
+        run: node --disable-warning=ExperimentalWarning --import ./scripts/node-ts.mjs scripts/perf-history.ts "$RUNNER_TEMP/server.log" ../perf-history.json "${{ steps.cpu.outputs.name }}"
       - uses: actions/cache/save@v6
         if: ${{ success() && env.PERF == 'true' }}
         with:
@@ -375,7 +375,7 @@ jobs:
 
   # The Windows files: the host plugin, the module that carries it (MSVC,
   # Win32), wamrc.exe against LLVM's prebuilt package and the kit - what a
-  # developer's `bun run release:windows` does, on a Windows runner.
+  # developer's `npm run release:windows` does, on a Windows runner.
   windows:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: windows-2025
@@ -424,7 +424,7 @@ jobs:
         working-directory: amxts
         env:
           LLVM_DIR: ${{ github.workspace }}/llvm/lib/cmake/llvm
-        run: bun run release:windows ${{ startsWith(github.ref, 'refs/tags/v') && '--no-upload' || '--dry-run' }}
+        run: npm run release:windows -- ${{ startsWith(github.ref, 'refs/tags/v') && '--no-upload' || '--dry-run' }}
       - uses: actions/upload-artifact@v7
         with:
           name: amxts-windows
@@ -434,7 +434,7 @@ jobs:
   # to an empty local registry - wamrc from both systems' files above - then a
   # project made with npx create-amxts (menu-core, no server), type-checked,
   # built and tested, and its build run on the server image of the Linux kit
-  # (bun run test:release). Only on a tag and by hand, after the Windows files
+  # (npm run test:release). Only on a tag and by hand, after the Windows files
   # it needs: about 15 minutes, the setup and the packing most of it.
   packages:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
@@ -456,7 +456,7 @@ jobs:
           path: amxts/dist-release/windows
       - name: The Linux files, packed as the release packs them
         working-directory: amxts
-        run: bun run release:linux --skip-build --no-upload --dry-run
+        run: npm run release:linux -- --skip-build --no-upload --dry-run
       # docker/server with the Linux kit, as Publish builds the image: from
       # scratch, then taken by name. A cached layer keeps the SteamCMD of the
       # day it was made, and a server on that steamclient.so exited right
@@ -477,7 +477,7 @@ jobs:
         run: sudo sysctl -w kernel.core_pattern=/cores/core.%e.%p
       - name: The packages, end to end
         working-directory: amxts
-        run: bun run test:release --image amxts-release-test
+        run: npm run test:release -- --image amxts-release-test
       - name: The server's console, core dump and backtrace
         if: failure()
         uses: actions/upload-artifact@v7
@@ -514,8 +514,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          bun run release:linux --skip-build --no-upload
-          bun run release:upload
+          npm run release:linux -- --skip-build --no-upload
+          npm run release:upload
       # The Publish workflow of the tag: the draft taken off, then the server
       # image. Run by hand with the tag, it does the same.
       - name: Publish

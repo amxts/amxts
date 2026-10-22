@@ -8,7 +8,7 @@
 # stopped half way.
 #
 # The npm packages are published by hand once the release is out, its wamrc
-# taken from it: npm login, then bun run publish:npm.
+# taken from it: npm login, then npm run publish:npm.
 name: Publish
 
 on:
@@ -28,14 +28,14 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag }}
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v7
         with:
-          bun-version: 1.4.3
+          node-version: 24
       - name: Check both systems, then publish
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
-        run: bun scripts/release.ts publish --tag "$TAG"
+        run: npm run release:publish -- --tag "$TAG"
 
   # ghcr.io/<owner>/server:<version>, and :latest for the newest release:
   # docker/server with the release's own Linux server kit.

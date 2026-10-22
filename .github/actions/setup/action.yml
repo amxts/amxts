@@ -1,6 +1,6 @@
 # What every job of CI needs before it starts: the command and the official
 # modules checked out beside the core (the folders the core's package.json and
-# theirs link to, and the ones the packages carry), Node and Bun, the dependencies, the patched AssemblyScript,
+# theirs link to, and the ones the packages carry), Node, the dependencies, the patched AssemblyScript,
 # AMX Mod X and the generated API. The core itself is checked out as `amxts`
 # by the job, which then runs this - on Linux, or on Windows for the Windows
 # half of a release.
@@ -39,9 +39,6 @@ runs:
     - uses: actions/setup-node@v7
       with:
         node-version: 24
-    - uses: oven-sh/setup-bun@v2
-      with:
-        bun-version: 1.4.3
 
     # What the caches below are keyed by, besides their files: Node's exact
     # version (node-version 24 takes the newest 24.x), the day, and where this
@@ -147,5 +144,5 @@ runs:
       shell: bash
       working-directory: amxts
       run: |
-        bun run setup:amxmodx
-        bun run generate
+        npm run setup:amxmodx
+        npm run generate
