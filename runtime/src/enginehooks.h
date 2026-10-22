@@ -77,7 +77,7 @@ struct HeldMessage {
 	// The players a listener chose (recipients), by id: a copy goes to each
 	// of them the message would reach, and to nobody else.
 	bool                    chosen = false;
-	bool                    to[CLIENT_SLOTS];
+	bool                    to[CLIENT_SLOTS] = {};
 };
 
 static int g_messagesHooked = 0;

@@ -7,8 +7,8 @@
 // move command runs are his own; his knife swung at the wall sends nothing:
 // the game leaves a knife's mark to the clients.
 // @log [amxts] TRACE message SVC_TEMPENTITY sent changed to 1 player "amxts sprayer"
-import { EngFunc_RunPlayerMove, Ham_Weapon_PrimaryAttack, m_flNextAttack, MSG_BROADCAST, SVC_TEMPENTITY, TE_DECAL, TE_DECALHIGH, TE_SPARKS, TE_WORLDDECAL, TE_WORLDDECALHIGH } from "@amxts/core/constants";
-import { emessage_begin_f, emessage_end, engfunc, ewrite_byte, ewrite_coord_f, ExecuteHamB, set_member } from "@amxts/core/natives";
+import { EngFunc_RunPlayerMove, Ham_Weapon_PrimaryAttack, MSG_BROADCAST, SVC_TEMPENTITY, TE_DECAL, TE_DECALHIGH, TE_SPARKS, TE_WORLDDECAL, TE_WORLDDECALHIGH } from "@amxts/core/constants";
+import { emessage_begin_f, emessage_end, engfunc, ewrite_byte, ewrite_coord_f, ExecuteHamB } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
 const DECALS = [TE_DECAL, TE_DECALHIGH, TE_WORLDDECAL, TE_WORLDDECALHIGH];
@@ -74,7 +74,7 @@ async function faceWall(bot: Player): Promise<number[] | null> {
 	bot.angles = angles;
 	// His first move takes his weapon out; an impulse waits until it is ready.
 	engfunc(EngFunc_RunPlayerMove, bot.id, angles, 0, 0, 0, 0, 0, 10);
-	set_member(bot.id, m_flNextAttack, 0.0);
+	bot.nextAttack = 0;
 	return angles;
 }
 
