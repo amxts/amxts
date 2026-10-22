@@ -21,8 +21,10 @@ registerHooks({
 		}
 	},
 	load(url, context, next) {
-		if (!url.endsWith('.ts')) return next(url, context);
-		const source = stripTypeScriptTypes(readFileSync(fileURLToPath(url), 'utf8'), { mode: 'transform' });
+		// A file's URL may carry a query: a table read again after it changed.
+		const path = url.startsWith('file:') ? fileURLToPath(url) : '';
+		if (!path.endsWith('.ts')) return next(url, context);
+		const source = stripTypeScriptTypes(readFileSync(path, 'utf8'), { mode: 'transform' });
 		return { format: 'module', source, shortCircuit: true };
 	},
 });

@@ -45,7 +45,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
 
 export type Lang = 'en' | 'ru';
@@ -267,7 +267,7 @@ export function dedent(text: string): string {
 
 /** A docs file's table, every text dedented. */
 export async function loadTable(path: string): Promise<DocTable> {
-	const module = await import(`${resolve(path).replace(/\\/g, '/')}?t=${Date.now()}`);
+	const module = await import(`${pathToFileURL(resolve(path)).href}?t=${Date.now()}`);
 	const raw = (module.default ?? {}) as Record<string, Partial<DocText>>;
 	const table: DocTable = {};
 	for (const [key, text] of Object.entries(raw)) table[key] = { en: dedent(text.en ?? ''), ru: dedent(text.ru ?? '') };
