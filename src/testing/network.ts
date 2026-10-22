@@ -1,6 +1,6 @@
 // The module's network client (runtime/src/network.h) on the fake server:
 // the net_* externals as/fetch.ts declares. HTTP and HTTPS are answered with
-// Bun's own fetch; FTP and FTPS with basic-ftp, SFTP with ssh2-sftp-client,
+// the runtime's own fetch, Node's or Bun's; FTP and FTPS with basic-ftp, SFTP with ssh2-sftp-client,
 // loaded the first time a test asks for one - so a module's test can start
 // an FTP or SFTP server in its own process (ftp-srv, ssh2) and reach it the
 // way the module's natives reach a real one: the same options, the same
@@ -108,9 +108,27 @@ async function need<T>(name: string): Promise<T> {
 	}
 }
 
-/** The kind of an error of Bun's fetch, of a socket or of TLS. */
+/**
+ * The fetch option that trusts `ca` too: Bun's `tls`; Node's `dispatcher`,
+ * an Agent of the undici inside Node - the class of its global dispatcher,
+ * since Node does not export it - one for each certificate. The dispatcher is
+ * there once undici is loaded, which a Response does.
+ */
+const agents = new Map<string, object>();
+function trusting(ca: string): object {
+	if (process.versions.bun) return { tls: { ca } };
+	if (!agents.has(ca)) {
+		void new Response();
+		const Agent = (globalThis as Record<symbol, any>)[Symbol.for('undici.globalDispatcher.1')].constructor;
+		agents.set(ca, new Agent({ connect: { ca } }));
+	}
+	return { dispatcher: agents.get(ca) };
+}
+
+/** The kind of an error of fetch, of a socket or of TLS; Node's fetch has the socket's error as its cause. */
 function kindOf(error: unknown): Kind {
-	const text = `${(error as { code?: string }).code ?? ''} ${(error as Error).name} ${(error as Error).message}`;
+	const cause = (error as { cause?: { code?: string; message?: string } }).cause;
+	const text = `${(error as { code?: string }).code ?? ''} ${(error as Error).name} ${(error as Error).message} ${cause?.code ?? ''} ${cause?.message ?? ''}`;
 	if (/Timeout/i.test(text)) return 'timeout';
 	if (/refused|ENOTFOUND|EAI_AGAIN|resolve|Unable to connect|ConnectionClosed|ECONNRESET/i.test(text)) return 'refused';
 	if (/CERT|TLS|SSL|self[- ]signed/i.test(text)) return 'tls';
@@ -276,7 +294,7 @@ export class FakeNetwork {
 			redirect: request.follow ? 'follow' : 'manual',
 			signal: request.controller.signal,
 			...(request.proxy ? { proxy: request.proxy } : {}),
-			...(request.ca ? { tls: { ca: request.ca } } : {}),
+			...(request.ca ? trusting(request.ca) : {}),
 		} as RequestInit);
 		const lines = [...response.headers].filter(([name]) => name !== 'set-cookie').map(([name, value]) => `${name}: ${value}`);
 		for (const cookie of response.headers.getSetCookie()) lines.push(`set-cookie: ${cookie}`);
