@@ -8,8 +8,7 @@ plugin author needs none of this: a project gets the core from its package
 
 ## What you need
 
-- [Git](https://git-scm.com), [Bun](https://bun.sh) (CI runs 1.4.3) and
-  Node 24+.
+- [Git](https://git-scm.com) and Node 24+.
 - The `amxts` command and the official modules checked out beside the core,
   as `package.json` links them:
 
@@ -20,7 +19,7 @@ plugin author needs none of this: a project gets the core from its package
   amxts-modules/menu-core/     github.com/amxts/menu-core
   ```
 
-- An AMX Mod X 1.10 distribution in `amxmodx/`: `bun run setup:amxmodx`
+- An AMX Mod X 1.10 distribution in `amxmodx/`: `npm run setup:amxmodx`
   fetches it for this machine's system. On Linux its `amxxpc` is a 32-bit
   program (`libc6-i386`).
 - For the Windows module: CMake 3.20+ and Visual Studio with the C++ workload
@@ -30,7 +29,7 @@ plugin author needs none of this: a project gets the core from its package
 - For the Linux module, the Linux `wamrc` and the Linux test server:
   [Docker](https://www.docker.com). Everything else they need is in the
   images.
-- A connection the first time `bun run setup` runs: it downloads the
+- A connection the first time `npm run setup` runs: it downloads the
   third-party includes `includes/sources.json` pins (ReAPI, resemiclip),
   checks each file's sha256 and puts them in `includes/vendor/`
   ([includes/README.md](includes/README.md)).
@@ -74,7 +73,7 @@ cmake -B build -S . -DWAMR_BUILD_WITH_CUSTOM_LLVM=1 -DLLVM_DIR=<llvm>/lib/cmake/
 cmake --build build --config Release
 ```
 
-`bun run build:linux` builds a Linux `wamrc` too, in Docker. It builds the
+`npm run build:linux` builds a Linux `wamrc` too, in Docker. It builds the
 toolchain image `amxts-build` first; an image named by `AMXTS_BUILD_IMAGE` is
 taken as it is, which is how CI gives it the image built from its cache.
 
@@ -95,24 +94,24 @@ done
 every clone, before the checks or a build:
 
 ```sh
-bun run generate
+npm run generate
 ```
 
-It runs `bun run setup` first, then writes the API from the includes.
-`bun run clean` removes what the build made. Within a release line a
+It runs `npm run setup` first, then writes the API from the includes.
+`npm run clean` removes what the build made. Within a release line a
 released import keeps its shape (`runtime/abi-lock.txt`): when generate
 stops on one, give the new shape a new name instead.
 
 **6. The natives' image and the module that carries it:**
 
 ```sh
-bun run image                             # runtime/host/amxts_natives.amxx, and runtime/src/image.h
+npm run image                             # runtime/host/amxts_natives.amxx, and runtime/src/image.h
 cd runtime
 cmake -A Win32 -B build -S .
 cmake --build build --config Release      # runtime/build/Release/amxts_amxx.dll, and testmodule_amxx.dll for the server suites
 cd ..
-bun run build:linux                       # runtime/build/linux: amxts_amxx_i386.so, testmodule_amxx_i386.so, wamrc
-bun run build:linux --sanitize            # runtime/build/linux-sanitize: the same under ASan and UBSan
+npm run build:linux                       # runtime/build/linux: amxts_amxx_i386.so, testmodule_amxx_i386.so, wamrc
+npm run build:linux -- --sanitize         # runtime/build/linux-sanitize: the same under ASan and UBSan
 ```
 
 The module carries the compiled natives' image - the native table it calls
@@ -129,21 +128,21 @@ includes rebuild in this order: generate, the image, the module.
 Run them one at a time:
 
 ```sh
-bun run check          # tsc over src/, scripts/ and tests/
-bun run lint           # oxlint and oxfmt --check; bun run lint:fix fixes what it can
+npm run check          # tsc over src/, scripts/ and tests/
+npm run lint           # oxlint and oxfmt --check; npm run lint:fix fixes what it can
 npm test               # the suite, on Vitest under Node, on a fake server, several files at once
 npm test -- --changed  # only the files a change since origin/next reaches
 AMXTS_GC_STRESS=1 npm test   # the same with a step of the collector on every allocation (CI runs both)
 npm run test:fast      # the quick ones: the style test, the generators, the include parser
-bun run test:server    # the server suites, on a test server of the AMXTS_SERVER install
-bun run test:server --linux   # the same suites on a Linux server, in Docker
-bun run test:server --plain   # the same on Linux without ReHLDS, ReGameDLL, ReAPI
-bun run test:server --no-reapi   # the same on ReHLDS and ReGameDLL without ReAPI
-bun run test:server --linux --amxx 1.9.0-git5303   # the same on another AMX Mod X build
-bun run test:server --linux --sanitize   # the same with the module under ASan and UBSan
-bun run test:server --full    # the same suites compiled as `amxts build` compiles them
-bun run test:server --only cvar,player   # only these suites, beside what every run loads
-bun run test:release          # the npm packages end to end: a local registry, npx create-amxts, a server in Docker
+npm run test:server                                   # the server suites, on a test server of the AMXTS_SERVER install
+npm run test:server -- --linux                        # the same suites on a Linux server, in Docker
+npm run test:server -- --plain                        # the same on Linux without ReHLDS, ReGameDLL, ReAPI
+npm run test:server -- --no-reapi                     # the same on ReHLDS and ReGameDLL without ReAPI
+npm run test:server -- --linux --amxx 1.9.0-git5303   # the same on another AMX Mod X build
+npm run test:server -- --linux --sanitize             # the same with the module under ASan and UBSan
+npm run test:server -- --full                         # the same suites compiled as `amxts build` compiles them
+npm run test:server -- --only cvar,player             # only these suites, beside what every run loads
+npm run test:release                                  # the npm packages end to end: a local registry, npx create-amxts, a server in Docker
 ```
 
 The `database` suite checks `Database` against a MySQL and a MariaDB the
@@ -156,8 +155,8 @@ whose packages' sha256 are in `docker/hlds/amxmodx.sha256`. CI runs the
 server suites on three: the image's own (1.10.0-git5484), 1.9.0-git5303 and
 1.10.0-git5486.
 
-`--sanitize` runs the Linux server with the module of `bun run build:linux
---sanitize`, its C++ under AddressSanitizer and UBSan: a memory error in it
+`--sanitize` runs the Linux server with the module of `npm run build:linux
+-- --sanitize`, its C++ under AddressSanitizer and UBSan: a memory error in it
 fails the run with the sanitizer's report, which names the file and line.
 CI runs it too, as the `linux (sanitizers)` job, and `--plain` as the
 `linux (plain HLDS)` job. CI builds the module and compiles the suites
@@ -172,12 +171,12 @@ the dump to come: CI sets it, and on Docker Desktop `docker run --rm
 --privileged debian:bookworm-slim sh -c 'echo /cores/core.%e.%p >
 /proc/sys/kernel/core_pattern'` does, until Docker restarts.
 
-`bun run test:release` publishes the nine packages to a local registry of
+`npm run test:release` publishes the nine packages to a local registry of
 its own, makes a project with `npx create-amxts`, builds and tests it and
 runs it on the server image in Docker; it needs both systems' release files
-in `dist-release/` (`bun run release:linux --no-upload --dry-run`, and
+in `dist-release/` (`npm run release:linux -- --no-upload --dry-run`, and
 `release:windows`'s), and CI runs it on a tag before the release.
-`bun run publish:local` publishes them to a local registry on
+`npm run publish:local` publishes them to a local registry on
 `http://localhost:4873/` and leaves it running (`--reset` empties it,
 `--stop` stops it). Each package goes out as its own version - the core and
 `wamrc` share one, the command, `create-amxts` and each official module have
@@ -186,11 +185,11 @@ stages the core and `wamrc` as that version (and the command too, when its
 `CORE_RANGE` does not take it), the checkouts unchanged and the earlier
 releases copied from npm beside them, to try `amxts upgrade` before a
 release. A server runs the modules' plugins with a module built as that
-version: `AMXTS_AS_VERSION=0.3.0 bun run generate`, then the module.
+version: `AMXTS_AS_VERSION=0.3.0 npm run generate`, then the module.
 
 A release's packages go to npm by hand, once the core's Publish workflow has
 made its GitHub Release (`wamrc` comes from it): a maintainer runs `npm
-login`, then `bun run publish:npm` - all nine, in order, skipping what npm
+login`, then `npm run publish:npm` - all nine, in order, skipping what npm
 has, so a run after a failure finishes it.
 
 `npm test` runs the test files on Vitest under Node, each in a process of
@@ -202,7 +201,7 @@ while one runs in the background. `npm test showcase` runs the files whose
 names hold the word, and one file with Vitest's own output is
 `npx vitest run tests/<name>.test.ts`. `--changed` is for the
 edit-and-run loop; run the whole suite before a push.
-`bun run test:server` compiles its plugins several at once, as a project's
+`npm run test:server` compiles its plugins several at once, as a project's
 build does: `AMXTS_BUILD_JOBS`, or `AMXTS_BUILD_MEMORY` in megabytes (half
 the free memory, at least 3072), says how many. Locally they compile as `amxts dev` compiles,
 about twice as fast - all but `perf.ts`, which measures speed; in CI and with
@@ -211,7 +210,7 @@ taken again while nothing it read changed, so a second run, or one after a
 change to the module's C++ alone, compiles nothing. A module in
 `runtime/build` that would refuse the checkout's plugins - built before the
 version's line or the API's imports and natives changed - is built again
-first (`bun run generate`, then cmake's build, or `bun run build:linux`),
+first (`npm run generate`, then cmake's build, or `npm run build:linux`),
 with a line saying so; one older than a file of `runtime/src` or
 `runtime/CMakeLists.txt` is built again too, without `generate`.
 `AMXTS_SERVER` (in `.env` beside `package.json`) is a server's
@@ -249,8 +248,8 @@ this one.
 The API's tooltips come from `scripts/docs/`, in both languages; every new
 public element gets an entry in both. The page "From Pawn" is written from
 the tooltips' `Pawn:` lines: after a change to them,
-`bun scripts/coverage.ts --write` writes it again (`tests/coverage.test.ts`
-fails until then).
+`node --import ./scripts/node-ts.mjs scripts/coverage.ts --write` writes it
+again (`tests/coverage.test.ts` fails until then).
 
 ## Branches
 

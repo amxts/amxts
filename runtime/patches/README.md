@@ -17,7 +17,7 @@ license, not this repository's MIT:
 Apache-2.0 asks that modified files say they were changed, and that a copy
 of the license goes with a distribution: the patches are the record of what
 amxts changes, and a package that ships a patched compiler - the server kit
-(`bun run serverkit`) bundles both - has to carry each upstream's `LICENSE`
+(`npm run serverkit`) bundles both - has to carry each upstream's `LICENSE`
 and say the compiler is patched. It does: `runtime/licenses` goes into the
 kit as `addons/amxts/tools/licenses`, with Binaryen's, Bun's and LLVM's
 (`runtime/licenses/README.md`).

@@ -8,10 +8,10 @@
 #
 # CI publishes it for every release as ghcr.io/amxts/server:<version> and
 # :latest (.github/workflows/publish.yml), built with the release's Linux
-# server kit. `bun run server:image` builds it from a checkout under the name
-# of the checkout's version, after `bun run build:linux`. The kit is a build
-# context of its own, `kit` - dist-server/linux, which `bun run serverkit
-# --os linux` assembles:
+# server kit. `npm run server:image` builds it from a checkout under the name
+# of the checkout's version, after `npm run build:linux`. The kit is a build
+# context of its own, `kit` - dist-server/linux, which `npm run serverkit
+# -- --os linux` assembles:
 #
 #   docker build -t ghcr.io/amxts/server:<version> --build-context kit=dist-server/linux docker/server
 #

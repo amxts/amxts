@@ -5,11 +5,11 @@
 #   docker build -t amxts-hlds docker/hlds
 #
 # `--build-arg AMXX=<build>` takes another AMX Mod X, any build in
-# amxmodx.sha256: `bun run test:server --linux --amxx 1.9.0-git5303` runs on
+# amxmodx.sha256: `npm run test:server -- --linux --amxx 1.9.0-git5303` runs on
 # amxts-hlds:1.9.0-git5303, built so. AMX Mod X is the last layer, so the
 # builds share every other one.
 #
-# `bun run test:server --linux` starts a container of it, copies the amxts
+# `npm run test:server -- --linux` starts a container of it, copies the amxts
 # module under test and the suites in, and runs them over rcon
 # (scripts/test-server.ts). modules.ini already names amxts_amxx; the module
 # itself is not in the image.

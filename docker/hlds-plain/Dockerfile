@@ -5,7 +5,7 @@
 #
 #   docker build -t amxts-hlds-plain docker/hlds-plain
 #
-# `bun run test:server --linux --plain` starts a container of it as
+# `npm run test:server -- --linux --plain` starts a container of it as
 # `--linux` does one of amxts-hlds (scripts/test-server.ts). modules.ini
 # already names amxts_amxx; the module itself is not in the image.
 FROM debian:bookworm-slim

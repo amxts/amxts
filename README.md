@@ -134,17 +134,17 @@ are in [`docs`](docs).
 
 ## Building from source
 
-Working on amxts itself takes Bun, an AMX Mod X 1.10 distribution
-(`bun run setup:amxmodx`), for the Windows module Windows with CMake and
+Working on amxts itself takes Node 24+, an AMX Mod X 1.10 distribution
+(`npm run setup:amxmodx`), for the Windows module Windows with CMake and
 Visual Studio (32-bit) and LLVM 18 for `wamrc`, for the Linux one Docker
-(`bun run build:linux`, `bun run test:server --linux`), and the official
+(`npm run build:linux`, `npm run test:server -- --linux`), and the official
 modules and the `amxts` command ([amxts-cli](https://github.com/amxts/amxts-cli))
 checked out beside the core. The compilers are patched - AssemblyScript
 0.28.20 and WAMR 2.4.5 - and the generated API is not committed:
 
 ```sh
 npm install --no-package-lock   # npm, not bun: it links the file: folders
-bun run generate    # after the compilers are built and patched
+npm run generate    # after the compilers are built and patched
 npm test
 ```
 

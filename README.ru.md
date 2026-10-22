@@ -135,17 +135,17 @@ amxts:
 
 ## Сборка из исходников
 
-Для работы над самим amxts нужны Bun, дистрибутив AMX Mod X 1.10
-(`bun run setup:amxmodx`), для модуля под Windows — Windows с CMake и Visual
+Для работы над самим amxts нужны Node 24+, дистрибутив AMX Mod X 1.10
+(`npm run setup:amxmodx`), для модуля под Windows — Windows с CMake и Visual
 Studio (32-битная сборка) и LLVM 18 для `wamrc`, для модуля под Linux — Docker
-(`bun run build:linux`, `bun run test:server --linux`), а также официальные
+(`npm run build:linux`, `npm run test:server -- --linux`), а также официальные
 модули и команда `amxts` ([amxts-cli](https://github.com/amxts/amxts-cli))
 рядом с ядром. Компиляторы заплатаны — AssemblyScript 0.28.20 и WAMR 2.4.5, —
 а сгенерированный API не коммитится:
 
 ```sh
 npm install --no-package-lock   # npm, not bun: it links the file: folders
-bun run generate    # after the compilers are built and patched
+npm run generate    # after the compilers are built and patched
 npm test
 ```
 

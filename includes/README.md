@@ -1,7 +1,7 @@
 # includes
 
-The Pawn includes the core generates its API from (`bun run generate`) and
-compiles the host plugin with (`bun run host`), besides AMX Mod X's own in
+The Pawn includes the core generates its API from (`npm run generate`) and
+compiles the host plugin with (`npm run host`), besides AMX Mod X's own in
 `amxmodx/base/include`.
 
 ## Kept here
@@ -18,8 +18,8 @@ replace, and are under this repository's license.
 
 ## Fetched into `vendor/`
 
-`vendor/` is git-ignored. `bun run setup` - also the first step of
-`bun run generate` - downloads what `sources.json` pins, checks each file's
+`vendor/` is git-ignored. `npm run setup` - also the first step of
+`npm run generate` - downloads what `sources.json` pins, checks each file's
 sha256 and puts the includes there:
 
 | source | version | license | files |

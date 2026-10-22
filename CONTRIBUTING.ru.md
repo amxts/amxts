@@ -8,8 +8,7 @@
 
 ## Что нужно
 
-- [Git](https://git-scm.com), [Bun](https://bun.sh) (в CI — 1.4.3) и
-  Node 24+.
+- [Git](https://git-scm.com) и Node 24+.
 - Команда `amxts` и официальные модули рядом с ядром — так, как их
   подключает `package.json`:
 
@@ -20,7 +19,7 @@
   amxts-modules/menu-core/     github.com/amxts/menu-core
   ```
 
-- Дистрибутив AMX Mod X 1.10 в `amxmodx/`: `bun run setup:amxmodx` скачивает
+- Дистрибутив AMX Mod X 1.10 в `amxmodx/`: `npm run setup:amxmodx` скачивает
   его для системы этой машины. На Linux его `amxxpc` — 32-битная программа
   (`libc6-i386`).
 - Для модуля под Windows: CMake 3.20+ и Visual Studio с нагрузкой C++ (модуль
@@ -29,7 +28,7 @@
   (`clang+llvm-18.1.8-x86_64-pc-windows-msvc.tar.xz`).
 - Для модуля и `wamrc` под Linux и для тестового сервера на Linux:
   [Docker](https://www.docker.com). Всё остальное для них есть в образах.
-- Сеть при первом запуске `bun run setup`: он скачивает сторонние include,
+- Сеть при первом запуске `npm run setup`: он скачивает сторонние include,
   закреплённые в `includes/sources.json` (ReAPI, resemiclip),
   сверяет sha256 каждого файла и кладёт их в `includes/vendor/`
   ([includes/README.md](includes/README.md)).
@@ -73,7 +72,7 @@ cmake -B build -S . -DWAMR_BUILD_WITH_CUSTOM_LLVM=1 -DLLVM_DIR=<llvm>/lib/cmake/
 cmake --build build --config Release
 ```
 
-`bun run build:linux` собирает и `wamrc` под Linux, в Docker. Сначала он
+`npm run build:linux` собирает и `wamrc` под Linux, в Docker. Сначала он
 собирает образ тулчейна `amxts-build`; образ, названный в
 `AMXTS_BUILD_IMAGE`, берётся как есть — так CI отдаёт ему образ, собранный
 из своего кэша.
@@ -95,24 +94,24 @@ done
 запускается после каждого клонирования, до проверок и сборки:
 
 ```sh
-bun run generate
+npm run generate
 ```
 
-Сначала он запускает `bun run setup`, потом пишет API из include.
-`bun run clean` удаляет то, что сделала сборка. В пределах линейки выпусков
+Сначала он запускает `npm run setup`, потом пишет API из include.
+`npm run clean` удаляет то, что сделала сборка. В пределах линейки выпусков
 выпущенный импорт сохраняет форму (`runtime/abi-lock.txt`): если generate
 останавливается на таком, дайте новой форме новое имя.
 
 **6. Образ нативов и модуль, который его несёт:**
 
 ```sh
-bun run image                             # runtime/host/amxts_natives.amxx и runtime/src/image.h
+npm run image                             # runtime/host/amxts_natives.amxx и runtime/src/image.h
 cd runtime
 cmake -A Win32 -B build -S .
 cmake --build build --config Release      # runtime/build/Release/amxts_amxx.dll и testmodule_amxx.dll для серверных сюит
 cd ..
-bun run build:linux                       # runtime/build/linux: amxts_amxx_i386.so, testmodule_amxx_i386.so, wamrc
-bun run build:linux --sanitize            # runtime/build/linux-sanitize: the same under ASan and UBSan
+npm run build:linux                       # runtime/build/linux: amxts_amxx_i386.so, testmodule_amxx_i386.so, wamrc
+npm run build:linux -- --sanitize         # runtime/build/linux-sanitize: the same under ASan and UBSan
 ```
 
 Модуль несёт скомпилированный образ нативов — таблицу, через которую он
@@ -129,21 +128,21 @@ bun run build:linux --sanitize            # runtime/build/linux-sanitize: the sa
 Запускайте по одной:
 
 ```sh
-bun run check          # tsc over src/, scripts/ and tests/
-bun run lint           # oxlint and oxfmt --check; bun run lint:fix fixes what it can
+npm run check          # tsc over src/, scripts/ and tests/
+npm run lint           # oxlint and oxfmt --check; npm run lint:fix fixes what it can
 npm test               # the suite, on Vitest under Node, on a fake server, several files at once
 npm test -- --changed  # only the files a change since origin/next reaches
 AMXTS_GC_STRESS=1 npm test   # the same with a step of the collector on every allocation (CI runs both)
 npm run test:fast      # the quick ones: the style test, the generators, the include parser
-bun run test:server    # the server suites, on a test server of the AMXTS_SERVER install
-bun run test:server --linux   # the same suites on a Linux server, in Docker
-bun run test:server --plain   # the same on Linux without ReHLDS, ReGameDLL, ReAPI
-bun run test:server --no-reapi   # the same on ReHLDS and ReGameDLL without ReAPI
-bun run test:server --linux --amxx 1.9.0-git5303   # the same on another AMX Mod X build
-bun run test:server --linux --sanitize   # the same with the module under ASan and UBSan
-bun run test:server --full    # the same suites compiled as `amxts build` compiles them
-bun run test:server --only cvar,player   # only these suites, beside what every run loads
-bun run test:release          # пакеты npm от начала до конца: локальный реестр, npx create-amxts, сервер в Docker
+npm run test:server                                   # the server suites, on a test server of the AMXTS_SERVER install
+npm run test:server -- --linux                        # the same suites on a Linux server, in Docker
+npm run test:server -- --plain                        # the same on Linux without ReHLDS, ReGameDLL, ReAPI
+npm run test:server -- --no-reapi                     # the same on ReHLDS and ReGameDLL without ReAPI
+npm run test:server -- --linux --amxx 1.9.0-git5303   # the same on another AMX Mod X build
+npm run test:server -- --linux --sanitize             # the same with the module under ASan and UBSan
+npm run test:server -- --full                         # the same suites compiled as `amxts build` compiles them
+npm run test:server -- --only cvar,player             # only these suites, beside what every run loads
+npm run test:release                                  # пакеты npm от начала до конца: локальный реестр, npx create-amxts, сервер в Docker
 ```
 
 Набор `database` проверяет `Database` на MySQL и MariaDB, которые раннер
@@ -156,8 +155,8 @@ bun run test:release          # пакеты npm от начала до конц
 серверные наборы на трёх: своей сборке образа (1.10.0-git5484),
 1.9.0-git5303 и 1.10.0-git5486.
 
-`--sanitize` запускает сервер под Linux с модулем из `bun run build:linux
---sanitize`, его C++ под AddressSanitizer и UBSan: ошибка памяти в нём
+`--sanitize` запускает сервер под Linux с модулем из `npm run build:linux
+-- --sanitize`, его C++ под AddressSanitizer и UBSan: ошибка памяти в нём
 проваливает прогон отчётом санитайзера, который называет файл и строку.
 CI гоняет и его — задачей `linux (sanitizers)`, а `--plain` — задачей
 `linux (plain HLDS)`. Модуль и наборы CI собирает один раз, задачей
@@ -172,12 +171,12 @@ dump, который остаётся вместе с консолью в `last-
 run --rm --privileged debian:bookworm-slim sh -c 'echo /cores/core.%e.%p >
 /proc/sys/kernel/core_pattern'` — до перезапуска Docker.
 
-`bun run test:release` публикует девять пакетов в свой локальный реестр,
+`npm run test:release` публикует девять пакетов в свой локальный реестр,
 создаёт проект через `npx create-amxts`, собирает и тестирует его и
 запускает на образе сервера в Docker; ему нужны файлы выпуска обеих систем
-в `dist-release/` (`bun run release:linux --no-upload --dry-run` и файлы
+в `dist-release/` (`npm run release:linux -- --no-upload --dry-run` и файлы
 `release:windows`), а CI запускает его на теге перед выпуском.
-`bun run publish:local` публикует их в локальный реестр на
+`npm run publish:local` публикует их в локальный реестр на
 `http://localhost:4873/` и оставляет его работать (`--reset` очищает его,
 `--stop` останавливает). Каждый пакет выходит своей версией — ядро и
 `wamrc` делят одну, у команды, `create-amxts` и каждого официального модуля
@@ -186,11 +185,11 @@ run --rm --privileged debian:bookworm-slim sh -c 'echo /cores/core.%e.%p >
 не принимает), не меняя рабочие копии и копируя рядом прежние выпуски из
 npm, — чтобы проверить `amxts upgrade` до выпуска. Сервер запускает плагины
 модулей модулем, собранным как эта версия:
-`AMXTS_AS_VERSION=0.3.0 bun run generate`, затем модуль.
+`AMXTS_AS_VERSION=0.3.0 npm run generate`, затем модуль.
 
 Пакеты выпуска публикуются в npm вручную, когда workflow Publish ядра создал
 его GitHub Release (`wamrc` берётся оттуда): мейнтейнер запускает `npm
-login`, затем `bun run publish:npm` — все девять, по порядку, пропуская то,
+login`, затем `npm run publish:npm` — все девять, по порядку, пропуская то,
 что в npm уже есть, так что повторный запуск после сбоя доводит дело до конца.
 
 `npm test` запускает файлы тестов на Vitest под Node, каждый в своём
@@ -202,7 +201,7 @@ login`, затем `bun run publish:npm` — все девять, по поря�
 `npm test showcase` запускает файлы, в имени которых есть это слово, а один
 файл с собственным выводом Vitest — `npx vitest run tests/<имя>.test.ts`. `--changed` — для цикла «поправил —
 запустил»; перед пушем гоняйте весь набор.
-`bun run test:server` компилирует свои плагины по нескольку сразу, как сборка
+`npm run test:server` компилирует свои плагины по нескольку сразу, как сборка
 проекта: сколько — говорит `AMXTS_BUILD_JOBS` или `AMXTS_BUILD_MEMORY` в
 мегабайтах (половина свободной памяти, не меньше 3072). Локально они компилируются, как компилирует
 `amxts dev`, — примерно вдвое быстрее, — все, кроме `perf.ts`, который
@@ -212,7 +211,7 @@ login`, затем `bun run publish:npm` — все девять, по поря�
 C++ модуля, не компилирует ничего. Модуль в `runtime/build`, который
 отказал бы плагинам рабочей копии, — собранный до того, как сменилась
 линейка версии или импорты и нативы API, — сначала собирается заново
-(`bun run generate`, затем сборка cmake или `bun run build:linux`), о чём
+(`npm run generate`, затем сборка cmake или `npm run build:linux`), о чём
 говорит одна строка; модуль старше файла из `runtime/src` или
 `runtime/CMakeLists.txt` тоже собирается заново, без `generate`.
 `AMXTS_SERVER` (в `.env` рядом с `package.json`) — папка `addons/amxts`
@@ -249,8 +248,8 @@ matter. Ссылки между страницами — относительн�
 
 Подсказки API берутся из `scripts/docs/`, на обоих языках; у каждого нового
 публичного элемента есть запись на обоих. Страница «С Pawn» пишется из строк
-`Pawn:` подсказок: после их изменения `bun scripts/coverage.ts --write`
-пишет её заново (до тех пор `tests/coverage.test.ts` не проходит).
+`Pawn:` подсказок: после их изменения
+`node --import ./scripts/node-ts.mjs scripts/coverage.ts --write` пишет её заново (до тех пор `tests/coverage.test.ts` не проходит).
 
 ## Ветки
 

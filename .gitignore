@@ -10,7 +10,7 @@ dist-wasm/
 # where a test run is (scripts/test-progress.ts)
 dist/
 
-# generated from includes/*.inc by `bun run generate`
+# generated from includes/*.inc by `npm run generate`
 as/natives.ts
 as/constants.ts
 as/events.ts
@@ -27,10 +27,10 @@ runtime/src/image.h
 runtime/natives.txt
 runtime/host/amxts_natives.sma
 
-# the third-party includes, fetched by `bun run setup` (includes/sources.json)
+# the third-party includes, fetched by `npm run setup` (includes/sources.json)
 includes/vendor/
 
-# the AMX Mod X distribution, fetched by `bun run setup:amxmodx`
+# the AMX Mod X distribution, fetched by `npm run setup:amxmodx`
 amxmodx/
 .env
 dist-sdk/
@@ -40,11 +40,11 @@ dist-release/
 # local editor and agent settings
 .claude/
 
-# the documentation examples' types for the site (bun run types:site [-- --lang ru])
+# the documentation examples' types for the site (npm run types:site [-- --lang ru])
 dist-docs-types/
 
 # amxts prepare: the editor config a project extends
 .amxts/
 
-# bun run publish:npm, publish:local, publish:check: the packed packages and the local registry
+# npm run publish:npm, publish:local, publish:check: the packed packages and the local registry
 dist-npm/

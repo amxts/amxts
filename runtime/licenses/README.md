@@ -1,7 +1,7 @@
 # Licenses of what the server kit carries
 
-The server kit (`bun run serverkit`) and the release ship programs built from
-other projects. Their licenses go with them: `bun run serverkit` copies those
+The server kit (`npm run serverkit`) and the release ship programs built from
+other projects. Their licenses go with them: `npm run serverkit` copies those
 of what the kit carries - the module and the example plugin, `hello.aot` -
 into the kit as `addons/amxts/licenses/`, with amxts' own `LICENSE` beside
 them as `amxts-LICENSE`.

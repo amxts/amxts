@@ -12,7 +12,7 @@
 // `[api-async] ok ...` or `[api-async] FAIL ...`. The player who ran the check
 // gets the total in chat.
 //
-// A check nobody ran in the game - a suite of `bun run test:server`, started
+// A check nobody ran in the game - a suite of `npm run test:server`, started
 // over rcon - is made without a player, and its total goes to the log alone:
 //
 //   const check = new Checks("cvar");
