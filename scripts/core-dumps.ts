@@ -51,7 +51,7 @@ export function crashReport(container: string, dir: string): string[] {
 	if (committed.status !== 0) return [...lines, `docker commit failed: ${committed.stderr.trim()}`];
 	const script = [
 		'command -v gdb > /dev/null || { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends gdb; } > /dev/null 2>&1',
-		'for core in /cores/core*; do echo "== $core"; gdb -batch -q -ex bt -ex "thread apply all bt" -ex "info sharedlibrary" /hlds/hlds_linux "$core" 2>&1; done',
+		'for core in /cores/core*; do echo "== $core"; gdb -batch -q -ex bt -ex "x/8a \\$sp" -ex "thread apply all bt" -ex "info sharedlibrary" /hlds/hlds_linux "$core" 2>&1; done',
 		// Written by the server's user, read by the runner's.
 		'chmod a+r /cores/*',
 	].join('\n');
