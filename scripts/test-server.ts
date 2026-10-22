@@ -1061,6 +1061,9 @@ function keepEvidence(): string {
 	return dir;
 }
 
+// The server crashed as it stopped, after the report: the run fails all the same.
+let crashedAtStop = false;
+
 async function main(): Promise<number> {
 	if (stopOnly) {
 		stopLeftover();
@@ -1231,10 +1234,11 @@ async function main(): Promise<number> {
 			await until(10_000, () => (isAlive(pid) ? null : true), () => true);
 			// A core dump the report has not read: hlds crashed as it stopped.
 			if (linux && existsSync(coresDir) && readdirSync(coresDir).some(file => file.startsWith('core')) && !existsSync(join(coresDir, 'backtrace.txt'))) {
-				console.log('\nhlds left a core dump as it stopped:');
+				console.log('\nFAIL hlds left a core dump as it stopped:');
 				for (const line of crashReport(CONTAINER, coresDir)) console.log(`  ${line}`);
+				crashedAtStop = true;
 			}
-			const failed = problems.length > 0 || results.some(result => result.failed > 0);
+			const failed = crashedAtStop || problems.length > 0 || results.some(result => result.failed > 0);
 			if (failed) console.log(`the console and any crash dump: ${keepEvidence()}`);
 			cleanUp();
 		}
@@ -1311,7 +1315,8 @@ function report(results: SuiteResult[], problems: string[]): number {
 	return failed === 0 ? 0 : 1;
 }
 
-process.exit(await main().catch((error) => {
+const code = await main().catch((error) => {
 	fail(String(error?.stack ?? error));
 	return 1;
-}));
+});
+process.exit(crashedAtStop ? 1 : code);

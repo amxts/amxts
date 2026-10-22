@@ -4712,6 +4712,8 @@ static bool FireSlow(const Handler &h, Plugin &p, const uint32_t *call, int n)
 static std::atomic<uint32_t> g_clock(0);
 static std::atomic<bool>     g_ticking(false);
 static std::thread           g_ticker;
+// The module has let go of everything (OnAmxxDetach, AtExit).
+static bool                  g_detached = false;
 // amxts_slow_ms: what a call has to take beyond to be said; above any call
 // while it is 0, off.
 static uint32_t              g_slowMs = UINT32_MAX;
@@ -8881,6 +8883,45 @@ AMX_NATIVE_INFO g_natives[] = {
 	{ NULL, NULL }
 };
 
+/** Stops the threads the module started: the requests', the jobs', the databases', the clock's. */
+static void StopThreads()
+{
+	// The worker and the database threads stop before WAMR goes; their requests are deleted with them.
+	NetShutdown();
+	JobsShutdown();
+	DbShutdown();
+	g_ticking = false;
+	if (g_ticker.joinable())
+		g_ticker.join();
+}
+
+/**
+ * The process exits with the module attached: ReHLDS returns from main on a
+ * SIGTERM - a panel's stop, `docker stop` - and AMX Mod X does not detach its
+ * modules. What the stores have not written yet is written, and the threads
+ * stop before the module's statics are destroyed under them (a std::thread
+ * still running aborts the process). On Windows the system has ended the
+ * other threads by now: their objects are let go. After OnAmxxDetach - the
+ * C library runs this when the module is unloaded, too - there is nothing to do.
+ */
+static void AtExit()
+{
+	if (g_detached)
+		return;
+	g_detached = true;
+	FlushStores(true);
+#ifdef _WIN32
+	if (g_loader.joinable())
+		g_loader.detach();
+	if (g_ticker.joinable())
+		g_ticker.detach();
+#else
+	if (g_loader.joinable())
+		g_loader.join();
+	StopThreads();
+#endif
+}
+
 void OnAmxxAttach()
 {
 	RuntimeInitArgs init;
@@ -8908,6 +8949,8 @@ void OnAmxxAttach()
 	g_slowCvarSet = CVAR_GET_POINTER(g_slowCvar.name);
 	g_ticking = true;
 	g_ticker = std::thread(Ticker);
+	g_detached = false;
+	atexit(AtExit);
 	HookModuleForwards();
 	WarnModulesAbove();
 	if (g_pengfuncsTable)
@@ -8957,6 +9000,7 @@ void OnPluginsUnloaded()
 
 void OnAmxxDetach()
 {
+	g_detached = true;
 	FlushStores(true);
 	MF_UnregAuthFunc(OnAuthorized);
 	ForgetCstrike();
@@ -8964,12 +9008,6 @@ void OnAmxxDetach()
 	UnhookDrops();
 	FieldsDetach();
 	Teardown();
-	// The worker and the database threads stop before WAMR goes; their requests are deleted with them.
-	NetShutdown();
-	JobsShutdown();
-	DbShutdown();
-	g_ticking = false;
-	if (g_ticker.joinable())
-		g_ticker.join();
+	StopThreads();
 	wasm_runtime_destroy();
 }
