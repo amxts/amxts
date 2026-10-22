@@ -43,7 +43,7 @@ export interface HookShape {
 }
 
 export interface Tables {
-	/** Every `export const X: i32 = N` in as/constants.ts. */
+	/** Every `export const X: i32 = N` in as/constants.ts, and the gamedata's members reapi does not list. */
 	constants: Map<string, number>;
 	/** The dispatcher's native ids (`NATIVE_x`) to names. */
 	dispatched: Map<number, string>;
@@ -79,12 +79,17 @@ function fieldPlaces(constants: Map<string, number>, entities: string) {
 		if (field === undefined) continue;
 		for (let component = 0; component < (vector ? 3 : 1); component++) entvarAt.set(Number(offset) + component * 4, { field, component });
 	}
+	// A member the gamedata has and reapi does not (CBaseToggle::m_flLip) has
+	// no constant: it gets a number of its own, below every constant, and its
+	// name - `entity.set('m_flLip', 6)`. An m_fl one holds a float.
 	const memberNamed = new Map<string, number>();
+	const gamedataOnly = new Map<string, number>();
 	for (const [, className, name, reapi] of entities.matchAll(/^\t"(\w+)", "(\w+)", \/\/ (\w+)$/gm)) {
-		const field = constants.get(reapi);
-		if (field !== undefined) memberNamed.set(`${className}::${name}`, field);
+		let field = constants.get(reapi);
+		if (field === undefined) gamedataOnly.set(reapi, field = -1_000_000 - gamedataOnly.size);
+		memberNamed.set(`${className}::${name}`, field);
 	}
-	return { entvarAt, memberNamed };
+	return { entvarAt, memberNamed, gamedataOnly };
 }
 
 let cached: Tables | null = null;
@@ -157,17 +162,25 @@ export function tables(): Tables {
 	}
 	const fieldsOf = (test: (kind: number) => boolean) => new Set([...kinds].filter(([, kind]) => test(kind)).map(([field]) => field));
 
+	const { entvarAt, memberNamed, gamedataOnly } = fieldPlaces(constants, generated('entities.ts'));
+	const floatFields = fieldsOf(kind => (kind & 3) === 1);
+	for (const [name, field] of gamedataOnly) {
+		constants.set(name, field);
+		if (name.startsWith('m_fl')) floatFields.add(field);
+	}
+
 	cached = {
 		constants,
 		dispatched,
 		crossings,
 		hookNames,
 		hooks,
-		floatFields: fieldsOf(kind => (kind & 3) === 1),
+		floatFields,
 		vectorFields: fieldsOf(kind => (kind & 3) === 2),
 		stringFields: fieldsOf(kind => (kind & 3) === 3),
 		arrayFields: fieldsOf(kind => (kind & 4) !== 0),
-		...fieldPlaces(constants, generated('entities.ts')),
+		entvarAt,
+		memberNamed,
 	};
 
 	return cached;

@@ -147,3 +147,13 @@ test('dropToFloor asks the engine to drop the entity', async () => {
 	expect(alice.console).toBe('true');
 	expect(server.engineCalls).toContain(`DropToFloor ${alice.id}`);
 });
+
+test('a door\'s lip is read from the gamedata, which reapi does not list', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	server.createEntity('func_door').set('m_flLip', 6.5);
+
+	alice.command('world_lip');
+
+	expect(alice.console).toBe('6.5');
+});

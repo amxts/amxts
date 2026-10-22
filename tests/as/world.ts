@@ -98,3 +98,8 @@ server.addCommand("world_view_body", ({ player }) => {
 server.addCommand("world_drop", ({ player }) => {
 	player.print(`${player.dropToFloor()}`, "console");
 });
+
+server.addCommand("world_lip", ({ player }) => {
+	const door = Entity.find({ classname: "func_door" });
+	if (door != null) player.print(`${door.lip}`, "console");
+});

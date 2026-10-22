@@ -1078,6 +1078,8 @@ const AT = {
 	nightVision: memberAt('m_bHasNightVision', 'CBasePlayer'),
 	nightVisionOn: memberAt('m_bNightVisionOn', 'CBasePlayer'),
 	defuser: memberAt('m_bHasDefuser', 'CBasePlayer'),
+	// A door's, a platform's or a button's, which reapi does not list: the gamedata has it.
+	lip: memberAt('m_flLip', 'CBaseToggle'),
 };
 
 // The classes' properties, written before the file: the member table the
@@ -1686,6 +1688,9 @@ export class Entity {
 		if (options.hooks ?? true) _entityTouch(this.id, toucher.id);
 		else hamTouch(this.id, toucher.id);
 	}
+
+	${methodDoc('Entity.lip')}
+	get lip(): number { return cellFloat(memberCell(this.id, ${AT.lip})); }
 
 	${methodDoc('Entity.emitSound')}
 	emitSound(sample: string, options: SoundOptions = {}): void {

@@ -2020,6 +2020,14 @@ Pawn: \`ExecuteHamB(Ham_Touch, ...)\`, \`ExecuteHam\`, \`fake_touch\``,
 
 Pawn: \`ExecuteHamB(Ham_Touch, ...)\`, \`ExecuteHam\`, \`fake_touch\``,
 	},
+	'Entity.lip': {
+		en: `How far short of its full travel a door, a platform or a button stops, in units: the map's \`lip\` key. A door moves along \`movedir\` by its size on that axis, less 2, less \`lip\`. Means something only on a moving brush (\`func_door\`, \`func_plat\`, \`func_button\` and the like). Read only.
+
+Pawn: \`get_ent_data_float(entity, "CBaseToggle", "m_flLip")\``,
+		ru: `Насколько дверь, платформа или кнопка не доходит до конца хода, в единицах: ключ \`lip\` карты. Дверь движется вдоль \`movedir\` на свой размер по этой оси минус 2 и минус \`lip\`. Имеет смысл только у движущегося браша (\`func_door\`, \`func_plat\`, \`func_button\` и подобных). Только чтение.
+
+Pawn: \`get_ent_data_float(entity, "CBaseToggle", "m_flLip")\``,
+	},
 	'Entity.setSize': {
 		en: `Sets the entity's bounding box, the corners relative to its \`origin\`: \`box.setSize([-16, -16, 0], [16, 16, 72])\`. \`mins\`, \`maxs\`, \`size\` and where it collides follow. A box whose \`mins\` is above its \`maxs\` on any axis is refused, with an error in the console.
 
