@@ -58,10 +58,6 @@ jobs:
       - name: Lint
         working-directory: amxts
         run: bun run lint
-      # A plugin's tests run on any runner: the fake server under Node, with Vitest.
-      - name: A plugin's tests under Node
-        working-directory: amxts
-        run: npm run test:node
 
   # Under stress the collector runs on every allocation: an object nothing
   # the collector visits still references is freed at once, and the test that
@@ -92,7 +88,7 @@ jobs:
           restore-keys: tests-${{ matrix.stress && 'stress-' || '' }}${{ matrix.part }}-
       - name: Tests, part ${{ matrix.part }} of 3
         working-directory: amxts
-        run: bun run test --part ${{ matrix.part }}/3
+        run: npm test -- --part ${{ matrix.part }}/3
 
   # What the server suites run on, built once for the four jobs below: the
   # Linux module and wamrc, the module under AddressSanitizer and UBSan, and
