@@ -1229,6 +1229,11 @@ async function main(): Promise<number> {
 		} else {
 			if (isAlive(pid)) stopProcess(pid);
 			await until(10_000, () => (isAlive(pid) ? null : true), () => true);
+			// A core dump the report has not read: hlds crashed as it stopped.
+			if (linux && existsSync(coresDir) && readdirSync(coresDir).some(file => file.startsWith('core')) && !existsSync(join(coresDir, 'backtrace.txt'))) {
+				console.log('\nhlds left a core dump as it stopped:');
+				for (const line of crashReport(CONTAINER, coresDir)) console.log(`  ${line}`);
+			}
 			const failed = problems.length > 0 || results.some(result => result.failed > 0);
 			if (failed) console.log(`the console and any crash dump: ${keepEvidence()}`);
 			cleanUp();
