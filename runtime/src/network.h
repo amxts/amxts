@@ -503,6 +503,7 @@ static void NetFinish(NetRequest *r, bool ran)
 
 static void NetWorker()
 {
+	BlockSignals();
 	std::map<int32_t, NetRequest *> running;
 	std::vector<NetRequest *> incoming;
 	std::vector<int32_t> cancels;

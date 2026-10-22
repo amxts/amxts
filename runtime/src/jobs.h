@@ -186,6 +186,7 @@ static void JobDo(Job *j)
 
 static void JobWorker()
 {
+	BlockSignals();
 	for (;;) {
 		Job *j;
 		{

@@ -48,6 +48,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #endif
 #include <string>
@@ -4140,6 +4141,25 @@ static void w_rpcResult(wasm_exec_env_t env, int32_t to)
 	g_rpcResult.clear();
 }
 
+// ---------------------------------------------------------------- threads
+
+/**
+ * Called first in each thread the module starts: the signals a process is
+ * sent - a stop's SIGTERM, SIGINT, SIGHUP - are the engine's, and go to a
+ * thread of its own, never to one of the module's, whose stack its handler
+ * would run on.
+ */
+static void BlockSignals()
+{
+#ifndef _WIN32
+	sigset_t set;
+	sigemptyset(&set);
+	for (int sig : { SIGTERM, SIGINT, SIGHUP, SIGQUIT, SIGUSR1, SIGUSR2, SIGPIPE, SIGALRM, SIGCHLD })
+		sigaddset(&set, sig);
+	pthread_sigmask(SIG_BLOCK, &set, NULL);
+#endif
+}
+
 // ---------------------------------------------------------------- files
 
 // @amxts/core/fs's bytes: fs_read, fs_write, and zip_inflate.
@@ -4725,39 +4745,9 @@ static uint32_t              g_innerMs = 0;
 // How long a plugin's warning of one kind keeps quiet after it is said, in seconds.
 #define SLOW_QUIET 10.0
 
-#ifndef _WIN32
-#include <sys/syscall.h>
-// DIAGNOSTIC (F22, to be removed): who sets SIGTERM's handler, and with which restorer.
-static void SayTerm(const char *when)
-{
-	static struct { void *handler; unsigned long flags; void *restorer; unsigned long mask[2]; } last = { (void *)1, 0, NULL, { 0, 0 } };
-	struct { void *handler; unsigned long flags; void *restorer; unsigned long mask[2]; } k;
-	memset(&k, 0, sizeof(k));
-	if (syscall(SYS_rt_sigaction, SIGTERM, NULL, &k, 8) != 0)
-		return;
-	if (k.handler == last.handler && k.flags == last.flags && k.restorer == last.restorer)
-		return;
-	last.handler = k.handler;
-	last.flags = k.flags;
-	last.restorer = k.restorer;
-	Dl_info h, r;
-	memset(&h, 0, sizeof(h));
-	memset(&r, 0, sizeof(r));
-	dladdr(k.handler, &h);
-	dladdr(k.restorer, &r);
-	fprintf(stderr, "[amxts] SIGTERM %s: handler %p (%s %s) flags %#lx restorer %p (%s %s)\n", when, k.handler,
-		h.dli_fname ? h.dli_fname : "?", h.dli_sname ? h.dli_sname : "?", k.flags, k.restorer,
-		r.dli_fname ? r.dli_fname : "?", r.dli_sname ? r.dli_sname : "?");
-	fflush(stderr);
-}
-#endif
-
 static void Ticker()
 {
-#ifndef _WIN32
-	SayTerm("at attach");
-	unsigned ticks = 0;
-#endif
+	BlockSignals();
 	// In whole numbers: a double made whole goes through the x87 (Whole), and
 	// overflows an int past 24 days of uptime, where the clock wraps instead.
 #ifdef _WIN32
@@ -4770,10 +4760,6 @@ static void Ticker()
 	int64_t start = Now();
 	while (g_ticking) {
 		g_clock.store((uint32_t)((Now() - start) * 1000 / perSecond), std::memory_order_relaxed);
-#ifndef _WIN32
-		if (++ticks % 100 == 0)
-			SayTerm("changed");
-#endif
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 }
@@ -6453,6 +6439,7 @@ static std::atomic<bool>    g_preloaded(false);
  */
 static void PreloadAll()
 {
+	BlockSignals();
 	for (Preload &l : g_preloads) {
 		l.file = ReadAll(l.path, &l.got);
 		bool whole = false;
@@ -8958,8 +8945,39 @@ static void AtExit()
 #endif
 }
 
+#ifndef _WIN32
+/**
+ * ReHLDS's hlds_linux sets the handler of a stop's SIGTERM and SIGINT with
+ * flags it never set - SA_RESTORER among them, with no restorer - so the
+ * handler returns to address 0 and the server crashes before it exits: no
+ * exit hook, no last write of the stores. The same handler is set again
+ * through the C library, which gives it its return; it does what it did,
+ * and the module says so.
+ */
+static void MendStopSignals()
+{
+	for (int sig : { SIGTERM, SIGINT }) {
+		struct { void *handler; unsigned long flags; void *restorer; unsigned long mask[2]; } now;
+		if (syscall(SYS_rt_sigaction, sig, NULL, &now, sizeof(now.mask)) != 0)
+			continue;
+		if (now.handler == (void *)SIG_DFL || now.handler == (void *)SIG_IGN || (now.flags & SA_SIGINFO) || !(now.flags & SA_RESTORER) || now.restorer)
+			continue;
+		struct sigaction mended;
+		memset(&mended, 0, sizeof(mended));
+		mended.sa_handler = (void (*)(int))now.handler;
+		sigemptyset(&mended.sa_mask);
+		mended.sa_flags = SA_RESTART;
+		if (sigaction(sig, &mended, NULL) == 0)
+			MF_PrintSrvConsole("[amxts] %s's handler had no return (ReHLDS's hlds_linux): set again\n", sig == SIGTERM ? "SIGTERM" : "SIGINT");
+	}
+}
+#endif
+
 void OnAmxxAttach()
 {
+#ifndef _WIN32
+	MendStopSignals();
+#endif
 	RuntimeInitArgs init;
 	memset(&init, 0, sizeof(init));
 	init.mem_alloc_type = Alloc_With_Allocator;

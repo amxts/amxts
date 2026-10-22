@@ -1544,6 +1544,7 @@ static void DbRun(DbConn *c, DbQuery *q)
 
 static void DbWorker(DbConn *c)
 {
+	BlockSignals();
 	for (;;) {
 		DbQuery *q;
 		{
