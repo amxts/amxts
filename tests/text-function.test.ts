@@ -9,8 +9,7 @@
  * argument, an object literal's field, an assignment - becomes a function
  * that returns it. The code that reads it just calls it.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { probe } from './probe';
 
 const TEXT = `

@@ -7,12 +7,11 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // number is a Pawn cell: once plugin numbers became f64, Forward<number>
 // declared FP_FLOAT and every forward handed Pawn plugins the bits of a
 // double - this keeps that from coming back.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
+import { expect, test, vi } from 'vitest';
 import { floatBits } from '../src/testing/memory';
 import { pluginProbe } from './probe';
 
-setDefaultTimeout(180_000);
+vi.setConfig({ testTimeout: 180_000, hookTimeout: 180_000 });
 
 test('the subscribe bridge natives are in the signature table', () => {
 	const table = readFileSync('runtime/natives.txt', 'utf8');

@@ -3,10 +3,7 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // Database (as/database.ts) on the fake server, which answers the module's
 // MySQL client from what the test sets up (src/testing/database.ts):
 // tests/as/database.ts against server.database(url).
-// @ts-ignore - bun:test types not available during type checking
-import { beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { beforeAll, describe, expect, test } from 'vitest';
 
 const URL = 'mysql://kz:secret@127.0.0.1:3306/kz';
 

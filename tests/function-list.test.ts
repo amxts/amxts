@@ -10,8 +10,7 @@
  * object whose field of the function's type is it. The code that reads it
  * just walks the list.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { probe } from './probe';
 
 const LIST = `

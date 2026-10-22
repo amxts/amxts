@@ -3,10 +3,9 @@ import { loadPlugin } from '@amxts/core/test-utils';
  * The showcase's hookchain listeners, fired on the fake server: an answer
  * returned from a listener, and preventDefault().
  */
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { describe, expect, test, vi } from 'vitest';
 
-setDefaultTimeout(60_000);
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const DMG_BULLET = 2;
 

@@ -2,18 +2,18 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { FakeServer, setup } from '@amxts/core/test-utils';
 import { installMenus } from '@amxts/menu-core/testing';
 // Modules with one instance on the server (scripts/shared-modules.ts): two
 // plugins write the plain import, and what one of them sets up in
 // ~/modules/menu-core or ~/modules/config-core the other sees - because
 // both call the instance the owner plugin runs.
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { describe, expect, test, vi } from 'vitest';
 import { setProjectDir } from '../scripts/project';
 import { analyzeModule, proxySource, serveSource } from '../scripts/shared-modules';
 
-setDefaultTimeout(240_000);
+vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
 
 const CONFIGS = 'addons/amxmodx/configs';
 
@@ -59,7 +59,7 @@ describe('one instance, two plugins', () => {
 		server.native('shared_retitle', 'Bazaar');
 		const alice = server.join('Alice');
 		server.native('shared_show', alice.id);
-		expect(menus.screen(alice)!.text).toStartWith('Bazaar');
+		expect(menus.screen(alice)!.text).toMatch(/^Bazaar/);
 	});
 
 	test('its methods run there too: an item from the other plugin, whose functions are called back', async () => {
@@ -303,11 +303,11 @@ describe('a module\'s surface', () => {
 		writeFileSync(join(root, 'tally.ts'), 'import * as tally from "~/modules/tally";\n');
 		// A process of its own each time: what it took from the disk, and what it made.
 		const script = [
-			`import { keptSurfaces, moduleSurface } from ${JSON.stringify(join(process.cwd(), 'scripts/shared-modules.ts'))};`,
+			`import { keptSurfaces, moduleSurface } from ${JSON.stringify(pathToFileURL('scripts/shared-modules.ts').href)};`,
 			`const surface = await moduleSurface(${JSON.stringify(root)}, 'tally');`,
 			'console.log(JSON.stringify({ counts: keptSurfaces().counts, proxy: surface.proxy.includes("export function add(value: number): f64") }));',
 		].join('\n');
-		const run = () => JSON.parse(spawnSync(process.execPath, ['-e', script], { cwd: project, encoding: 'utf8' }).stdout);
+		const run = () => JSON.parse(spawnSync(process.execPath, ['--import', pathToFileURL('scripts/node-ts.mjs').href, '-e', script], { cwd: project, encoding: 'utf8' }).stdout);
 		try {
 			expect(run()).toEqual({ counts: { hits: 0, misses: 1 }, proxy: true });
 			expect(run()).toEqual({ counts: { hits: 1, misses: 0 }, proxy: true });

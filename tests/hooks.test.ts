@@ -3,8 +3,7 @@ import { readFileSync } from 'node:fs';
 // hookchain, a Ham Sandwich function, or both - is an event class whose fields
 // have the types the include documents, written through the argument number
 // the backend counts, with a typed registrar per event.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 
 const hooks = readFileSync('as/hooks.ts', 'utf8');
 

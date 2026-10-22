@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 // A module that comes compiled (scripts/prebuilt.ts): its package carries
 // its .aot for each system, its surface - what a plugin that uses it compiles
 // against - and what they were made from, and a build takes them while the
@@ -10,14 +11,13 @@ import { dirname, join } from 'node:path';
 // module is compiled here as 0.9.1 and taken as 0.9.2, another patch of its
 // line on the same ground with every import it uses, as the server's module
 // of that line loads it.
-// @ts-ignore - bun:test types not available during type checking
-import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { afterAll, describe, expect, test, vi } from 'vitest';
 import { prebuiltOf, prebuiltSurface } from '../scripts/prebuilt';
 import { CORE_DIR, CORE_PLUGINS, setProjectDir, sourcesFor } from '../scripts/project';
 import { moduleSurface } from '../scripts/shared-modules';
 import { wamrcPath } from '../scripts/system';
 
-setDefaultTimeout(240_000);
+vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
 
 const HERE = process.cwd();
 const dir = join(tmpdir(), 'amxts-prebuilt-test');
@@ -123,7 +123,7 @@ describe.skipIf(!existsSync(wamrcPath()))('a module that comes compiled', () => 
 		config();
 		// As the release compiles it: none of this machine's settings.
 		const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('AMXTS_')));
-		const run = spawnSync(process.execPath, [join(CORE_DIR, 'scripts/prebuilt.ts')], { cwd: dir, env: { ...env, AMXTS_AS_VERSION: '0.9.1' }, encoding: 'utf8' });
+		const run = spawnSync(process.execPath, ['--import', pathToFileURL(join(CORE_DIR, 'scripts/node-ts.mjs')).href, join(CORE_DIR, 'scripts/prebuilt.ts')], { cwd: dir, env: { ...env, AMXTS_AS_VERSION: '0.9.1' }, encoding: 'utf8' });
 		expect(`${run.stdout}${run.stderr}`).toContain('prebuilt greeter');
 		expect(run.status).toBe(0);
 		original.manifest = readFileSync(manifestFile, 'utf8');
@@ -165,7 +165,7 @@ describe.skipIf(!existsSync(wamrcPath()))('a module that comes compiled', () => 
 	test('a core of its line takes it while it has every import the module uses, each of the same shape', () => {
 		const abi = manifest().from['@amxts/core'].abi!;
 		const [identity, first] = abi.split('\n');
-		expect(identity).toStartWith('0.9.1+abi.');
+		expect(identity).toMatch(/^0\.9\.1\+abi\./);
 		const name = first.split(' ', 1)[0];
 		// Built by a later patch, with an import the project's core does not have yet.
 		const later = abi.replace(identity, identity.replace('0.9.1', '0.9.3')).replace(`\n${first}`, `\n${first.replace(name, 'zz_later')}`);
@@ -208,7 +208,7 @@ describe.skipIf(!existsSync(wamrcPath()))('a module that comes compiled', () => 
 
 		// A compile takes it in place of analysing the module.
 		const shipped = await withManifest(made => Object.assign(made.surface!, { proxy: `${made.surface!.proxy}// as it came` }), () => moduleSurface(CORE_PLUGINS, 'greeter'));
-		expect(shipped.proxy).toEndWith('// as it came');
+		expect(shipped.proxy).toMatch(/\/\/ as it came$/);
 	});
 
 	test('a module in a folder of the project is compiled as any plugin is', () => {

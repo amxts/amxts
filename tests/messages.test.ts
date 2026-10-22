@@ -1,12 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { loadPlugin } from '@amxts/core/test-utils';
 // Messages to clients as events, on the fake server: tests/as/messages.ts.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { CLIENT_MESSAGES, MESSAGE_FIELDS, MESSAGE_GROUPS } from '../scripts/client-messages';
 import { MESSAGES } from '../scripts/docs/messages';
-
-setDefaultTimeout(120_000);
 
 const PLUGIN = 'tests/as/messages.ts';
 // AMX Mod X's ARG_* of a message argument.

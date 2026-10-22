@@ -5,8 +5,7 @@
  * i32 take a fast path (std's Math.mod in the patched AssemblyScript); the
  * rest the general remainder. At the default optimization and at -O3.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { probe } from './probe';
 
 const PAIRS: [number, number][] = [

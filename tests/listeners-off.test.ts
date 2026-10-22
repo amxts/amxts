@@ -4,10 +4,7 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // server event's forward, a message's and a touch's public: what nobody
 // listens to does not reach the plugin. The next listener switches it back
 // on, and is called once. tests/as/listeners-off.ts.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { expect, test } from 'vitest';
 
 const PLUGIN = 'tests/as/listeners-off.ts';
 

@@ -1,10 +1,7 @@
 import { loadPlugin } from '@amxts/core/test-utils';
 // server.keep and server.kept on the fake server: what a run keeps is read
 // back by the next start of the same plugin, and is gone once it has started.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { expect, test } from 'vitest';
 
 test('a reload reads what the last run kept, once its start is over it is gone', async () => {
 	const server = await loadPlugin('tests/as/keep.ts');

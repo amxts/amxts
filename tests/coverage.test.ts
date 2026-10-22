@@ -5,8 +5,7 @@
  * them.
  */
 import { readFileSync } from 'node:fs';
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { API, coverage, pages, PLAIN } from '../scripts/coverage';
 
 describe('coverage', () => {

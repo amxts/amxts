@@ -1,9 +1,6 @@
 import { loadPlugin } from '@amxts/core/test-utils';
 // Traces, a player's aim and sight, and angles on the fake server: tests/as/world.ts.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { expect, test } from 'vitest';
 
 const PLUGIN = 'tests/as/world.ts';
 

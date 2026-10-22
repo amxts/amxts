@@ -1,5 +1,5 @@
 // The module's coroutine scheduler, in JavaScript, for running a plugin that
-// awaits under bun instead of on a server.
+// awaits in a test instead of on a server.
 //
 // It follows runtime/src/module.cpp step by step - co_spawn, co_suspend, the
 // shadow-stack park and the jobs run once the plugin's stack is empty - so a

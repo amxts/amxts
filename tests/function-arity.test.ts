@@ -10,8 +10,7 @@
  * the full one that calls the function with the leading arguments. The
  * return is covariant for references, as in TypeScript.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { probe } from './probe';
 
 const SOURCES = `

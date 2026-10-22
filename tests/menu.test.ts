@@ -2,10 +2,7 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // `Menu` (as/facade.ts) on the fake server: the page drawn as AMX Mod X draws
 // its own, sent with show_menu, and its keys taken as the module takes them
 // (menu_open, menuselect): tests/as/quick-menu.ts.
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { describe, expect, test } from 'vitest';
 
 const PLUGIN = 'tests/as/quick-menu.ts';
 
@@ -84,7 +81,7 @@ describe('a Menu', () => {
 			'\\r0. \\wClose\n',
 		]));
 		alice.command('menuselect 8');
-		expect(alice.menu?.text).toStartWith('\\yMaps 1/2');
+		expect(alice.menu?.text).toMatch(/^\\yMaps 1\/2/);
 		alice.command('menuselect 9');
 		alice.command('menuselect 2');
 		expect(server.native('quick_chosen')).toBe('Alice: map 9');
@@ -124,7 +121,7 @@ describe('a Menu', () => {
 		const alice = server.join('Alice');
 		server.native('quick_show', alice.id, 'greet');
 
-		expect(alice.menu?.text).toStartWith('\\yHello, Alice\n\\w\n\\r1.\\w Wave');
+		expect(alice.menu?.text).toMatch(/^\\yHello, Alice\n\\w\n\\r1\.\\w Wave/);
 		alice.command('menuselect 1');
 		expect(server.native('quick_chosen')).toBe('Alice: wave');
 	});
@@ -135,7 +132,7 @@ describe('a Menu', () => {
 		server.native('quick_show', alice.id, 'maps');
 		server.native('quick_show', alice.id, 'vote');
 
-		expect(alice.menu?.text).toStartWith('\\yVote');
+		expect(alice.menu?.text).toMatch(/^\\yVote/);
 		alice.command('menuselect 1');
 		expect(server.native('quick_chosen')).toBe('Alice: yes');
 	});
@@ -144,7 +141,7 @@ describe('a Menu', () => {
 		const server = await loadPlugin(PLUGIN);
 		const alice = server.join('Alice');
 		server.native('quick_raw', alice.id);
-		expect(alice.menu?.text).toStartWith('Raw');
+		expect(alice.menu?.text).toMatch(/^Raw/);
 
 		server.native('quick_show', alice.id, 'vote');
 		expect(server.native('quick_chosen')).toBe('Alice: raw -3');

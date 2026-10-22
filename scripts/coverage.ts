@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { IncludeParser } from '../src/parser/include-parser';
 import { HOOD } from './auto-imports';
 import { readInclude } from './includes';
@@ -510,7 +510,7 @@ export async function tooltips(names: Set<string>): Promise<{ whole: Map<string,
 	for (const file of readdirSync(dir).filter(name => name.endsWith('.ts')).sort()) {
 		const source = join(CORE, 'as', file);
 		const methods = existsSync(source) ? methodsOf(readFileSync(source, 'utf8')) : new Set<string>();
-		const table: Record<string, { en: string }> = (await import(join(dir, file))).default;
+		const table: Record<string, { en: string }> = (await import(pathToFileURL(join(dir, file)).href)).default;
 		const entries = Object.entries(table).sort(([a], [b]) => Number(b.includes('.')) - Number(a.includes('.')));
 		for (const [key, text] of entries) {
 			const line = text.en.match(/^\s*Pawn:(.*)$/m)?.[1];

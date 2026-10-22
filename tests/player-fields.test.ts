@@ -8,12 +8,9 @@ import { loadPlugin } from '@amxts/core/test-utils';
  * src/testing/server.ts). Two fixture plugins, tests/as/data-writer.ts and
  * data-reader.ts, share tests/as/player-state.ts's fields and data-fields.ts's.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { describe as describeType, playerFieldsSource } from '../scripts/player-fields';
 import { compileWasmFile } from '../src/testing/compile';
-
-setDefaultTimeout(120_000);
 
 const PLUGINS = ['tests/as/data-writer.ts', 'tests/as/data-reader.ts'];
 

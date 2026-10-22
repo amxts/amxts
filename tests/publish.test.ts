@@ -1,7 +1,6 @@
 // A published package.json: its links to the other packages as versions, and
 // a module's own range for the core when it runs on more than one line.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { publishedManifest } from '../scripts/publish';
 
 function versions(core: string) {

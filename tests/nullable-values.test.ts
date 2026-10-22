@@ -4,8 +4,7 @@
  * undefined, `== null` and `??` take either, and null prints and goes to and
  * from JSON as null. At the default optimization and at -O3.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { probe } from './probe';
 
 for (const optimize of [false, true]) {

@@ -676,11 +676,11 @@
 				"**/*.benchmark.mtsx"
 			],
 			"rules": {
-				"vitest/consistent-test-it": ["error", { "fn": "it", "withinDescribe": "it" }],
+				"vitest/consistent-test-it": ["error", { "fn": "test", "withinDescribe": "test" }],
 				"vitest/no-identical-title": "error",
 				"vitest/no-import-node-test": "error",
 				"vitest/prefer-hooks-in-order": "error",
-				"vitest/prefer-lowercase-title": "error",
+				"vitest/prefer-lowercase-title": "off",
 				"antfu/no-top-level-await": "off",
 				"e18e/prefer-static-regex": "off",
 				"typescript/explicit-function-return-type": "off",

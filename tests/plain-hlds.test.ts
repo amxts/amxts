@@ -10,13 +10,12 @@ import { constant, loadPlugin, setup } from '@amxts/core/test-utils';
 // console and no listener; fields are read in memory; a team's score and a
 // round's end are done as the game does them. A project for plain HLDS does
 // not build a listener for an event nothing there hears. tests/as/plain-hlds.ts.
-// @ts-ignore - bun:test types not available during type checking
-import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
+import { afterEach, expect, test, vi } from 'vitest';
 import { FIELDS_NOT_HEARD, HEARD, HEARD_FIELDS, NOT_HEARD } from '../scripts/hlds-events';
 import { setProjectDir } from '../scripts/project';
 import { reapiEvents, unheardEvents } from '../scripts/reapi-events';
 
-setDefaultTimeout(240_000);
+vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
 
 const PLUGIN = 'tests/as/plain-hlds.ts';
 const PLAIN = { modules: ['cstrike', 'fun', 'hamsandwich', 'engine', 'fakemeta', 'nvault'] };
@@ -223,7 +222,7 @@ test('each of them is heard on plain HLDS, fully or with its gaps, or is not, wi
 	expect(said).toEqual([]);
 	expect([...unheardEvents()].sort()).toEqual(Object.keys(NOT_HEARD).sort());
 	for (const event of ['playerSpawn', 'roundEnd', 'newRound', 'roundStart', 'addMoney', 'plantBomb']) expect(HEARD[event]?.class).toBe('B');
-	for (const event of ['teamFull', 'airMove', 'explodeHeGrenade']) expect(NOT_HEARD[event]).toBeString();
+	for (const event of ['teamFull', 'airMove', 'explodeHeGrenade']) expect(NOT_HEARD[event]).toBeTypeOf('string');
 	// A game rules' question, through the module's hook of the original rules' table, or a function it takes over at its start.
 	for (const event of ['fallDamage', 'canHaveItem', 'giveDefaultItems']) expect(HEARD[event]?.original).toBe('only');
 	// A game rules' function with a stock hook where the module does not hook it.

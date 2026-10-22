@@ -1,9 +1,6 @@
 import { loadPlugin } from '@amxts/core/test-utils';
 // Date's local getters on the fake server: tests/as/date.ts.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { expect, test } from 'vitest';
 
 const PLUGIN = 'tests/as/date.ts';
 

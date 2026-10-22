@@ -5,14 +5,13 @@ import { join } from 'node:path';
 // plugin nothing has changed for is put in place again as it was compiled,
 // and an edit to a file it imports - or a build of the other kind - compiles
 // it again. And a quick build that a Windows server can load.
-// @ts-ignore - bun:test types not available during type checking
-import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { afterAll, describe, expect, test, vi } from 'vitest';
 import { compilePlugin } from '../scripts/compile';
 import { pluginCache } from '../scripts/plugin-cache';
 import { sourcesFor } from '../scripts/project';
 import { wamrcPath } from '../scripts/system';
 
-setDefaultTimeout(240_000);
+vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
 
 const dir = join(tmpdir(), 'amxts-plugin-cache');
 rmSync(dir, { recursive: true, force: true });

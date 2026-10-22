@@ -2,10 +2,7 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // A UserMessage on the fake server: registered by its name, so a Pawn
 // plugin's get_user_msgid finds it, and each send is one user message
 // whose args are the values in the order written.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { expect, test } from 'vitest';
 
 test('a message of its own: its values in order, to one player and to everyone', async () => {
 	const server = await loadPlugin('tests/as/user-message.ts');

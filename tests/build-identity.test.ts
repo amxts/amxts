@@ -11,9 +11,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
-import pkg from '../package.json';
+import { expect, test, vi } from 'vitest';
+import pkg from '../package.json' with { type: 'json' };
 import { ABI_LOCK, ABI_SECTION, abiIdentity, abiLine, buildIdentity, importShapes, pluginAbi, releaseLine, shapeChanges } from '../scripts/build-identity';
 import { compilePlugin } from '../scripts/compile';
 import { readSection } from '../scripts/source-map';
@@ -21,7 +20,7 @@ import { moduleAbiOf, wamrcPath } from '../scripts/system';
 import { compileWasmFile } from '../src/testing/compile';
 import { cacheCounts, cacheOn } from '../src/testing/compile-cache';
 
-setDefaultTimeout(300_000);
+vi.setConfig({ testTimeout: 300_000, hookTimeout: 300_000 });
 
 const out = join(tmpdir(), 'amxts-build-identity');
 mkdirSync(out, { recursive: true });
@@ -75,7 +74,7 @@ test('a module file is read for its ABI: test:server builds one again whose line
 test('an import is its line of the natives table: its name, its types, how its arguments cross', () => {
 	const shapes = importShapes();
 	expect(shapes.get('abort')).toBe('abort (iiii)');
-	expect(shapes.get('add')).toStartWith('add (iiii)i ');
+	expect(shapes.get('add')).toMatch(/^add \(iiii\)i /);
 	expect(pluginAbi(['env.add', 'env.abort'])).toBe([abiIdentity(), shapes.get('abort'), shapes.get('add')].join('\n'));
 });
 
@@ -141,6 +140,6 @@ test('a plugin of one patch is taken from the cache for another of its line, and
 
 	// Another line is refused by the module, so it is not the cached one.
 	const minor = await compiledAs('0.10.0', source);
-	expect(minor.abi).toStartWith('0.10.0+abi.');
+	expect(minor.abi).toMatch(/^0\.10\.0\+abi\./);
 	expect(abiLine(minor.abi!)).not.toBe(abiLine(patch.abi!));
 });

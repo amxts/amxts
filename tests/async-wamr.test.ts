@@ -11,11 +11,10 @@ import { join } from 'node:path';
  * Needs the host built once (see its CMakeLists.txt); without it this is
  * skipped rather than failed, since a checkout without MSVC cannot build it.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
+import { expect, test, vi } from 'vitest';
 import { compileAot, compileWasmFile } from '../src/testing/compile';
 
-setDefaultTimeout(300_000);
+vi.setConfig({ testTimeout: 300_000, hookTimeout: 300_000 });
 
 const host = 'runtime/test/async-wamr/build/Release/host.exe';
 const wamrc = process.env.AMXTS_WAMRC ?? 'runtime/deps/wamr/wamr-compiler/build/Release/wamrc.exe';

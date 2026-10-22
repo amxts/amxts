@@ -3,11 +3,8 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // What the bridge carries between the natives' image, the module and a
 // plugin: reapi's field natives by each field's kind, a server event with all
 // of its arguments, and the image that holds natives and nothing else.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { floatBits } from '../src/testing/memory';
-
-setDefaultTimeout(120_000);
 
 const FIXTURE = 'tests/as/field-natives.ts';
 const natives = readFileSync('as/natives.ts', 'utf8');

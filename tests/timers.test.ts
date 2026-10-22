@@ -3,10 +3,9 @@ import { loadPlugin } from '@amxts/core/test-utils';
  * Timers on the fake server's clock: setTimeout, setInterval and clearTimeout
  * in tests/as/showcase.ts, run by `server.advance(ms)` rather than by waiting.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
+import { expect, test, vi } from 'vitest';
 
-setDefaultTimeout(60_000);
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 test('a tip every 45 seconds, in turn, to people and not to bots', async () => {
 	const server = await loadPlugin('tests/as/showcase.ts');

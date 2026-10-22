@@ -9,11 +9,8 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // basic-ftp and ssh2-sftp-client: tests/as/net-request.ts writes, reads,
 // lists, renames and streams files of the game folder, and gets the kinds of
 // error and the reply codes the module's network client gives.
-// @ts-ignore - bun:test types not available during type checking
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { KEY_PASSPHRASE, PASSWORD, startTestFtp, startTestSftp, TEST_CA, USER } from './ftp-servers';
-
-setDefaultTimeout(120_000);
 
 let ftp: TestServer;
 let ftps: TestServer;

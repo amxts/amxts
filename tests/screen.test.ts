@@ -1,10 +1,7 @@
 import { loadPlugin } from '@amxts/core/test-utils';
 // player.screen on the fake server: each call is one user message to that
 // player, with seconds turned into the message's fixed point.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { expect, test } from 'vitest';
 
 test('fade: seconds are 1/4096 s, and the options are its flags', async () => {
 	const server = await loadPlugin('tests/as/screen.ts');

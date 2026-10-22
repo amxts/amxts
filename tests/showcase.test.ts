@@ -3,11 +3,10 @@ import { loadPlugin } from '@amxts/core/test-utils';
  * tests/as/showcase.ts on the fake server: the plugin as it is written, its events and
  * its /tour command. See docs/en/7.testing/01.index.md.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { describe, expect, test, vi } from 'vitest';
 
 // The first test compiles the plugin, which takes a few seconds.
-setDefaultTimeout(60_000);
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 describe('the showcase greets', () => {
 	test('a player who joins, and tells the other plugins through its forward', async () => {

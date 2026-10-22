@@ -10,8 +10,7 @@
  * stepping on every allocation.
  */
 import { readFileSync } from 'node:fs';
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { probe } from './probe';
 
 const OFTEN = ['--use', 'ASC_GC_STRESS=1', '--use', 'ASC_GC_GRANULARITY=16', '-O3'];

@@ -3,10 +3,7 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // A bot a plugin adds, moves and kicks; and the natives whose `...` tail takes
 // any kind of argument - text, a Float, a vector, a Ref - each sent as Pawn
 // sends it.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { expect, test } from 'vitest';
 
 const FIXTURE = 'tests/as/bots.ts';
 const natives = readFileSync('as/natives.ts', 'utf8');

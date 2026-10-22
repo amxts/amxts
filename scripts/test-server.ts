@@ -240,7 +240,7 @@ async function startWeb(suites: Suite[]): Promise<void> {
 	const file = join(CORE_DIR, 'tests/http-server.ts');
 	if (!suites.some(suite => suite.name === 'fetch') || !existsSync(file)) return;
 	const { startTestHttp } = await import(file);
-	web = startTestHttp(...HOST_ADDRESSES);
+	web = await startTestHttp(...HOST_ADDRESSES);
 }
 
 // The kit's request suite (tests/server/net-request.ts) talks to an FTP and

@@ -1,9 +1,6 @@
 import { loadPlugin } from '@amxts/core/test-utils';
 // What an entity does, on the fake server: tests/as/entity-api.ts.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { expect, test } from 'vitest';
 
 const PLUGIN = 'tests/as/entity-api.ts';
 

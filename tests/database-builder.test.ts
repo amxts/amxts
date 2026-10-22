@@ -7,11 +7,8 @@ import binaryen from 'binaryen';
 // The query builder (as/sql.ts) on the fake server: tests/as/database-builder.ts
 // against server.database(url), which keeps the SQL and the values each
 // statement was sent with.
-// @ts-ignore - bun:test types not available during type checking
-import { beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { beforeAll, describe, expect, test } from 'vitest';
 import { compileWasmFile } from '../src/testing/compile';
-
-setDefaultTimeout(120_000);
 
 const URL = 'mysql://kz:secret@127.0.0.1:3306/kz';
 

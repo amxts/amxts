@@ -1,8 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { pathToFileURL } from 'node:url';
+import { expect, test } from 'vitest';
 import { evalInt, IncludeParser } from '../src/parser/include-parser';
 
 test('a multi-tag {Float,_}:value does not leak into the parameter name', () => {
@@ -182,11 +181,11 @@ forward myplugin_on_touch(id, iEntity, bool:bOnTop);
 
 test('a one-line enum ends at its brace, and the include after it is read once', () => {
 	const script = [
-		`import { IncludeParser } from ${JSON.stringify(fileURLToPath(new URL('../src/parser/include-parser.ts', import.meta.url)))};`,
+		`import { IncludeParser } from ${JSON.stringify(new URL('../src/parser/include-parser.ts', import.meta.url).href)};`,
 		`const parsed = new IncludeParser(${JSON.stringify(ONE_LINE_AFTER_BLOCK)}).parse();`,
 		'console.log(JSON.stringify(parsed));',
 	].join('\n');
-	const run = spawnSync(process.execPath, ['-e', script], { encoding: 'utf-8', timeout: 5000 });
+	const run = spawnSync(process.execPath, ['--import', pathToFileURL('scripts/node-ts.mjs').href, '-e', script], { encoding: 'utf-8', timeout: 5000 });
 
 	expect(run.signal).toBeNull();
 	expect(run.status).toBe(0);

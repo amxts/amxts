@@ -5,14 +5,13 @@ import { setup } from '@amxts/core/test-utils';
 // `amxts upgrade` (scripts/upgrade.ts): imports of the core's API by `~/`
 // become imports by the package's name, a module package's place in the
 // build's tree its name; the project's own files, strings and comments stay.
-// @ts-ignore - bun:test types not available during type checking
-import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
+import { afterEach, expect, test, vi } from 'vitest';
 import { CORE_PLUGINS, setProjectDir } from '../scripts/project';
 import { dropHttpImports, renamesFor, upgradeEvents, upgradeFlags, upgradeHandlers, upgradeMessages, upgradeNames, upgradeProject, upgradeText } from '../scripts/upgrade';
 import { upgradeCalls } from '../scripts/upgrade-calls';
 import { upgradeMenus } from '../scripts/upgrade-menus';
 
-setDefaultTimeout(240_000);
+vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
 
 const HERE = process.cwd();
 const made: string[] = [];
@@ -744,7 +743,7 @@ test('calls of a changed shape: print to a player and to everyone, removeAllItem
 	// Every free print rewritten: its import goes; one left keeps it.
 	const printed = 'import { print, server } from "@amxts/core";\nprint(0, "a");\nprint(player, "b");\n';
 	expect(upgradeCalls('plugins/a.ts', printed).text).toBe('import { server } from "@amxts/core";\nserver.print("a");\nplayer.print("b");\n');
-	expect(upgradeCalls('plugins/a.ts', `${printed}print(5, "c");\n`).text).toStartWith('import { print, server } from "@amxts/core";');
+	expect(upgradeCalls('plugins/a.ts', `${printed}print(5, "c");\n`).text).toMatch(/^import \{ print, server \} from "@amxts\/core";/);
 	// An import alone at the top goes with the blank line under it.
 	expect(upgradeCalls('plugins/a.ts', 'import type { ItemName } from "@amxts/core";\n\nplayer.give("x" as ItemName);\n').text).toBe('player.give("x");\n');
 	const source = [

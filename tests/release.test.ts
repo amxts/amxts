@@ -1,8 +1,7 @@
 // A release is published only whole: both systems, every file attached, one
 // version and one commit (scripts/release-check.ts).
 import type { Manifest } from '../scripts/release-check';
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { changelogSection, prependSection } from '../scripts/changelog';
 import { releaseProblems } from '../scripts/release-check';
 

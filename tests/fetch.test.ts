@@ -2,19 +2,16 @@ import type { FakeServer } from '@amxts/core/test-utils';
 import type { TestHttp } from './http-server';
 import { loadPlugin } from '@amxts/core/test-utils';
 // fetch, useFetch, URL and Headers (as/fetch.ts) on the fake server, which
-// answers the module's network client with Bun's own fetch: tests/as/fetch.ts
+// answers the module's network client with the runtime's own fetch: tests/as/fetch.ts
 // against the web server of tests/http-server.ts on this machine.
-// @ts-ignore - bun:test types not available during type checking
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { startTestHttp, TEST_CA } from './http-server';
-
-setDefaultTimeout(120_000);
 
 let web: TestHttp;
 let server: FakeServer;
 
 beforeAll(async () => {
-	web = startTestHttp();
+	web = await startTestHttp();
 	server = await loadPlugin('tests/as/fetch.ts', { files: { 'ca.pem': TEST_CA } });
 });
 

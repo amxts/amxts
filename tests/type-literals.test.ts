@@ -5,8 +5,7 @@
  * (Parser.parseTypeLiteral); the same text twice in a file is one class.
  * And `object`, TypeScript's any object: std/assembly/object.ts.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { probe } from './probe';
 
 async function run(body: string) {

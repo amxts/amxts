@@ -4,12 +4,11 @@ import { resolve } from 'node:path';
  * run.
  *
  * This compiles AssemblyScript the way a plugin is compiled and runs it under
- * bun's WebAssembly, so the code under test is the code that ships. Every
+ * Node's WebAssembly, so the code under test is the code that ships. Every
  * `env` import is stubbed: the module declares hundreds of natives and none
  * of them is reached by a function that only looks at a string.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { beforeAll, describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, test } from 'vitest';
 import { ascMain } from '../scripts/asc';
 import { playerFieldsBuild } from '../scripts/player-fields';
 import { ascPath, sourcesFor } from '../scripts/project';
@@ -17,7 +16,7 @@ import { stressed } from '../src/testing/compile';
 
 // The repository's tsconfig takes node's globals and nothing else, on purpose:
 // the DOM library would bring a console this project does not use. WebAssembly
-// lives in that library, and bun runs the real one either way.
+// lives in that library, and Node runs the real one either way.
 declare const WebAssembly: any;
 
 const root = resolve('as');
@@ -271,11 +270,11 @@ describe('toFixed', () => {
 		[1.5, -0.5],
 	];
 
-	test.each(cases)('(%p).toFixed(%p) is what JavaScript writes', (value: number, places: number) => {
+	test.each(cases)('(%s).toFixed(%s) is what JavaScript writes', (value: number, places: number) => {
 		expect(text(exports.fixedText(value, places))).toBe(value.toFixed(places));
 	});
 
-	test.each([-Infinity, Infinity, 2 ** 32 + 2, 101, -1])('toFixed(%p) throws, as in JavaScript', (places: number) => {
+	test.each([-Infinity, Infinity, 2 ** 32 + 2, 101, -1])('toFixed(%s) throws, as in JavaScript', (places: number) => {
 		expect(() => (1).toFixed(places)).toThrow(RangeError);
 		expect(() => exports.fixedText(1, places)).toThrow();
 	});

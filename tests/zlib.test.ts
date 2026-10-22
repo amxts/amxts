@@ -1,10 +1,7 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { loadPlugin } from '@amxts/core/test-utils';
 // Compression on the fake server: tests/as/zlib.ts.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { expect, test } from 'vitest';
 
 const PLUGIN = 'tests/as/zlib.ts';
 

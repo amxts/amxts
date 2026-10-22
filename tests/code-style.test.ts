@@ -3,6 +3,7 @@ import type { Renames } from '../scripts/upgrade';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+import ts from 'typescript';
 // The code-style rules, checked.
 //
 // Plugin code is written as familiar TypeScript. The rules that are
@@ -13,9 +14,7 @@ import { join, relative, sep } from 'node:path';
 //
 // The facade and the generated files are where AssemblyScript is meant to
 // live, and they are not scanned.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
-import ts from 'typescript';
+import { expect, test } from 'vitest';
 import { coreSources, dedent, docsLang, elements, FILTER, LANGS, loadTable, moduleSources, pick } from '../scripts/apply-docs';
 import { ENTITY_FIELDS } from '../scripts/docs/entities';
 import { EVENTS, PLAYER_CHANGE } from '../scripts/docs/events';

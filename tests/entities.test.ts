@@ -3,8 +3,7 @@ import { readFileSync } from 'node:fs';
 // whose types are known for certain; if the generator misreads a "Get params"
 // line, one of them changes type and the check fails. var_rendermode is here
 // on purpose: written as a float, it is how a glow once never appeared.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 
 import { ENTITY_FIELDS } from '../scripts/docs/entities';
 

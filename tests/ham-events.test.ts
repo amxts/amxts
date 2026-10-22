@@ -1,10 +1,7 @@
 import { constant, loadPlugin } from '@amxts/core/test-utils';
 // Game events Ham Sandwich delivers, and an entity's actions, on the fake
 // server: tests/as/ham-events.ts.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { expect, test } from 'vitest';
 
 const PLUGIN = 'tests/as/ham-events.ts';
 

@@ -4,8 +4,7 @@
  * the context, `({ player, name })` or `(context) => context.player`, gets the
  * context. In a call, and as a value of a `Record<string, V>` literal.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { probe } from './probe';
 
 test('a function of the player or of the context, where either is declared', async () => {

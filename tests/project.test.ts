@@ -9,11 +9,10 @@ import { installMenus } from '@amxts/menu-core/testing';
 // whose requirement is not listed is an error naming it, the options are the
 // defaults with the config over them, setup runs once and in the owner, and a
 // plugin that writes "@amxts/menu-core" gets the module.
-// @ts-ignore - bun:test types not available during type checking
-import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { CORE_PLUGINS, loadProject, mergeOptions, modulesInUse, moduleSource, pluginList, PROJECT_GAME_FOLDERS, projectPlugins, readDefinition, setProjectDir, Sources, staleCopies } from '../scripts/project';
 
-setDefaultTimeout(240_000);
+vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
 
 const HERE = process.cwd();
 const made: string[] = [];

@@ -2,16 +2,15 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // A plugin's own natives - its `export function`s - and fs, on the fake server.
 //
 // tests/as/natives.ts was the server check plugin (verified 2026-09-23); here it runs under
-// bun, its natives called the way a Pawn plugin calls them (the .inc
+// Node, its natives called the way a Pawn plugin calls them (the .inc
 // signature: strings, Float bits, array + size, out-buffers), and fs against
 // the fake's in-memory game folder.
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { describe, expect, test, vi } from 'vitest';
 import { pawnInclude, setNativesBeside } from '../scripts/plugin-natives';
 import { pluginProbe } from './probe';
 
 // A probe compiles a plugin of its own, which takes more than a few seconds on a loaded machine.
-setDefaultTimeout(60_000);
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const server = await loadPlugin('tests/as/natives.ts');
 

@@ -2,8 +2,7 @@
  * A private name, `#secret`: a field, a method and a static member of a
  * class, which JSON.stringify leaves out as JavaScript does.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { probe } from './probe';
 
 test('#secret fields and methods, left out of JSON', async () => {

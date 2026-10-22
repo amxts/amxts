@@ -10,8 +10,7 @@ import { join, resolve } from 'node:path';
 // thirty-two red lines nobody saw until a developer opened the file. So the
 // editor's reading is checked too - as/tsconfig.json, exactly what VS Code
 // uses - and a plugin is not done while it shows an error there.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 
 test('as/ has no errors in the editor', () => {
 	// tsc's own script under node: node_modules/.bin holds tsc.exe after bun

@@ -9,12 +9,11 @@ import type { PluginMap } from '../scripts/source-map';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { describe, expect, test, vi } from 'vitest';
 import { displayName, mapText, parseMap, placeOf, readMap, withSection } from '../scripts/source-map';
 import { compileWasmFile } from '../src/testing/compile';
 
-setDefaultTimeout(300_000);
+vi.setConfig({ testTimeout: 300_000, hookTimeout: 300_000 });
 
 const out = join(tmpdir(), 'amxts-source-map');
 mkdirSync(out, { recursive: true });

@@ -9,10 +9,7 @@ import { installMenus } from '@amxts/menu-core/testing';
 // The Pawn plugins here are fake ones (Menu Core's test kit,
 // @amxts/menu-core/testing): their publics are JavaScript, called through
 // callfunc the way AMX Mod X calls them.
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { describe, expect, test } from 'vitest';
 
 const PLUGIN = '@amxts/menu-core';
 /** menu-core reads menu.ini through @amxts/config-core, which the config-core plugin runs. */

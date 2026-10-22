@@ -2,8 +2,7 @@
  * `array.sort` with a comparator as in JavaScript: the sign of the number it
  * returns orders two elements, so `(a, b) => a - b` sorts fractions too.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { probe } from './probe';
 
 test('a comparator returning a fraction orders by its sign, as in JavaScript', async () => {

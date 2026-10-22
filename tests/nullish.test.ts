@@ -3,8 +3,7 @@
  * when the left is null (not when it is "" or 0), is evaluated only then,
  * and the result has no null unless the right side can be null.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { probe } from './probe';
 
 const FIND = `

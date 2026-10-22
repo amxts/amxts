@@ -10,13 +10,12 @@ import binaryen from 'binaryen';
  * prints is what is checked. Time is the host's own clock, moved with
  * `advance(ms)`, so a sleep of a second takes no second.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { beforeAll, describe, expect, test, vi } from 'vitest';
 import { importsOf } from '../scripts/compile';
 import { compileWasmFile } from '../src/testing/compile';
 import { AsyncHost } from './async-host';
 
-setDefaultTimeout(300_000);
+vi.setConfig({ testTimeout: 300_000, hookTimeout: 300_000 });
 
 const out = join(tmpdir(), 'amxts-async-test');
 mkdirSync(out, { recursive: true });

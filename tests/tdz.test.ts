@@ -4,12 +4,11 @@
  * than reading 0. Only a variable a read can reach early pays for the check.
  */
 import { loadPlugin } from '@amxts/core/test-utils';
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { describe, expect, test, vi } from 'vitest';
 import { compileSources } from '../src/testing/compile';
 import { pluginProbe } from './probe';
 
-setDefaultTimeout(180_000);
+vi.setConfig({ testTimeout: 180_000, hookTimeout: 180_000 });
 
 declare const WebAssembly: any;
 

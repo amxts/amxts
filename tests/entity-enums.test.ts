@@ -2,10 +2,7 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // Entity fields that hold one value of an engine enum take and give names
 // (scripts/generate-entities.ts, ENUM_FIELDS); on the fake server the field
 // keeps the number the engine would, so both ends are checked.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { expect, test } from 'vitest';
 
 const FIXTURE = 'tests/as/entity-enums.ts';
 

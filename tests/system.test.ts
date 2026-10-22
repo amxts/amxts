@@ -2,8 +2,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-// @ts-ignore - bun:test types not available during type checking
-import { afterAll, expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'vitest';
 import { apiFiles } from '../scripts/system';
 import { describeSystem, detectServerSystem, HOST_SYSTEM, parseSystem, serverFolder, serverSystem, TARGET_ABI } from '../src/system.mjs';
 

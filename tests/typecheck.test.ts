@@ -1,11 +1,10 @@
+import ts from 'typescript';
 /**
  * `amxts typecheck` says what TypeScript allows and the build does not: an
  * event name that is not a string literal in the call, an empty array whose
  * type is not written.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
-import ts from 'typescript';
+import { expect, test } from 'vitest';
 // @ts-ignore - plain JavaScript
 import { buildProblems } from '../src/typecheck.mjs';
 

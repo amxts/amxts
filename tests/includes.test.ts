@@ -1,5 +1,4 @@
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { listIncludes, parseOrder, resolveTransitive } from '../scripts/includes';
 
 test('sees includes from both directories', () => {

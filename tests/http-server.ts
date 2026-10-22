@@ -12,11 +12,14 @@
 //   slow         answers after five seconds
 //   missing      404 with a JSON error
 //   flaky?key=   503 the first two times a key is asked for, then 200
+import type { IncomingMessage, Server, ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { readFileSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import { dirname, join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-
-declare const Bun: any;
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'server', 'fixtures');
 
@@ -62,7 +65,7 @@ function handler() {
 			case '/redirect':
 				return new Response(null, { status: 302, headers: { location: '/json' } });
 			case '/slow':
-				await Bun.sleep(5000);
+				await sleep(5000);
 				return new Response('late');
 			case '/missing':
 				return json({ error: 'no such thing' }, { status: 404, statusText: 'Not Found' });
@@ -78,25 +81,41 @@ function handler() {
 	};
 }
 
+/** Node's request handler for `fetch`, a handler of web requests. */
+function serve(fetch: (request: Request) => Promise<Response>) {
+	return async (incoming: IncomingMessage, reply: ServerResponse) => {
+		const chunks: Buffer[] = [];
+		for await (const chunk of incoming) chunks.push(chunk);
+		const headers = new Headers();
+		for (let i = 0; i < incoming.rawHeaders.length; i += 2) headers.append(incoming.rawHeaders[i], incoming.rawHeaders[i + 1]);
+		const body = incoming.method === 'GET' || incoming.method === 'HEAD' ? undefined : Buffer.concat(chunks);
+		const response = await fetch(new Request(`http://${incoming.headers.host}${incoming.url}`, { method: incoming.method, headers, body }));
+		// Each set-cookie a header of its own, as the response has them.
+		reply.writeHead(response.status, response.statusText, [...response.headers].flat());
+		reply.end(Buffer.from(await response.arrayBuffer()));
+	};
+}
+
+/** `server` on a free port of `hostname`, once it listens. */
+function listen(server: Server, hostname: string): Promise<number> {
+	return new Promise(resolve => server.listen(0, hostname, () => resolve((server.address() as AddressInfo).port)));
+}
+
 /**
  * Starts both sides on free ports of `hostname` (127.0.0.1; 0.0.0.0 for a
  * server in a container); `host` is how a client names this machine.
  */
-export function startTestHttp(hostname = '127.0.0.1', host = '127.0.0.1'): TestHttp {
-	const fetch = handler();
-	const http = Bun.serve({ hostname, port: 0, fetch });
-	const https = Bun.serve({
-		hostname,
-		port: 0,
-		fetch,
-		tls: { cert: TEST_CA, key: readFileSync(join(FIXTURES, 'https-key.pem'), 'utf8') },
-	});
+export async function startTestHttp(hostname = '127.0.0.1', host = '127.0.0.1'): Promise<TestHttp> {
+	const answer = serve(handler());
+	const http = createHttpServer(answer);
+	const https = createHttpsServer({ cert: TEST_CA, key: readFileSync(join(FIXTURES, 'https-key.pem'), 'utf8') }, answer);
+	const [httpPort, httpsPort] = await Promise.all([listen(http, hostname), listen(https, hostname)]);
 	return {
-		http: `http://${host}:${http.port}`,
-		https: `https://${host}:${https.port}`,
+		http: `http://${host}:${httpPort}`,
+		https: `https://${host}:${httpsPort}`,
 		stop: () => {
-			http.stop(true);
-			https.stop(true);
+			http.close();
+			https.close();
 		},
 	};
 }

@@ -7,8 +7,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 
 const require = createRequire(import.meta.url);
 const CORE = dirname(require.resolve('@amxts/core/package.json'));
@@ -42,7 +41,7 @@ test('the tasks: every one with Node', async () => {
 test('the official modules from this machine, TypeScript, the compilers', async () => {
 	const api = await cliApi();
 	expect(Object.keys(api.localModules()).sort()).toEqual(['@amxts/config-core', '@amxts/menu-core']);
-	expect(api.typescript().createSourceFile).toBeFunction();
+	expect(api.typescript().createSourceFile).toBeTypeOf('function');
 	const tools = api.toolchain();
 	expect(tools.assemblyscript.version).toBe('0.28.20');
 	expect(tools.wamr.version).toBe('2.4.5');
@@ -53,7 +52,7 @@ test('the includes the API is generated from: pinned releases with a sha256', as
 	const sources = api.includeSources();
 	expect(Object.keys(sources).sort()).toEqual(['reapi', 'resemiclip']);
 	for (const source of Object.values<{ url: string; sha256: string; version: string }>(sources)) {
-		expect(source.url).toStartWith('https://');
+		expect(source.url).toMatch(/^https:\/\//);
 		expect(source.url).toContain(source.version);
 		expect(source.sha256).toMatch(/^[0-9a-f]{64}$/);
 	}

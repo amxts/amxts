@@ -2,8 +2,7 @@
  * `T | T[]` - one, or a list of them, as a query takes its rows: held as the
  * list, one given where it is declared is a list of it.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { probe } from './probe';
 
 test('a parameter of a method and of a function takes one or a list', async () => {

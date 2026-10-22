@@ -3,8 +3,7 @@
  * `players[MAX_PLAYERS]` copies across, and what as/constants.ts says. A name
  * nothing defines is no number, so the generator keeps the size a guess.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { evaluate } from '../scripts/pawn-value';
 
 // What the includes define: `#define MAX_PLAYERS 32`, `#define MAX_NAME_LENGTH 32`,

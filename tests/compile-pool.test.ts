@@ -5,13 +5,12 @@ import { join } from 'node:path';
 // Several plugins compiled at once (scripts/compile-pool.ts): as many as the
 // memory budget and the CPUs allow, in worker processes - to the same bytes
 // as one at a time in the build's own process.
-// @ts-ignore - bun:test types not available during type checking
-import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { afterAll, describe, expect, test, vi } from 'vitest';
 import { compileAll, compileSlots, inSlots } from '../scripts/compile-pool';
 import { pluginCache } from '../scripts/plugin-cache';
 import { wamrcPath } from '../scripts/system';
 
-setDefaultTimeout(240_000);
+vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
 
 describe('how many compiles run at once', () => {
 	const GB = 1024;

@@ -1,20 +1,22 @@
-// The unit tests: every tests/*.test.ts in a `bun test` of its own, several
-// at once.
+// The unit tests: every tests/*.test.ts on Vitest, several files at once.
 //
-//   bun run test                  every file
-//   bun run test showcase timers  the files whose names hold these words
-//   bun run test --changed        the files that what changed since origin/next reaches
-//   bun run test --part 2/3       every third file from the second: CI's parts
-//   bun run test --jobs 3         three at once (AMXTS_TEST_JOBS; half the CPUs by default)
+//   npm test                  every file
+//   npm test showcase timers  the files whose names hold these words
+//   npm test -- --changed     the files that what changed since origin/next reaches
+//   npm test -- --part 2/3    every third file from the second: CI's parts
+//   npm test -- --jobs 3      three at once (AMXTS_TEST_JOBS; half the CPUs by default)
 //
-// A line per file as it ends, a failure as soon as bun reports it, the
+// A line per file as it ends, a failure as soon as Vitest reports it, the
 // slowest files at the end; dist/test-progress.txt says where the run is
-// (scripts/test-progress.ts).
-import { spawn, spawnSync } from 'node:child_process';
+// (scripts/test-progress.ts). vitest.config.ts is the rest: a single file
+// runs with `npx vitest run tests/<name>.test.ts` too.
+import type { Reporter, TestModule, TestSpecification } from 'vitest/node';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { availableParallelism, constants, setPriority } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import process from 'node:process';
+import { BaseSequencer, createVitest } from 'vitest/node';
 import { clock, testProgress } from './test-progress';
 
 const args = process.argv.slice(2);
@@ -29,7 +31,7 @@ const changed = args.includes('--changed') && args.splice(args.indexOf('--change
 let files = readdirSync('tests').filter(name => name.endsWith('.test.ts')).sort().map(name => `tests/${name}`);
 if (part) {
 	const [k, n] = part.split('/').map(Number);
-	if (!(k >= 1 && k <= n)) throw new Error('bun run test --part <part>/<parts>, the part from 1');
+	if (!(k >= 1 && k <= n)) throw new Error('npm test -- --part <part>/<parts>, the part from 1');
 	files = files.filter((_, i) => i % n === k - 1);
 }
 if (args.length) files = files.filter(file => args.some(word => file.includes(word)));
@@ -41,52 +43,56 @@ if (!files.length) {
 
 const parallel = Math.min(jobs, files.length);
 const progress = testProgress('test', files.map(file => file.slice('tests/'.length, -'.test.ts'.length)), parallel);
-const queue = progress.longestFirst();
-const failed: string[] = [];
+const order = progress.longestFirst();
+const itemOf = (path: string) => relative('tests', path).slice(0, -'.test.ts'.length).replaceAll('\\', '/');
 let pass = 0;
 let skip = 0;
+const failed: string[] = [];
 const begun = Date.now();
 
-function runFile(item: string): Promise<void> {
-	const file = `tests/${item}.test.ts`;
-	progress.start(item);
-	return new Promise((finish) => {
-		// A compile takes longer with the files side by side than alone: bun's
-		// 5 s a test or hook would end one that is only slow, not stuck.
-		const child = spawn(process.execPath, ['test', '--smol', '--timeout', '120000', file], { stdio: ['ignore', 'pipe', 'pipe'] });
-		// Below the machine's other work, which its compiles inherit: the
-		// machine stays responsive while the files run.
-		setPriority(child.pid!, constants.priority.PRIORITY_BELOW_NORMAL);
-		let output = '';
-		let partial = '';
-		const take = (chunk: Buffer) => {
-			output += chunk;
-			const lines = (partial + chunk).split('\n');
-			partial = lines.pop()!;
-			// bun prints a failed test's error, then `(fail) <name>`.
-			for (const line of lines.filter(line => line.startsWith('(fail)'))) progress.fail(`${file} > ${line.slice(6).trim()}`);
-		};
-		child.stdout.on('data', take);
-		child.stderr.on('data', take);
-		child.on('close', (code) => {
-			const count = (word: string) => Number(new RegExp(`^\\s*(\\d+) ${word}$`, 'm').exec(output)?.[1] ?? 0);
-			pass += count('pass');
-			skip += count('skip');
-			if (code !== 0) {
-				failed.push(file);
-				if (!count('fail')) progress.fail(`${file} > exit ${code}`);
-			}
-			progress.end(item, code === 0, ['pass', 'skip', 'fail'].filter(word => count(word)).map(word => `${count(word)} ${word}`).join(', '));
-			if (code !== 0) console.log(output.trimEnd().replace(/^/gm, '    '));
-			finish();
-		});
-	});
+/** A line per file and a failure at once, through testProgress. */
+const reporter: Reporter = {
+	onTestModuleQueued: module => progress.start(itemOf(module.moduleId)),
+	onTestCaseResult(test) {
+		if (test.result().state === 'failed') progress.fail(`tests/${itemOf(test.module.moduleId)}.test.ts > ${test.fullName}`);
+	},
+	onTestModuleEnd(module: TestModule) {
+		const item = itemOf(module.moduleId);
+		const states = [...module.children.allTests()].map(test => test.result().state);
+		const count = (state: string) => states.filter(each => each === state).length;
+		pass += count('passed');
+		skip += count('skipped');
+		const errors = [...module.errors(), ...[...module.children.allTests()].flatMap(test => test.result().errors ?? [])];
+		const ok = module.ok() && !errors.length;
+		if (!ok) {
+			failed.push(item);
+			if (!count('failed')) progress.fail(`tests/${item}.test.ts > ${module.errors()[0]?.message ?? 'did not run'}`);
+		}
+		const summary = [[count('passed'), 'pass'], [count('skipped'), 'skip'], [count('failed'), 'fail']].filter(([n]) => n).map(([n, word]) => `${n} ${word}`).join(', ');
+		progress.end(item, ok, summary);
+		for (const error of errors) console.log(`${error.message}\n${error.diff ?? ''}\n${error.stack ?? ''}`.trimEnd().replace(/^/gm, '    '));
+	},
+};
+
+/** The files longest first, by the last run's times: the slowest is not left for the end. */
+class LongestFirst extends BaseSequencer {
+	override async sort(specifications: TestSpecification[]) {
+		return specifications.sort((a, b) => order.indexOf(itemOf(a.moduleId)) - order.indexOf(itemOf(b.moduleId)));
+	}
 }
 
+// Below the machine's other work, and the files' processes with it, which
+// inherit it: the machine stays responsive while the files run.
+setPriority(0, constants.priority.PRIORITY_BELOW_NORMAL);
 console.log(`${files.length} test files, ${parallel} at once`);
-await Promise.all(Array.from({ length: parallel }, async () => {
-	for (let item = queue.shift(); item; item = queue.shift()) await runFile(item);
-}));
+const vitest = await createVitest('test', {
+	watch: false,
+	maxWorkers: parallel,
+	reporters: [reporter],
+	sequence: { sequencer: LongestFirst },
+});
+await vitest.start(files.map(file => resolve(file)));
+await vitest.close();
 
 progress.finish();
 const skipped = skip ? `, ${skip} skipped` : '';

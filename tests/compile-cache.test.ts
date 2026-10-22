@@ -5,13 +5,12 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // The testing library's compile cache (src/testing/compile-cache.ts): a hit is
 // the fresh compile byte for byte, and an edit to a file the plugin imports -
 // not only to the plugin itself - makes it compile again.
-// @ts-ignore - bun:test types not available during type checking
-import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { afterAll, describe, expect, test, vi } from 'vitest';
 import { recordReads, readdirSync as trackedReaddir, unchanged } from '../scripts/tracked-fs';
 import { compileWasmFile, forgetCompiled } from '../src/testing/compile';
 import { cacheCounts, cacheOn } from '../src/testing/compile-cache';
 
-setDefaultTimeout(240_000);
+vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
 
 const dir = join(tmpdir(), 'amxts-compile-cache');
 rmSync(dir, { recursive: true, force: true });

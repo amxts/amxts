@@ -4,13 +4,13 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import ts from 'typescript';
 // `amxts prepare` (scripts/prepare.ts): .amxts/tsconfig.json says what the
 // build says - `~/` is the project's own files, the core's API is
 // `@amxts/core` and its entries - and the tooltips in another language than
 // English are a copy in .amxts/api, never a write into the installed core.
-// @ts-ignore - bun:test types not available during type checking
-import { afterAll, expect, test } from 'bun:test';
-import ts from 'typescript';
+import { afterAll, expect, test } from 'vitest';
+import { task } from '../src/cli-api.mjs';
 
 const CORE = process.cwd();
 const dir = join(tmpdir(), 'amxts-prepare');
@@ -26,7 +26,7 @@ function write(files: Record<string, string>) {
 }
 
 function prepare(lang: string) {
-	const run = spawnSync(process.execPath, [join(CORE, 'scripts/prepare.ts')], { cwd: dir, encoding: 'utf8', env: { ...process.env, AMXTS_DOCS_LANG: lang } });
+	const run = spawnSync(process.execPath, task('prepare').args, { cwd: dir, encoding: 'utf8', env: { ...process.env, AMXTS_DOCS_LANG: lang } });
 	expect(run.stderr + run.stdout).not.toContain('✖');
 	expect(run.status).toBe(0);
 	return JSON.parse(readFileSync(join(dir, '.amxts/tsconfig.json'), 'utf8'));
@@ -97,7 +97,7 @@ test('in Russian the editor reads a copy in .amxts/api, the installed core stays
 test('in English the editor reads the core itself, and the copy goes', () => {
 	const config = prepare('en');
 	expect(existsSync(join(dir, '.amxts/api'))).toBe(false);
-	expect(config.compilerOptions.paths['@amxts/core/natives'][0]).toEndWith('/as/natives.ts');
+	expect(config.compilerOptions.paths['@amxts/core/natives'][0]).toMatch(/\/as\/natives\.ts$/);
 	expect(config.compilerOptions.paths['@amxts/core/*']).toBeUndefined();
 	const en = timerWords(join(dir, '.amxts/tsconfig.json'));
 	expect(en.facade).toBe(resolve(CORE, 'as/facade.ts'));

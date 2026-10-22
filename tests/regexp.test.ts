@@ -3,8 +3,7 @@
  * JavaScript's own RegExp: test, exec, and String's match, matchAll,
  * replace, replaceAll, search and split with one.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { beforeAll, expect, test } from 'bun:test';
+import { beforeAll, expect, test } from 'vitest';
 import { probe } from './probe';
 
 /** Pattern, flags, text: what each case matches. */

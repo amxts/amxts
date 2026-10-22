@@ -6,8 +6,7 @@
  * - `times?: number`, `loud?: boolean` - undefined when left out, as an
  *   optional property is.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { probe } from './probe';
 
 async function compile(body: string) {

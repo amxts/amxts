@@ -3,8 +3,7 @@
  * `override` modifies a class member, and a variable may be called it; a
  * function may be called `number` and the type is still there.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { probe } from './probe';
 
 test('override is a variable\'s name, destructured too, and still a member\'s modifier', async () => {

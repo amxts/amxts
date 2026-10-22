@@ -7,8 +7,7 @@ import { resolve } from 'node:path';
  * through it. One plugin is compiled with the module in it, as the module's
  * own code has it - no proxy between the generated code and ConfigNode.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { beforeAll, describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, test } from 'vitest';
 import { ascMain } from '../scripts/asc';
 import { playerFieldsBuild } from '../scripts/player-fields';
 import { ascPath, sourcesFor } from '../scripts/project';

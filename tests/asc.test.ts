@@ -2,8 +2,7 @@
 // after it is over.
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { ascMain } from '../scripts/asc';
 
 test('a compile leaves its program on no transform class that outlives it', async () => {

@@ -3,8 +3,7 @@
  * in place of a table and of `select({ ... })`, and what it stops on.
  * tests/database-builder.test.ts runs what it writes.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { DATABASE_ENTRY, snakeCase, typedTables } from '../scripts/typed-tables';
 
 const noImports = () => null;

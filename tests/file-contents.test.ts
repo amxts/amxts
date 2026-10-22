@@ -4,8 +4,7 @@ import { join } from 'node:path';
 // What `amxts dev` rebuilds for (scripts/file-contents.ts): a source file
 // whose contents changed - not a save that changed nothing, a file written
 // again as it was, or a new time on it - and not what the build writes.
-// @ts-ignore - bun:test types not available during type checking
-import { afterAll, expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'vitest';
 import { FileContents, sourceIn, sourcesIn } from '../scripts/file-contents';
 
 const dir = join(tmpdir(), 'amxts-file-contents');

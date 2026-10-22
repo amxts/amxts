@@ -8,12 +8,9 @@ import { loadPlugin } from '@amxts/core/test-utils';
 //
 // What the answers should be comes from universal_config.sma 1.6.1 itself,
 // rule by rule.
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { nativeEnums, pawnInclude } from '../scripts/plugin-natives';
 import { IncludeParser } from '../src/parser/include-parser';
-
-setDefaultTimeout(120_000);
 
 const PLUGIN = '@amxts/config-core';
 const CONFIGS = 'addons/amxmodx/configs';

@@ -8,8 +8,7 @@
  * JavaScript's ToInt32 makes it. Each case runs here in JavaScript and in the
  * compiled probe, at the default optimization and at -O3.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { probe } from './probe';
 
 const SETUP = `

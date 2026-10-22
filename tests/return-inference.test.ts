@@ -9,8 +9,7 @@
  * counts as checked, and the body's own compile catches it when it was not.
  * A call returned as it is keeps its null.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { probe } from './probe';
 
 const FIND = `

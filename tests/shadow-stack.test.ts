@@ -6,8 +6,7 @@
  * object freed has its value overwritten, so one a frame failed to keep
  * shows it. At the default optimization and at -O3.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { compileSources } from '../src/testing/compile';
 import { probe } from './probe';
 

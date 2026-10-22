@@ -3,8 +3,7 @@
  * and hands it to AMX Mod X byte for byte: the header has to hold every byte
  * of the .amxx, in order, and nothing else.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { imageHeader } from '../scripts/image-header';
 
 function bytesOf(header: string): number[] {

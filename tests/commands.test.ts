@@ -1,13 +1,10 @@
 import { loadPlugin } from '@amxts/core/test-utils';
+import ts from 'typescript';
 // Commands with typed arguments: the build reads the usage and the type
 // argument (scripts/typed-commands.ts) and the facade's CommandWords reads
 // each word; tests/as/commands.ts on the fake server, and what does not build.
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, setDefaultTimeout, test } from 'bun:test';
-import ts from 'typescript';
+import { describe, expect, test } from 'vitest';
 import { parseUsage, typedCommands } from '../scripts/typed-commands';
-
-setDefaultTimeout(120_000);
 
 const PLUGIN = 'tests/as/commands.ts';
 const COMMON = [

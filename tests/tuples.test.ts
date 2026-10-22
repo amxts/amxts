@@ -3,8 +3,7 @@
  * built by an array literal where it goes, read by index and destructuring.
  * At the default optimization and at -O3.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { probe } from './probe';
 
 for (const optimize of [false, true]) {

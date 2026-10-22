@@ -3,8 +3,7 @@
  * pushes, the build does not, and says to write it rather than make an array
  * of addresses.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { probe } from './probe';
 
 test('an empty array without its type stops the build with the type to write; with one, it builds', async () => {

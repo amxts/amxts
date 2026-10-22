@@ -3,10 +3,7 @@ import { loadPlugin } from '@amxts/core/test-utils';
 // is not called, one added is not called this time - for every kind of event
 // the facade dispatches, and for a dispatch inside another. An event hands out
 // one Player a player. tests/as/dispatch.ts.
-// @ts-ignore - bun:test types not available during type checking
-import { beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { beforeAll, describe, expect, test } from 'vitest';
 
 type Server = Awaited<ReturnType<typeof loadPlugin>>;
 

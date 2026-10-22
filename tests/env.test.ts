@@ -5,12 +5,11 @@ import { setup } from '@amxts/core/test-utils';
 // env() (scripts/server-env.ts): the server's addons/amxts/.env and its
 // environment, and the variables a plugin cannot start without - those it
 // reads without a default.
-// @ts-ignore - bun:test types not available during type checking
-import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
+import { afterEach, expect, test, vi } from 'vitest';
 import { setProjectDir } from '../scripts/project';
 import { envBuild, envCallsOf, envProblems, parseDotenv } from '../scripts/server-env';
 
-setDefaultTimeout(240_000);
+vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
 
 const HERE = process.cwd();
 const made: string[] = [];

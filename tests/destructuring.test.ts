@@ -3,8 +3,7 @@
  * past the end of an array, `...rest` of an array and of an object, and an
  * array pattern as a parameter. At the default optimization and at -O3.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { probe } from './probe';
 
 for (const optimize of [false, true]) {

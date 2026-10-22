@@ -5,11 +5,10 @@ import { loadPlugin } from '@amxts/core/test-utils';
  * cvars, a console command, an exported native, and the error a native it
  * does not implement stops the test with.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
+import { expect, test, vi } from 'vitest';
 import { NATIVES } from '../src/testing/natives';
 
-setDefaultTimeout(60_000);
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const COUNTER = 'tests/as/counter.ts';
 

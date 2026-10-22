@@ -7,14 +7,11 @@
  */
 import { readFileSync } from 'node:fs';
 import binaryen from 'binaryen';
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { compileSources } from '../src/testing/compile';
 import * as javascript from './whole-numbers-probe';
 
 declare const WebAssembly: any;
-
-setDefaultTimeout(120_000);
 
 const SOURCE = readFileSync('tests/whole-numbers-probe.ts', 'utf8');
 

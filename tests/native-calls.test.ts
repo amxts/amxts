@@ -10,8 +10,7 @@ import { readFileSync } from 'node:fs';
  *
  * Reads runtime/natives.txt; run `bun run generate` first.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 
 const SOURCES = ['module.cpp', 'fields.h', 'network.h', 'coroutine.h', 'coroutines.h', 'stack.h'];
 

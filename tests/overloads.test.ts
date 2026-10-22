@@ -3,8 +3,7 @@
  * right before the implementation. The editor picks the signature a call
  * matches; what compiles is the implementation (Parser.parseFunction).
  */
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { probe } from './probe';
 
 async function run(body: string) {

@@ -4,8 +4,7 @@
  * in two files is one type, and a plain object of the same fields goes into
  * an interface of them. At the default optimization and at -O3.
  */
-// @ts-ignore - bun:test types not available during type checking
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { probe } from './probe';
 
 async function compile(files: Record<string, string>, optimize: boolean) {

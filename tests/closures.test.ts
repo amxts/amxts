@@ -3,10 +3,7 @@ import { loadPlugin } from '@amxts/core/test-utils';
  * Closures on the fake server: listeners, commands and timers that use the
  * variables around them (tests/as/closures.ts).
  */
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
-
-setDefaultTimeout(120_000);
+import { expect, test } from 'vitest';
 
 test('a timer set by a listener greets the player the listener was given', async () => {
 	const server = await loadPlugin('tests/as/closures.ts');

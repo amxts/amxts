@@ -6,8 +6,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-// @ts-ignore - bun:test types not available during type checking
-import { expect, test } from 'bun:test';
+import { expect, test } from 'vitest';
 
 const CORE = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const pkg = JSON.parse(readFileSync(join(CORE, 'package.json'), 'utf8'));

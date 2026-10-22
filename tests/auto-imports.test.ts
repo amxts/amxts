@@ -2,17 +2,16 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { FakeServer, setup } from '@amxts/core/test-utils';
+import ts from 'typescript';
 // Auto-imports (scripts/auto-imports.ts): a plugin uses the facade's API and
 // what its project's modules give without an import line, and the build adds
 // the imports it needs - only those, so a module no plugin uses is compiled
 // into none of them and left off the server.
-// @ts-ignore - bun:test types not available during type checking
-import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import ts from 'typescript';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { coreImports, facadeExports, freeNames, HOOD, importsDeclaration, withAutoImports } from '../scripts/auto-imports';
 import { CORE_PLUGINS, loadProject, modulesInUse, setProjectDir, sourcesFor } from '../scripts/project';
 
-setDefaultTimeout(240_000);
+vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
 
 const HERE = process.cwd();
 const made: string[] = [];

@@ -1,10 +1,7 @@
 import { loadPlugin } from '@amxts/core/test-utils';
 // The game on the fake server: tests/as/game-api.ts.
-// @ts-ignore - bun:test types not available during type checking
-import { expect, setDefaultTimeout, test } from 'bun:test';
+import { expect, test } from 'vitest';
 import { constant } from '../src/testing/tables';
-
-setDefaultTimeout(120_000);
 
 const PLUGIN = 'tests/as/game-api.ts';
 
