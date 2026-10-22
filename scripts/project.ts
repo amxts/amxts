@@ -469,19 +469,27 @@ export function readConfig(dir: string): AmxtsConfig | null {
 
 	const scope = globalThis as any;
 	scope.defineConfig ??= (config: AmxtsConfig) => config;
-	const require = createRequire(import.meta.url);
-	delete require.cache[path];
-	let loaded;
-	try {
-		loaded = require(path);
-	} catch (error) {
-		// Bun's parse error carries where it is, not a stack.
-		const at = (error as { position?: { line: number; column: number; lineText: string } }).position;
-		const where = at ? `:${at.line}:${at.column + 1}` : '';
-		const line = at ? `\n  ${at.lineText.trim()}` : '';
-		throw new Error(`${CONFIG_FILE}${where} - ${(error as Error).message}${line}`);
+	// Compiled and run here, not required: Node keeps an ES module it has
+	// loaded, and a dev that runs on would never see the file change.
+	const compiled = ts.transpileModule(readFileSync(path, 'utf8'), {
+		fileName: path,
+		reportDiagnostics: true,
+		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+	});
+	const syntax = compiled.diagnostics?.[0];
+	if (syntax) {
+		const at = syntax.file && syntax.start !== undefined ? syntax.file.getLineAndCharacterOfPosition(syntax.start) : null;
+		const where = at ? `:${at.line + 1}:${at.character + 1}` : '';
+		throw new Error(`${CONFIG_FILE}${where} - ${ts.flattenDiagnosticMessageText(syntax.messageText, '\n')}`);
 	}
-	const config = loaded?.default ?? loaded;
+	const loaded = { exports: {} as any };
+	try {
+		// oxlint-disable-next-line no-new-func
+		new Function('module', 'exports', 'require', compiled.outputText)(loaded, loaded.exports, createRequire(path));
+	} catch (error) {
+		throw new Error(`${CONFIG_FILE} - ${(error as Error).message}`);
+	}
+	const config = loaded.exports?.default ?? loaded.exports;
 	if (!config || typeof config !== 'object') throw new Error(`${CONFIG_FILE}: export default defineConfig({ modules: [...] })`);
 	if (config.modules !== undefined && (!Array.isArray(config.modules) || config.modules.some((m: unknown) => typeof m !== 'string'))) {
 		throw new Error(`${CONFIG_FILE}: modules is a list of package names - ["@amxts/menu-core"]`);
