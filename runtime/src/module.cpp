@@ -4725,8 +4725,39 @@ static uint32_t              g_innerMs = 0;
 // How long a plugin's warning of one kind keeps quiet after it is said, in seconds.
 #define SLOW_QUIET 10.0
 
+#ifndef _WIN32
+#include <sys/syscall.h>
+// DIAGNOSTIC (F22, to be removed): who sets SIGTERM's handler, and with which restorer.
+static void SayTerm(const char *when)
+{
+	static struct { void *handler; unsigned long flags; void *restorer; unsigned long mask[2]; } last = { (void *)1, 0, NULL, { 0, 0 } };
+	struct { void *handler; unsigned long flags; void *restorer; unsigned long mask[2]; } k;
+	memset(&k, 0, sizeof(k));
+	if (syscall(SYS_rt_sigaction, SIGTERM, NULL, &k, 8) != 0)
+		return;
+	if (k.handler == last.handler && k.flags == last.flags && k.restorer == last.restorer)
+		return;
+	last.handler = k.handler;
+	last.flags = k.flags;
+	last.restorer = k.restorer;
+	Dl_info h, r;
+	memset(&h, 0, sizeof(h));
+	memset(&r, 0, sizeof(r));
+	dladdr(k.handler, &h);
+	dladdr(k.restorer, &r);
+	fprintf(stderr, "[amxts] SIGTERM %s: handler %p (%s %s) flags %#lx restorer %p (%s %s)\n", when, k.handler,
+		h.dli_fname ? h.dli_fname : "?", h.dli_sname ? h.dli_sname : "?", k.flags, k.restorer,
+		r.dli_fname ? r.dli_fname : "?", r.dli_sname ? r.dli_sname : "?");
+	fflush(stderr);
+}
+#endif
+
 static void Ticker()
 {
+#ifndef _WIN32
+	SayTerm("at attach");
+	unsigned ticks = 0;
+#endif
 	// In whole numbers: a double made whole goes through the x87 (Whole), and
 	// overflows an int past 24 days of uptime, where the clock wraps instead.
 #ifdef _WIN32
@@ -4739,6 +4770,10 @@ static void Ticker()
 	int64_t start = Now();
 	while (g_ticking) {
 		g_clock.store((uint32_t)((Now() - start) * 1000 / perSecond), std::memory_order_relaxed);
+#ifndef _WIN32
+		if (++ticks % 100 == 0)
+			SayTerm("changed");
+#endif
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 }
