@@ -182,6 +182,7 @@ static void DrainJobs(int index)
 	}
 
 	g_plugins[index].depth--;
+	LeftMessage(index);
 	g_currentPlugin = prev;
 	g_outcomeSaid = saidBefore;
 	g_outcome = before;

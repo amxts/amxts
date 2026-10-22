@@ -291,6 +291,25 @@ static bool g_loadingAll = false;
 // callback back to the right plugin.
 static int g_currentPlugin = -1;
 
+// Where a plugin's message stands (PluginMessageBegin), and the call that
+// began it: its plugin and that plugin's depth then (Plugin.depth). A call
+// that returns above that depth with the message begun has left it open
+// (LeftMessage).
+enum PluginMessage { MESSAGE_NONE, MESSAGE_BEGUN, MESSAGE_FAILED };
+static PluginMessage g_pluginMessage = MESSAGE_NONE;
+static int           g_messagePlugin = -1;
+static int           g_messageDepth = 0;
+// That call failed after the begin (TakeFailure).
+static bool          g_messageFailed = false;
+static void EndLeftMessage(int index);
+
+/** A call into the plugin at `index` has returned: a message it began and did not end is ended for it. */
+static ALWAYS_INLINE void LeftMessage(int index)
+{
+	if (g_pluginMessage != MESSAGE_NONE)
+		EndLeftMessage(index);
+}
+
 /**
  * What the handler now running wants AMX Mod X to do, if it said anything.
  *
@@ -4049,6 +4068,7 @@ static bool RunRequest(int target, int32_t from)
 	p.depth--;
 	if (!called)
 		Failed(target, p.inst);
+	LeftMessage(target);
 
 	g_outcomeSaid = saidBefore;
 	g_outcome = before;
@@ -4818,6 +4838,7 @@ static ALWAYS_INLINE cell Called(int index, Plugin &p, cell fallback, Call call)
 	else if (g_outcomeSaid) {
 		result = g_outcome;
 	}
+	LeftMessage(index);
 
 	if (g_trace) MF_PrintSrvConsole("[amxts] TRACE fire done\n");
 
@@ -5783,9 +5804,11 @@ static bool LoadPlugin(int index)
 		// Its top level failed, or WAMR refused it: an abort's frames are kept.
 		Failure failure = TakeFailure(index, NULL, err);
 		PrintFailure(index, failure);
+		LeftMessage(index);
 		g_refusal = "its top level failed: " + failure.message;
 		return false;
 	}
+	LeftMessage(index);
 
 	Plugin &p = g_plugins[index];
 	p.inst = inst;
@@ -5843,6 +5866,7 @@ static void InitPlugin(int index)
 		MF_PrintSrvConsole("[amxts] loaded %s\n", p.name.c_str());
 	}
 	p.depth--;
+	LeftMessage(index);
 
 	g_currentPlugin = previous;
 	DrainJobs(index);
@@ -7730,8 +7754,12 @@ static cell AMX_NATIVE_CALL n_executeHamB(AMX *amx, cell *params)
 // of range - yet hands the writes and the end that follow to the engine. So
 // a plugin's writes and end reach the engine only while its message is
 // begun: after a begin that failed they are dropped, the begin's error said.
-enum PluginMessage { MESSAGE_NONE, MESSAGE_BEGUN, MESSAGE_FAILED };
-static PluginMessage g_pluginMessage = MESSAGE_NONE;
+// A message a call begins and does not end is ended for it (EndLeftMessage).
+// How it was begun - with emessage_begin or not - its type, and the bytes
+// written into it, a string's not counted: no message of a fixed size holds one.
+static bool g_messageEngine = false;
+static int  g_messageType = 0;
+static int  g_messageBytes = 0;
 
 // What a packet to a client holds (MAX_DATAGRAM): the entities around him
 // first, then his datagram - what was sent him unreliably since his last
@@ -7803,11 +7831,12 @@ static void TempRoom(int plugin)
 
 #define MESSAGE_BEGINS(X) X(message_begin, false) X(message_begin_f, false) X(emessage_begin, true) X(emessage_begin_f, true)
 #define MESSAGE_ENDS(X) X(message_end) X(emessage_end)
+// Each write with the bytes it puts into the message.
 #define MESSAGE_WRITES(X) \
-	X(write_byte) X(write_char) X(write_short) X(write_long) X(write_entity) \
-	X(write_angle) X(write_angle_f) X(write_coord) X(write_coord_f) X(write_string) \
-	X(ewrite_byte) X(ewrite_char) X(ewrite_short) X(ewrite_long) X(ewrite_entity) \
-	X(ewrite_angle) X(ewrite_angle_f) X(ewrite_coord) X(ewrite_coord_f) X(ewrite_string)
+	X(write_byte, 1) X(write_char, 1) X(write_short, 2) X(write_long, 4) X(write_entity, 2) \
+	X(write_angle, 1) X(write_angle_f, 1) X(write_coord, 2) X(write_coord_f, 2) X(write_string, 0) \
+	X(ewrite_byte, 1) X(ewrite_char, 1) X(ewrite_short, 2) X(ewrite_long, 4) X(ewrite_entity, 2) \
+	X(ewrite_angle, 1) X(ewrite_angle_f, 1) X(ewrite_coord, 2) X(ewrite_coord_f, 2) X(ewrite_string, 0)
 
 /** A plugin's message_begin(dest, type, origin, player), or emessage_begin's (`engine`), checked where the engine would stop the server. */
 static cell PluginMessageBegin(AMX_NATIVE begin, bool engine, AMX *amx, cell *params)
@@ -7820,12 +7849,19 @@ static cell PluginMessageBegin(AMX_NATIVE begin, bool engine, AMX *amx, cell *pa
 	if (wrong) {
 		MF_LogError(amx, AMX_ERR_NATIVE, "%smessage_begin(%d, %d, ..., %d): %s", engine ? "e" : "", (int)dest, (int)params[2], (int)params[4], wrong);
 		// The begun one goes on, its end to come.
-		if (g_pluginMessage != MESSAGE_BEGUN)
-			g_pluginMessage = MESSAGE_FAILED;
-		return 0;
+		if (g_pluginMessage == MESSAGE_BEGUN)
+			return 0;
 	}
-	cell begun = begin(amx, params);
+	cell begun = wrong ? 0 : begin(amx, params);
 	g_pluginMessage = begun ? MESSAGE_BEGUN : MESSAGE_FAILED;
+	g_messagePlugin = g_currentPlugin;
+	g_messageDepth = g_currentPlugin >= 0 ? g_plugins[g_currentPlugin].depth : 0;
+	g_messageFailed = false;
+	g_messageEngine = engine;
+	g_messageType = (int)params[2];
+	g_messageBytes = 0;
+	if (wrong)
+		return 0;
 	g_tempEntity = begun && g_rehlds && params[2] == SVC_TEMPENTITY
 		&& (dest == MSG_BROADCAST || dest == MSG_ONE_UNRELIABLE || dest == MSG_PVS || dest == MSG_PAS);
 	g_tempTo = dest == MSG_ONE_UNRELIABLE ? (int)params[4] : 0;
@@ -7857,13 +7893,82 @@ static cell PluginMessageEnd(AMX_NATIVE end, AMX *amx, cell *params)
 #define MESSAGE_END_NATIVE(name) \
 	static AMX_NATIVE g_##name; \
 	static cell AMX_NATIVE_CALL n_##name(AMX *amx, cell *params) { return PluginMessageEnd(g_##name, amx, params); }
-#define MESSAGE_WRITE_NATIVE(name) \
+#define MESSAGE_WRITE_NATIVE(name, bytes) \
 	static AMX_NATIVE g_##name; \
-	static cell AMX_NATIVE_CALL n_##name(AMX *amx, cell *params) { return g_pluginMessage == MESSAGE_BEGUN ? g_##name(amx, params) : 0; }
+	static cell AMX_NATIVE_CALL n_##name(AMX *amx, cell *params) \
+	{ \
+		if (g_pluginMessage != MESSAGE_BEGUN) \
+			return 0; \
+		g_messageBytes += bytes; \
+		return g_##name(amx, params); \
+	}
 
 MESSAGE_BEGINS(MESSAGE_BEGIN_NATIVE)
 MESSAGE_ENDS(MESSAGE_END_NATIVE)
 MESSAGE_WRITES(MESSAGE_WRITE_NATIVE)
+
+/**
+ * The call into the plugin at `index` that began a message has returned
+ * without its end. The engine stops the server at the next begin while one
+ * is, the game's own included, so the module ends it, and says so.
+ *
+ * What the call wrote goes out when it is whole: the call did not fail, and a
+ * message of a fixed size has all its bytes. Otherwise it is dropped: padded
+ * to its size, which the engine's end checks, ended, and taken back out of
+ * the buffers the end wrote it into - which ReHLDS shows, and Valve's HLDS
+ * does not, so there it goes out as written. A failed begin left so is only
+ * forgotten.
+ */
+static void EndLeftMessage(int index)
+{
+	if (index != g_messagePlugin || g_plugins[index].depth >= g_messageDepth)
+		return;
+	PluginMessage was = g_pluginMessage;
+	g_pluginMessage = MESSAGE_NONE;
+	if (was != MESSAGE_BEGUN)
+		return;
+
+	int size = -1;
+	const char *name = g_messageType >= 64 ? GET_USER_MSG_NAME(PLID, g_messageType, &size) : NULL;
+	bool whole = !g_messageFailed && (size < 0 || g_messageBytes == size);
+	// AMX Mod X's own natives, found the first time something calls them.
+	FindNative(g_messageEngine ? "ewrite_byte" : "write_byte");
+	FindNative(g_messageEngine ? "emessage_end" : "message_end");
+	AMX_NATIVE write = g_messageEngine ? g_ewrite_byte : g_write_byte;
+	AMX_NATIVE end = g_messageEngine ? g_emessage_end : g_message_end;
+	cell params[2] = { (cell)sizeof(cell), 0 };
+	for (int i = g_messageBytes; i < size && write; i++)
+		write(g_image, params);
+
+	std::vector<std::pair<sizebuf_t *, sizebuf_t> > kept;
+	if (!whole && g_rehlds) {
+		IRehldsServerStatic *svs = g_rehlds->GetServerStatic();
+		std::vector<sizebuf_t *> buffers = { g_rehlds->GetServerData()->GetDatagram(), g_rehlds->GetServerData()->GetReliableDatagram() };
+		for (int i = 0; i < svs->GetMaxClients(); i++) {
+			IGameClient *client = svs->GetClient(i);
+			if (client)
+				buffers.push_back(client->GetDatagram());
+			if (client && client->GetNetChan())
+				buffers.push_back(client->GetNetChan()->GetMessageBuf());
+		}
+		for (sizebuf_t *buffer : buffers)
+			kept.push_back(std::make_pair(buffer, *buffer));
+	}
+	g_tempEntity = false;
+	if (end)
+		end(g_image, params);
+	for (std::pair<sizebuf_t *, sizebuf_t> &buffer : kept) {
+		buffer.first->cursize = buffer.second.cursize;
+		buffer.first->flags = buffer.second.flags;
+	}
+
+	char line[256];
+	snprintf(line, sizeof(line), "%s: a message (%s%s) was begun and not ended - %s", PluginName(index),
+	         name ? name : "engine message ", name ? "" : std::to_string(g_messageType).c_str(),
+	         whole ? "ended for it" : kept.empty() ? "ended for it as written" : "dropped");
+	MF_PrintSrvConsole("[amxts] %s\n", line);
+	MF_Log("%s", line);
+}
 
 /**
  * Natives of the image's table the module does itself, in place of the
@@ -7903,9 +8008,10 @@ static const OwnNativeInfo g_ownNatives[] = {
 	{ "ExecuteHamB",         n_executeHamB,       &g_executeHamB },
 #define OWN_MESSAGE_BEGIN(name, engine) { #name, n_##name, &g_##name },
 #define OWN_MESSAGE_NATIVE(name) { #name, n_##name, &g_##name },
+#define OWN_MESSAGE_WRITE(name, bytes) { #name, n_##name, &g_##name },
 	MESSAGE_BEGINS(OWN_MESSAGE_BEGIN)
 	MESSAGE_ENDS(OWN_MESSAGE_NATIVE)
-	MESSAGE_WRITES(OWN_MESSAGE_NATIVE)
+	MESSAGE_WRITES(OWN_MESSAGE_WRITE)
 };
 
 static AMX_NATIVE OwnNative(const char *name, AMX_NATIVE fn)

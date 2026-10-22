@@ -295,6 +295,8 @@ struct Failure {
  */
 static Failure TakeFailure(int index, wasm_module_inst_t inst, const char *ex)
 {
+	if (index == g_messagePlugin)
+		g_messageFailed = true;
 	bool aborted = g_aborted && ex && strcmp(ex, "Exception: aborted") == 0;
 
 	std::vector<StackFrame> frames;
