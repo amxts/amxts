@@ -8954,6 +8954,9 @@ static void AtExit()
  * through the C library, which gives it its return; it does what it did,
  * and the module says so.
  */
+#ifndef SA_RESTORER
+#define SA_RESTORER 0x04000000 // the kernel's, which the C library's headers leave out
+#endif
 static void MendStopSignals()
 {
 	for (int sig : { SIGTERM, SIGINT }) {
