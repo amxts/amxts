@@ -237,6 +237,10 @@ struct Plugin {
 	// said (Slow), and how many more did since: a slow listener every frame
 	// is said once a while.
 	std::map<std::string, std::pair<double, int> > slow;
+	// When its temp entities were last said to fill a packet (TempRoom), and
+	// how many more did since.
+	double               fullSaid = -1e9;
+	int                  fullMore = 0;
 };
 
 /**
@@ -4716,6 +4720,8 @@ static cvar_t               *g_slowCvarSet = NULL;
 // The time calls into plugins took, counted as each ends: what a call
 // takes off its own for the calls it made.
 static uint32_t              g_innerMs = 0;
+// How long a plugin's warning of one kind keeps quiet after it is said, in seconds.
+#define SLOW_QUIET 10.0
 
 static void Ticker()
 {
@@ -7683,6 +7689,74 @@ static cell AMX_NATIVE_CALL n_executeHamB(AMX *amx, cell *params)
 enum PluginMessage { MESSAGE_NONE, MESSAGE_BEGUN, MESSAGE_FAILED };
 static PluginMessage g_pluginMessage = MESSAGE_NONE;
 
+// What a packet to a client holds (MAX_DATAGRAM): the entities around him
+// first, then his datagram - what was sent him unreliably since his last
+// packet, the server's datagram for everyone added to it. When that does not
+// fit, ReHLDS leaves the datagram out and Valve's HLDS the packet: none of
+// the effects in it arrive. The entities' share is not known before the
+// packet is made, so past TEMP_ROOM - an estimate that leaves them about a
+// thousand bytes - a plugin's temp entity is said to fill it; a datagram the
+// engine marked overflowed is lost for sure.
+#define PACKET_ROOM 4000
+#define TEMP_ROOM   3000
+#define DATAGRAM_OVERFLOWED (1 << 1)
+// The plugin message begun is a temp entity sent unreliably, on ReHLDS, which
+// lets the module read the datagrams: to player `g_tempTo`, 0 for more.
+static bool g_tempEntity = false;
+static int  g_tempTo = 0;
+
+/**
+ * A plugin's temp entity has gone into the datagrams: when one now holds more
+ * than a packet can carry beside the entities, the console and AMX Mod X's
+ * log say so - the plugin and the player - once in 10 seconds a plugin, with
+ * how many more there were meanwhile.
+ */
+static void TempRoom(int plugin)
+{
+	IRehldsServerStatic *svs = g_rehlds->GetServerStatic();
+	sizebuf_t *everyone = g_rehlds->GetServerData()->GetDatagram();
+	int worst = everyone->cursize;
+	bool lost = (everyone->flags & DATAGRAM_OVERFLOWED) != 0;
+	std::string who = "everyone";
+	for (int i = 0; i < svs->GetMaxClients(); i++) {
+		if (g_tempTo && i != g_tempTo - 1)
+			continue;
+		IGameClient *client = svs->GetClient(i);
+		edict_t *edict = client ? client->GetEdict() : NULL;
+		if (!client || !client->IsActive() || !edict || (edict->v.flags & FL_FAKECLIENT))
+			continue;
+		sizebuf_t *own = client->GetDatagram();
+		int waiting = own->cursize + everyone->cursize;
+		bool overflowed = (own->flags & DATAGRAM_OVERFLOWED) != 0;
+		if (waiting > worst || (overflowed && !lost)) {
+			worst = waiting;
+			lost = lost || overflowed;
+			who = client->GetName();
+		}
+	}
+	if ((worst <= TEMP_ROOM && !lost) || plugin < 0 || (size_t)plugin >= g_plugins.size())
+		return;
+
+	Plugin &p = g_plugins[plugin];
+	double now = g_clock.load(std::memory_order_relaxed) / 1000.0;
+	if (now - p.fullSaid < SLOW_QUIET) {
+		p.fullMore++;
+		return;
+	}
+	char line[384], more[96] = "";
+	if (p.fullMore > 0)
+		snprintf(more, sizeof(more), " - and %d more time(s) in the last %d s", p.fullMore, Whole(now - p.fullSaid));
+	if (lost)
+		snprintf(line, sizeof(line), "%s: temp entities overflowed the datagram for %s: none of them arrive%s", p.name.c_str(), who.c_str(), more);
+	else
+		snprintf(line, sizeof(line), "%s: temp entities wait for %s in %d bytes, of a packet's %d with the entities - past about %d none of them may arrive%s",
+		         p.name.c_str(), who.c_str(), worst, PACKET_ROOM, TEMP_ROOM, more);
+	MF_PrintSrvConsole("[amxts] %s\n", line);
+	MF_Log("%s", line);
+	p.fullSaid = now;
+	p.fullMore = 0;
+}
+
 #define MESSAGE_BEGINS(X) X(message_begin, false) X(message_begin_f, false) X(emessage_begin, true) X(emessage_begin_f, true)
 #define MESSAGE_ENDS(X) X(message_end) X(emessage_end)
 #define MESSAGE_WRITES(X) \
@@ -7708,6 +7782,9 @@ static cell PluginMessageBegin(AMX_NATIVE begin, bool engine, AMX *amx, cell *pa
 	}
 	cell begun = begin(amx, params);
 	g_pluginMessage = begun ? MESSAGE_BEGUN : MESSAGE_FAILED;
+	g_tempEntity = begun && g_rehlds && params[2] == SVC_TEMPENTITY
+		&& (dest == MSG_BROADCAST || dest == MSG_ONE_UNRELIABLE || dest == MSG_PVS || dest == MSG_PAS);
+	g_tempTo = dest == MSG_ONE_UNRELIABLE ? (int)params[4] : 0;
 	return begun;
 }
 
@@ -7717,8 +7794,14 @@ static cell PluginMessageEnd(AMX_NATIVE end, AMX *amx, cell *params)
 	PluginMessage was = g_pluginMessage;
 	// Cleared first: the end runs the message's hooks, which may begin another.
 	g_pluginMessage = MESSAGE_NONE;
-	if (was == MESSAGE_BEGUN)
-		return end(amx, params);
+	if (was == MESSAGE_BEGUN) {
+		bool temp = g_tempEntity;
+		g_tempEntity = false;
+		cell ended = end(amx, params);
+		if (temp)
+			TempRoom(g_currentPlugin);
+		return ended;
+	}
 	if (was == MESSAGE_NONE)
 		MF_LogError(amx, AMX_ERR_NATIVE, "message_end with no message begun");
 	return 0;
@@ -8646,7 +8729,6 @@ static const char *PointName(const HookPoint *point)
  * the event and the time - at most once in SLOW_QUIET seconds a plugin and
  * event, with how many more there were meanwhile.
  */
-#define SLOW_QUIET 10.0
 static void Slow(int index, uint32_t ms)
 {
 	if (index < 0 || (size_t)index >= g_plugins.size())
