@@ -125,6 +125,7 @@ const PACKAGES: Package[] = [
 	{ name: '@amxts/menu-core', dir: join(NEIGHBOURS, 'amxts-modules/menu-core') },
 	{ name: '@amxts/resemiclip', dir: join(NEIGHBOURS, 'amxts-modules/resemiclip') },
 	{ name: '@amxts/ftp', dir: join(NEIGHBOURS, 'amxts-modules/ftp') },
+	{ name: '@amxts/perms', dir: join(NEIGHBOURS, 'amxts-modules/perms') },
 	{ name: '@amxts/cli', dir: join(NEIGHBOURS, 'amxts-cli/packages/cli'), command: true },
 	{ name: 'create-amxts', dir: join(NEIGHBOURS, 'amxts-cli/packages/create-amxts'), command: true },
 ];
