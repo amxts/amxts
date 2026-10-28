@@ -171,7 +171,7 @@ the dump to come: CI sets it, and on Docker Desktop `docker run --rm
 --privileged debian:bookworm-slim sh -c 'echo /cores/core.%e.%p >
 /proc/sys/kernel/core_pattern'` does, until Docker restarts.
 
-`npm run test:release` publishes the nine packages to a local registry of
+`npm run test:release` publishes the ten packages to a local registry of
 its own, makes a project with `npx create-amxts`, builds and tests it and
 runs it on the server image in Docker; it needs both systems' release files
 in `dist-release/` (`npm run release:linux -- --no-upload --dry-run`, and
@@ -189,7 +189,7 @@ version: `AMXTS_AS_VERSION=0.3.0 npm run generate`, then the module.
 
 A release's packages go to npm by hand, once the core's Publish workflow has
 made its GitHub Release (`wamrc` comes from it): a maintainer runs `npm
-login`, then `npm run publish:npm` - all nine, in order, skipping what npm
+login`, then `npm run publish:npm` - all ten, in order, skipping what npm
 has, so a run after a failure finishes it.
 
 `npm test` runs the test files on Vitest under Node, each in a process of

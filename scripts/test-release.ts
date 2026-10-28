@@ -1,7 +1,7 @@
-// The published packages end to end, before a release: all nine published
+// The published packages end to end, before a release: all ten published
 // to an empty local registry by publish.ts's local mode, a project made from
 // them with `npx create-amxts` - menu-core picked, so config-core comes as its
-// requirement, and no server - then resemiclip and ftp added with `amxts
+// requirement, and no server - then resemiclip, ftp and perms added with `amxts
 // module add` and used in its plugin, type-checked, built and tested, and its
 // build run on the server image of the release's Linux kit, in Docker.
 //
@@ -50,7 +50,7 @@ const OWN_IMAGE = 'amxts-release-test';
 /** The modules the project is made with: menu-core, picked, and config-core, which it requires. */
 const PICKED = ['menu-core', 'config-core'];
 /** The modules `amxts module add` adds to it after. */
-const ADDED = ['resemiclip', 'ftp'];
+const ADDED = ['resemiclip', 'ftp', 'perms'];
 /** A library has no plugin of its own: the build compiles it into the plugins that import it. */
 const LIBRARIES = ['ftp'];
 /** The modules with a plugin of their own, which the build takes as the package came with it. */
@@ -354,7 +354,7 @@ async function main() {
 	// The server's image first: a missing kit stops the run before the packing.
 	const image = serverImage();
 
-	// 1. The nine packages, into an empty registry of this run's.
+	// 1. The ten packages, into an empty registry of this run's.
 	step('the packages, into an empty local registry', CORE, process.execPath, [...NODE_TS, join(CORE, 'scripts/publish.ts'), 'local', '--reset', ...passOn], publishEnv);
 
 	// 2. A project, as a user makes one: no server, menu-core.
