@@ -6,7 +6,7 @@
 # built once, in Docker, then the suites run on a Linux test server in Docker
 # (bun run test:server --linux), on three AMX Mod X builds, on plain HLDS
 # and under sanitizers. On a tag v*, the Windows files are
-# built too, on a Windows runner (bun run release:windows), then the nine npm
+# built too, on a Windows runner (bun run release:windows), then the ten npm
 # packages are tried end to end with both systems' files (bun run
 # test:release: a local registry, npx create-amxts, typecheck, build, test,
 # the server image in Docker); once everything passes, both systems' files go
@@ -434,7 +434,7 @@ jobs:
           name: amxts-windows
           path: amxts/dist-release/windows
 
-  # The packages as a user gets them, before any goes out: all nine published
+  # The packages as a user gets them, before any goes out: all ten published
   # to an empty local registry - wamrc from both systems' files above - then a
   # project made with npx create-amxts (menu-core, no server), type-checked,
   # built and tested, and its build run on the server image of the Linux kit

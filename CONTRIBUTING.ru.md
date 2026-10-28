@@ -172,7 +172,7 @@ dump, который остаётся вместе с консолью в `last-
 run --rm --privileged debian:bookworm-slim sh -c 'echo /cores/core.%e.%p >
 /proc/sys/kernel/core_pattern'` — до перезапуска Docker.
 
-`bun run test:release` публикует девять пакетов в свой локальный реестр,
+`bun run test:release` публикует десять пакетов в свой локальный реестр,
 создаёт проект через `npx create-amxts`, собирает и тестирует его и
 запускает на образе сервера в Docker; ему нужны файлы выпуска обеих систем
 в `dist-release/` (`bun run release:linux --no-upload --dry-run` и файлы
@@ -190,7 +190,7 @@ npm, — чтобы проверить `amxts upgrade` до выпуска. Се
 
 Пакеты выпуска публикуются в npm вручную, когда workflow Publish ядра создал
 его GitHub Release (`wamrc` берётся оттуда): мейнтейнер запускает `npm
-login`, затем `bun run publish:npm` — все девять, по порядку, пропуская то,
+login`, затем `bun run publish:npm` — все десять, по порядку, пропуская то,
 что в npm уже есть, так что повторный запуск после сбоя доводит дело до конца.
 
 `bun run test` запускает каждый файл тестов в своём `bun test --smol`,
