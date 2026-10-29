@@ -23,7 +23,7 @@ import type { NativeFunction, Parameter } from '../src/types';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IncludeParser } from '../src/parser/include-parser';
-import { ABI_LOCK, shapeChanges } from './build-identity';
+import { ABI_LOCK, callChanges, lockedCalls, shapeChanges } from './build-identity';
 import { listIncludes, parseOrder, readInclude, resolveTransitive } from './includes';
 import { LEAF_NATIVES } from './leaf-natives';
 import { evaluate } from './pawn-value';
@@ -378,9 +378,22 @@ if (unknownNeeds.length > 0) throw new Error(`NEEDS_PLUGIN names natives no incl
 
 // The id a plugin passes to the dispatcher is this array's index, so the order
 // is part of the interface between as/natives.ts and runtime/src/natives.h.
-// Both are written below, from this one list.
+// Both are written below, from this one list. It is the ABI too: a plugin of a
+// released patch carries its ids, so the line's lock keeps them (its `call`
+// lines), and a variadic native new to the line takes an id after them.
+const lock = existsSync(ABI_LOCK) ? readFileSync(ABI_LOCK, 'utf-8') : '';
+const locked = lockedCalls(lock);
+/** A native's locked id, or one past them for a native new to the line. */
+function lockedId(n: NativeFunction): number {
+	const id = locked.indexOf(asName(n.name));
+	return id < 0 ? locked.length : id;
+}
 const dispatched = Array.from(new Map(variadic.map(n => [n.name, n])).values())
-	.sort((a, b) => a.name.localeCompare(b.name));
+	.sort((a, b) => lockedId(a) - lockedId(b) || a.name.localeCompare(b.name));
+const movedCalls = callChanges(lock, dispatched.map(n => asName(n.name)));
+if (movedCalls.length) {
+	throw new Error(`${ABI_LOCK}: within a line a variadic native keeps its dispatcher's id - these moved or are gone:\n${movedCalls.join('\n')}`);
+}
 
 // ---------------------------------------------------------------- as/constants.ts
 //
@@ -1666,7 +1679,7 @@ const nativesTable = [
 
 // An import keeps its shape for its line: one a release of the line has,
 // changed or gone, refuses every plugin built for that release.
-const changedShapes = existsSync(ABI_LOCK) ? shapeChanges(readFileSync(ABI_LOCK, 'utf-8'), nativesTable) : [];
+const changedShapes = shapeChanges(lock, nativesTable);
 if (changedShapes.length) {
 	throw new Error(`${ABI_LOCK}: within a line an import keeps its shape - a new shape is a new import (a new name, such as name2):\n${changedShapes.join('\n')}`);
 }

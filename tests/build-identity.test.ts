@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, vi } from 'vitest';
 import pkg from '../package.json' with { type: 'json' };
-import { ABI_LOCK, ABI_SECTION, abiIdentity, abiLine, buildIdentity, importShapes, moduleAbi, pluginAbi, refusal, releaseLine, shapeChanges, unlockedImports } from '../scripts/build-identity';
+import { ABI_LOCK, ABI_SECTION, abiIdentity, abiLine, buildIdentity, callChanges, dispatcherIds, importShapes, lockedCalls, moduleAbi, pluginAbi, refusal, releaseLine, shapeChanges, unlockedImports } from '../scripts/build-identity';
 import { compilePlugin } from '../scripts/compile';
 import { readSection } from '../scripts/source-map';
 import { HOST_SYSTEM, moduleAbiOf, modulePath, wamrcPath } from '../scripts/system';
@@ -93,6 +93,25 @@ test('within a line a released import keeps its shape, and is not taken away', (
 
 	// The core's own table keeps the lock of its line.
 	if (existsSync(ABI_LOCK)) expect(shapeChanges(readFileSync(ABI_LOCK, 'utf8'), readFileSync('runtime/natives.txt', 'utf8'))).toEqual([]);
+});
+
+test('within a line a variadic native keeps its dispatcher\'s id: a new one takes the next', () => {
+	const natives = (...names: string[]) => names.map((name, id) => `/** ${name}(...) */\nexport const NATIVE_${name}: i32 = ${id};`).join('\n\n');
+	expect(dispatcherIds(natives('abort', 'log_amx'))).toEqual(['abort', 'log_amx']);
+
+	const lock = ['# a comment', '0.3.0', 'call (iiii)i', 'call 0 abort', 'call 1 log_amx', ''].join('\n');
+	expect(lockedCalls(lock, '0.3.2')).toEqual(['abort', 'log_amx']);
+	// The `call` lines are not shapes of imports.
+	expect(shapeChanges(lock, 'call (iiii)i\n', '0.3.2')).toEqual([]);
+	expect(callChanges(lock, dispatcherIds(natives('abort', 'log_amx', 'console_print')), '0.3.2')).toEqual([]);
+	// Sorted in, a new native would move every id after it; taken away, its id is gone.
+	expect(callChanges(lock, dispatcherIds(natives('abort', 'console_print', 'log_amx')), '0.3.2')).toEqual(['call 1 log_amx']);
+	expect(callChanges(lock, dispatcherIds(natives('abort')), '0.3.2')).toEqual(['call 1 log_amx']);
+	// Another line owes the lock nothing.
+	expect(lockedCalls(lock, '0.4.0')).toEqual([]);
+
+	// The core's generated API keeps the ids of its line.
+	if (existsSync(ABI_LOCK) && existsSync('as/natives.ts')) expect(callChanges(readFileSync(ABI_LOCK, 'utf8'), dispatcherIds(readFileSync('as/natives.ts', 'utf8')))).toEqual([]);
 });
 
 test('a plugin carries the ABI it is compiled against, into its .aot', async () => {

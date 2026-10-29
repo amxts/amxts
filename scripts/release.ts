@@ -38,7 +38,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { ABI_LOCK } from './build-identity';
+import { ABI_LOCK, callChanges, dispatcherIds, lockedCalls } from './build-identity';
 import { releaseNotes } from './changelog';
 import { manifestName, releaseProblems } from './release-check';
 import { releaseLine } from './release-line';
@@ -95,9 +95,19 @@ function releaseTag(): string {
 	if (tag !== `v${VERSION}`) throw new ReleaseError(`the tag is ${tag}, and package.json says ${VERSION}: a release is v<version>`);
 	// The imports this release's plugins may use, locked for the rest of its line.
 	const lock = join(CORE, ABI_LOCK);
-	const locked = existsSync(lock) ? readFileSync(lock, 'utf8').split(/\r?\n/).find(line => line && !line.startsWith('#')) : undefined;
-	if (locked !== VERSION) {
-		const said = `${ABI_LOCK} is of ${locked ?? 'no release'}, this is ${VERSION}: run npm run abi:lock and commit it`;
+	const text = existsSync(lock) ? readFileSync(lock, 'utf8') : '';
+	const locked = text.split(/\r?\n/).find(line => line && !line.startsWith('#'));
+	// And the dispatcher's ids of its variadic natives, which a plugin carries:
+	// checked against the generated API where there is one (npm run generate
+	// refuses to move them, so a release's build cannot either).
+	const natives = join(CORE, 'as/natives.ts');
+	const moved = existsSync(natives) ? callChanges(text, dispatcherIds(readFileSync(natives, 'utf8')), VERSION) : [];
+	const said = [
+		locked !== VERSION && `${ABI_LOCK} is of ${locked ?? 'no release'}, this is ${VERSION}: run npm run abi:lock and commit it`,
+		lockedCalls(text, VERSION).length === 0 && `${ABI_LOCK} has no dispatcher's ids: run npm run abi:lock and commit it`,
+		moved.length > 0 && `as/natives.ts moves ids ${ABI_LOCK} holds - run npm run generate; a variadic native keeps its id within a line:\n${moved.join('\n')}`,
+	].filter(Boolean).join('\n');
+	if (said) {
 		if (!dryRun) throw new ReleaseError(said);
 		console.log(said);
 	}

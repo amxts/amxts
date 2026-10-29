@@ -136,10 +136,47 @@ export const ABI_LOCK = 'runtime/abi-lock.txt';
  * refused by this one's module. Another line owes the lock nothing.
  */
 export function shapeChanges(lock: string, natives: string, version = coreVersion()): string[] {
-	const [released = '', ...shapes] = tableLines(lock);
+	const [released = '', ...shapes] = lockShapes(lock);
 	if (releaseLine(released) !== releaseLine(version)) return [];
 	const now = new Set(tableLines(natives));
 	return shapes.filter(shape => !now.has(shape));
+}
+
+/** A lock's id of a variadic native: `call 49 log_amx`. */
+const CALL = /^call (\d+) (\w+)$/;
+
+/** A lock's version and shapes, without its `call` lines. */
+const lockShapes = (lock: string) => tableLines(lock).filter(line => !CALL.test(line));
+
+/**
+ * The dispatcher's ids as/natives.ts gives, the natives by id: `log_amx` at
+ * 49 of `export const NATIVE_log_amx: i32 = 49;`. A plugin passes the id to
+ * the dispatcher (the import `call`) to reach a variadic native.
+ */
+export function dispatcherIds(natives: string): string[] {
+	const ids: string[] = [];
+	for (const [, name, id] of natives.matchAll(/^export const NATIVE_(\w+): i32 = (\d+);\r?$/gm)) ids[Number(id)] = name;
+	return ids;
+}
+
+/**
+ * The dispatcher's ids of a released lock, the natives by id, while the lock
+ * and `version` are of one line; none for another line, which may renumber.
+ */
+export function lockedCalls(lock: string, version = coreVersion()): string[] {
+	if (releaseLine(lockShapes(lock)[0] ?? '') !== releaseLine(version)) return [];
+	const calls: string[] = [];
+	for (const [, id, name] of tableLines(lock).map(line => CALL.exec(line)).filter(call => call != null)) calls[Number(id)] = name;
+	return calls;
+}
+
+/**
+ * The ids of a released lock that `ids` (dispatcherIds) gives to another
+ * native, or to none: a plugin built for that release would call the wrong
+ * native, in silence. A new variadic native takes an id after the locked ones.
+ */
+export function callChanges(lock: string, ids: string[], version = coreVersion()): string[] {
+	return lockedCalls(lock, version).flatMap((name, id) => (ids[id] === name ? [] : [`call ${id} ${name}`]));
 }
 
 /** The line of a version, `major.minor`: `0.3` of `0.3.1` and of `0.3.0-rc.1`. */
@@ -163,7 +200,7 @@ export function abiLine(abi: string): string {
  * past the release - and a server of that release refuses the plugin.
  */
 export function unlockedImports(abi: string, lock: string): { release: string; imports: string[] } {
-	const [release = '', ...shapes] = tableLines(lock);
+	const [release = '', ...shapes] = lockShapes(lock);
 	const locked = new Set(shapes);
 	return { release, imports: abi.split('\n').slice(1).filter(shape => !locked.has(shape)).map(importName) };
 }
