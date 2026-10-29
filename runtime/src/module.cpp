@@ -5397,6 +5397,7 @@ static PluginList UnloadPlugins()
  * thread, the gamedata and its members, the plugin list's file.
  */
 static void StopLoader();
+static void ForgetDictionaries();
 
 static void Teardown()
 {
@@ -5415,6 +5416,7 @@ static void Teardown()
 	// What plugins kept for a reload: the next map starts them over.
 	g_keptForNext.clear();
 	ForgetPrecaches();
+	ForgetDictionaries();
 	for (Forward &f : g_forwards)
 		f = Forward();
 	g_subscriptions.clear();
@@ -8268,6 +8270,73 @@ static void EndLeftMessage(int index)
 	MF_Log("%s", line);
 }
 
+// ---- dictionaries
+
+/**
+ * The dictionaries the plugins loaded (lang.load), by the name
+ * register_dictionary was given - "myplugin.txt" - each with its file as it
+ * was last read. AMX Mod X reads a dictionary again only when a plugin
+ * registers it and the file is newer than its last read, and a plugin's
+ * reload may come before its dictionary's upload: the watcher reads one again
+ * as soon as its file changes (WatchDictionaries). The next map's plugins
+ * load theirs again.
+ */
+struct Dictionary {
+	std::string name;
+	// Empty until the watcher first looks at it.
+	std::string path;
+	Watched     disk;
+};
+
+static std::vector<Dictionary> g_dictionaries;
+static AMX_NATIVE g_registerDictionary = NULL;
+
+// register_dictionary(const filename[])
+static cell AMX_NATIVE_CALL n_registerDictionary(AMX *amx, cell *params)
+{
+	cell found = g_registerDictionary(amx, params);
+	int length;
+	std::string name = MF_GetAmxString(amx, params[1], 0, &length);
+	if (found && std::none_of(g_dictionaries.begin(), g_dictionaries.end(), [&](const Dictionary &d) { return d.name == name; })) {
+		Dictionary d;
+		d.name = name;
+		g_dictionaries.push_back(d);
+	}
+	return found;
+}
+
+static void ForgetDictionaries()
+{
+	g_dictionaries.clear();
+}
+
+/** Reads a dictionary again once its file has changed and settled. */
+static void WatchDictionaries()
+{
+	for (Dictionary &d : g_dictionaries) {
+		time_t now;
+		long size;
+		if (d.path.empty()) {
+			// Here, not as it is registered: a localinfo lookup while AMX Mod X
+			// loads its plugins moves its buffers on (ReadListFile).
+			d.path = MF_BuildPathname("%s/lang/%s", MF_GetLocalInfo("amxx_datadir", "addons/amxmodx/data"), d.name.c_str());
+			FileState(d.path.c_str(), &d.disk.stamp, &d.disk.size);
+			continue;
+		}
+		if (!Settled(d.disk, d.path.c_str(), &now, &size))
+			continue;
+		d.disk.stamp = now;
+		d.disk.size = size;
+		cell mark = g_image->hea;
+		Args params(1);
+		params[1] = PushString(d.name.c_str());
+		if (params[1])
+			g_registerDictionary(g_image, params);
+		g_image->hea = mark;
+		MF_PrintSrvConsole("[amxts] %s changed on disk - read again\n", d.path.c_str());
+	}
+}
+
 /**
  * Natives of the image's table the module does itself, in place of the
  * module that registers them: what they work on is the module's event now,
@@ -8284,6 +8353,7 @@ static const OwnNativeInfo g_ownNatives[] = {
 	{ "precache_model",   n_precacheModel,   NULL },
 	{ "precache_sound",   n_precacheSound,   NULL },
 	{ "precache_generic", n_precacheGeneric, NULL },
+	{ "register_dictionary", n_registerDictionary, &g_registerDictionary },
 	{ "get_usercmd",     n_getUsercmd,      NULL },
 	{ "set_usercmd",      n_setUsercmd,      NULL },
 	{ "copy_keyvalue",    n_copyKeyvalue,    NULL },
@@ -9242,6 +9312,7 @@ void StartFrame_Post()
 	if (g_amxxReady && gpGlobals->time >= g_nextWatch) {
 		g_nextWatch = gpGlobals->time + 0.1f;
 		WatchPlugins();
+		WatchDictionaries();
 	}
 
 	RETURN_META(MRES_IGNORED);
