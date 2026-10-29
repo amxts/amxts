@@ -280,11 +280,28 @@ static void w_abort(wasm_exec_env_t env, int32_t msg, int32_t file, int32_t line
 	wasm_runtime_set_exception(inst, "aborted");
 }
 
-/** A failed call: what it said, and its stack a call a line. */
+/** A failed call: what it said, and its stack a call a line; quiet when its plugin was broken before it. */
 struct Failure {
 	std::string              message;
 	std::vector<std::string> lines;
+	bool                     quiet = false;
 };
+
+/**
+ * Whether the failure that ends the call of `p` leaves the plugin broken: why,
+ * or empty. Its memory could not grow - the allocator traps when it finds no
+ * room - or the memory manager's own check failed, which means it was left
+ * broken by a call that ended inside it. Either way the plugin's next calls
+ * fail in the allocator, call after call; any other error ends only its call.
+ */
+static std::string BrokenBy(const Plugin &p, wasm_module_inst_t inst, bool aborted)
+{
+	if (p.grewShortAt && p.grewShortAt == MemoryBytes(inst))
+		return "out of memory";
+	if (aborted && g_abortWhere.compare(0, 8, "~lib/rt/") == 0)
+		return "its memory manager failed (" + g_abortWhere + ")";
+	return "";
+}
 
 /**
  * What the failed call of the plugin at `index` left: `ex` is the exception
@@ -330,6 +347,18 @@ static Failure TakeFailure(int index, wasm_module_inst_t inst, const char *ex)
 	if (aborted && !placed)
 		failure.message += " (" + g_abortWhere + ")";
 
+	// A broken plugin stops at the next frame (StopBroken); what it fails
+	// until then is said by the line it stops with.
+	if (inst && index >= 0 && (size_t)index < g_plugins.size()) {
+		Plugin &p = g_plugins[index];
+		failure.quiet = !p.broken.empty();
+		if (!failure.quiet) {
+			p.broken = BrokenBy(p, inst, aborted);
+			if (!p.broken.empty())
+				g_broken = true;
+		}
+	}
+
 	if (inst)
 		wasm_runtime_clear_exception(inst);
 	g_aborted = false;
@@ -344,6 +373,8 @@ static Failure TakeFailure(int index, wasm_module_inst_t inst, const char *ex)
  */
 static void PrintFailure(int index, const Failure &failure, const char *context = "")
 {
+	if (failure.quiet)
+		return;
 	MF_PrintSrvConsole("[amxts] %s: %s%s\n", PluginName(index), failure.message.c_str(), context);
 	MF_Log("%s: %s%s", PluginName(index), failure.message.c_str(), context);
 	for (size_t i = 0; i < failure.lines.size(); i++)

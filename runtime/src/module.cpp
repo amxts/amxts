@@ -148,13 +148,16 @@ static bool g_imageComplete = false;
 // What a plugin of the list is now (amxts_plugins): running; unloaded by
 // amxts_unload, until amxts_load or the map changes; refused - it did not
 // load, and Plugin.reason says why; waiting - a new entry nothing
-// has loaded yet; or loading - LoadEntry is on it, and its top level or
-// init() may be running.
+// has loaded yet; loading - LoadEntry is on it, and its top level or
+// init() may be running; or stopped - a failure left it broken, or a plugin
+// whose module it calls (StopBroken), until amxts_reload, a new upload or the
+// map changes, and Plugin.reason says why.
 #define PLUGIN_RUNNING  0
 #define PLUGIN_UNLOADED 1
 #define PLUGIN_REFUSED  2
 #define PLUGIN_WAITING  3
 #define PLUGIN_LOADING  4
+#define PLUGIN_STOPPED  5
 
 struct Plugin {
 	// What a call into the plugin reads (Fire), at the start: in one cache
@@ -190,6 +193,14 @@ struct Plugin {
 	bool                 listed = true;
 	int                  state = PLUGIN_WAITING;
 	std::string          reason;
+	// The size of its memory, in bytes, when a grow of it last failed
+	// (GrowFailed); 0 for none.
+	uint64_t             grewShortAt = 0;
+	// Why a failure left it broken, for StopBroken at the next frame; empty
+	// while it runs as it should.
+	std::string          broken;
+	// The broken plugin it was stopped with, which starts it again; -1 for none.
+	int                  stoppedWith = -1;
 	unsigned char       *file = NULL;
 	wasm_module_t        module = NULL;
 	// A changed .aot the loader thread has read and loaded, for LoadPlugin to
@@ -281,6 +292,9 @@ private:
  * stack (ReloadPlugins).
  */
 static PluginList g_plugins;
+
+// A plugin of them is broken, and stops at the next frame (StopBroken).
+static bool g_broken = false;
 
 // LoadScripts is loading every plugin: one that amxts_load starts meanwhile
 // hears plugin_init with the rest, not on its own (StartPlugins).
@@ -3946,6 +3960,34 @@ static const char *PluginName(int index)
 	return index >= 0 && (size_t)index < g_plugins.size() ? g_plugins[index].name.c_str() : "?";
 }
 
+/** The size of a plugin's memory, in bytes; 0 without an instance. */
+static uint64_t MemoryBytes(wasm_module_inst_t inst)
+{
+	wasm_memory_inst_t memory = inst ? wasm_runtime_get_default_memory(inst) : NULL;
+	return memory ? wasm_memory_get_cur_page_count(memory) * wasm_memory_get_bytes_per_page(memory) : 0;
+}
+
+/** The size of a plugin's memory, "12.5 MiB". */
+static std::string MemoryText(wasm_module_inst_t inst)
+{
+	char text[32];
+	snprintf(text, sizeof(text), "%.1f MiB", MemoryBytes(inst) / (1024.0 * 1024.0));
+	return text;
+}
+
+/**
+ * A grow of a plugin's memory failed - the system had no room for it, or it
+ * reached the most a wasm memory has: the size it stays at, for TakeFailure
+ * to tell the failure it ends in.
+ */
+static void GrowFailed(uint32_t, uint64_t size, uint32_t, enlarge_memory_error_reason_t, wasm_module_inst_t inst,
+                       wasm_exec_env_t, void *)
+{
+	int index = PluginOf(inst);
+	if (index >= 0 && (size_t)index < g_plugins.size())
+		g_plugins[index].grewShortAt = size;
+}
+
 // ---------------------------------------------------------------- errors
 
 // A failed call's stack, in the plugin's TypeScript: abort, Failed, and the
@@ -5223,6 +5265,8 @@ static void ReleasePlugin(int index)
 	p.coroutines.clear();
 	p.running.clear();
 	p.kept.clear();
+	p.grewShortAt = 0;
+	p.broken.clear();
 
 	for (Forward &f : g_forwards) {
 		DropFrom(f, f.handlers, [index](const Handler &h) { return h.plugin == index; });
@@ -6287,10 +6331,16 @@ static void LoadOne(const std::string &wanted)
 static void ReloadSome(const std::vector<int> &plugins)
 {
 	std::vector<int> dependents;
-	for (int index : plugins)
-		for (int dependent : Dependents(index))
+	for (int index : plugins) {
+		std::vector<int> found = Dependents(index);
+		// The plugins stopped with a broken one (StopBroken) start again with it.
+		for (size_t i = 0; i < g_plugins.size(); i++)
+			if (g_plugins[i].state == PLUGIN_STOPPED && g_plugins[i].stoppedWith == index)
+				found.push_back((int)i);
+		for (int dependent : found)
 			if (std::find(dependents.begin(), dependents.end(), dependent) == dependents.end())
 				dependents.push_back(dependent);
+	}
 	std::sort(dependents.begin(), dependents.end());
 
 	std::vector<int> group;
@@ -6322,6 +6372,47 @@ static void ReloadSome(const std::vector<int> &plugins)
 		                   Names(group).c_str(), started - began, ended - began, released - ended, started - released);
 		MF_Log("reloading %s held the frame %u ms: end %u, release %u, load and start %u",
 		       Names(group).c_str(), started - began, ended - began, released - ended, started - released);
+	}
+}
+
+/**
+ * Stops the plugins a failure left broken (TakeFailure), as amxts_unload
+ * stops one, with the plugins that call their modules: those hold handles
+ * and functions of it, and hear their end; the broken one does not, its code
+ * fails as soon as it runs. One line each says why, and how big its memory
+ * is. amxts_reload, a new upload or the next map starts them again.
+ */
+static void StopBroken()
+{
+	g_broken = false;
+	for (size_t i = 0; i < g_plugins.size(); i++) {
+		Plugin &p = g_plugins[i];
+		if (p.broken.empty())
+			continue;
+		if (p.state != PLUGIN_RUNNING) {
+			p.broken.clear();
+			continue;
+		}
+
+		std::vector<int> dependents = Dependents((int)i);
+		const std::string why = p.broken + ", its memory " + MemoryText(p.inst);
+		FireEnd(dependents);
+		for (size_t k = dependents.size(); k-- > 0;) {
+			Plugin &dependent = g_plugins[dependents[k]];
+			ReleasePlugin(dependents[k]);
+			dependent.state = PLUGIN_STOPPED;
+			dependent.reason = "stopped with " + p.name;
+			dependent.stoppedWith = (int)i;
+		}
+		ReleasePlugin((int)i);
+		p.state = PLUGIN_STOPPED;
+		p.reason = why;
+		p.stoppedWith = -1;
+
+		std::string with = dependents.empty() ? std::string() : "; stopped with it: " + Names(dependents);
+		MF_PrintSrvConsole("[amxts] %s stopped: %s - amxts_reload %s starts it again%s\n",
+		                   p.name.c_str(), why.c_str(), p.name.c_str(), with.c_str());
+		MF_Log("%s stopped: %s - amxts_reload %s starts it again%s", p.name.c_str(), why.c_str(), p.name.c_str(), with.c_str());
 	}
 }
 
@@ -6647,9 +6738,9 @@ static void WatchPlugins()
 
 static void ListPlugins()
 {
-	static const char *const STATES[] = { "running", "unloaded", "refused", "waiting", "loading" };
+	static const char *const STATES[] = { "running", "unloaded", "refused", "waiting", "loading", "stopped" };
 
-	int counts[5] = { 0, 0, 0, 0, 0 };
+	int counts[6] = { 0, 0, 0, 0, 0, 0 };
 	int width = 0;
 	for (size_t i = 0; i < g_plugins.size(); i++) {
 		counts[g_plugins[i].state]++;
@@ -6657,15 +6748,22 @@ static void ListPlugins()
 			width = (int)g_plugins[i].name.size();
 	}
 
-	MF_PrintSrvConsole("[amxts] %d plugin(s): %d running, %d unloaded, %d refused\n",
-	                   (int)g_plugins.size(), counts[PLUGIN_RUNNING], counts[PLUGIN_UNLOADED], counts[PLUGIN_REFUSED]);
+	std::string stopped;
+	if (counts[PLUGIN_STOPPED])
+		stopped = ", " + std::to_string(counts[PLUGIN_STOPPED]) + " stopped";
+	MF_PrintSrvConsole("[amxts] %d plugin(s): %d running, %d unloaded, %d refused%s\n",
+	                   (int)g_plugins.size(), counts[PLUGIN_RUNNING], counts[PLUGIN_UNLOADED], counts[PLUGIN_REFUSED], stopped.c_str());
 
 	for (size_t i = 0; i < g_plugins.size(); i++) {
 		const Plugin &p = g_plugins[i];
-		std::string about = p.state == PLUGIN_REFUSED ? p.reason
+		std::string about = p.state == PLUGIN_REFUSED || p.state == PLUGIN_STOPPED ? p.reason
 			: p.state == PLUGIN_UNLOADED ? std::string()
 			: p.title.empty() ? std::string("(no plugin() call)")
 			: p.title + " " + p.version + "  by " + (p.author.empty() ? "-" : p.author) + (p.description.empty() ? "" : " - " + p.description);
+		// A running plugin's memory, which only grows: what a plugin that
+		// keeps more and more holds, before it runs out.
+		if (p.state == PLUGIN_RUNNING)
+			about = MemoryText(p.inst) + "  " + about;
 		std::string state = STATES[p.state];
 		if (!about.empty())
 			state += std::string(10 - state.size(), ' ') + about;
@@ -8974,6 +9072,8 @@ void StartFrame_Post()
 	KeepStepsSilent();
 	KeepModels();
 	FlushStores(false);
+	if (g_broken)
+		StopBroken();
 	if (!g_pluginActions.empty())
 		RunPluginActions();
 
@@ -9170,6 +9270,7 @@ void OnAmxxAttach()
 		MF_PrintSrvConsole("[amxts] wasm runtime failed to start\n");
 		return;
 	}
+	wasm_runtime_set_enlarge_mem_error_callback(GrowFailed, NULL);
 
 	if (!wasm_runtime_register_natives("env", g_generatedNatives,
 			sizeof(g_generatedNatives) / sizeof(g_generatedNatives[0])))
