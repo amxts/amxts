@@ -171,6 +171,53 @@ struct Watched {
 	long   seenSize = -1;
 };
 
+// How long a warning that can come every frame keeps quiet once said, in
+// seconds: SLOW_QUIET at first, doubled while it keeps coming, SLOW_CEILING at most.
+#define SLOW_QUIET   10.0
+#define SLOW_CEILING 600.0
+
+/**
+ * When a warning that can come every frame is said (Slow, TempRoom): at once
+ * the first time, then, while it keeps coming, once the gap since it was last
+ * said is over - a gap that doubles each time, from SLOW_QUIET to
+ * SLOW_CEILING. A stretch as long as the gap without it starts it over.
+ */
+struct Repeats {
+	double said = -1e9;  // when it was last said
+	double seen = -1e9;  // when it last came
+	double gap = 0;
+	int    unsaid = 0;   // how many times it came since it was said
+
+	/**
+	 * Whether it is said now; if so, how many times it came unsaid and over
+	 * how long, and the count starts over.
+	 */
+	bool Due(double now, int &more, double &since)
+	{
+		bool quiet = now - seen >= (gap > SLOW_QUIET ? gap : SLOW_QUIET);
+		seen = now;
+		if (!quiet && now - said < gap) {
+			unsaid++;
+			return false;
+		}
+		gap = quiet ? SLOW_QUIET : gap * 2 < SLOW_CEILING ? gap * 2 : SLOW_CEILING;
+		more = unsaid;
+		since = now - said;
+		unsaid = 0;
+		said = now;
+		return true;
+	}
+};
+
+/** What held the frame of one kind, for Slow: when it is said, and the listener found to do it. */
+struct SlowSaid {
+	Repeats     repeats;
+	// The listener's name, and where it is among its event's, said with the
+	// next line and found again for the one after; empty while none is found.
+	std::string listener;
+	std::string place;
+};
+
 struct Plugin {
 	// What a call into the plugin reads (Fire), at the start: in one cache
 	// line, where the game's own work between two calls leaves less of it.
@@ -254,14 +301,19 @@ struct Plugin {
 	// What its last run kept for it (server.keep), by key: read while it
 	// starts (server.kept), dropped once its start is over (FireInit).
 	std::map<std::string, std::string> kept;
-	// By what it listened to, when a call of it that held the frame was last
-	// said (Slow), and how many more did since: a slow listener every frame
-	// is said once a while.
-	std::map<std::string, std::pair<double, int> > slow;
-	// When its temp entities were last said to fill a packet (TempRoom), and
-	// how many more did since.
-	double               fullSaid = -1e9;
-	int                  fullMore = 0;
+	// By what it listened to, its calls that held the frame (Slow): a slow
+	// listener every frame is said once in a while.
+	std::map<std::string, SlowSaid> slow;
+	// Its temp entities said to fill a packet (TempRoom).
+	Repeats              full;
+	// The slowest listener its walks of an event's listeners timed (as/facade.ts,
+	// __probe): 0 while none is looked for - the module starts it once a walk
+	// held the frame (Slow) - -1 while none is timed yet, else the listener's
+	// function in the table; and where it is in its list, its place from 1 in
+	// the low 16 bits and the list's length in the high ones. NULL for a
+	// plugin built before.
+	int32_t             *probe = NULL;
+	int32_t             *probeAt = NULL;
 };
 
 /**
@@ -400,6 +452,7 @@ struct Handler {
 	 * runs under. NULL while the plugin has the walk called.
 	 */
 	void                *via = NULL;
+	int32_t              viaFn = 0;           // its index in the table, which names it (Slow)
 	wasm_function_inst_t viaFunc = NULL;
 	int32_t              viaEnv = 0;
 	int32_t              viaArg = 0;
@@ -533,6 +586,7 @@ static void Direct(Handler &h, int32_t target, int32_t env, int32_t arg, bool pl
 	if (!call.entry || call.doubles || call.count != 1 || call.kinds[0] != WASM_I32)
 		return;
 	h.viaFunc = call.func;
+	h.viaFn = target;
 	h.viaEnv = env;
 	h.viaArg = arg;
 	h.viaPlayer = player;
@@ -4853,8 +4907,6 @@ static cvar_t               *g_slowCvarSet = NULL;
 // The time calls into plugins took, counted as each ends: what a call
 // takes off its own for the calls it made.
 static uint32_t              g_innerMs = 0;
-// How long a plugin's warning of one kind keeps quiet after it is said, in seconds.
-#define SLOW_QUIET 10.0
 
 static void Ticker()
 {
@@ -4875,10 +4927,11 @@ static void Ticker()
 	}
 }
 
-static void Slow(int index, uint32_t ms, const char *what = NULL);
+static void Slow(int index, uint32_t ms, const char *what = NULL, const Handler *h = NULL);
 
+/** Calls the plugin at `index` with `call`, for `h` when it is a handler's call. */
 template <typename Call>
-static ALWAYS_INLINE cell Called(int index, Plugin &p, cell fallback, Call call)
+static ALWAYS_INLINE cell Called(int index, Plugin &p, cell fallback, Call call, const Handler *h = NULL)
 {
 	int prev = g_currentPlugin;
 	g_currentPlugin = index;
@@ -4917,7 +4970,10 @@ static ALWAYS_INLINE cell Called(int index, Plugin &p, cell fallback, Call call)
 		uint32_t own = spent - (g_innerMs - inner);
 		g_innerMs = inner + spent;
 		if (own > g_slowMs)
-			Slow(index, own);
+			Slow(index, own, NULL, h);
+		// The slowest listener timed is of this call: the next call's starts over.
+		else if (p.probe && *p.probe > 0 && !p.depth)
+			*p.probe = -1;
 	}
 
 	if ((tries || !called) && depth && p.tryDepth == depth)
@@ -5019,7 +5075,7 @@ NO_STACK_COOKIE static cell Fire(const Handler &h, const uint32_t *argv, int arg
 		if (h.entry)
 			return CallDirect(h, p, call);
 		return FireSlow(h, p, call, n);
-	});
+	}, &h);
 }
 
 /** When a file was last written and its size: false when it cannot be read. */
@@ -5321,7 +5377,7 @@ static void ReleasePlugin(int index)
 	p.inst = NULL;
 	p.env = NULL;
 	p.hasTable = false;
-	p.closureEnv = p.argumentsLength = p.ambientPlayer = p.tryDepth = NULL;
+	p.closureEnv = p.argumentsLength = p.ambientPlayer = p.tryDepth = p.probe = p.probeAt = NULL;
 	p.playerSlots = 0;
 	p.playerNames = 0;
 	p.title = p.version = p.author = p.description = "";
@@ -5967,6 +6023,8 @@ static bool LoadPlugin(int index)
 	p.argumentsLength = ExportedGlobal(inst, "__argumentsLength");
 	p.ambientPlayer = ExportedGlobal(inst, "__co_ambient_player");
 	p.tryDepth = ExportedGlobal(inst, "__tryDepth");
+	p.probe = ExportedGlobal(inst, "__probe");
+	p.probeAt = ExportedGlobal(inst, "__probeAt");
 	BindAll(index);
 
 	p.env = wasm_runtime_create_exec_env(inst, 64 * 1024);
@@ -7557,7 +7615,7 @@ static ALWAYS_INLINE cell RaiseDirect(int index, cell *args, int argc)
 	Plugin &p = g_plugins[plugin];
 	uint32_t first = argc > 0 ? (uint32_t)args[0] : 0;
 	f.depth++;
-	cell result = Called(plugin, p, 0, [&]() { return CallVia(h, p, first); });
+	cell result = Called(plugin, p, 0, [&]() { return CallVia(h, p, first); }, &h);
 	EndDispatch(f);
 	return result > 0 ? result : 0;
 }
@@ -8110,14 +8168,13 @@ static void TempRoom(int plugin)
 		return;
 
 	Plugin &p = g_plugins[plugin];
-	double now = g_clock.load(std::memory_order_relaxed) / 1000.0;
-	if (now - p.fullSaid < SLOW_QUIET) {
-		p.fullMore++;
+	double now = g_clock.load(std::memory_order_relaxed) / 1000.0, since;
+	int unsaid;
+	if (!p.full.Due(now, unsaid, since))
 		return;
-	}
 	char line[384], more[96] = "";
-	if (p.fullMore > 0)
-		snprintf(more, sizeof(more), " - and %d more time(s) in the last %d s", p.fullMore, Whole(now - p.fullSaid));
+	if (unsaid > 0)
+		snprintf(more, sizeof(more), " - and %d more time(s) in the last %d s", unsaid, Whole(since));
 	if (lost)
 		snprintf(line, sizeof(line), "%s: temp entities overflowed the datagram for %s: none of them arrive%s", p.name.c_str(), who.c_str(), more);
 	else
@@ -8125,8 +8182,6 @@ static void TempRoom(int plugin)
 		         p.name.c_str(), who.c_str(), worst, PACKET_ROOM, TEMP_ROOM, more);
 	MF_PrintSrvConsole("[amxts] %s\n", line);
 	MF_Log("%s", line);
-	p.fullSaid = now;
-	p.fullMore = 0;
 }
 
 #define MESSAGE_BEGINS(X) X(message_begin, false) X(message_begin_f, false) X(emessage_begin, true) X(emessage_begin_f, true)
@@ -9243,13 +9298,31 @@ static const char *PointName(const HookPoint *point)
 }
 
 /**
+ * The name of the function at `slot` of plugin `p`'s table, as the map the
+ * plugin carries has it (stack.h); empty without one, and for the hood's own.
+ */
+static std::string FunctionName(const Plugin &p, int32_t slot)
+{
+	StackMap map;
+	if (!p.hasTable || slot <= 0 || (uint32_t)slot >= p.table.cur_size || !ReadStackMap(p.module, map))
+		return "";
+	uintptr_t func = ((const uintptr_t *)p.table.elems)[slot];
+	return func >= map.first && func - map.first < map.functions.size() ? map.functions[func - map.first] : "";
+}
+
+/**
  * A call of the plugin at `index` held the frame `ms` milliseconds of its
  * own, past amxts_slow_ms: the console and AMX Mod X's log name the plugin,
- * the event and the time - at most once in SLOW_QUIET seconds a plugin and
- * event, with how many more there were meanwhile. `named` says what held it
- * where the event being fired does not: its async functions.
+ * the event and the time - at once the first time a plugin and event do,
+ * then after a gap that doubles while it goes on (Repeats), with how many
+ * more there were meanwhile. `named` says what held it where the event being
+ * fired does not: its async functions; `h` is the handler called.
+ *
+ * A listener the module called itself (Handler.via) is named at once. A walk
+ * of several has the plugin time each of them from its next slow call on
+ * (Plugin.probe), until one is found, and the next line names the slowest.
  */
-static void Slow(int index, uint32_t ms, const char *named)
+static void Slow(int index, uint32_t ms, const char *named, const Handler *h)
 {
 	if (index < 0 || (size_t)index >= g_plugins.size())
 		return;
@@ -9263,18 +9336,45 @@ static void Slow(int index, uint32_t ms, const char *named)
 		const char *point = PointName(&g_call->chain->point);
 		what = std::string("a listener of ") + (point ? point : "a game event");
 	}
+	bool listeners = !named && (g_call->chain || (g_firing && g_firing != FIRING_TIMER && g_firing != FIRING_COMMAND));
 
-	std::pair<double, int> &said = p.slow.insert(std::make_pair(what, std::make_pair(-1e9, 0))).first->second;
-	if (now - said.first < SLOW_QUIET) {
-		said.second++;
-		return;
+	bool walk = listeners && !(h && h->via);
+
+	SlowSaid &said = p.slow[what];
+	if (listeners && !walk) {
+		said.listener = FunctionName(p, h->viaFn);
+		said.place = "";
 	}
-	char more[96] = "";
-	if (said.second > 0)
-		snprintf(more, sizeof(more), " - and %d more such call(s) in the last %d s", said.second, Whole(now - said.first));
-	MF_PrintSrvConsole("[amxts] %s: %s held the frame %u ms (amxts_slow_ms %g)%s\n", p.name.c_str(), what.c_str(), ms, g_slowCvar.value, more);
-	MF_Log("%s: %s held the frame %u ms (amxts_slow_ms %g)%s", p.name.c_str(), what.c_str(), ms, g_slowCvar.value, more);
-	said = std::make_pair(now, 0);
+	else if (walk && p.probe && *p.probe > 0) {
+		said.listener = FunctionName(p, *p.probe);
+		int32_t at = p.probeAt ? *p.probeAt : 0;
+		char place[32] = "";
+		if (at & 0xFFFF)
+			snprintf(place, sizeof(place), ", %d of %d", at & 0xFFFF, (at >> 16) & 0xFFFF);
+		said.place = place;
+		// No map to name it by: its place alone.
+		if (said.listener.empty() && !said.place.empty()) {
+			said.listener = "listener" + said.place.substr(1);
+			said.place.clear();
+		}
+	}
+
+	int unsaid;
+	double since;
+	bool due = said.repeats.Due(now, unsaid, since);
+	if (due) {
+		char more[96] = "";
+		if (unsaid > 0)
+			snprintf(more, sizeof(more), " - and %d more such call(s) in the last %d s", unsaid, Whole(since));
+		std::string who = said.listener.empty() ? what : said.listener + " (" + what + said.place + ")";
+		MF_PrintSrvConsole("[amxts] %s: %s held the frame %u ms (amxts_slow_ms %g)%s\n", p.name.c_str(), who.c_str(), ms, g_slowCvar.value, more);
+		MF_Log("%s: %s held the frame %u ms (amxts_slow_ms %g)%s", p.name.c_str(), who.c_str(), ms, g_slowCvar.value, more);
+		said.listener.clear();
+		said.place.clear();
+	}
+	// Timed until the line has a listener to name.
+	if (p.probe && walk)
+		*p.probe = said.listener.empty() ? -1 : 0;
 }
 
 void StartFrame_Post()

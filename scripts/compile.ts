@@ -62,11 +62,13 @@ const INLINE_SIZE = 30;
 export const HOOD_EXPORTS = '__amxts_exports.ts';
 
 /**
- * The second entry of a plugin that never waits: the hood has nothing to
- * export, but its globals - Promise, defineModule - are there for any
- * plugin, one that imports nothing included.
+ * The second entry of a plugin that never waits: its globals - Promise,
+ * defineModule - are there for any plugin, one that imports nothing
+ * included; and the hood exports where its walks of listeners keep the
+ * slowest one, which the module reads and sets (as/facade.ts, __probe):
+ * exported, the optimiser does not fold them away.
  */
-export const BASE_EXPORTS = 'import "~/facade";\n';
+export const BASE_EXPORTS = 'import "~/facade";\nexport { __probe, __probeAt } from "~/facade";\n';
 
 /**
  * What the module's coroutine scheduler calls, for a plugin that uses

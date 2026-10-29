@@ -1516,6 +1516,12 @@ export class HookEntry<E, T> {
 	answer: ((event: E) => T) | null = null;
 	/** An async listener as it was added: \`silent\` holds its wrapper, asyncListener. */
 	source: usize = 0;
+
+	/** @hidden The listener's function in the table, the async one's rather than its wrapper's (__probe). */
+	__listener(): i32 {
+		const fn = this.source || changetype<usize>(this.silent) || changetype<usize>(this.answer);
+		return fn ? load<i32>(fn) : 0;
+	}
 }
 
 /** The listeners of one phase or class, walked in place by the event's Fire. */

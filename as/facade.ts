@@ -342,6 +342,22 @@ export class __ServerEvent {
 }
 
 /**
+ * @hidden The slowest listener the plugin's walks of its events' listeners
+ * timed, for the module's line on a call that held the frame (amxts_slow_ms):
+ * 0 while the module looks for none - nothing is timed then - -1 while none
+ * is timed yet, else the listener's function in the table. The module sets
+ * it; an older one never does.
+ */
+export let __probe: i32 = 0;
+/** @hidden Where that listener is in its list: its place from 1, and the list's length in the high 16 bits. */
+export let __probeAt: i32 = 0;
+// How long that listener took, in milliseconds.
+let probeMost: f64 = 0;
+// What the listeners timed so far took in all: a listener's own time leaves
+// out the listeners it walked in turn.
+let probeTotal: f64 = 0;
+
+/**
  * @hidden The listeners of one event, walked by its dispatch in place - no
  * copy, no allocation - with the DOM's rules: a dispatch calls the listeners
  * there when it began (`begin` gives their count), so one added meanwhile
@@ -358,6 +374,13 @@ export class __Listeners<T> {
 	private items: (T | null)[] = [];
 	private depth: i32 = 0;
 	private holes: bool = false;
+	// The listener a dispatch is timing while the module looks for a slow one
+	// (__probe): its place, -1 for none; its function; when it began; and
+	// probeTotal then.
+	private timedAt: i32 = -1;
+	private timedFn: i32 = 0;
+	private timedFrom: f64 = 0;
+	private timedBase: f64 = 0;
 	/** How many listeners there are. */
 	count: i32 = 0;
 
@@ -388,7 +411,9 @@ export class __Listeners<T> {
 
 	/** The listener at `at`, null where one was removed; `at` below `slots`. */
 	@inline at(at: i32): T | null {
-		return unchecked(this.items[at]);
+		const item = unchecked(this.items[at]);
+		if (__probe != 0) this.time(at, item);
+		return item;
 	}
 
 	/** How many places a walk outside a dispatch goes over, holes included. */
@@ -404,7 +429,32 @@ export class __Listeners<T> {
 
 	/** A dispatch ends; the outermost one closes the holes. */
 	@inline end(): void {
+		if (__probe != 0) this.time(-1, null);
 		if (--this.depth == 0 && this.holes) this.close();
+	}
+
+	/**
+	 * In a dispatch, ends the timing of the listener before `at` - its own
+	 * time kept when it is the slowest yet - and starts `item`'s. The first
+	 * place starts a dispatch afresh: a listener that trapped is not timed.
+	 */
+	private time(at: i32, item: T | null): void {
+		if (this.depth == 0) return;
+		const now = performance.now();
+		if (at != 0 && this.timedAt >= 0 && this.timedFn != 0) {
+			const spent = now - this.timedFrom;
+			const own = spent - (probeTotal - this.timedBase);
+			probeTotal = this.timedBase + spent;
+			if (__probe < 0 || own > probeMost) {
+				probeMost = own;
+				__probe = this.timedFn;
+				__probeAt = (this.timedAt + 1) | (this.items.length << 16);
+			}
+		}
+		this.timedAt = at;
+		this.timedFn = item ? listenerOf<T>(item) : 0;
+		this.timedFrom = now;
+		this.timedBase = probeTotal;
 	}
 
 	private close(): void {
@@ -417,6 +467,13 @@ export class __Listeners<T> {
 		}
 		items.length = kept;
 	}
+}
+
+/** A listener's function in the table: a function value's own, or the one an entry of a list says it is for. */
+function listenerOf<T>(item: T): i32 {
+	if (isFunction<T>()) return load<i32>(changetype<usize>(item));
+	// @ts-ignore: an entry - a hook's, a player change's - names its listener
+	return item.__listener();
 }
 
 // The module gives AMX Mod X the name, and keeps it until the server stops: a
@@ -4518,6 +4575,11 @@ class PlayerChangeListener {
 		public listener: (event: PlayerChangeEvent) => void,
 		public make: () => PlayerChangeEvent
 	) {}
+
+	/** @hidden Its listener's function in the table (__probe). */
+	__listener(): i32 {
+		return load<i32>(changetype<usize>(this.listener));
+	}
 }
 
 const playerChangeListeners = new __Listeners<PlayerChangeListener>();

@@ -1,17 +1,36 @@
 // A listener that holds the frame past amxts_slow_ms is named in the
 // console and AMX Mod X's log - the plugin, what it listened to, the time -
 // and a plugin slow on every call is said once in a while, not every time.
+// Of several listeners of one event, the line after the first names the slow
+// one, and the lines come further apart while it stays slow.
 // @log [amxts] slow.aot: a timer held the frame
 // @log [amxts] slow.aot: the command amxts_slow_busy held the frame
 // @log [amxts] slow.aot: its async functions and promise reactions held the frame
+// @log [amxts] slow.aot: a listener of server_frame held the frame
+// @log [amxts] slow.aot: holdFrame (a listener of server_frame, 2 of 3) held the frame
 import { server_exec } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
 const slowMs = new Cvar("amxts_slow_ms");
 let busyRuns = 0;
+let holding = false;
+let frames = 0;
 
 server.addServerCommand("amxts_test_slow", slow);
 server.addServerCommand("amxts_slow_busy", () => busy(30));
+
+// Three listeners of the frame, the second slow while `holding`.
+server.addEventListener("frame", countFrame);
+server.addEventListener("frame", holdFrame);
+server.addEventListener("frame", () => frames++);
+
+function countFrame() {
+	frames++;
+}
+
+function holdFrame() {
+	if (holding) busy(8);
+}
 
 /** Holds the frame for `ms` milliseconds. */
 function busy(ms: number) {
@@ -42,6 +61,12 @@ function slow() {
 	setTimeout(() => wakeBusy(), 600);
 	setTimeout(() => {
 		check.expect(busyRuns, "every slow call ran").toBe(6);
-		check.done();
+		// Every frame held for 11 s: said at once, then named 10 s later.
+		holding = true;
 	}, 1000);
+	setTimeout(() => {
+		holding = false;
+		check.expect(frames > 0, "the frame's listeners ran").toBe(true);
+		check.done();
+	}, 12000);
 }
