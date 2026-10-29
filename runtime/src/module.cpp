@@ -209,19 +209,6 @@ struct Repeats {
 	}
 };
 
-/** What held the frame of one kind, for Slow: when it is said, and the listener found to do it. */
-struct SlowSaid {
-	Repeats     repeats;
-	// The listener's name, and where it is among its event's, said with the
-	// next line and found again for the one after; empty while none is found.
-	std::string listener;
-	std::string place;
-	// The slowest listener's own time in that call, in ms, -1 for none; and
-	// the time of the whole call it was timed in.
-	double      ms = -1;
-	uint32_t    held = 0;
-};
-
 struct Plugin {
 	// What a call into the plugin reads (Fire), at the start: in one cache
 	// line, where the game's own work between two calls leaves less of it.
@@ -307,15 +294,15 @@ struct Plugin {
 	std::map<std::string, std::string> kept;
 	// By what it listened to, its calls that held the frame (Slow): a slow
 	// listener every frame is said once in a while.
-	std::map<std::string, SlowSaid> slow;
+	std::map<std::string, Repeats> slow;
 	// Its temp entities said to fill a packet (TempRoom).
 	Repeats              full;
 	// The slowest listener its walks of an event's listeners timed (as/facade.ts,
-	// __probe): 0 while none is looked for - the module starts it once a walk
-	// held the frame (Slow) - -1 while none is timed yet, else the listener's
-	// function in the table; and where it is in its list, its place from 1 in
-	// the low 16 bits and the list's length in the high ones. NULL for a
-	// plugin built before.
+	// __probe): 0 while nothing is timed - until a walk first held the frame
+	// (Slow) - -1 while none is timed yet, else the listener's function in
+	// the table; and where it is in its list, its place from 1 in the low 16
+	// bits and the list's length in the high ones. NULL for a plugin built
+	// before.
 	int32_t             *probe = NULL;
 	int32_t             *probeAt = NULL;
 	// That listener's closure variables (__probeEnv): what an adapter of a
@@ -9358,9 +9345,10 @@ static std::string FunctionName(const Plugin &p, int32_t slot, int32_t env)
  *
  * A listener the module called itself (Handler.via) is named at once. A walk
  * of several is said as the listeners' time, which holds the walk and the
- * garbage collector's steps too: the plugin times each listener from its
- * next slow call on (Plugin.probe), until one is found, and the next line
- * adds the slowest one and its own time.
+ * garbage collector's steps too: once a walk of the plugin held the frame,
+ * it times each listener of its walks (Plugin.probe), started over by every
+ * call that took a millisecond, so a line after the first adds the slowest
+ * of the call it says and that one's own time.
  */
 static void Slow(int index, uint32_t ms, const char *named, const Handler *h)
 {
@@ -9382,54 +9370,38 @@ static void Slow(int index, uint32_t ms, const char *named, const Handler *h)
 	if (walk)
 		what.replace(0, strlen("a listener of"), "the listeners of");
 
-	SlowSaid &said = p.slow[what];
-	if (listeners && !walk) {
-		said.listener = FunctionName(p, h->viaFn, h->viaEnv);
-		said.place = "";
-		said.ms = -1;
-	}
-	else if (walk && p.probe && *p.probe > 0) {
-		said.listener = FunctionName(p, *p.probe, p.probeEnv ? *p.probeEnv : 0);
-		int32_t at = p.probeAt ? *p.probeAt : 0;
-		char place[32] = "";
-		if (at & 0xFFFF)
-			snprintf(place, sizeof(place), "%d of %d", at & 0xFFFF, (at >> 16) & 0xFFFF);
-		said.place = place;
-		said.ms = p.probeUs ? *p.probeUs / 1000.0 : -1;
-		said.held = ms;
-		// No map to name it by: its place alone.
-		if (said.listener.empty() && !said.place.empty()) {
-			said.listener = "listener " + said.place;
-			said.place.clear();
-		}
-	}
-
 	int unsaid;
 	double since;
-	bool due = said.repeats.Due(now, unsaid, since);
-	if (due) {
+	if (p.slow[what].Due(now, unsaid, since)) {
 		char more[96] = "";
 		if (unsaid > 0)
 			snprintf(more, sizeof(more), " - and %d more such call(s) in the last %d s", unsaid, Whole(since));
 		std::string who = what, slowest;
-		if (!said.listener.empty() && !walk)
-			who = said.listener + " (" + what + ")";
-		else if (!said.listener.empty()) {
-			char own[32] = "";
-			if (said.ms >= 0)
-				snprintf(own, sizeof(own), ", %.1f ms", said.ms);
-			slowest = "; the slowest, " + said.listener + (said.place.empty() ? "" : " (" + said.place + ")") + own;
-			// The call the slowest was timed in.
-			ms = said.held;
+		if (listeners && !walk) {
+			std::string name = FunctionName(p, h->viaFn, h->viaEnv);
+			if (!name.empty())
+				who = name + " (" + what + ")";
 		}
-		MF_PrintSrvConsole("[amxts] %s: %s held the frame %u ms (amxts_slow_ms %g)%s%s\n", p.name.c_str(), who.c_str(), ms, g_slowCvar.value, slowest.c_str(), more);
-		MF_Log("%s: %s held the frame %u ms (amxts_slow_ms %g)%s%s", p.name.c_str(), who.c_str(), ms, g_slowCvar.value, slowest.c_str(), more);
-		said.listener.clear();
-		said.place.clear();
+		else if (walk && p.probe && *p.probe > 0) {
+			std::string name = FunctionName(p, *p.probe, p.probeEnv ? *p.probeEnv : 0);
+			int32_t at = p.probeAt ? *p.probeAt : 0;
+			char place[32] = "", own[32] = "";
+			if (at & 0xFFFF)
+				snprintf(place, sizeof(place), "%d of %d", at & 0xFFFF, (at >> 16) & 0xFFFF);
+			if (p.probeUs)
+				snprintf(own, sizeof(own), ", %.1f ms", *p.probeUs / 1000.0);
+			// No map to name it by: its place alone.
+			if (!name.empty())
+				slowest = "; the slowest, " + name + (*place ? std::string(" (") + place + ")" : "") + own;
+			else if (*place)
+				slowest = std::string("; the slowest, listener ") + place + own;
+		}
+		MF_PrintSrvConsole("[amxts] %s: %s held the frame %u ms (amxts_slow_ms %g)%s%s\n", p.name.c_str(), who.c_str(), ms, g_slowCvarSet->value, slowest.c_str(), more);
+		MF_Log("%s: %s held the frame %u ms (amxts_slow_ms %g)%s%s", p.name.c_str(), who.c_str(), ms, g_slowCvarSet->value, slowest.c_str(), more);
 	}
-	// Timed until the line has a listener to name.
+	// Timed from now on; the next call's slowest starts over.
 	if (p.probe && walk)
-		*p.probe = said.listener.empty() ? -1 : 0;
+		*p.probe = -1;
 }
 
 void StartFrame_Post()
