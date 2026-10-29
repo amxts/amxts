@@ -20,6 +20,8 @@ let preventSpawn = false;
 let preventKill = false;
 let doubleMoney = false;
 let thinks = 0;
+/** How many players have left the server. */
+let left = 0;
 
 const isOurs = (player: Player) => ours.includes(player.id);
 
@@ -63,6 +65,13 @@ game.addEventListener("userInfoChange", (event) => {
 	if (isOurs(event.player) && event.info.includes("amxts_events")) heard.push(`userInfoChange ${event.player.id}`);
 });
 
+server.addEventListener("disconnected", () => {
+	left++;
+});
+
+/** Whether a player has left since the count was `since`. */
+const gone = (since: number) => left > since;
+
 server.addServerCommand("amxts_test_rules_events", run);
 
 /** Whether `line` was heard after the first `since` lines. */
@@ -79,11 +88,12 @@ function at(line: string, since: number): number {
 async function run() {
 	const check = new Checks("rules-events");
 	check.expect(__hasChains(false) || __hooksOriginal("player_spawn"), "the server hears the game rules' functions").toBe(true);
+	const leaving = left;
 	const terrorist = server.addBot("amxts events T");
 	terrorist?.joinTeam("TERRORIST");
-	// YaPB's quota kicks one of its bots for the one added: the counter is
-	// chosen once it has, or the game would be handed a freed player.
-	await sleep(1000);
+	// YaPB's quota kicks one of its bots for the one added, a moment later:
+	// the counter is chosen once it has, or the game would be handed a freed player.
+	for (let waited = 0; waited < 3000 && !gone(leaving); waited += 100) await sleep(100);
 	const counter = server.players.find(other => other.isBot && other.isConnected && other.team == "CT") ?? null;
 	if (terrorist == null || counter == null) {
 		check.expect(terrorist != null, "addBot gives a player").toBe(true);

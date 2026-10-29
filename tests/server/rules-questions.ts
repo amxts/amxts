@@ -15,6 +15,8 @@ const NAME = "amxts rules bot";
 const heard: string[] = [];
 let bot: Player | null = null;
 let refuse = false;
+/** How many players have left the server. */
+let left = 0;
 
 const ours = (player: Player) => bot != null && player.id == bot.id;
 
@@ -45,6 +47,13 @@ game.addEventListener("checkMapConditions", () => {
 	heard.push("checkMapConditions");
 });
 
+server.addEventListener("disconnected", () => {
+	left++;
+});
+
+/** Whether a player has left since the count was `since`. */
+const gone = (since: number) => left > since;
+
 server.addServerCommand("amxts_test_rules_questions", run);
 
 /** Whether the game asked `question` after the first `since` lines of heard. */
@@ -55,6 +64,7 @@ function asked(question: string, since: number): boolean {
 async function run() {
 	const check = new Checks("rules-questions");
 	check.expect(__hasChains(false) || __hooksOriginal("fl_player_fall_damage"), "the server hears the game rules' questions").toBe(true);
+	const leaving = left;
 	bot = server.addBot(NAME);
 	if (bot == null) {
 		check.expect(false, "addBot gives a player").toBe(true);
@@ -62,6 +72,10 @@ async function run() {
 		return;
 	}
 	const player = bot;
+	// YaPB's quota kicks one of its bots for the one added, a moment later:
+	// the victim of the death below is chosen once it has, or the kick may
+	// take him before his death's think packs his weapons.
+	for (let waited = 0; waited < 3000 && !gone(leaving); waited += 100) await sleep(100);
 
 	player.joinTeam("TERRORIST");
 	let since = heard.length;
