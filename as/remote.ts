@@ -16,6 +16,7 @@
 // stand-in finds its place, the compiler library's.
 import "./promise";
 import { __callFrom, __pluginStopped } from "./facade";
+import { log_amx } from "./natives";
 
 // @ts-ignore: decorator
 @external("env", "amxts_serve") declare function _serve(name: string, hash: i32): void;
@@ -121,6 +122,8 @@ export class Reader {
 export class Service {
 	private id: i32 = -1;
 	private failed: bool = false;
+	// No plugin ran it, said once for this load of the plugin.
+	private toldNoOwner: bool = false;
 
 	// Asked as the plugin starts, which tells the server that this plugin
 	// uses the module: its owner then stays while the plugin runs, and starts
@@ -142,9 +145,8 @@ export class Service {
 	call(w: Writer): Reader {
 		if (this.id < 0) {
 			const id = _owner(this.name, this.hash);
-			if (id < 0) return this.fail(id == -2
-				? `${this.name}: ${this.name}.aot was built from another version of it - build both again`
-				: `${this.name}: no plugin runs it - is ${this.name}.aot in plugins.ini?`);
+			if (id == -2) return this.fail(`${this.name}: ${this.name}.aot was built from another version of it - build both again`);
+			if (id < 0) return this.noOwner();
 			this.id = id;
 		}
 
@@ -152,6 +154,17 @@ export class Service {
 		if (answer == null) return this.fail(`${this.name}: the call failed in ${this.name}`);
 		this.failed = false;
 		return answer!;
+	}
+
+	/** The empty answer of a module no plugin runs, said on the console and in the log once a load: its every call is lost. */
+	private noOwner(): Reader {
+		if (!this.toldNoOwner) {
+			const message = `${this.name}: no plugin runs it - is ${this.name}.aot in plugins.ini?`;
+			console.error(message);
+			log_amx(message);
+		}
+		this.toldNoOwner = true;
+		return new Reader(new ArrayBuffer(0), -1);
 	}
 
 	private fail(message: string): Reader {
