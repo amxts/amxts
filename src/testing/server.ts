@@ -643,7 +643,8 @@ export class FakePlayer extends FakeEntity {
 	}
 
 	private chatLine(command: string, text: string): boolean {
-		if (this.server.clientCommand(this, [command, text])) return true;
+		// The game sends the line quoted: one word, whatever it holds.
+		if (this.server.clientCommand(this, [command, text], `"${text}"`)) return true;
 
 		// Nobody took it: the game shows it, to everyone or to the team.
 		for (const player of this.server.players) {
@@ -659,12 +660,12 @@ export class FakePlayer extends FakeEntity {
 	 * module takes it; the key `0` or `10`. True if handled.
 	 */
 	command(line: string): boolean {
-		const argv = splitCommand(line);
+		const { argv, args } = splitCommand(line);
 		const select = argv[0] === 'menuselect';
 		const key = Number(argv[1]) % 10;
 		const pressed = select ? this.server.takeMenuKey(this, key) : null;
 		if (select && this.menu && this.server.selectMenu(this, key)) return true;
-		return this.server.clientCommand(this, argv) || (pressed !== null && this.server.pressMenu(this, pressed));
+		return this.server.clientCommand(this, argv, args) || (pressed !== null && this.server.pressMenu(this, pressed));
 	}
 
 	/** Leaves the server: the disconnect events, then the slot is free. */
@@ -702,13 +703,21 @@ function unsimulated(name: string): Error {
 	return new Error(`the plugin called the native "${name}", which the fake server does not simulate: answer it in the test with server.defineNative("${name}", (call, args) => ...)`);
 }
 
-/** A command line as the engine splits it: on spaces, a quoted part kept whole. */
 function addTo(commands: Map<string, Slot[]>, name: string, slot: Slot): void {
 	commands.set(name, [...(commands.get(name) ?? []), slot]);
 }
 
-function splitCommand(line: string): string[] {
-	return [...line.matchAll(/"([^"]*)"|(\S+)/g)].map(m => m[1] ?? m[2]);
+/**
+ * A command line as the engine splits it (COM_Parse): on spaces, each of
+ * `{ } ( ) ' , :` a word of its own - `STEAM_0:1:123` is five - a quoted part
+ * kept whole, and `//` the end of the line; `args` is the line after the
+ * name as typed, as read_args reads it.
+ */
+export function splitCommand(line: string): { argv: string[]; args: string } {
+	const parts = [...line.matchAll(/"([^"]*)"?|\/\/.*|[{}()',:]|[^\s{}()',:]+/g)].filter(m => !m[0].startsWith('//'));
+	const argv = parts.map(m => m[1] ?? m[0]);
+	const args = parts.length > 1 ? line.slice(parts[1].index) : '';
+	return { argv, args };
 }
 
 /**
@@ -1050,6 +1059,8 @@ export class FakeServer {
 	callArgs: ArgValue[] | null = null;
 	/** The command being handled, for read_argv. */
 	argv: string[] = [];
+	/** Its text after the name, as typed, for read_args. */
+	args = '';
 	chain: Chain | null = null;
 	current: PluginInstance | null = null;
 	private outcome = 0;
@@ -2061,8 +2072,8 @@ export class FakeServer {
 	}
 
 	/** A client command: client_command, then every handler of it until one takes it. @internal */
-	clientCommand(player: FakePlayer, argv: string[]): boolean {
-		return this.withArgv(argv, () =>
+	clientCommand(player: FakePlayer, argv: string[], args = argv.slice(1).join(' ')): boolean {
+		return this.withArgv(argv, args, () =>
 			this.fire('client_command', player.id) >= PLUGIN_HANDLED || this.handleCommand(this.clientCommands, player.id));
 	}
 
@@ -2072,7 +2083,8 @@ export class FakeServer {
 	 * it. True if handled.
 	 */
 	serverCommand(line: string): boolean {
-		return this.withArgv(splitCommand(line), () => this.handleCommand(this.serverCommands, 0));
+		const { argv, args } = splitCommand(line);
+		return this.withArgv(argv, args, () => this.handleCommand(this.serverCommands, 0));
 	}
 
 	/** The handlers of the command in argv, in order, until one takes it. */
@@ -2086,14 +2098,15 @@ export class FakeServer {
 		});
 	}
 
-	/** The command read_argv reads while `body` runs. */
-	private withArgv<T>(argv: string[], body: () => T): T {
-		const previous = this.argv;
+	/** The command read_argv and read_args read while `body` runs. */
+	private withArgv<T>(argv: string[], args: string, body: () => T): T {
+		const previous = [this.argv, this.args] as const;
 		this.argv = argv;
+		this.args = args;
 		try {
 			return body();
 		} finally {
-			this.argv = previous;
+			[this.argv, this.args] = previous;
 		}
 	}
 

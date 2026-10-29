@@ -5,6 +5,7 @@ import ts from 'typescript';
 // each word; tests/as/commands.ts on the fake server, and what does not build.
 import { describe, expect, test } from 'vitest';
 import { parseUsage, typedCommands } from '../scripts/typed-commands';
+import { splitCommand } from '../src/testing/server';
 
 const PLUGIN = 'tests/as/commands.ts';
 const COMMON = [
@@ -138,6 +139,17 @@ describe('a command\'s arguments, read as their types say', () => {
 
 		server.serverCommand('cmd_login ftp://example.com ann');
 		expect(heard()).toBe('ann at ftp://example.com');
+	});
+
+	test('a SteamID, or a word with a comma, comes whole, though the engine splits its own words there', async () => {
+		const { server, heard } = await boot();
+
+		expect(splitCommand('cmd_login STEAM_0:1:123 "ann, bob" // the rest')).toEqual({
+			argv: ['cmd_login', 'STEAM_0', ':', '1', ':', '123', 'ann, bob'],
+			args: 'STEAM_0:1:123 "ann, bob" // the rest',
+		});
+		server.serverCommand('cmd_login STEAM_0:1:123 "ann, bob"');
+		expect(heard()).toBe('ann, bob at STEAM_0:1:123');
 	});
 
 	test('server.commands lists them: what a /help prints, by the access of who asks', async () => {

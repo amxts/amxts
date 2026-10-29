@@ -24,7 +24,7 @@ import {
 	user_kill, get_user_flags, read_flags,
 	get_cvar_num, get_cvar_string, set_cvar_num, set_cvar_string, get_players, get_user_info,
 	LibraryExists, module_exists, get_speak, set_speak,
-	read_argc, read_args, read_argv, create_cvar, get_cvar_pointer,
+	read_args, read_argv, create_cvar, get_cvar_pointer,
 	get_pcvar_float, get_pcvar_num, get_pcvar_string, set_pcvar_float, set_pcvar_num, set_pcvar_string,
 	get_localinfo, register_dictionary,
 	precache_model, precache_sound, precache_generic, get_user_userid,
@@ -1549,12 +1549,9 @@ export function __commandText(): string {
 	return isChat(read_argv(0)) ? chatLine() : read_args();
 }
 
-/** @hidden Its words after the name: the chat line's for `say` and `say_team`, the engine's for any other. */
+/** @hidden Its words after the name, as a command's (CommandLine): the chat line's for `say` and `say_team`. */
 export function __commandArgs(): string[] {
-	if (isChat(read_argv(0))) return chatLine().split(" ").filter(word => word.length > 0);
-	const words: string[] = [];
-	for (let i = 1, n = <i32>read_argc(); i < n; i++) words.push(read_argv(i));
-	return words;
+	return new CommandLine(isChat(read_argv(0)) ? chatLine() : read_args()).words;
 }
 
 /** The most of a message-of-the-day's text one MOTD message carries, in bytes. */
@@ -2984,43 +2981,25 @@ export class __CommandWords {
 	/** Set once a word is wrong: the one who typed it has been told. */
 	failed: bool = false;
 	/** How many words were typed. */
-	count: i32;
+	count: i32 = 0;
 	/** The player an async handler started before this command ran under, given back once it is done (__commandDone). */
 	ambient: i32 = 0;
-	private read: string[] | null;
+	/** The player who typed it; `null` for the server's console. */
+	player: Player | null = null;
+	usage: string = "";
+	private words: string[] = [];
+	private rests: string[] = [];
 
-	constructor(
-		/** The player who typed it; `null` for the server's console. */
-		public player: Player | null,
-		public usage: string,
-		/** The words; `null` for the engine's command that runs, read the first time they are asked. */
-		words: string[] | null,
-		/** The line from each word on, as typed: what the last text argument takes; `null` for the words joined by a space. */
-		readonly rests: string[] | null = null
-	) {
-		this.read = words;
-		this.count = words != null ? words.length : 0;
-	}
-
-	/** The object for the engine's command that runs now, typed with `argc` words, its name counted (consoleWords). */
-	@inline again(player: Player | null, usage: string, argc: i32): __CommandWords {
+	/** Takes the words of `line`, the command's text after its name, typed by `player` into the command of `usage`. */
+	again(player: Player | null, usage: string, line: string): __CommandWords {
+		const split = new CommandLine(line);
 		this.failed = false;
 		this.player = player;
 		this.usage = usage;
-		this.read = null;
-		this.count = argc - 1;
+		this.words = split.words;
+		this.rests = split.rests;
+		this.count = split.words.length;
 		return this;
-	}
-
-	/** The words, read from the engine's command while it runs: a command that takes none makes nothing. */
-	private get words(): string[] {
-		let words = this.read;
-		if (words == null) {
-			words = [];
-			for (let i = 1; i <= this.count; i++) words.push(read_argv(i));
-			this.read = words;
-		}
-		return words;
 	}
 
 	/** The word at `at`; `""` when it was not typed. */
@@ -3030,9 +3009,7 @@ export class __CommandWords {
 
 	/** The rest of the line from the word at `at`. */
 	rest(at: i32): string {
-		const rests = this.rests;
-		if (rests != null) return at < rests.length ? rests[at] : "";
-		return at < this.count ? this.words.slice(at).join(" ") : "";
+		return at < this.count ? this.rests[at] : "";
 	}
 
 	/** The word at `at` as a number; a word that is not one fails. */
@@ -3088,33 +3065,47 @@ export class __CommandWords {
 	}
 }
 
-/** A chat line's words - one in double quotes is one word - and the line from each word on. */
-function chatWords(player: Player, usage: string, line: string): __CommandWords {
-	const words: string[] = [];
-	const rests: string[] = [];
-	let i = 0;
-	while (i < line.length) {
-		while (i < line.length && line.charAt(i) == " ") i++;
-		if (i >= line.length) break;
-		const quoted = line.charAt(i) == "\"";
-		const close = quoted ? line.indexOf("\"", i + 1) : line.indexOf(" ", i);
-		const end = close < 0 ? line.length : close;
-		const word = line.substring(quoted ? i + 1 : i, end);
-		// A quoted last word is the rest without its quotes.
-		rests.push(quoted && close >= 0 && line.substring(close + 1).trim().length == 0 ? word : line.substring(i).trim());
-		words.push(word);
-		i = end + 1;
+/**
+ * A command line's words - apart at spaces, one in double quotes one word -
+ * and the line from each word on, as typed: what the last text argument takes.
+ */
+class CommandLine {
+	readonly words: string[] = [];
+	readonly rests: string[] = [];
+
+	constructor(line: string) {
+		let i = 0;
+		while (i < line.length) {
+			while (i < line.length && line.charAt(i) == " ") i++;
+			if (i >= line.length) break;
+			const quoted = line.charAt(i) == "\"";
+			const close = quoted ? line.indexOf("\"", i + 1) : line.indexOf(" ", i);
+			const end = close < 0 ? line.length : close;
+			const word = line.substring(quoted ? i + 1 : i, end);
+			// A quoted last word is the rest without its quotes.
+			this.rests.push(quoted && close >= 0 && line.substring(close + 1).trim().length == 0 ? word : line.substring(i).trim());
+			this.words.push(word);
+			i = end + 1;
+		}
 	}
-	return new __CommandWords(player, usage, words, rests);
 }
 
-/** A console command's words, as the engine split them: `argc` of them, its name counted. */
+/** A chat line's words. */
+function chatWords(player: Player, usage: string, line: string): __CommandWords {
+	return new __CommandWords().again(player, usage, line);
+}
+
+/**
+ * A console command's words, typed with `argc` of them, its name counted:
+ * read from its line as typed, as a chat line's are. The engine's own words
+ * split at `:`, `,`, `'` and brackets too - a SteamID in five.
+ */
 // @ts-ignore: decorator
 @inline function consoleWords(player: Player | null, usage: string, argc: i32): __CommandWords {
 	let words = spareWords;
 	spareWords = null;
-	if (words == null) words = new __CommandWords(player, usage, null);
-	return words.again(player, usage, argc);
+	if (words == null) words = new __CommandWords();
+	return words.again(player, usage, argc > 1 ? read_args() : "");
 }
 
 // A console command's words are read by the build's code for the command
