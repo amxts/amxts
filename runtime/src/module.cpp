@@ -159,6 +159,18 @@ static bool g_imageComplete = false;
 #define PLUGIN_LOADING  4
 #define PLUGIN_STOPPED  5
 
+/**
+ * A file the watcher looks at (Settled): when it was last taken, and its size
+ * then; and a change a look saw, taken once the next look finds the file the
+ * same - seenSize -1 when there is none.
+ */
+struct Watched {
+	time_t stamp = 0;
+	long   size = 0;
+	time_t seenStamp = 0;
+	long   seenSize = -1;
+};
+
 struct Plugin {
 	// What a call into the plugin reads (Fire), at the start: in one cache
 	// line, where the game's own work between two calls leaves less of it.
@@ -182,13 +194,8 @@ struct Plugin {
 	std::string          name;
 	// The .aot, in plugins/ beside the list.
 	std::string          path;
-	// When the .aot was last written, and its size then.
-	time_t               stamp = 0;
-	long                 size = 0;
-	// A change the watcher saw and loads once its next look finds the file
-	// the same (WatchPlugins); -1 when there is none.
-	time_t               seenStamp = 0;
-	long                 seenSize = -1;
+	// The .aot as it was last loaded (WatchPlugins).
+	Watched              disk;
 	// Named in plugins.ini, rather than loaded by hand with amxts_load.
 	bool                 listed = true;
 	int                  state = PLUGIN_WAITING;
@@ -229,6 +236,8 @@ struct Plugin {
 	int32_t              run = 0;
 	// It called a function of a run that has ended, and was told so: once a run.
 	bool                 toldGone = false;
+	// The modules it called while their owners were loading, said once a run (w_owner).
+	std::vector<std::string> toldLoading;
 	// Coroutines - async functions parked at an await; see "coroutines" below.
 	// A plugin that never makes a Promise has none of this in use (depth and
 	// wake are at the start).
@@ -4049,10 +4058,30 @@ static void w_serve(wasm_exec_env_t env, int32_t name, int32_t hash)
 	g_services.push_back(service);
 }
 
+static int FindPlugin(const std::string &wanted);
+static bool LoadEntry(int index);
+
+/** The number of the service `wanted` while a plugin serves it; -1 otherwise. */
+static int ServiceOf(const std::string &wanted)
+{
+	for (size_t i = 0; i < g_services.size(); i++)
+		if (g_services[i].name == wanted)
+			return g_services[i].plugin >= 0 ? (int)i : -1;
+	return -1;
+}
+
 /**
  * The service's number for amxts_rpc; -1 when nobody serves it, -2 when its
  * owner was built from another version. A proxy asks once as its plugin
  * starts, which notes that the plugin uses the module (Plugin.uses).
+ *
+ * A module's owner the list names after its user - `menu-core.aot` for
+ * menu-core - is loaded here, as the user's top level asks for it: the
+ * plugins of a load are waiting until the walk reaches them, so the order of
+ * the lines does not matter. Two plugins whose top levels call each other's
+ * modules cannot both come first: the one loaded second is told so once a
+ * run, on the console and in the log. A module with no owner at all is the
+ * proxy's to say (as/remote.ts).
  */
 static int32_t w_owner(wasm_exec_env_t env, int32_t name, int32_t hash)
 {
@@ -4063,12 +4092,29 @@ static int32_t w_owner(wasm_exec_env_t env, int32_t name, int32_t hash)
 		if (std::find(uses.begin(), uses.end(), wanted) == uses.end())
 			uses.push_back(wanted);
 	}
-	for (size_t i = 0; i < g_services.size(); i++) {
-		if (g_services[i].name != wanted) continue;
-		if (g_services[i].plugin < 0) return -1;
-		return g_services[i].hash == hash ? (int32_t)i : -2;
+
+	int service = ServiceOf(wanted);
+	int listed = FindPlugin(wanted);
+	if (service < 0 && listed >= 0 && g_plugins[listed].state == PLUGIN_WAITING) {
+		LoadEntry(listed);
+		service = ServiceOf(wanted);
 	}
-	return -1;
+	// Its owner still loading: its top level called a module of the plugin it loaded.
+	int owner = service >= 0 ? g_services[service].plugin : listed;
+	if (owner >= 0 && g_plugins[owner].state == PLUGIN_LOADING && user >= 0 && (size_t)user < g_plugins.size()) {
+		std::vector<std::string> &told = g_plugins[user].toldLoading;
+		if (std::find(told.begin(), told.end(), wanted) == told.end()) {
+			told.push_back(wanted);
+			const char *from = g_plugins[user].name.c_str(), *by = g_plugins[owner].name.c_str();
+			MF_PrintSrvConsole("[amxts] %s and %s call each other's modules as they load: %s's calls to %s answer nothing until %s has loaded\n",
+			                   by, from, from, wanted.c_str(), by);
+			MF_Log("%s and %s call each other's modules as they load: %s's calls to %s answer nothing until %s has loaded",
+			       by, from, from, wanted.c_str(), by);
+		}
+	}
+	if (service < 0)
+		return -1;
+	return g_services[service].hash == hash ? service : -2;
 }
 
 // What a request is, its first four bytes - as/remote.ts's KIND_*.
@@ -4991,6 +5037,27 @@ static bool FileState(const char *path, time_t *stamp, long *size)
 	return found;
 }
 
+/**
+ * Whether the file at `path` has changed since `file` was taken, and the
+ * change has settled: two looks in a row, a tenth of a second apart, found
+ * its time and size alike - an upload writes a file in pieces. Its time and
+ * size then in `stamp` and `size`, for the caller to take.
+ */
+static bool Settled(Watched &file, const char *path, time_t *stamp, long *size)
+{
+	if (!FileState(path, stamp, size) || (*stamp == file.stamp && *size == file.size)) {
+		file.seenSize = -1;
+		return false;
+	}
+	if (*stamp != file.seenStamp || *size != file.seenSize) {
+		file.seenStamp = *stamp;
+		file.seenSize = *size;
+		return false;
+	}
+	file.seenSize = -1;
+	return true;
+}
+
 /** When a file was last written, or 0 if it cannot be read. */
 static time_t FileStamp(const char *path)
 {
@@ -5787,7 +5854,7 @@ static bool LoadPlugin(int index)
 {
 	const std::string name = g_plugins[index].name;
 	const std::string path = g_plugins[index].path;
-	FileState(path.c_str(), &g_plugins[index].stamp, &g_plugins[index].size);
+	FileState(path.c_str(), &g_plugins[index].disk.stamp, &g_plugins[index].disk.size);
 
 	// A file the loader thread has read, and loaded, already.
 	Plugin &entry = g_plugins[index];
@@ -5858,6 +5925,7 @@ static bool LoadPlugin(int index)
 	static int32_t runs = 0;
 	g_plugins[index].run = ++runs;
 	g_plugins[index].toldGone = false;
+	g_plugins[index].toldLoading.clear();
 
 	// 64 KB of stack, and no app heap at all.
 	//
@@ -6019,37 +6087,38 @@ static int FindPlugin(const std::string &wanted)
 	return -1;
 }
 
-/**
- * A new entry, not loaded yet, for `line`: a plugin's file in plugins/ beside
- * the list - for a .ts, the .aot of its name, which a build of it makes. Its
- * index.
- */
+/** The file of the plugin `line` names, in plugins/ beside the list: for a .ts, the .aot of its name, which a build of it makes. */
+static std::string PluginPath(const std::string &line)
+{
+	std::string file = EndsWith(line, ".ts") ? Stem(line) + ".aot" : line;
+	return MF_BuildPathname("%s/plugins/%s", ListHome().c_str(), file.c_str());
+}
+
+/** A new entry, not loaded yet, for `line`. Its index. */
 static int AddPlugin(const std::string &line, bool listed)
 {
-	const std::string home = ListHome();
-	std::string file = EndsWith(line, ".ts") ? Stem(line) + ".aot" : line;
-
 	Plugin p;
 	p.name = line;
 	p.listed = listed;
-	p.path = MF_BuildPathname("%s/plugins/%s", home.c_str(), file.c_str());
+	p.path = PluginPath(line);
 	g_plugins.push_back(p);
 	return (int)g_plugins.size() - 1;
 }
+
+// The plugin list as it was last read (ReadList), for the watcher.
+static Watched g_list;
 
 /** The lines of the plugin list: a file of plugins/ each, without blanks and comments. */
 static std::vector<std::string> ReadList()
 {
 	std::vector<std::string> lines;
 	std::string listPath = MF_BuildPathname("%s", ListFile().c_str());
+	FileState(listPath.c_str(), &g_list.stamp, &g_list.size);
 	FILE *f = fopen(listPath.c_str(), "r");
 	if (!f) {
 		MF_PrintSrvConsole("[amxts] no plugin list at %s\n", listPath.c_str());
 		return lines;
 	}
-
-	if (HasOwnList())
-		MF_PrintSrvConsole("[amxts] plugin list %s\n", listPath.c_str());
 
 	char line[256];
 	while (fgets(line, sizeof(line), f)) {
@@ -6067,7 +6136,8 @@ static std::vector<std::string> ReadList()
 }
 
 /**
- * Loads the plugins of the list, in its order, then those amxts_load added.
+ * Loads the plugins of the list, in its order, then those amxts_load added -
+ * a module's owner earlier, as soon as a plugin calls its module (w_owner).
  * `before` is the entries a reload of every plugin let go, whose commands it
  * keeps: a plugin unloaded stays unloaded, one loaded by hand comes back.
  *
@@ -6080,6 +6150,8 @@ static std::vector<std::string> ReadList()
  */
 static void LoadScripts(const PluginList &before = PluginList())
 {
+	if (HasOwnList())
+		MF_PrintSrvConsole("[amxts] plugin list %s\n", MF_BuildPathname("%s", ListFile().c_str()));
 	std::vector<std::string> lines = ReadList();
 	for (size_t i = 0; i < lines.size(); i++)
 		AddPlugin(lines[i], true);
@@ -6088,16 +6160,18 @@ static void LoadScripts(const PluginList &before = PluginList())
 		if (!before[i].listed && Named(g_plugins, before[i].name) < 0)
 			AddPlugin(before[i].name, false);
 
-	g_loadingAll = true;
-	for (size_t i = 0, count = g_plugins.size(); i < count; i++) {
-		if (g_plugins[i].state != PLUGIN_WAITING)
-			continue;
+	// Before any of them loads: a module's owner unloaded by hand stays so
+	// when a plugin before it calls its module (w_owner).
+	for (size_t i = 0; i < g_plugins.size(); i++) {
 		int was = Named(before, g_plugins[i].name);
 		if (was >= 0 && before[was].state == PLUGIN_UNLOADED)
 			g_plugins[i].state = PLUGIN_UNLOADED;
-		else
-			LoadEntry((int)i);
 	}
+
+	g_loadingAll = true;
+	for (size_t i = 0, count = g_plugins.size(); i < count; i++)
+		if (g_plugins[i].state == PLUGIN_WAITING)
+			LoadEntry((int)i);
 	g_loadingAll = false;
 }
 
@@ -6238,12 +6312,17 @@ static int PluginFor(const std::string &wanted)
 
 /**
  * Loads these plugins in place, then tells them the server is up - unless
- * LoadScripts is loading every plugin: they hear it with the rest then.
+ * LoadScripts is loading every plugin: they hear it with the rest then. Each
+ * is waiting until it loads, so one a plugin before it loaded as its module's
+ * owner (w_owner) loads once.
  */
 static void StartPlugins(const std::vector<int> &plugins)
 {
-	for (size_t i = 0; i < plugins.size(); i++)
-		LoadEntry(plugins[i]);
+	for (int index : plugins)
+		g_plugins[index].state = PLUGIN_WAITING;
+	for (int index : plugins)
+		if (g_plugins[index].state == PLUGIN_WAITING)
+			LoadEntry(index);
 	if (g_loadingAll)
 		return;
 	for (size_t i = 0; i < plugins.size(); i++)
@@ -6256,12 +6335,8 @@ static void StartPlugins(const std::vector<int> &plugins)
  * amxts_load or the map changes. A plugin whose module others call stays:
  * they hold handles and functions of it.
  */
-static void UnloadOne(const std::string &wanted)
+static void Unload(int index)
 {
-	int index = PluginFor(wanted);
-	if (index < 0)
-		return;
-
 	const std::string name = g_plugins[index].name;
 	if (g_plugins[index].state != PLUGIN_RUNNING) {
 		MF_PrintSrvConsole("[amxts] %s is not running\n", name.c_str());
@@ -6281,6 +6356,13 @@ static void UnloadOne(const std::string &wanted)
 	ReleasePlugin(index);
 	g_plugins[index].state = PLUGIN_UNLOADED;
 	MF_PrintSrvConsole("[amxts] unloaded %s\n", name.c_str());
+}
+
+static void UnloadOne(const std::string &wanted)
+{
+	int index = PluginFor(wanted);
+	if (index >= 0)
+		Unload(index);
 }
 
 /**
@@ -6442,6 +6524,9 @@ static void ReloadOne(const std::string &wanted)
  * is read and loaded on the loader thread meanwhile (PreloadAll), with the
  * files of the plugins that call its module, so the frame that swaps them in
  * (SwapIn) holds the game only for their start.
+ *
+ * The plugin list is watched the same way (ListChanged): a line added loads
+ * its plugin, a line removed unloads it.
  */
 static void WatchPlugins();
 
@@ -6571,25 +6656,33 @@ static int32_t w_pawnPluginPause(wasm_exec_env_t env, int32_t file, int32_t on)
 // ---------------------------------------------------------------- the loader thread
 
 /**
- * A changed .aot, or one of a plugin that calls its module, that the loader
- * thread reads and loads while the plugins run on, for the frame to swap in
- * (WatchPlugins). It names its plugin rather than indexing it: a reload of
- * every plugin or a map's end may replace the entries meanwhile.
+ * A changed .aot, one of a plugin that calls its module, or one of a line
+ * added to the list, that the loader thread reads and loads while the
+ * plugins run on, for the frame to swap in (WatchPlugins). It names its
+ * plugin rather than indexing it: a reload of every plugin or a map's end may
+ * replace the entries meanwhile.
  *
  * wasm_runtime_load is safe beside the game thread's calls: WAMR allocates
  * with the C library's malloc (OnAmxxAttach), keeps no list of modules
  * without multi-module, and reads the natives registered once at attach.
  */
+enum PreloadKind {
+	PRELOAD_CHANGED,
+	// A plugin that calls a changed one's module, and starts over with it.
+	PRELOAD_DEPENDENT,
+	// A line added to the list, which has no entry until it is swapped in.
+	PRELOAD_ADDED,
+};
+
 struct Preload {
 	std::string    name;
 	std::string    path;
-	time_t         stamp;
-	long           size;
+	time_t         stamp = 0;
+	long           size = 0;
+	PreloadKind    kind = PRELOAD_CHANGED;
 	unsigned char *file = NULL;
 	size_t         got = 0;
 	wasm_module_t  module = NULL;
-	// A plugin that calls a changed one's module, and starts over with it.
-	bool           dependent = false;
 };
 
 // The thread's while it runs; the game thread's once g_preloaded is set.
@@ -6637,20 +6730,32 @@ static void StopLoader()
 }
 
 /**
- * Reloads the plugins whose files the loader thread is done with, from what
- * it loaded. A file written again since is dropped, for the watcher to see
- * anew, and so is one whose plugin was unloaded, or a changed one loaded
- * from disk by a command meanwhile.
+ * Starts the plugins of the lines added to the list, then reloads the
+ * plugins whose files changed, from what the loader thread loaded. A changed
+ * file written again since is dropped, for the watcher to see anew, and so is
+ * one whose plugin was unloaded, or loaded from disk by a command meanwhile;
+ * an added plugin loads from disk then, unless a command loaded it.
  */
 static void SwapIn()
 {
 	g_loader.join();
-	std::vector<int> changed, taken;
+	std::vector<int> added, changed, taken;
 	for (Preload &l : g_preloads) {
 		int index = Named(g_plugins, l.name);
+		if (l.kind == PRELOAD_ADDED) {
+			if (index >= 0 && (g_plugins[index].state == PLUGIN_RUNNING || g_plugins[index].state == PLUGIN_LOADING)) {
+				DropLoaded(l.file, l.module);
+				continue;
+			}
+			if (index < 0)
+				index = AddPlugin(l.name, true);
+			g_plugins[index].listed = true;
+			added.push_back(index);
+		}
 		time_t now;
 		long size;
-		if (index < 0 || g_plugins[index].state == PLUGIN_UNLOADED || (!l.dependent && g_plugins[index].stamp == l.stamp && g_plugins[index].size == l.size)
+		if (index < 0 || (l.kind != PRELOAD_ADDED && g_plugins[index].state == PLUGIN_UNLOADED)
+		    || (l.kind == PRELOAD_CHANGED && g_plugins[index].disk.stamp == l.stamp && g_plugins[index].disk.size == l.size)
 		    || !FileState(l.path.c_str(), &now, &size) || now != l.stamp || size != l.size) {
 			DropLoaded(l.file, l.module);
 			continue;
@@ -6660,20 +6765,79 @@ static void SwapIn()
 		p.nextSize = l.got;
 		p.nextModule = l.module;
 		taken.push_back(index);
-		if (l.dependent)
+		if (l.kind != PRELOAD_CHANGED)
 			continue;
 		// Taken before the reload, so one that fails to load is not tried again until its file changes.
-		p.stamp = l.stamp;
-		p.size = l.size;
+		p.disk.stamp = l.stamp;
+		p.disk.size = l.size;
 		changed.push_back(index);
 	}
 	g_preloads.clear();
 
+	// Added first: a changed plugin may call the module of one.
+	if (!added.empty())
+		StartPlugins(added);
 	if (!changed.empty())
 		ReloadSome(changed);
 	// What a refused reload, or one that no longer starts a dependent over, left untaken.
 	for (int index : taken)
 		DropLoaded(g_plugins[index].nextFile, g_plugins[index].nextModule);
+}
+
+/**
+ * The plugin list was written: a plugin whose line is gone is unloaded now,
+ * and one whose line is new is read and loaded on the loader thread, to
+ * start at the next look (SwapIn). A line that only moved does nothing.
+ */
+static void ListChanged()
+{
+	std::vector<std::string> lines = ReadList();
+	std::vector<int> gone;
+	for (size_t i = 0; i < g_plugins.size(); i++) {
+		Plugin &p = g_plugins[i];
+		if (!p.listed || std::find(lines.begin(), lines.end(), p.name) != lines.end())
+			continue;
+		p.listed = false;
+		if (p.state == PLUGIN_RUNNING)
+			gone.push_back((int)i);
+		else
+			p.state = PLUGIN_UNLOADED;
+	}
+
+	std::string added;
+	for (const std::string &line : lines) {
+		int index = Named(g_plugins, line);
+		if (index >= 0 && (g_plugins[index].listed || g_plugins[index].state == PLUGIN_RUNNING)) {
+			g_plugins[index].listed = true;
+			continue;
+		}
+		Preload l;
+		l.name = line;
+		l.path = PluginPath(line);
+		l.kind = PRELOAD_ADDED;
+		FileState(l.path.c_str(), &l.stamp, &l.size);
+		g_preloads.push_back(l);
+		added += (added.empty() ? "" : ", ") + line;
+	}
+
+	if (added.empty() && gone.empty())
+		return;
+	MF_PrintSrvConsole("[amxts] %s changed: %s%s%s%s\n", ListFile().c_str(),
+	                   added.empty() ? "" : "loading ", added.c_str(), !added.empty() && !gone.empty() ? "; " : "",
+	                   gone.empty() ? "" : ("unloading " + Names(gone)).c_str());
+	// A plugin goes before the ones whose modules it calls, which stay while it runs.
+	for (bool more = true; more;) {
+		more = false;
+		for (int index : gone)
+			if (g_plugins[index].state == PLUGIN_RUNNING && Dependents(index).empty()) {
+				Unload(index);
+				more = true;
+			}
+	}
+	// What is left stays, and says why.
+	for (int index : gone)
+		if (g_plugins[index].state == PLUGIN_RUNNING)
+			Unload(index);
 }
 
 static void WatchPlugins()
@@ -6685,28 +6849,18 @@ static void WatchPlugins()
 		return;
 	}
 
+	time_t now;
+	long size;
+	if (Settled(g_list, MF_BuildPathname("%s", ListFile().c_str()), &now, &size))
+		ListChanged();
+
 	for (size_t i = 0; i < g_plugins.size(); i++) {
 		Plugin &p = g_plugins[i];
 
 		// An unloaded plugin stays as it is until amxts_load.
-		if (p.state == PLUGIN_UNLOADED)
+		if (p.state == PLUGIN_UNLOADED || !Settled(p.disk, p.path.c_str(), &now, &size))
 			continue;
-
-		time_t now;
-		long size;
-		if (!FileState(p.path.c_str(), &now, &size) || (now == p.stamp && size == p.size)) {
-			p.seenSize = -1;
-			continue;
-		}
-		// A file being written changes between two looks: it is loaded once
-		// two looks in a row find it alike.
-		if (now != p.seenStamp || size != p.seenSize) {
-			p.seenStamp = now;
-			p.seenSize = size;
-			continue;
-		}
 		MF_PrintSrvConsole("[amxts] %s changed on disk\n", p.name.c_str());
-		p.seenSize = -1;
 		Preload l;
 		l.name = p.name;
 		l.path = p.path;
@@ -6718,7 +6872,7 @@ static void WatchPlugins()
 	// The plugins that call a changed one's module start over with it: their
 	// files are read and loaded on the thread too.
 	for (size_t i = 0, changed = g_preloads.size(); i < changed; i++)
-		for (int index : Dependents(Named(g_plugins, g_preloads[i].name))) {
+		for (int index : g_preloads[i].kind == PRELOAD_CHANGED ? Dependents(Named(g_plugins, g_preloads[i].name)) : std::vector<int>()) {
 			const Plugin &p = g_plugins[index];
 			Preload l;
 			if (std::any_of(g_preloads.begin(), g_preloads.end(), [&](const Preload &other) { return other.name == p.name; })
@@ -6726,7 +6880,7 @@ static void WatchPlugins()
 				continue;
 			l.name = p.name;
 			l.path = p.path;
-			l.dependent = true;
+			l.kind = PRELOAD_DEPENDENT;
 			g_preloads.push_back(l);
 		}
 
@@ -8130,7 +8284,7 @@ static const OwnNativeInfo g_ownNatives[] = {
 	{ "precache_model",   n_precacheModel,   NULL },
 	{ "precache_sound",   n_precacheSound,   NULL },
 	{ "precache_generic", n_precacheGeneric, NULL },
-	{ "get_usercmd",      n_getUsercmd,      NULL },
+	{ "get_usercmd",     n_getUsercmd,      NULL },
 	{ "set_usercmd",      n_setUsercmd,      NULL },
 	{ "copy_keyvalue",    n_copyKeyvalue,    NULL },
 	{ "read_logdata",     n_readLogdata,     NULL },
