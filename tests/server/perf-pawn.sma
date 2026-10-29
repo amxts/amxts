@@ -581,4 +581,7 @@ public measure()
 	perf_report("bytes", best(BYTES_READ, id, 1));
 	perf_report("hot path", best(HOT_PATH, id, 1));
 	perf_report("hot path writes", float(g_writes));
+	new alive[MAX_PLAYERS], living;
+	get_players(alive, living, "a");
+	perf_report("hot path players", float(living));
 }

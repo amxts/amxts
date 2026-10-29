@@ -512,7 +512,9 @@ function measure(player: Player) {
 	ours.set("hot path", msBest(() => {
 		writes = hotPath(players);
 	}));
-	return writes;
+	// A bot dies or spawns between Pawn's frame and this one: both sides
+	// compare the writes for each living player.
+	return writes / players.filter(each => each.isAlive).length;
 }
 
 /** Arms TIMERS timers at once, TRIES times, for onTimer to time their firing. */
@@ -576,7 +578,8 @@ function counts(check: Checks, writes: number) {
 	check.expect(pawn.get("commands") ?? -1, "Pawn's handler got every command").toBe(heard);
 	check.expect(choices, "the menu got every choice").toBe(heard);
 	check.expect(pawn.get("choices") ?? -1, "Pawn's menu got every choice").toBe(heard);
-	check.expect(writes, "the hot path wrote as often as Pawn's").toBe(pawn.get("hot path writes") ?? -1);
+	const pawnWrites = (pawn.get("hot path writes") ?? -1) / (pawn.get("hot path players") ?? 0);
+	check.expect(writes, "the hot path wrote to each living player as often as Pawn's").toBe(pawnWrites);
 }
 
 function compare(check: Checks, firstTry: Map<string, number>) {
