@@ -2,7 +2,8 @@
 // held past amxts_slow_ms every few seconds, with another event of its own
 // slow more often: every line after the first names the slowest listener of
 // the call it reports, with its own time, though the lines back off and most
-// slow calls go unsaid - the other event's slow calls in between included.
+// slow calls go unsaid - the other event's slow calls in between included -
+// and though a game hook's walk of its listeners is timed between them.
 // @log [amxts] slow-kz.aot: the listeners of server_frame held the frame
 // @log [amxts] slow-kz.aot: the listeners of plugin_log held the frame
 // @log (amxts_slow_ms 15)
@@ -40,6 +41,11 @@ function holdFrame() {
 	frameAt = performance.now() + 3000;
 	busy(20);
 }
+
+// Two listeners of a hook every player's frame calls: its walk is timed as
+// the frame's is, in calls of its own.
+game.addEventListener("preThink", () => {});
+game.addEventListener("preThink", () => {});
 
 // Two listeners of the game's log, the second 20 ms on a bot's line marked,
 // said once a second.

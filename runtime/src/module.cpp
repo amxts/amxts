@@ -6023,6 +6023,11 @@ static bool LoadPlugin(int index)
 	p.probeAt = ExportedGlobal(inst, "__probeAt");
 	p.probeEnv = ExportedGlobal(inst, "__probeEnv");
 	p.probeUs = ExportedGlobal(inst, "__probeUs");
+	// Reloaded after a walk of it held the frame: its lines go on (Plugin.slow),
+	// so the next one names the slowest as the one before would have.
+	for (const auto &said : p.slow)
+		if (p.probe && said.first.compare(0, 16, "the listeners of") == 0)
+			*p.probe = -1;
 	BindAll(index);
 
 	p.env = wasm_runtime_create_exec_env(inst, 64 * 1024);
