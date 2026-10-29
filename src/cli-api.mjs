@@ -35,6 +35,13 @@ export const version = String(pkg.version);
  */
 export const cliApi = 6;
 
+/**
+ * Whether `build` takes `--against <module file>`: it checks the built
+ * plugins against a server's module. A command asks before it passes it,
+ * since a core without it would build without the check.
+ */
+export const buildAgainst = true;
+
 /** Whether the core runs from a checkout (a .git folder beside it) rather than from npm. */
 export const fromSource = existsSync(join(coreDir, '.git'));
 
@@ -78,7 +85,8 @@ const SCRIPTS = {
  * - `prepare` writes .amxts/tsconfig.json;
  * - `build` builds the plugins and the modules (`--deploy`, `--watch`, and
  *   `--docker`: for the Docker server that mounts the project - no deploy,
- *   Linux only, its console shown);
+ *   Linux only, its console shown; `--against <module file>`: and whether
+ *   that module loads them, see `buildAgainst`);
  * - `check` checks a module package before it is published;
  * - `upgrade` rewrites the project's code to this core's API, listing each change;
  *   `--dry-run` writes nothing, `--report <file>` writes `{ changes, left }` there as JSON

@@ -6,10 +6,11 @@
 // which the module checks before it loads the plugin (abiIdentity, below).
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { moduleAbiOf } from '../src/system.mjs';
 import * as tracked from './tracked-fs';
 
 /**
@@ -154,4 +155,52 @@ export function releaseLine(version: string): string {
 export function abiLine(abi: string): string {
 	const at = abi.indexOf('+');
 	return at < 0 ? abi : `${releaseLine(abi.slice(0, at))}${abi.slice(at)}`;
+}
+
+/**
+ * The imports of a plugin's ABI section that a released lock has not with
+ * that shape, and the release: a core newer than it made them - a checkout
+ * past the release - and a server of that release refuses the plugin.
+ */
+export function unlockedImports(abi: string, lock: string): { release: string; imports: string[] } {
+	const [release = '', ...shapes] = tableLines(lock);
+	const locked = new Set(shapes);
+	return { release, imports: abi.split('\n').slice(1).filter(shape => !locked.has(shape)).map(importName) };
+}
+
+/** What a module file loads plugins of: its ABI and its imports, each with its shape. */
+export interface ModuleAbi {
+	abi: string;
+	shapes: Map<string, string>;
+}
+
+/** A line of the natives table: `add (iiii)i [a1>,v,s,v leaf`. */
+const SHAPE = /^[A-Z_$][\w$.]* \([iF]*\)[iF]?(?: .*)?$/i;
+
+/**
+ * What a module file loads, read off the file as moduleAbiOf reads its ABI:
+ * the natives table it carries (g_nativesTable, runtime/src/embedded.h) is
+ * strings of whole lines, so its shapes are the strings' lines of that form.
+ * Null when the file carries no ABI.
+ */
+export function moduleAbi(file: string): ModuleAbi | null {
+	const abi = moduleAbiOf(file);
+	if (!abi) return null;
+	const lines = readFileSync(file, 'latin1').split(/[\0\n]/).filter(line => SHAPE.test(line));
+	return { abi, shapes: new Map(lines.map(line => [importName(line), line])) };
+}
+
+/**
+ * Why a module refuses a plugin whose ABI section is `abi`, as its AbiFits
+ * decides - another line or ground, an import it has not or has of another
+ * shape - or null when it loads it.
+ */
+export function refusal(abi: string, module: ModuleAbi): string | null {
+	const [identity = '', ...used] = abi.split('\n');
+	if (!identity) return 'it carries no ABI: built by an older amxts';
+	if (abiLine(identity) !== abiLine(module.abi)) return `built for amxts ${identity}, the module is ${module.abi}`;
+	const missing = used.filter(shape => !module.shapes.has(importName(shape))).map(importName);
+	const other = used.filter(shape => module.shapes.get(importName(shape)) !== shape).map(importName).filter(name => !missing.includes(name));
+	const why = [missing.length && `the module has no ${missing.join(', ')}`, other.length && `it was built for another shape of ${other.join(', ')}`].filter(Boolean);
+	return why.length ? why.join('; ') : null;
 }

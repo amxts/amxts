@@ -15,6 +15,7 @@ import { createSocket } from 'node:dgram';
 //   --watch --docker --os linux   that, for the Docker server that mounts the project,
 //                                 with its console's amxts lines (npx amxts dev --docker)
 //   --os windows|linux         the server's system, when AMXTS_SERVER does not say
+//   --against <module file>    and whether that module loads them, before a deploy
 //
 // Every module the plugins use is built too, as its owner plugin - <name>.aot,
 // the module's one instance on the server; one from npm that comes compiled
@@ -37,6 +38,7 @@ import { createSocket } from 'node:dgram';
 // "unknown binary version" (CONTRIBUTING.md builds both from one checkout).
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
+import { ABI_LOCK, ABI_SECTION, moduleAbi, refusal, unlockedImports } from './build-identity';
 import { includePath } from './compile';
 import { compileAll } from './compile-pool';
 import { followConsoles, projectContainers, runCommand } from './docker-server';
@@ -117,6 +119,21 @@ const forDocker = process.argv.includes('--docker');
 
 if (forDocker && deploy) {
 	fail('--docker builds into dist/, which the container reads: there is nothing to deploy.');
+	process.exit(1);
+}
+
+// The line's last release (scripts/abi-lock.ts): an import a plugin uses
+// beyond it is said, since a server of that release refuses the plugin.
+const lockFile = join(CORE_DIR, ABI_LOCK);
+const lock = existsSync(lockFile) ? readFileSync(lockFile, 'utf8') : '';
+
+// --against <file>: a server's module, amxts_amxx_i386.so or .dll, which the
+// built plugins are checked against before anything is deployed.
+const againstAt = process.argv.indexOf('--against');
+const against = againstAt < 0 ? '' : process.argv[againstAt + 1] ?? '';
+const againstAbi = against ? moduleAbi(against) : null;
+if (againstAt >= 0 && !againstAbi) {
+	fail(against ? `--against ${against}: ${existsSync(against) ? 'it is no amxts module' : 'there is no such file'}` : '--against takes a module file: amxts_amxx_i386.so or amxts_amxx.dll');
 	process.exit(1);
 }
 
@@ -513,12 +530,33 @@ async function run(plugins: Target[], verb: string, why = '', sources = sourcesF
 	const built = await compile([...fresh, ...plugins], listed === null, sources);
 	if (!built) return false;
 	writeList(owners);
+	if (!checkBuilt(built)) return false;
 
 	const names = c.bold(built.map(file => file.replace(/\.aot$/, '')).join(', '));
 	const [first, ...rest] = (deploy ? await deployAndReload(built, names) : `${verb} ${names} into ${shown(outDir)}`).split('\n');
 	const time = keepWatching ? `${c.dim(new Date().toLocaleTimeString())} ` : '';
 	log.success([`${time}${why}${first} ${c.dim(`(${since(started)})`)}`, ...rest].join('\n'));
 	return true;
+}
+
+/**
+ * What the built plugins need of a server's module: a line for each that uses
+ * imports the line's last release has not, and with --against, whether that
+ * module loads each - false, with what it lacks, when it refuses one.
+ */
+function checkBuilt(built: string[]): boolean {
+	const refused: string[] = [];
+	for (const file of built) {
+		const name = file.replace(/\.aot$/, '');
+		const abi = aotSection(readFileSync(join(outDir, file)), ABI_SECTION) ?? '';
+		const newer = lock ? unlockedImports(abi, lock) : null;
+		if (newer?.imports.length) log.warn(`${c.bold(name)} uses ${newer.imports.join(', ')}, which amxts ${newer.release} has not: they come from a newer, unreleased core - its server needs a module built with it`);
+		const why = againstAbi && refusal(abi, againstAbi);
+		if (why) refused.push(`  ${c.bold(name)}: ${why}`);
+	}
+	if (refused.length) fail(`${shown(against)} (amxts ${againstAbi!.abi}) would not load ${refused.length} of them:\n${refused.join('\n')}`);
+	else if (againstAbi) log.info(`${shown(against)} (amxts ${againstAbi.abi}) loads them all`);
+	return refused.length === 0;
 }
 
 /**

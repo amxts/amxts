@@ -5502,7 +5502,8 @@ static bool AbiFits(const std::string &abi, std::string *import = NULL)
 /**
  * Whether a plugin is of this module's ABI; when not, one line says so. An
  * import this module does not have is one of a later patch, which the
- * plugin's own version names; an import of another shape means the plugin
+ * plugin's own version names when it is past this module's - else a newer
+ * amxts than this one, unreleased; an import of another shape means the plugin
  * is built again. Otherwise it names the lines when they differ, and the
  * whole identities when only the ground does.
  */
@@ -5519,6 +5520,17 @@ static bool OfThisAbi(const char *name, std::string abi)
 	}
 	if (!import.empty()) {
 		std::string version = abi.substr(0, abi.find('+'));
+		std::string own = AMXTS_ABI;
+		own = own.substr(0, own.find('+'));
+		// A plugin of this module's patch or an earlier one uses imports its
+		// release had, which this module has: one it has not came after that
+		// release, from a core not released yet, and the plugin's version
+		// would name a release that has not got it either.
+		if (atoi(version.c_str() + AbiLine(version).size() + 1) <= atoi(own.c_str() + AbiLine(own).size() + 1)) {
+			MF_PrintSrvConsole("[amxts] %s needs a newer amxts than %s (it uses %s): the server needs the module of the core it was built with\n", name, own.c_str(), import.c_str());
+			g_refusal = "needs a newer amxts than " + own;
+			return false;
+		}
 		MF_PrintSrvConsole("[amxts] %s needs amxts %s or later (it uses %s): npx amxts upgrade\n", name, version.c_str(), import.c_str());
 		g_refusal = "needs amxts " + version + " or later";
 		return false;
