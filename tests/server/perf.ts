@@ -512,9 +512,10 @@ function measure(player: Player) {
 	ours.set("hot path", msBest(() => {
 		writes = hotPath(players);
 	}));
-	// A bot dies or spawns between Pawn's frame and this one: both sides
-	// compare the writes for each living player.
-	return writes / players.filter(each => each.isAlive).length;
+	// A bot dies or spawns between Pawn's frame and this one: each side
+	// counts its living players in the frame of its own writes, as Pawn's does.
+	ours.set("hot path writes", writes);
+	ours.set("hot path players", players.filter(each => each.isAlive).length);
 }
 
 /** Arms TIMERS timers at once, TRIES times, for onTimer to time their firing. */
@@ -568,7 +569,7 @@ function overLimits(): Map<string, number> {
 }
 
 /** What the first try heard and wrote, before a measure is made again. */
-function counts(check: Checks, writes: number) {
+function counts(check: Checks) {
 	const heard = FEW * TRIES;
 	check.expect(resets, "the listener heard every reset").toBe(heard);
 	check.expect(touches, "the touch listener heard every touch").toBe(TRIES * FEW);
@@ -578,8 +579,12 @@ function counts(check: Checks, writes: number) {
 	check.expect(pawn.get("commands") ?? -1, "Pawn's handler got every command").toBe(heard);
 	check.expect(choices, "the menu got every choice").toBe(heard);
 	check.expect(pawn.get("choices") ?? -1, "Pawn's menu got every choice").toBe(heard);
-	const pawnWrites = (pawn.get("hot path writes") ?? -1) / (pawn.get("hot path players") ?? 0);
-	check.expect(writes, "the hot path wrote to each living player as often as Pawn's").toBe(pawnWrites);
+	const living = ours.get("hot path players") ?? 0;
+	const pawnLiving = pawn.get("hot path players") ?? 0;
+	check.expect(living > 0, "the hot path had living players").toBe(true);
+	check.expect(pawnLiving > 0, "Pawn's hot path had living players").toBe(true);
+	const writes = (ours.get("hot path writes") ?? -1) / living;
+	check.expect(writes, "the hot path wrote to each living player as often as Pawn's").toBe((pawn.get("hot path writes") ?? -1) / pawnLiving);
 }
 
 function compare(check: Checks, firstTry: Map<string, number>) {
@@ -614,7 +619,7 @@ server.addServerCommand("amxts_test_perf", async () => {
 	server.command(`amxts_perf_pawn ${player.id}`);
 	await sleep(200);
 	check.expect(pawn.size > 0, "Pawn's results came").toBe(true);
-	const writes = measure(player);
+	measure(player);
 	for (let round = 0; round < TRIES; round++) {
 		server.command("amxts_perf_pawn_timers");
 		await sleep(400);
@@ -636,7 +641,7 @@ server.addServerCommand("amxts_test_perf", async () => {
 	await sleep(100);
 
 	// The counts are the first try's; a measure over its limit is made again.
-	counts(check, writes);
+	counts(check);
 	medianRemainder(check);
 	const firstTry = overLimits();
 	if (firstTry.size > 0 && player.isAlive) {
