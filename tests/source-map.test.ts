@@ -10,7 +10,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
-import { displayName, mapText, parseMap, placeOf, readMap, withSection } from '../scripts/source-map';
+import { bodiesOf, displayName, mapText, parseMap, placeOf, readMap, withSection } from '../scripts/source-map';
 import { compileWasmFile } from '../src/testing/compile';
 
 vi.setConfig({ testTimeout: 300_000, hookTimeout: 300_000 });
@@ -27,42 +27,11 @@ async function compiled(source: string, name: string) {
 	return { wasm, map: readMap(wasm) as PluginMap };
 }
 
-/** Each function body's byte range in the wasm, by its wasm index. */
-function bodies(wasm: Uint8Array, first: number): Map<number, [number, number]> {
-	let at = 8;
-	const u32 = () => {
-		let result = 0;
-		let shift = 0;
-		for (;;) {
-			const byte = wasm[at++];
-			result |= (byte & 0x7F) << shift;
-			if ((byte & 0x80) === 0) return result >>> 0;
-			shift += 7;
-		}
-	};
-	const found = new Map<number, [number, number]>();
-	while (at < wasm.length) {
-		const id = wasm[at++];
-		const size = u32();
-		const end = at + size;
-		if (id === 10) {
-			const count = u32();
-			for (let i = 0; i < count; i++) {
-				const length = u32();
-				found.set(first + i, [at, at + length]);
-				at += length;
-			}
-		}
-		at = end;
-	}
-	return found;
-}
-
 /** The lines the code of the function named `name` maps to in `file`. */
 function linesOf(wasm: Uint8Array, map: PluginMap, name: string, file: string): number[] {
 	const index = map.first + map.functions.indexOf(name);
 	expect(index).toBeGreaterThanOrEqual(map.first);
-	const [start, end] = bodies(wasm, map.first).get(index)!;
+	const { start, end } = bodiesOf(wasm)[index - map.first];
 	const lines = new Set<number>();
 	for (let offset = start; offset < end; offset++) {
 		const place = placeOf(map, offset);
@@ -87,7 +56,7 @@ describe('a plugin\'s map', () => {
 	});
 
 	test('goes into the wasm and comes back the same', () => {
-		const map: PluginMap = { root: '', files: ['plugins/shop.ts'], first: 3, functions: ['buyItem', ''], mappings: 'gBAAA,EAAC' };
+		const map: PluginMap = { root: '', files: ['plugins/shop.ts'], first: 3, functions: ['buyItem', '', '<anonymous>'], mappings: 'gBAAA,EAAC', places: [{ index: 5, file: 'plugins/shop.ts', line: 12 }] };
 		const wasm = withSection(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]), 'amxts.map', mapText(map));
 		expect(readMap(wasm)).toEqual(map);
 		expect(parseMap(mapText({ ...map, root: 'D:/project' })).root).toBe('D:/project');
@@ -102,6 +71,10 @@ describe('a plugin\'s map', () => {
 		expect(map.functions).toContain('Checks.expect<String>');
 		// `descend` calls itself, so it stays a function of its own
 		expect(linesOf(wasm, map, 'descend', 'tests/server/errors.ts')).toEqual([41]);
+		// an arrow, which has no name of its own, by the line its code starts
+		// at: amxts_errors_throw's
+		const arrows = map.places.filter(place => place.file === 'tests/server/errors.ts');
+		expect(arrows.some(place => map.functions[place.index - map.first] === '<anonymous>' && place.line === 50)).toBe(true);
 		expect(map.root).toBe('');
 	});
 

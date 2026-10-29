@@ -26,13 +26,20 @@
 #define STACK_DEPTH   64     // frames read of a failed call
 #define STACK_SHOWN   16     // calls a stack names
 
+/** Where a function the compiler named starts: its wasm index, file and line. */
+struct StackFunctionPlace {
+	uint32_t func;
+	unsigned file, line;
+};
+
 /** A plugin's map, read from its section. */
 struct StackMap {
-	std::string              root;
-	std::vector<std::string> files;
-	uint32_t                 first;
-	std::vector<std::string> functions;
-	std::string              mappings;
+	std::string                     root;
+	std::vector<std::string>        files;
+	uint32_t                        first;
+	std::vector<std::string>        functions;
+	std::string                     mappings;
+	std::vector<StackFunctionPlace> places;   // none in a map built before them
 };
 
 /** A frame: the function's wasm index, and the offset of its call or trap. */
@@ -70,6 +77,15 @@ static bool ReadStackMap(wasm_module_t module, StackMap &map)
 	map.first = first;
 	map.functions.assign(lines.begin() + 4 + files, lines.begin() + 4 + files + count);
 	map.mappings = lines[5 + files + count];
+
+	size_t head = 6 + files + count;
+	unsigned places = 0;
+	if (head < lines.size() && sscanf(lines[head].c_str(), "places %u", &places) == 1)
+		for (size_t i = head + 1; i <= head + places && i < lines.size(); i++) {
+			StackFunctionPlace place;
+			if (sscanf(lines[i].c_str(), "%u %u %u", &place.func, &place.file, &place.line) == 3 && place.file < files)
+				map.places.push_back(place);
+		}
 	return true;
 }
 

@@ -27,7 +27,7 @@ import { ascPath, sourcesFor } from './project';
 import { targetTransforms } from './reapi-events';
 import { ENV_SECTION, envBuild } from './server-env';
 import { sharedModulesBuild } from './shared-modules';
-import { displayName, MAP_SECTION, mapText, pluginMap, withSection } from './source-map';
+import { bodiesOf, displayName, MAP_SECTION, mapText, pluginMap, withSection } from './source-map';
 import { HOST_SYSTEM, TARGET_ABI } from './system';
 
 export interface Plugin {
@@ -68,7 +68,7 @@ export const HOOD_EXPORTS = '__amxts_exports.ts';
  * slowest one, which the module reads and sets (as/facade.ts, __probe):
  * exported, the optimiser does not fold them away.
  */
-export const BASE_EXPORTS = 'import "~/facade";\nexport { __probe, __probeAt } from "~/facade";\n';
+export const BASE_EXPORTS = 'import "~/facade";\nexport { __probe, __probeAt, __probeEnv, __probeUs } from "~/facade";\n';
 
 /**
  * What the module's coroutine scheduler calls, for a plugin that uses
@@ -546,7 +546,7 @@ async function compileWasm(
 	// folder, where the module finds the sources to show a failed line. A
 	// build to ship names none - the machine's folders are not the server's.
 	const root = level === null ? '' : sources.project.dir;
-	return { binary, env: env.entries(), map: pluginMap(sourceMap, file => fileName(sources, plugin.root, file), functions.first, functions.names.map(displayName), root) };
+	return { binary, env: env.entries(), map: pluginMap(sourceMap, file => fileName(sources, plugin.root, file), functions.first, functions.names.map(displayName), bodiesOf(binary), root) };
 }
 
 /**

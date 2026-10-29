@@ -1,13 +1,15 @@
 // A listener that holds the frame past amxts_slow_ms is named in the
 // console and AMX Mod X's log - the plugin, what it listened to, the time -
 // and a plugin slow on every call is said once in a while, not every time.
-// Of several listeners of one event, the line after the first names the slow
-// one, and the lines come further apart while it stays slow.
+// Of several listeners of one event, the time is theirs together; the line
+// after the first adds the slowest and its own time - by its own name when it
+// is given as a function value that takes no event, which the compiler wraps
+// in an adapter - and the lines come further apart while it stays slow.
 // @log [amxts] slow.aot: a timer held the frame
 // @log [amxts] slow.aot: the command amxts_slow_busy held the frame
 // @log [amxts] slow.aot: its async functions and promise reactions held the frame
-// @log [amxts] slow.aot: a listener of server_frame held the frame
-// @log [amxts] slow.aot: holdFrame (a listener of server_frame, 2 of 3) held the frame
+// @log [amxts] slow.aot: the listeners of server_frame held the frame
+// @log (amxts_slow_ms 5); the slowest, holdFrame (2 of 3),
 import { server_exec } from "@amxts/core/natives";
 import { Checks } from "@amxts/core/check";
 
@@ -20,8 +22,9 @@ server.addServerCommand("amxts_test_slow", slow);
 server.addServerCommand("amxts_slow_busy", () => busy(30));
 
 // Three listeners of the frame, the second slow while `holding`.
+const held: () => void = holdFrame;
 server.addEventListener("frame", countFrame);
-server.addEventListener("frame", holdFrame);
+server.addEventListener("frame", held);
 server.addEventListener("frame", () => frames++);
 
 function countFrame() {

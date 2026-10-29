@@ -20,6 +20,10 @@
 //                          then one name a line, by index; an empty name is
 //                          the hood's own frame, which the stack leaves out
 //   mappings               then the source map's own mappings, one line
+//   places <count>         then one function a line, `<index> <file> <line>`:
+//                          where a function the compiler named - an arrow,
+//                          an adapter - starts, its file by its place in
+//                          `files`; a map without the line has none
 //
 // The mappings stay as the source map writes them - base64 VLQ, each segment
 // a byte offset and, when the code there has a place, its file, line and
@@ -44,6 +48,13 @@ interface Mapping {
 	place?: Place | null;
 }
 
+/** Where a function the compiler named starts: its wasm index, file and line. */
+export interface FunctionPlace {
+	index: number;
+	file: string;
+	line: number;
+}
+
 /** A plugin's map, read back. */
 export interface PluginMap {
 	/** The project's folder for a dev build, else empty: the files are relative to it. */
@@ -52,6 +63,13 @@ export interface PluginMap {
 	first: number;
 	functions: string[];
 	mappings: string;
+	places: FunctionPlace[];
+}
+
+/** A function's code in the wasm: its first byte and the one past its last. */
+export interface Body {
+	start: number;
+	end: number;
 }
 
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -112,14 +130,20 @@ function encode(mappings: Mapping[]): { files: string[]; mappings: string } {
 	return { files, mappings: segments.join(',') };
 }
 
+/** Whether a function's name, as a stack shows it, is the compiler's: an arrow's, an adapter's (`~arity|...`). */
+export function compilerNamed(name: string): boolean {
+	return name.startsWith('~') || name.includes('<anonymous>');
+}
+
 /**
  * A plugin's map from asc's source map: each file by `name` - null leaves it
  * out, its code then has no place - and `functions`, by wasm index from
- * `first`. Code the source map gives no place - a call the optimiser made
- * anew, as often as not - is where the code before it is: a frame stops at
- * such calls. A mapping that says what the one before it said goes.
+ * `first`, their code at `bodies`. Code the source map gives no place - a
+ * call the optimiser made anew, as often as not - is where the code before it
+ * is: a frame stops at such calls. A mapping that says what the one before it
+ * said goes.
  */
-export function pluginMap(sourceMap: string, name: (file: string) => string | null, first: number, functions: string[], root = ''): PluginMap {
+export function pluginMap(sourceMap: string, name: (file: string) => string | null, first: number, functions: string[], bodies: Body[], root = ''): PluginMap {
 	const { sources = [], mappings = '' } = sourceMap ? JSON.parse(sourceMap) : {};
 	const kept: Mapping[] = [];
 	let last = '';
@@ -130,7 +154,52 @@ export function pluginMap(sourceMap: string, name: (file: string) => string | nu
 		last = key;
 		kept.push(mapping);
 	}
-	return { root, ...encode(kept), first, functions };
+
+	// A function the compiler named starts at its first mapping with a place.
+	const places: FunctionPlace[] = [];
+	let at = 0;
+	functions.forEach((each, i) => {
+		const body = bodies[i];
+		if (!body || !compilerNamed(each)) return;
+		while (at < kept.length && kept[at].offset < body.start) at++;
+		for (let k = at; k < kept.length && kept[k].offset < body.end; k++) {
+			const place = kept[k].place;
+			if (!place) continue;
+			places.push({ index: first + i, file: place.file, line: place.line });
+			return;
+		}
+	});
+	return { root, ...encode(kept), first, functions, places };
+}
+
+/** The code of each function the wasm defines, by index from the first defined one. */
+export function bodiesOf(wasm: Uint8Array): Body[] {
+	let at = 8;
+	const u32 = () => {
+		let result = 0;
+		let shift = 0;
+		for (;;) {
+			const byte = wasm[at++];
+			result |= (byte & 0x7F) << shift;
+			if ((byte & 0x80) === 0) return result >>> 0;
+			shift += 7;
+		}
+	};
+	while (at < wasm.length) {
+		const id = wasm[at++];
+		const end = u32() + at;
+		// The code section: a function's body after its size.
+		if (id === 10) {
+			return Array.from({ length: u32() }, () => {
+				const size = u32();
+				const start = at;
+				at += size;
+				return { start, end: at };
+			});
+		}
+		at = end;
+	}
+	return [];
 }
 
 /** Where the code at byte `offset` of the wasm came from, or null. */
@@ -177,6 +246,8 @@ export function mapText(map: PluginMap): string {
 		...map.functions,
 		'mappings',
 		map.mappings,
+		`places ${map.places.length}`,
+		...map.places.map(place => `${place.index} ${map.files.indexOf(place.file)} ${place.line}`),
 		'',
 	].join('\n');
 }
@@ -238,5 +309,10 @@ export function parseMap(text: string): PluginMap {
 	const files = lines.slice(3, 3 + fileCount);
 	const [, first, count] = lines[3 + fileCount].split(' ').map(Number);
 	const at = 4 + fileCount;
-	return { root: lines[1].slice('root '.length), files, first, functions: lines.slice(at, at + count), mappings: lines[at + count + 1] };
+	const placeCount = Number(lines[at + count + 2]?.split(' ')[1] ?? 0);
+	const places = lines.slice(at + count + 3, at + count + 3 + placeCount).map((line) => {
+		const [index, file, place] = line.split(' ').map(Number);
+		return { index, file: files[file], line: place };
+	});
+	return { root: lines[1].slice('root '.length), files, first, functions: lines.slice(at, at + count), mappings: lines[at + count + 1], places };
 }

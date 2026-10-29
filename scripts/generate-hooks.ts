@@ -1517,10 +1517,9 @@ export class HookEntry<E, T> {
 	/** An async listener as it was added: \`silent\` holds its wrapper, asyncListener. */
 	source: usize = 0;
 
-	/** @hidden The listener's function in the table, the async one's rather than its wrapper's (__probe). */
-	__listener(): i32 {
-		const fn = this.source || changetype<usize>(this.silent) || changetype<usize>(this.answer);
-		return fn ? load<i32>(fn) : 0;
+	/** @hidden The listener's function value, the async one rather than its wrapper (__probe). */
+	__listener(): usize {
+		return this.source || changetype<usize>(this.silent) || changetype<usize>(this.answer);
 	}
 }
 

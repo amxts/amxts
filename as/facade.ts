@@ -351,6 +351,10 @@ export class __ServerEvent {
 export let __probe: i32 = 0;
 /** @hidden Where that listener is in its list: its place from 1, and the list's length in the high 16 bits. */
 export let __probeAt: i32 = 0;
+/** @hidden That listener's closure variables: for an adapter (`~arity|`), the function it calls. */
+export let __probeEnv: i32 = 0;
+/** @hidden That listener's own time, in microseconds. */
+export let __probeUs: i32 = 0;
 // How long that listener took, in milliseconds.
 let probeMost: f64 = 0;
 // What the listeners timed so far took in all: a listener's own time leaves
@@ -375,10 +379,10 @@ export class __Listeners<T> {
 	private depth: i32 = 0;
 	private holes: bool = false;
 	// The listener a dispatch is timing while the module looks for a slow one
-	// (__probe): its place, -1 for none; its function; when it began; and
-	// probeTotal then.
+	// (__probe): its place, -1 for none; its function value; when it began;
+	// and probeTotal then.
 	private timedAt: i32 = -1;
-	private timedFn: i32 = 0;
+	private timedFn: usize = 0;
 	private timedFrom: f64 = 0;
 	private timedBase: f64 = 0;
 	/** How many listeners there are. */
@@ -447,7 +451,10 @@ export class __Listeners<T> {
 			probeTotal = this.timedBase + spent;
 			if (__probe < 0 || own > probeMost) {
 				probeMost = own;
-				__probe = this.timedFn;
+				// A function value: its slot in the table, then its _env.
+				__probe = load<i32>(this.timedFn);
+				__probeEnv = load<i32>(this.timedFn, 4);
+				__probeUs = <i32>(own * 1000);
 				__probeAt = (this.timedAt + 1) | (this.items.length << 16);
 			}
 		}
@@ -469,9 +476,9 @@ export class __Listeners<T> {
 	}
 }
 
-/** A listener's function in the table: a function value's own, or the one an entry of a list says it is for. */
-function listenerOf<T>(item: T): i32 {
-	if (isFunction<T>()) return load<i32>(changetype<usize>(item));
+/** A listener's function value: the item itself, or the one an entry of a list says it is for. */
+function listenerOf<T>(item: T): usize {
+	if (isFunction<T>()) return changetype<usize>(item);
 	// @ts-ignore: an entry - a hook's, a player change's - names its listener
 	return item.__listener();
 }
@@ -4576,9 +4583,9 @@ class PlayerChangeListener {
 		public make: () => PlayerChangeEvent
 	) {}
 
-	/** @hidden Its listener's function in the table (__probe). */
-	__listener(): i32 {
-		return load<i32>(changetype<usize>(this.listener));
+	/** @hidden Its listener's function value (__probe). */
+	__listener(): usize {
+		return changetype<usize>(this.listener);
 	}
 }
 

@@ -216,6 +216,10 @@ struct SlowSaid {
 	// next line and found again for the one after; empty while none is found.
 	std::string listener;
 	std::string place;
+	// The slowest listener's own time in that call, in ms, -1 for none; and
+	// the time of the whole call it was timed in.
+	double      ms = -1;
+	uint32_t    held = 0;
 };
 
 struct Plugin {
@@ -314,6 +318,11 @@ struct Plugin {
 	// plugin built before.
 	int32_t             *probe = NULL;
 	int32_t             *probeAt = NULL;
+	// That listener's closure variables (__probeEnv): what an adapter of a
+	// function value calls. NULL for a plugin built before.
+	int32_t             *probeEnv = NULL;
+	// Its own time in that call, in microseconds (__probeUs).
+	int32_t             *probeUs = NULL;
 };
 
 /**
@@ -5377,7 +5386,7 @@ static void ReleasePlugin(int index)
 	p.inst = NULL;
 	p.env = NULL;
 	p.hasTable = false;
-	p.closureEnv = p.argumentsLength = p.ambientPlayer = p.tryDepth = p.probe = p.probeAt = NULL;
+	p.closureEnv = p.argumentsLength = p.ambientPlayer = p.tryDepth = p.probe = p.probeAt = p.probeEnv = p.probeUs = NULL;
 	p.playerSlots = 0;
 	p.playerNames = 0;
 	p.title = p.version = p.author = p.description = "";
@@ -6025,6 +6034,8 @@ static bool LoadPlugin(int index)
 	p.tryDepth = ExportedGlobal(inst, "__tryDepth");
 	p.probe = ExportedGlobal(inst, "__probe");
 	p.probeAt = ExportedGlobal(inst, "__probeAt");
+	p.probeEnv = ExportedGlobal(inst, "__probeEnv");
+	p.probeUs = ExportedGlobal(inst, "__probeUs");
 	BindAll(index);
 
 	p.env = wasm_runtime_create_exec_env(inst, 64 * 1024);
@@ -9298,16 +9309,43 @@ static const char *PointName(const HookPoint *point)
 }
 
 /**
- * The name of the function at `slot` of plugin `p`'s table, as the map the
- * plugin carries has it (stack.h); empty without one, and for the hood's own.
+ * The name of the function value at `slot` of plugin `p`'s table, with its
+ * closure variables at `env`, as the map the plugin carries has it
+ * (stack.h); empty without one, and for the hood's own.
+ *
+ * An adapter the compiler made for a function value called with fewer
+ * arguments than it is given (`~arity|...`) is named by the function it
+ * calls, which its `env` holds: a function value is its index in the table,
+ * then its own env. A function the compiler named - an arrow - is named by
+ * where it starts, when the map says; else empty, and the line gives its
+ * place among the listeners.
  */
-static std::string FunctionName(const Plugin &p, int32_t slot)
+static std::string FunctionName(const Plugin &p, int32_t slot, int32_t env)
 {
 	StackMap map;
-	if (!p.hasTable || slot <= 0 || (uint32_t)slot >= p.table.cur_size || !ReadStackMap(p.module, map))
+	if (!p.hasTable || !ReadStackMap(p.module, map))
 		return "";
-	uintptr_t func = ((const uintptr_t *)p.table.elems)[slot];
-	return func >= map.first && func - map.first < map.functions.size() ? map.functions[func - map.first] : "";
+	for (int hops = 0; slot > 0 && (uint32_t)slot < p.table.cur_size && hops < 8; hops++) {
+		uintptr_t func = ((const uintptr_t *)p.table.elems)[slot];
+		if (func < map.first || func - map.first >= map.functions.size())
+			return "";
+		const std::string &name = map.functions[func - map.first];
+		if (name.compare(0, 7, "~arity|") == 0) {
+			if (env <= 0 || !wasm_runtime_validate_app_addr(p.inst, (uint64_t)env, 8))
+				return "";
+			const int32_t *value = (const int32_t *)wasm_runtime_addr_app_to_native(p.inst, (uint64_t)env);
+			slot = value[0];
+			env = value[1];
+			continue;
+		}
+		if (name[0] != '~' && name.find("<anonymous>") == std::string::npos)
+			return name;
+		for (const StackFunctionPlace &place : map.places)
+			if (place.func == func)
+				return "a function at " + map.files[place.file] + ":" + std::to_string(place.line);
+		return "";
+	}
+	return "";
 }
 
 /**
@@ -9319,8 +9357,10 @@ static std::string FunctionName(const Plugin &p, int32_t slot)
  * fired does not: its async functions; `h` is the handler called.
  *
  * A listener the module called itself (Handler.via) is named at once. A walk
- * of several has the plugin time each of them from its next slow call on
- * (Plugin.probe), until one is found, and the next line names the slowest.
+ * of several is said as the listeners' time, which holds the walk and the
+ * garbage collector's steps too: the plugin times each listener from its
+ * next slow call on (Plugin.probe), until one is found, and the next line
+ * adds the slowest one and its own time.
  */
 static void Slow(int index, uint32_t ms, const char *named, const Handler *h)
 {
@@ -9339,22 +9379,27 @@ static void Slow(int index, uint32_t ms, const char *named, const Handler *h)
 	bool listeners = !named && (g_call->chain || (g_firing && g_firing != FIRING_TIMER && g_firing != FIRING_COMMAND));
 
 	bool walk = listeners && !(h && h->via);
+	if (walk)
+		what.replace(0, strlen("a listener of"), "the listeners of");
 
 	SlowSaid &said = p.slow[what];
 	if (listeners && !walk) {
-		said.listener = FunctionName(p, h->viaFn);
+		said.listener = FunctionName(p, h->viaFn, h->viaEnv);
 		said.place = "";
+		said.ms = -1;
 	}
 	else if (walk && p.probe && *p.probe > 0) {
-		said.listener = FunctionName(p, *p.probe);
+		said.listener = FunctionName(p, *p.probe, p.probeEnv ? *p.probeEnv : 0);
 		int32_t at = p.probeAt ? *p.probeAt : 0;
 		char place[32] = "";
 		if (at & 0xFFFF)
-			snprintf(place, sizeof(place), ", %d of %d", at & 0xFFFF, (at >> 16) & 0xFFFF);
+			snprintf(place, sizeof(place), "%d of %d", at & 0xFFFF, (at >> 16) & 0xFFFF);
 		said.place = place;
+		said.ms = p.probeUs ? *p.probeUs / 1000.0 : -1;
+		said.held = ms;
 		// No map to name it by: its place alone.
 		if (said.listener.empty() && !said.place.empty()) {
-			said.listener = "listener" + said.place.substr(1);
+			said.listener = "listener " + said.place;
 			said.place.clear();
 		}
 	}
@@ -9366,9 +9411,19 @@ static void Slow(int index, uint32_t ms, const char *named, const Handler *h)
 		char more[96] = "";
 		if (unsaid > 0)
 			snprintf(more, sizeof(more), " - and %d more such call(s) in the last %d s", unsaid, Whole(since));
-		std::string who = said.listener.empty() ? what : said.listener + " (" + what + said.place + ")";
-		MF_PrintSrvConsole("[amxts] %s: %s held the frame %u ms (amxts_slow_ms %g)%s\n", p.name.c_str(), who.c_str(), ms, g_slowCvar.value, more);
-		MF_Log("%s: %s held the frame %u ms (amxts_slow_ms %g)%s", p.name.c_str(), who.c_str(), ms, g_slowCvar.value, more);
+		std::string who = what, slowest;
+		if (!said.listener.empty() && !walk)
+			who = said.listener + " (" + what + ")";
+		else if (!said.listener.empty()) {
+			char own[32] = "";
+			if (said.ms >= 0)
+				snprintf(own, sizeof(own), ", %.1f ms", said.ms);
+			slowest = "; the slowest, " + said.listener + (said.place.empty() ? "" : " (" + said.place + ")") + own;
+			// The call the slowest was timed in.
+			ms = said.held;
+		}
+		MF_PrintSrvConsole("[amxts] %s: %s held the frame %u ms (amxts_slow_ms %g)%s%s\n", p.name.c_str(), who.c_str(), ms, g_slowCvar.value, slowest.c_str(), more);
+		MF_Log("%s: %s held the frame %u ms (amxts_slow_ms %g)%s%s", p.name.c_str(), who.c_str(), ms, g_slowCvar.value, slowest.c_str(), more);
 		said.listener.clear();
 		said.place.clear();
 	}
