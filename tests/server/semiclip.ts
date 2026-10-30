@@ -97,7 +97,8 @@ async function run() {
 	if (third != null) walker.walksThrough.add(third);
 	const pastDead = await walk(walker, standing, start, false);
 	if (third != null) walker.walksThrough.delete(third);
-	check.expect(pastDead > AHEAD + 32, `a dead player stops nobody (${Math.round(pastDead)} units)`).toBe(true);
+	check.expect(standing.isAlive, `the other one is dead (${standing.health} health)`).toBe(false);
+	check.expect(pastDead > AHEAD + 32, `a dead player stops nobody (${Math.round(pastDead)} units, a third player ${third != null})`).toBe(true);
 
 	walker.walksThrough.add(standing);
 	check.expect(walker.walksThrough.size, "the pair is counted").toBe(1);
