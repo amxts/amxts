@@ -174,6 +174,8 @@ The command and the core move together this time: every task of the command runs
 
 > [!NOTE]
 > A plugin that listens to `clientData`, `visibility`, reads `cmdStart`'s fields, makes a `UserMessage`, or uses `server.keep`, `server.kept`, `server.precached`, `player.walksThrough`, `server.walkThroughLook` or `entityState`'s `solid` does not load on an older module. Put the 0.3.3 module on the server with the plugin.
+>
+> A project's own 0.3.2 command, run as `npx amxts upgrade` before the command was updated, installs the 0.3.3 core and then stops with "speaks cli-api 6": run `npx amxts upgrade` once more, and the 0.3.3 command it installed finishes the upgrade.
 
 ### 👉 Changelog
 
@@ -201,6 +203,7 @@ The command and the core move together this time: every task of the command runs
 - **api:** Players walk through each other ([55c0183](https://github.com/amxts/amxts/commit/55c0183))
 - **api:** A partner not drawn is no target ([511c34c](https://github.com/amxts/amxts/commit/511c34c))
 - **api:** WalksThrough as a Set, the look as an object ([091d957](https://github.com/amxts/amxts/commit/091d957))
+- **upgrade:** Imports of @amxts/resemiclip become @amxts/semiclip ([4a8d82a](https://github.com/amxts/amxts/commit/4a8d82a))
 
 ### 🩹 Fixes
 
@@ -265,6 +268,7 @@ The command and the core move together this time: every task of the command runs
 - A plugin out of memory, a command's words ([4f59687](https://github.com/amxts/amxts/commit/4f59687))
 - `plugins.ini` order and watch, dictionaries read again ([c9d7b1f](https://github.com/amxts/amxts/commit/c9d7b1f))
 - **players:** Dead players pass only while a pair is set ([1203a8b](https://github.com/amxts/amxts/commit/1203a8b))
+- The semiclip module by its new name ([e7f9848](https://github.com/amxts/amxts/commit/e7f9848))
 
 ### ❤️ Contributors
 
