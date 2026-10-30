@@ -32,8 +32,12 @@ async function run() {
 		return;
 	}
 
-	bot.command(`say "${TEXT}"`);
-	for (let waits = 0; waits < 10 && line.length == 0; waits++) await sleep(50);
+	// The game says one chat line of a player in a moment, and a bot's own
+	// chatter may take it: say it again.
+	for (let tries = 0; tries < 3 && line.length == 0; tries++) {
+		bot.command(`say "${TEXT}"`);
+		for (let waits = 0; waits < 10 && line.length == 0; waits++) await sleep(50);
+	}
 
 	const dead = line.endsWith(" (dead)");
 	check.expect(line.endsWith(`say "${TEXT}"${dead ? " (dead)" : ""}`), `the line is heard whole (${line})`).toBe(true);
