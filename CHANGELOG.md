@@ -1,5 +1,270 @@
 # Changelog
 
+## v0.3.3
+
+> v0.3.3 is a patch release of the 0.3 line. Plugins built with 0.3.0, 0.3.1 and 0.3.2 load on its module as they are; the new events need the 0.3.3 module, which `npx amxts upgrade` puts on your server.
+
+### 📣 Some news
+
+#### 👁️ What each player is sent
+
+Since 0.3, `entityState` changes what one player sees of an entity. 👉 **0.3.3 opens the rest of what the server sends a player each frame**: what his own client is told about him (`clientData`), where the server looks from to pick what he is sent (`visibility`), and the move command his client sent (`cmdStart`). Each is written for one player alone, and a server with no listener pays nothing for it.
+
+```ts
+game.addEventListener("clientData", (event) => {
+	if (event.player.flags.includes("onGround")) return;
+	event.maxSpeed = 200;                    // his client predicts him slower in the air
+});
+
+const replays = new Map<number, number[]>();  // where the replay each player watches is, by id
+
+game.addEventListener("visibility", (event) => {
+	const point = replays.get(event.player.id);
+	if (point != null) event.addOrigin(point);   // he is sent the walls and doors around it too
+});
+```
+
+A plugin that shows a player a place his own eyes are far from - a replay, a rewind, a camera - can now send him that place, and freeze or slow what he sees there without touching anyone else.
+
+#### 🧯 An error is never silent
+
+A `throw` in a listener that your own code reached - a command run with `server_exec`, a forward emitted, a player kicked - from inside a `try` or an `async` function ended that listener without a word, and landed in your code instead: a `catch` got it, an `await` rejected with it, and the rest of the function never ran. 👉 **In 0.3.3 a listener is a call of its own wherever it starts from**, as a listener of `dispatchEvent` is in JavaScript: its error ends that listener alone, the console names it, and your code goes on.
+
+And every error a plugin hits now goes to AMX Mod X's log too (`addons/amxmodx/logs`), not only to the server console: a host's panel often keeps no console, and the log is what you send us when something breaks.
+
+#### 🚶 Players walk through each other, with nothing else on the server
+
+Semiclip needed a module of its own beside AMX Mod X, ReSemiclip, and the official `resemiclip` module only passed it bit masks. 👉 **In 0.3.3 the core does it itself**: two players you pair walk through each other, their clients predict it without a jolt, and one who comes close can turn see-through or vanish from your view. It all runs in the module, with no call into your plugin per pair, and a server with no pair pays nothing.
+
+```ts
+game.addEventListener("spawn", ({ player }) => {
+	for (const mate of server.players) if (mate.team == player.team) player.walksThrough.add(mate);
+}, true);
+
+server.walkThroughLook.fadeDistance = 250;   // closer than this a partner is see-through...
+server.walkThroughLook.opacity = 0.4;        // ...this opaque right next to you
+server.walkThroughLook.hideDistance = 48;    // and closer than this, not drawn at all
+```
+
+A partner's grenade passes through you too, and on ReGameDLL he does not shield you from a flash. The official `resemiclip` module moves onto it in its next release, and then needs nothing but amxts.
+
+### 👀 Highlights
+
+#### 🔪 A weapon's look in his hands
+
+One view model can hold several looks of a weapon as body groups - a knife with several finishes. `weapon.viewBody` picks the one his hands show, and a spectator watching him through his eyes sees the same:
+
+```ts
+game.addEventListener("defaultDeploy", (event) => {
+	if (event.weapon.classname != "weapon_knife") return;
+	event.viewModel = "models/myplugin/v_knife.mdl";
+	event.weapon.viewBody = 2;               // the third finish of the model
+});
+```
+
+#### 🎞️ An entity's animation, for one player
+
+`entityState` has the model's animation: `sequence`, `gaitSequence`, `frame`, `frameRate`, `animTime` and `ducking`. A `frameRate` of `0` holds a model in one pose for one player while the others see it move.
+
+#### 🕹️ The move command
+
+A `cmdStart` listener reads and writes the command the game moves a player by: `forward`, `side`, `up`, `msec`, `buttons`, `angles` and `impulse`, with the names `bot.move` takes.
+
+```ts
+server.addEventListener("cmdStart", (event) => {
+	// A side speed the strafe keys did not give is taken away.
+	if (event.side != 0 && !event.buttons.includes("moveLeft") && !event.buttons.includes("moveRight")) event.side = 0;
+});
+```
+
+The fake server runs it too: `server.runCommand(player, command)`, and `server.sendVisibility(player)` for the `visibility` listeners.
+
+#### ✉️ A message of your own
+
+A plugin can now send its own message - to a client-side mod of yours, say - by name, as the game sends its own:
+
+```ts
+const jump = new UserMessage("MyJump");          // registered when the plugin starts
+
+jump.byte(1).coord(distance).text(player.name).send(player);   // one player
+jump.byte(2).sendAll();                                         // everyone
+```
+
+`get_user_msgid`, `message_begin` and `register_message` know it, in Pawn plugins too, and it keeps its id on every map.
+
+#### 🎨 Sprays, sparks and other temporary effects
+
+The game's temporary effects - a spray on a wall, sparks, a beam - are the `tempEntity` message: `type` is the effect's `TE_*` number and `source` what made it, the spray can (whose `owner` is the player) or the player whose move made it. And any message can now go to some players only, with `recipients`:
+
+```ts
+server.addMessageListener("tempEntity", (event) => {
+	const maker = event.source?.owner ?? 0;   // a spray can's player
+	if (hidden.has(maker)) event.recipients = server.players.filter(player => !hidesOthers.has(player.id));
+});
+```
+
+#### ⚡ Faster builds, and Node is all you need
+
+A plugin that awaits is no longer compiled twice, the compiles run side by side as far as the machine's memory allows, and every task of the `amxts` command - `build`, `dev`, `prepare`, `check`, `upgrade` - runs on Node, in far less memory. A save in `amxts dev` rebuilds a large plugin several times faster than in 0.3.2. A project no longer installs Bun: Node 24 is all it needs. `amxts build` writes the same files byte for byte.
+
+#### 🔁 An upload restarts only its plugin
+
+Uploading a plugin's `.aot` to a running server restarts that plugin and the plugins that use its module - not every plugin - and the files are read and prepared while the game runs, so the players do not feel it. A plugin can carry what it holds across that restart:
+
+```ts
+let run = server.kept<Uint8Array>("run") ?? new Uint8Array(0);   // what the previous run kept
+server.addEventListener("end", () => server.keep("run", run));
+```
+
+#### 📋 plugins.ini on a live server
+
+A line added to `plugins.ini` loads its plugin, and a line taken out unloads it, with no restart and no command - a server without rcon included. A shared module's plugin loads before the plugins that use it wherever its line is, so a module listed last no longer loses every call its users make as they start ([b32d173](https://github.com/amxts/amxts/commit/b32d173)). And a dictionary uploaded after its plugin is read again as soon as it lands, not at the next map ([8ea5dde](https://github.com/amxts/amxts/commit/8ea5dde)).
+
+#### 🩺 A server that tells you what holds it
+
+- A listener, timer or command that holds the frame longer than `amxts_slow_ms` (5 ms unless you set it) is named in the console and in AMX Mod X's log, with its plugin and its time - and so is a plugin's async work after an `await`, and an upload's restart of plugins, split into its parts. When several listeners of one event held the frame together, the line says so and names the slowest of them in that very call, with its own time: by the function's name (`trackRuns (3 of 10), 3.1 ms`), or for an arrow by where it starts (`a function at plugins/replay.ts:987 (5 of 10)`). The line comes at once, then while it goes on after 10 s, 20 s, 40 s and so on up to 10 minutes, so a plugin a little over the limit does not fill the log. It prints the server's own `amxts_slow_ms`.
+- `server.precached` counts the models, sounds and files the map has precached, and the log warns as they near the engine's 512 - naming the last file and the plugin.
+- When a plugin's temporary effects fill a player's packet, the log says so, instead of the player silently seeing none of them.
+
+#### 🗄️ A query's rows, several times faster
+
+`JSON.parse` reads its text straight into the type you asked for, with no tree in between, and so a database query's rows - which reach a plugin as JSON - and `fetch`'s answers come several times faster, with far less for the garbage collector. A plugin that reads thousands of rows no longer holds the frame for them. A text that does not fit the type is read the old way, so its error says the same as before.
+
+#### 🛠️ And more
+
+- `concat` takes any number of arguments, as in TypeScript: `a.concat(1, [2, 3], b)`, `s.concat("x", "y")`;
+- `entity.lip`, how far short of its full travel a door, a platform or a button stops;
+- the Storage page says how to add a field to a stored type without breaking the records already saved: declare it optional and read it with a default;
+- a call to a shared module no plugin runs is said in AMX Mod X's log too, once for each module in each load of the plugin ([24d0311](https://github.com/amxts/amxts/commit/24d0311));
+- `amxts build --against amxts_amxx_i386.so` says whether a server's module loads the built plugins, and what it lacks, before an upload; a build names the imports a plugin uses that the last release has not, and the module says "needs a newer amxts than 0.3.2" for one built with an unreleased core.
+
+### 🩹 Important fixes
+
+- A ReHLDS server stopped by its panel, `docker stop` or systemd crashed on the way out and left a core file, and Storage's last second was lost: the module's threads now stop cleanly at exit, the stores are written, and ReHLDS's own stop signal handler - installed broken by `hlds_linux` - is set again correctly ([d5d0cfc](https://github.com/amxts/amxts/commit/d5d0cfc), [9ad9590](https://github.com/amxts/amxts/commit/9ad9590)).
+- An error between `message_begin` and `message_end` left the message open, and the next message - the game's own - could break the server. The message is now ended or dropped and the plugin named ([b082b16](https://github.com/amxts/amxts/commit/b082b16)).
+- A chat line longer than the engine's message - a translation in Georgian, a long name - stopped the server; it is now cut to fit ([ed37111](https://github.com/amxts/amxts/commit/ed37111)).
+- A stored record kept before a field was added lost the class's defaults when the class's constructor takes arguments - a text field came back `null`. Now the default stays, and a record that still cannot be read names the storage, the key and the field ([d7e359e](https://github.com/amxts/amxts/commit/d7e359e)).
+- On Node, `amxts dev` did not see a change to `amxts.config.ts`, `amxts prepare` on Windows wrote no tooltips in another language, and a plugin's test of an HTTPS server with its own certificate failed ([0035d85](https://github.com/amxts/amxts/commit/0035d85), [8dc1435](https://github.com/amxts/amxts/commit/8dc1435), [207f581](https://github.com/amxts/amxts/commit/207f581)).
+- A loop that keeps the index of its best element - the nearest, the smallest, the largest - returned `0` whatever it found, when the comparison was of fractional numbers and the best value was kept in a variable of the loop. A silent wrong answer since 0.3.0 ([259cbbb](https://github.com/amxts/amxts/commit/259cbbb)).
+- A listener's error entered from a `try` or an `async` function was swallowed and cut its caller short ([3b233b4](https://github.com/amxts/amxts/commit/3b233b4)).
+- A plugin's error was printed to the server console only ([e386030](https://github.com/amxts/amxts/commit/e386030)).
+- A plugin whose memory could not grow - on a 32-bit server past about 1 GiB - kept being called with its allocator broken, and flooded the console and the log until the map changed. Now it stops at the next frame with one line that says why and how big its memory is, `amxts_plugins` lists it as `stopped` and shows each running plugin's memory, and `amxts_reload` starts it again ([d68278e](https://github.com/amxts/amxts/commit/d68278e)).
+- A SteamID typed into a console command - `amx_ban STEAM_0:1:123` - reached the command in five words, since the engine splits at `:`; a command's words now keep it whole, `,`, `'` and brackets too ([97ac57a](https://github.com/amxts/amxts/commit/97ac57a)).
+- A `write_*` after a `message_begin` that failed - an id the game does not know, a player who is not there - reached the engine with no message open, and the server stopped. Now the writes and the end are dropped, the begin's error is logged, and the server goes on ([8d4b091](https://github.com/amxts/amxts/commit/8d4b091)).
+- On Windows with an `mp.dll` amxts does not know, `game.restartRound()` and the win check could call the wrong function and crash the server; they now answer `0` and say so once in the console ([d42365d](https://github.com/amxts/amxts/commit/d42365d)).
+- `player.kill()` killed nothing on Valve's game when the player was a bot a plugin had added: the game's kill command turned him down. It now kills any living player on every server, and is recorded as the same suicide ([59e7249](https://github.com/amxts/amxts/commit/59e7249)).
+- `entity.killed(world, 0)` - a death no damage led to - crashed a server running Valve's game ([261f1dd](https://github.com/amxts/amxts/commit/261f1dd)).
+- A plugin's test that set a pair of players walking through each other threw "unsimulated": the fake server answers it now ([1a61470](https://github.com/amxts/amxts/commit/1a61470)).
+
+### ✅ Upgrading
+
+Update the command with your project's package manager, then upgrade:
+
+```sh
+npm install -D @amxts/cli@latest   # pnpm add -D, yarn add -D, bun add -d
+npx amxts upgrade
+```
+
+It moves `@amxts/core` to 0.3.3, builds, and puts the 0.3.3 module on the server in `AMXTS_SERVER`. Another server takes the module from the release and the `.aot` files from your build. Rebuild every plugin: a plugin built with 0.3.2 runs on the new module, but only a rebuilt one gets the fixes of the compiler and of listeners' errors.
+
+The command and the core move together this time: every task of the command runs on Node now, and amxts 0.3.3 drives only a 0.3.3 core, as the 0.3.2 command drives only its own - each says which one to update when they differ. Update the command first, as above, and `upgrade` brings the core to it. A project needs Node 24 and no longer installs Bun.
+
+> [!NOTE]
+> A plugin that listens to `clientData`, `visibility`, reads `cmdStart`'s fields, makes a `UserMessage`, or uses `server.keep`, `server.kept`, `server.precached`, `player.walksThrough`, `server.walkThroughLook` or `entityState`'s `solid` does not load on an older module. Put the 0.3.3 module on the server with the plugin.
+
+### 👉 Changelog
+
+[compare changes](https://github.com/amxts/amxts/compare/v0.3.2...v0.3.3)
+
+### 🚀 Enhancements
+
+- **hooks:** `clientData` event and `weapon.viewBody` ([02e72d7](https://github.com/amxts/amxts/commit/02e72d7))
+- **hooks:** `entityState` animation fields ([e8274b2](https://github.com/amxts/amxts/commit/e8274b2))
+- **hooks:** `clientData` view fields ([8d745f9](https://github.com/amxts/amxts/commit/8d745f9))
+- **events:** `cmdStart` reads the move command ([212b4bb](https://github.com/amxts/amxts/commit/212b4bb))
+- **events:** Visibility moves where a player sees from ([f68f4e3](https://github.com/amxts/amxts/commit/f68f4e3))
+- **events:** Visibility adds points a player sees from ([15d592f](https://github.com/amxts/amxts/commit/15d592f))
+- **messages:** UserMessage, a plugin's own message ([3966558](https://github.com/amxts/amxts/commit/3966558))
+- **server:** A plugin's state across its reload ([0269c89](https://github.com/amxts/amxts/commit/0269c89))
+- **module:** Name a listener that holds the frame ([37dbb6b](https://github.com/amxts/amxts/commit/37dbb6b))
+- **server:** `server.precached` and a warning near the precache room ([1cc0911](https://github.com/amxts/amxts/commit/1cc0911))
+- **module:** Say when a plugin's effects fill a player's packet ([28f31e6](https://github.com/amxts/amxts/commit/28f31e6))
+- **entities:** `entity.lip`, how far a door stops short ([4b4cd68](https://github.com/amxts/amxts/commit/4b4cd68))
+- **messages:** `tempEntity`, and recipients on any message ([7c268db](https://github.com/amxts/amxts/commit/7c268db))
+- **build:** Check plugins against a server's module ([33b37d9](https://github.com/amxts/amxts/commit/33b37d9))
+- **module:** `plugins.ini` order and changes on a live server ([b32d173](https://github.com/amxts/amxts/commit/b32d173))
+- **lang:** A dictionary is read again when it changes ([8ea5dde](https://github.com/amxts/amxts/commit/8ea5dde))
+- **module:** Name the slow listener, repeat the line less often ([40a0354](https://github.com/amxts/amxts/commit/40a0354))
+- **api:** Players walk through each other ([55c0183](https://github.com/amxts/amxts/commit/55c0183))
+
+### 🩹 Fixes
+
+- **compiler:** Concat takes any number of arguments ([8ad933a](https://github.com/amxts/amxts/commit/8ad933a))
+- **hooks:** Windows calls game rules only on a known `mp.dll` ([d42365d](https://github.com/amxts/amxts/commit/d42365d))
+- **hooks:** `viewBody` keeps the client's animation in step ([42e5d2e](https://github.com/amxts/amxts/commit/42e5d2e))
+- **hooks:** A `viewBody` deploy's draw only in hand ([d55b196](https://github.com/amxts/amxts/commit/d55b196))
+- **hooks:** `viewBody` for in-eye spectators ([572c09f](https://github.com/amxts/amxts/commit/572c09f))
+- **hooks:** `viewBody` 0 holds the weapon ([a97d3a4](https://github.com/amxts/amxts/commit/a97d3a4))
+- **hooks:** Keep `viewBody` when an in-eye spectator spawns ([3d4ecbb](https://github.com/amxts/amxts/commit/3d4ecbb))
+- **events:** No usercmd import in plugins that only wait ([fb4a6a9](https://github.com/amxts/amxts/commit/fb4a6a9))
+- **compiler:** Read a kept whole number from its i32 local ([259cbbb](https://github.com/amxts/amxts/commit/259cbbb))
+- **events:** A listener's error ends that listener alone ([3b233b4](https://github.com/amxts/amxts/commit/3b233b4))
+- **module:** A plugin's failure in AMX Mod X's log too ([e386030](https://github.com/amxts/amxts/commit/e386030))
+- **module:** A failed `message_begin` cannot stop the server ([8d4b091](https://github.com/amxts/amxts/commit/8d4b091))
+- **module:** A chat line fits the engine's message ([ed37111](https://github.com/amxts/amxts/commit/ed37111))
+- **package:** Carry the Node hook of the compile workers ([b861dd5](https://github.com/amxts/amxts/commit/b861dd5))
+- **upgrade:** The same order of changes on every system ([acc783e](https://github.com/amxts/amxts/commit/acc783e))
+- **module:** The slow-listener clock without the x87 ([4902bf6](https://github.com/amxts/amxts/commit/4902bf6))
+- **testing:** Fetch trusts a test's own CA on Node ([207f581](https://github.com/amxts/amxts/commit/207f581))
+- **prepare:** Tooltips in another language on Node on Windows ([8dc1435](https://github.com/amxts/amxts/commit/8dc1435))
+- **config:** A changed `amxts.config.ts` read again on Node ([0035d85](https://github.com/amxts/amxts/commit/0035d85))
+- **storage:** A record kept before a field was added reads ([d7e359e](https://github.com/amxts/amxts/commit/d7e359e))
+- **test-server:** A core dump left at the stop is reported ([d4af6e7](https://github.com/amxts/amxts/commit/d4af6e7))
+- **module:** A server stopped by SIGTERM exits without a core dump ([d5d0cfc](https://github.com/amxts/amxts/commit/d5d0cfc))
+- **module:** Storage's last write at exit asks AMX Mod X nothing ([0c88562](https://github.com/amxts/amxts/commit/0c88562))
+- **module:** A ReHLDS server's stop returns from its handler ([9ad9590](https://github.com/amxts/amxts/commit/9ad9590))
+- **module:** `SA_RESTORER` for the Linux build ([d051a07](https://github.com/amxts/amxts/commit/d051a07))
+- **module:** A message a call leaves open is ended for it ([b082b16](https://github.com/amxts/amxts/commit/b082b16))
+- **module:** `amxts_slow_ms` covers async work and reloads ([ff30a71](https://github.com/amxts/amxts/commit/ff30a71))
+- **messages:** Recipients start empty; spray test on plain HLDS ([06928d3](https://github.com/amxts/amxts/commit/06928d3))
+- **commands:** A SteamID comes whole in a command's words ([97ac57a](https://github.com/amxts/amxts/commit/97ac57a))
+- **module:** A plugin out of memory stops ([d68278e](https://github.com/amxts/amxts/commit/d68278e))
+- **modules:** A module with no owner is logged once a load ([24d0311](https://github.com/amxts/amxts/commit/24d0311))
+- **module:** Name the slow listener the author wrote ([6de6665](https://github.com/amxts/amxts/commit/6de6665))
+- **module:** Name the slowest of the call the line says ([7d8e869](https://github.com/amxts/amxts/commit/7d8e869))
+- **module:** Name the slowest again after a reload ([363cc16](https://github.com/amxts/amxts/commit/363cc16))
+- **testing:** Simulate players walking through each other ([1a61470](https://github.com/amxts/amxts/commit/1a61470))
+- **players:** Kill() kills a bot on any server ([59e7249](https://github.com/amxts/amxts/commit/59e7249))
+- **module:** Killed() by the world on Valve's game ([261f1dd](https://github.com/amxts/amxts/commit/261f1dd))
+
+### 🔥 Performance
+
+- **build:** Stop asc early for a plugin that awaits ([45cee0d](https://github.com/amxts/amxts/commit/45cee0d))
+- **build:** Compile with half the free memory ([7703592](https://github.com/amxts/amxts/commit/7703592))
+- **build:** Compile under Node when it is installed ([1d5a557](https://github.com/amxts/amxts/commit/1d5a557))
+- **build:** Build and dev run on Node ([8937b94](https://github.com/amxts/amxts/commit/8937b94))
+- **module:** An upload reloads only its plugin ([7cd7abe](https://github.com/amxts/amxts/commit/7cd7abe))
+- **build:** A dev rebuild of a large plugin without -O3 ([7adde0e](https://github.com/amxts/amxts/commit/7adde0e))
+- **cli:** Every task on Node, and no Bun in a project ([f08a123](https://github.com/amxts/amxts/commit/f08a123))
+- **build:** A dev save starts at the plugin's last wamrc level ([b4acda0](https://github.com/amxts/amxts/commit/b4acda0))
+- **module:** A module owner's upload preloads its users ([0c72980](https://github.com/amxts/amxts/commit/0c72980))
+- **json:** Read `JSON.parse` text straight into T ([bd769dc](https://github.com/amxts/amxts/commit/bd769dc))
+
+### 📖 Documentation
+
+- **storage:** A field added later is optional ([5cdf18a](https://github.com/amxts/amxts/commit/5cdf18a))
+- The core's tests run with npm test, on Vitest ([02af320](https://github.com/amxts/amxts/commit/02af320))
+- The core is built and tested with npm run ([58a1fa2](https://github.com/amxts/amxts/commit/58a1fa2))
+- **time:** Which clock each event sees ([2bb61fb](https://github.com/amxts/amxts/commit/2bb61fb))
+- **install:** A module owner's users are prepared off the frame too ([1d100ab](https://github.com/amxts/amxts/commit/1d100ab))
+- A plugin out of memory, a command's words ([4f59687](https://github.com/amxts/amxts/commit/4f59687))
+- `plugins.ini` order and watch, dictionaries read again ([c9d7b1f](https://github.com/amxts/amxts/commit/c9d7b1f))
+- **players:** Dead players pass only while a pair is set ([1203a8b](https://github.com/amxts/amxts/commit/1203a8b))
+
+### ❤️ Contributors
+
+- Ernest Manukyan ([@kukson777](https://github.com/kukson777))
+
 ## v0.3.2
 
 > v0.3.2 is a patch release of the 0.3 line. Plugins built with 0.3.0 and 0.3.1 load on its module as they are; the new things need the 0.3.2 module, which `npx amxts upgrade` puts on your server.
