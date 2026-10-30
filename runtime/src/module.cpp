@@ -9665,6 +9665,8 @@ void OnAmxxAttach()
 	if (g_pengfuncsTable)
 		g_pengfuncsTable->pfnAlertMessage = AlertMessage;
 	MessageHooks(false);
+	if (g_pengfuncsTable_Post)
+		g_pengfuncsTable_Post->pfnTraceLine = NULL;
 	MF_RegAuthFunc(OnAuthorized);
 	FieldsAttach();
 	HookDrops();

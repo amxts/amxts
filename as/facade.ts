@@ -3890,7 +3890,7 @@ export class WalkThroughLook {
 	get opacity(): number { return _walkLookGet(LOOK_OPACITY); }
 	set opacity(value: number) { _walkLook(LOOK_OPACITY, value); }
 
-	/** Closer than this, in units, a player he walks through is not drawn for him at all; `0` is off. */
+	/** Closer than this, in units, a player he walks through is not drawn for him at all, and his aim, shots and `+use` go through him; `0` is off. */
 	get hideDistance(): number { return _walkLookGet(LOOK_HIDE); }
 	set hideDistance(value: number) { _walkLook(LOOK_HIDE, value); }
 }

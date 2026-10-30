@@ -31,6 +31,14 @@ server.addEventListener("frame", () => {
 	}
 });
 
+/** The player whose aim the game names on his status line, and the one it names: 0 for nobody. */
+let aimer = 0;
+let aimedAt = -1;
+
+server.addMessageListener("statusValue", (event) => {
+	if (event.player?.id == aimer && event.slot == 2) aimedAt = event.value;
+});
+
 server.addServerCommand("amxts_test_semiclip", run);
 
 async function run() {
@@ -53,6 +61,7 @@ async function run() {
 	if (resemiclip) resemiclip_take_control(true);
 	bots.push(walker);
 	bots.push(standing);
+	aimer = walker.id;
 	// A respawn comes about on the bot's own next commands.
 	for (let waited = 0; waited < 3000 && !(walker.isAlive && standing.isAlive); waited += 500) {
 		if (!walker.isAlive) walker.respawn();
@@ -94,6 +103,29 @@ async function run() {
 	await walk(walker, standing, start, true);
 	look.fadeDistance = 0;
 	look.hideDistance = 0;
+
+	// A partner not drawn for him stops none of his lines: the game's own aim,
+	// which names the player under his crosshair, goes on through.
+	// A new round may have put them elsewhere: they are put back, up to three times.
+	const ahead = start.add([Math.cos(yaw * Math.PI / 180) * AHEAD, Math.sin(yaw * Math.PI / 180) * AHEAD, 0]);
+	let drawnAim = -1;
+	for (let tries = 0; tries < 3 && drawnAim != standing.id; tries++) {
+		if (!walker.isAlive) walker.respawn();
+		if (!standing.isAlive) standing.respawn();
+		await sleep(200);
+		walker.origin = start;
+		walker.velocity = [0, 0, 0];
+		standing.origin = ahead;
+		standing.velocity = [0, 0, 0];
+		// A bot's move turns his way, not his view: the game aims along the view.
+		walker.viewAngle = [0, yaw, 0];
+		drawnAim = await aimed(standing.id);
+	}
+	const line = trace.line(walker.eyes, walker.eyes.add(Vector.fromAngles(walker.viewAngle).scale(2048)), { ignore: walker }).entity?.id ?? -1;
+	look.hideDistance = AHEAD * 2;
+	const hiddenAim = await aimed(0);
+	look.hideDistance = 0;
+	check.expect(`${drawnAim == standing.id} ${hiddenAim}`, `the name under his crosshair is not of a partner not drawn for him (named ${drawnAim}, then ${hiddenAim}; standing ${standing.id}, his line meets ${line})`).toBe("true 0");
 
 	standing.walksThrough.delete(walker);
 	check.expect(walker.walksThrough.has(standing), "deleted from either side, the pair is gone").toBe(false);
@@ -175,6 +207,15 @@ async function walk(walker: Player, standing: Player, start: Vector, alive: bool
 		if (aside < 48 && standing.origin.distanceTo(ahead) < 8 && standing.isAlive == alive) return gone;
 	}
 	return gone;
+}
+
+/** Who the game names under the walker's crosshair once it names id, or 2 seconds on: it says so every 0.2 s, when it changes. */
+async function aimed(id: number) {
+	for (let waited = 0; waited < 2000; waited += 100) {
+		if (aimedAt == id) break;
+		await sleep(100);
+	}
+	return aimedAt;
 }
 
 /** A bot of the suite's: YaPB's quota fills the server and gives a slot up a moment after one is taken. */

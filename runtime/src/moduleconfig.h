@@ -50,6 +50,9 @@
 #define FN_DispatchKeyValue DispatchKeyValue
 #define FN_PlaybackEvent PlaybackEvent
 #define FN_InconsistentFile InconsistentFile
+// A player's line past a partner not drawn for him (semiclip.h): in the
+// table from load, as Metamod-R wants, and out of it at attach until a pair.
+#define FN_TraceLine_Post TraceLine_Post
 // What enginehooks.h hears: messages, touches, and fakemeta's functions.
 #define FN_MessageBegin MessageBegin
 #define FN_MessageEnd MessageEnd

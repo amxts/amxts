@@ -8,8 +8,9 @@
 // - AddToFullPack (entitystate.h) sends each partner to him not solid, so his
 //   client predicts no collision either, and draws a partner see-through or
 //   not at all by the distance, with the weapon model he holds;
-// - ShouldCollide lets a partner's grenade through him: every trace asks it,
-//   bullets too, so player against player is left to PM_Move;
+// - TraceLine, after the engine: a line a player traces - his aim, so the
+//   name under his crosshair, his shots, his +use - goes on through a
+//   partner not drawn for him;
 // - ReGameDLL's RadiusFlash_TraceLine lets a flash's line through a partner
 //   of the player it blinds. Without ReGameDLL a partner still blocks it.
 //
@@ -36,10 +37,11 @@ static WalkLook g_walkLooks[CLIENT_SLOTS];
 enum WalkLookField { LOOK_FADE = 0, LOOK_OPACITY = 1, LOOK_HIDE = 2 };
 
 static void StatesAttach(bool on);
-static int ShouldCollide(edict_t *touched, edict_t *other);
 static void FlashLine(re::IHookChain<void, void *, entvars_t *, entvars_t *, Vector &, Vector &, void *> *chain, void *player, entvars_t *inflictor, entvars_t *attacker, Vector &start, Vector &end, void *trace);
 
 typedef re::IHookChainRegistry<void, void *, entvars_t *, entvars_t *, Vector &, Vector &, void *> FlashLineChain;
+
+extern enginefuncs_t *g_pengfuncsTable_Post;
 
 /** ReSemiclip on the server too, said once when a pair is first set. */
 static void SaySemiclipBoth()
@@ -55,8 +57,8 @@ static void SaySemiclipBoth()
 static void WalkersAttach(bool on)
 {
 	StatesAttach(on);
-	if (g_pNewFunctionsTable)
-		g_pNewFunctionsTable->pfnShouldCollide = on ? ShouldCollide : NULL;
+	if (g_pengfuncsTable_Post)
+		g_pengfuncsTable_Post->pfnTraceLine = on ? TraceLine_Post : NULL;
 	if (g_regameChains) {
 		FlashLineChain *chain = (FlashLineChain *)g_regameChains->RadiusFlash_TraceLine();
 		if (on) chain->registerHook(FlashLine, CHAIN_PRIORITY);
@@ -168,6 +170,43 @@ static void WalkThrough(playermove_t *pm)
 	pm->numphysent = kept;
 }
 
+/** Whether `other`, a partner of `viewer`, is too close to him to be drawn. */
+static ALWAYS_INLINE bool HiddenFrom(int viewer, int other)
+{
+	const WalkLook &look = g_walkLooks[viewer];
+	edict_t *host = INDEXENT(viewer);
+	return look.hide && (g_partners[viewer] >> other & 1) && !Ghost(host) && (INDEXENT(other)->v.origin - host->v.origin).Length() < look.hide;
+}
+
+/**
+ * TraceLine, after the engine: a line a player traced that stopped at a
+ * partner not drawn for him is traced again with that partner not solid -
+ * the engine's traces pass a SOLID_NOT entity - as many times as it meets
+ * one; then they are solid again. Players standing in each other are why it
+ * is not traced on from the partner: that line would start in the tracer.
+ */
+ALIGNED_ENTRY void TraceLine_Post(const float *v1, const float *v2, int noMonsters, edict_t *skip, TraceResult *tr)
+{
+	int tracer = skip ? ENTINDEX(skip) : 0;
+	if (tracer < 1 || tracer >= CLIENT_SLOTS || !g_walkLooks[tracer].hide || !g_partners[tracer])
+		RETURN_META(MRES_IGNORED);
+	edict_t *passed[CLIENT_SLOTS];
+	int solid[CLIENT_SLOTS];
+	int count = 0;
+	while (count < CLIENT_SLOTS && tr->pHit) {
+		int hit = ENTINDEX(tr->pHit);
+		if (hit < 1 || hit > gpGlobals->maxClients || !HiddenFrom(tracer, hit))
+			break;
+		passed[count] = tr->pHit;
+		solid[count++] = tr->pHit->v.solid;
+		tr->pHit->v.solid = SOLID_NOT;
+		TRACE_LINE(v1, v2, noMonsters, skip, tr);
+	}
+	for (int i = 0; i < count; i++)
+		passed[i]->v.solid = solid[i];
+	RETURN_META(MRES_IGNORED);
+}
+
 /**
  * AddToFullPack, before the entityState listeners: a partner of `host` -
  * or the weapon model a partner holds - sent to him. False: not sent.
@@ -205,19 +244,6 @@ static bool WalkThroughState(entity_state_t *state, int e, edict_t *ent, edict_t
 		state->renderamt = Whole(state->renderamt * amount / 255);
 	}
 	return true;
-}
-
-/** NEW_DLL_FUNCTIONS' ShouldCollide: a grenade a partner threw goes through him. */
-static ALIGNED_ENTRY int ShouldCollide(edict_t *touched, edict_t *other)
-{
-	int player = ENTINDEX(touched);
-	edict_t *owner = other ? other->v.owner : NULL;
-	if (player < 1 || player > gpGlobals->maxClients || !owner)
-		RETURN_META_VALUE(MRES_IGNORED, 1);
-	int thrower = ENTINDEX(owner);
-	if (thrower < 1 || thrower > gpGlobals->maxClients || !(g_partners[player] >> thrower & 1) || strcmp(STRING(other->v.classname), "grenade"))
-		RETURN_META_VALUE(MRES_IGNORED, 1);
-	RETURN_META_VALUE(MRES_SUPERCEDE, 0);
 }
 
 /**

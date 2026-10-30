@@ -1296,8 +1296,8 @@ export default {
 		ru: `Насколько он непрозрачен вплотную, от \`0\` до \`1\`: к \`fadeDistance\` он становится целым. По умолчанию \`0\`.`,
 	},
 	'WalkThroughLook.hideDistance': {
-		en: `Closer than this, in units, a player he walks through is not drawn for him at all; \`0\` is off.`,
-		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, для него совсем не рисуется; \`0\` — выключено.`,
+		en: `Closer than this, in units, a player he walks through is not drawn for him at all, and his aim, shots and \`+use\` go through him; \`0\` is off.`,
+		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, для него совсем не рисуется, а его прицел, выстрелы и \`+use\` проходят сквозь этого игрока; \`0\` — выключено.`,
 	},
 	'Player.give': {
 		en: `
