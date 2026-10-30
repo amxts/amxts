@@ -91,7 +91,12 @@ async function run() {
 
 	standing.walksThrough.delete(walker);
 	check.expect(walker.walksThrough.has(standing), "deleted from either side, the pair is gone").toBe(false);
+	// A dead player passes everyone while a pair is set: one of the walker's
+	// with a third player keeps it so.
+	const third = server.players.find(player => player.id != walker.id && player.id != standing.id);
+	if (third != null) walker.walksThrough.add(third);
 	const pastDead = await walk(walker, standing, start, false);
+	if (third != null) walker.walksThrough.delete(third);
 	check.expect(pastDead > AHEAD + 32, `a dead player stops nobody (${Math.round(pastDead)} units)`).toBe(true);
 
 	walker.walksThrough.add(standing);
@@ -106,9 +111,13 @@ async function run() {
 	check.done();
 }
 
-/** A yaw the walker has CLEAR units of nothing ahead of, at his eyes and at his knees; -1 for none. */
+/**
+ * A yaw along an axis the walker has CLEAR units of nothing ahead of, at his
+ * eyes and at his knees; -1 for none. Along an axis he meets the other's box
+ * face on: at a slant he would slide along it and round him.
+ */
 function clearWay(walker: Player) {
-	for (let turn = 0; turn < 360; turn += 45) {
+	for (let turn = 0; turn < 360; turn += 90) {
 		const way = new Vector(Math.cos(turn * Math.PI / 180), Math.sin(turn * Math.PI / 180), 0);
 		const knees = walker.origin.subtract([0, 0, 20]);
 		const high = trace.line(walker.eyes, walker.eyes.add(way.scale(CLEAR)), { ignore: walker });
