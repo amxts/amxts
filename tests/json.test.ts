@@ -112,6 +112,82 @@ export function text(): string {
 			].join('|'));
 		});
 
+		test('rows read straight: escaped keys, other keys skipped, null for an optional field, a key given twice', async () => {
+			const { error, text } = await compile(`
+interface Row {
+	map: string;
+	time: number;
+	note?: string;
+	best: number | null;
+}
+export function text(): string {
+	const rows = JSON.parse<Row[]>(\`[
+		{"map":"kz_a","time":1.5,"best":null,"extra":{"deep":[1,"x",{"y":null}]}},
+		{"m\\\\u0061p":"kz_b","note":null,"time":-0,"best":2},
+		{"map":"kz_c","time":3,"best":4,"map":"kz_d"}
+	]\`);
+	return rows.map<string>((row) => \`\${row.map} \${row.time} \${1 / row.time} \${row.note ?? "none"} \${row.best}\`).join("|");
+}
+`, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('kz_a 1.5 0.6666666666666666 none null|kz_b 0 -Infinity none 2|kz_d 3 0.3333333333333333 none 4');
+		});
+
+		test('a number reads as parseFloat reads its text', async () => {
+			const { error, text } = await compile(`
+export function text(): string {
+	const written = ["0.1", "123.456", "1e22", "1.5e-7", "12345678901234567", "3.141592653589793", "9007199254740993", "1e-30", "2.5E+3", "-7.25", "100000000000000000000000"];
+	const read = JSON.parse<number[]>(\`[\${written.join(",")}]\`);
+	let same = read.length == written.length;
+	for (let i = 0; i < written.length; i++) if (read[i] != parseFloat(written[i])) same = false;
+	return \`\${same} \${read[0]} \${read[3]}\`;
+}
+`, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('true 0.1 1.5e-7');
+		});
+
+		test('text that is not a T says why and where, as it does read the slow way', async () => {
+			const { error, text } = await compile(`${TYPES}
+function attempt(text: string): string {
+	try {
+		return "ok " + JSON.parse<Weapon[]>(text).length.toString();
+	} catch (e) {
+		return e.name + ": " + e.message;
+	}
+}
+export function text(): string {
+	let bytes = "";
+	try {
+		JSON.parse<Uint8Array[]>('["AA==", "A*=="]');
+	} catch (e) {
+		bytes = e.message;
+	}
+	return [
+		attempt('[{"name": "a", "ammo": 1}, {"name": 2, "ammo": 1}]'),
+		attempt('[{"name": "a", "ammo": 1}, {"ammo": 1}]'),
+		attempt('[{"name":5,"ammo":1},]'),
+		attempt('[{"name": "a", "ammo": 1}, 7]'),
+		attempt('{"name": "a"}'),
+		attempt('[{"name": "a", "ammo": 1}] x'),
+		attempt('[{"name": "a", "ammo": 1}]'),
+		bytes,
+	].join("|");
+}
+`, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe([
+				'TypeError: JSON: [1].name is a number, text was expected',
+				'TypeError: JSON: [1].name is missing, text was expected',
+				'SyntaxError: Unexpected token ] in JSON at position 21',
+				'TypeError: JSON: [1] is a number, an object was expected',
+				'TypeError: JSON: the value is an object, an array was expected',
+				'SyntaxError: Unexpected token x in JSON at position 27',
+				'ok 1',
+				'JSON: [1] is not base64 text, which a Uint8Array is read from',
+			].join('|'));
+		});
+
 		test('a field the text leaves out keeps its class default, with or without a constructor taking arguments', async () => {
 			const { error, text } = await compile(`
 class Profile {
