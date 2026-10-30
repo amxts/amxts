@@ -41,9 +41,11 @@ game.addEventListener("spawn", ({ player }) => {
 	for (const mate of server.players) if (mate.team == player.team) player.walksThrough.add(mate);
 }, true);
 
-server.walkThroughLook.fadeDistance = 250;   // closer than this a partner is see-through...
-server.walkThroughLook.opacity = 0.4;        // ...this opaque right next to you
-server.walkThroughLook.hideDistance = 48;    // and closer than this, not drawn at all
+server.walkThroughLook = {
+	fadeDistance: 250,   // closer than this a partner is see-through...
+	opacity: 0.4,        // ...this opaque right next to you
+	hideDistance: 48,    // and closer than this, not drawn at all
+};
 ```
 
 One you cannot see is no target either: the name under your crosshair, your shots and `+use` go through him. And on ReGameDLL a partner does not shield you from a flash. The official `resemiclip` module moves onto it in its next release, and then needs nothing but amxts.
@@ -134,6 +136,7 @@ A line added to `plugins.ini` loads its plugin, and a line taken out unloads it,
 
 - `concat` takes any number of arguments, as in TypeScript: `a.concat(1, [2, 3], b)`, `s.concat("x", "y")`;
 - `entity.lip`, how far short of its full travel a door, a platform or a button stops;
+- a class with `values()` and no `length` is walked by `for...of` and `[...]` as a `Set` is - `player.walksThrough` among them;
 - the Storage page says how to add a field to a stored type without breaking the records already saved: declare it optional and read it with a default;
 - a call to a shared module no plugin runs is said in AMX Mod X's log too, once for each module in each load of the plugin ([24d0311](https://github.com/amxts/amxts/commit/24d0311));
 - `amxts build --against amxts_amxx_i386.so` says whether a server's module loads the built plugins, and what it lacks, before an upload; a build names the imports a plugin uses that the last release has not, and the module says "needs a newer amxts than 0.3.2" for one built with an unreleased core.
@@ -197,6 +200,7 @@ The command and the core move together this time: every task of the command runs
 - **module:** Name the slow listener, repeat the line less often ([40a0354](https://github.com/amxts/amxts/commit/40a0354))
 - **api:** Players walk through each other ([55c0183](https://github.com/amxts/amxts/commit/55c0183))
 - **api:** A partner not drawn is no target ([511c34c](https://github.com/amxts/amxts/commit/511c34c))
+- **api:** WalksThrough as a Set, the look as an object ([091d957](https://github.com/amxts/amxts/commit/091d957))
 
 ### 🩹 Fixes
 
