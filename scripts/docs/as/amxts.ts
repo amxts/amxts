@@ -59,6 +59,19 @@ export default {
 			именем — объект, свойство которого плагин присваивает, как \`semiclip.rule = ...\`.
 		`,
 	},
+	'AmxtsModule.standalone': {
+		en: `
+			\`true\` for a module that does its work with no plugin calling it -
+			semiclip's rule for everyone: it is built whenever \`amxts.config.ts\`
+			lists it. Else a module no plugin uses is left out of the build.
+		`,
+		ru: `
+			\`true\` для модуля, который работает без вызовов из плагинов, — правило
+			semiclip для всех: он собирается всякий раз, когда его перечисляет
+			\`amxts.config.ts\`. Иначе модуль, которым не пользуется ни один плагин,
+			в сборку не попадает.
+		`,
+	},
 	'AmxtsModule.setup': {
 		en: `
 			Runs once, in the module's plugin, when the server loads it. Gets the

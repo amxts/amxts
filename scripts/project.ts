@@ -25,6 +25,15 @@
 //     setup(options) { ... },
 //   });
 //
+// A module that does its work with no plugin calling it - semiclip's rule
+// for everyone - says `standalone: true`: it is built whenever the config
+// lists it, as `pawn` keeps a module for Pawn plugins.
+//
+//   export default defineModule({
+//     meta: { name: "semiclip" },
+//     standalone: true,
+//   });
+//
 // The config is read here, at build time, with the build's own TypeScript
 // runtime - it is configuration, not plugin code. A module's definition is
 // read from its source with the TypeScript parser: meta, requires, defaults
@@ -121,6 +130,8 @@ export interface ModuleDefinition {
 	imports: ModuleImport[];
 	/** `defineModule<MenuCoreOptions>`: the type setup's parameter is. */
 	optionsType: string | null;
+	/** `standalone: true`: built whenever the config lists it, whether a plugin uses it or not. */
+	standalone: boolean;
 	hasSetup: boolean;
 }
 
@@ -226,7 +237,7 @@ export function readDefinition(path: string, text = readFileSync(path, 'utf8')):
 	const where = `${path.replace(/\\/g, '/')}: defineModule`;
 	const problems: string[] = [];
 	const [argument] = found.call.arguments;
-	if (!argument || !ts.isObjectLiteralExpression(argument)) throw new Error(`${where} takes an object literal: { meta, requires, defaults, imports, setup }`);
+	if (!argument || !ts.isObjectLiteralExpression(argument)) throw new Error(`${where} takes an object literal: { meta, requires, defaults, imports, standalone, setup }`);
 
 	const definition: ModuleDefinition = {
 		name: null,
@@ -235,6 +246,7 @@ export function readDefinition(path: string, text = readFileSync(path, 'utf8')):
 		defaults: {},
 		imports: [],
 		optionsType: found.call.typeArguments?.[0]?.getText() ?? null,
+		standalone: false,
 		hasSetup: false,
 	};
 
@@ -265,8 +277,11 @@ export function readDefinition(path: string, text = readFileSync(path, 'utf8')):
 				&& named(each).length === 1 && named(each).every(one => typeof one === 'string' && /^[A-Z_$][\w$]*$/i.test(one)));
 			if (!valid) problems.push(`${where} imports: a list of { from, as } or { from, name } - { from: "@you/greeter", as: "greeter" } is the module as a namespace, { from: "@you/greeter", name: "greeter" } its export greeter; plugins use either without an import`);
 			else definition.imports = value as unknown as ModuleImport[];
+		} else if (key === 'standalone') {
+			if (typeof value !== 'boolean') problems.push(`${where} standalone: true or false`);
+			else definition.standalone = value;
 		} else {
-			problems.push(`${where}: "${key}" is not a part of a module - meta, requires, defaults, imports and setup are`);
+			problems.push(`${where}: "${key}" is not a part of a module - meta, requires, defaults, imports, standalone and setup are`);
 		}
 	}
 
@@ -399,7 +414,7 @@ export function readPackage(dir: string): ModulePackage | null {
 	if (library && read) {
 		throw new Error(`${json.name}: a library has no defineModule - no options, no instance on the server; plugins import what it exports. Leave "library": true out to make it a module`);
 	}
-	const definition = read ?? { name: null, configKey: null, requires: [], defaults: {}, imports: [], optionsType: null, hasSetup: false };
+	const definition = read ?? { name: null, configKey: null, requires: [], defaults: {}, imports: [], optionsType: null, standalone: false, hasSetup: false };
 	if (definition.name && definition.name !== short) {
 		throw new Error(`${json.name}: defineModule's meta.name is "${definition.name}" - it is the package's name without the scope, "${short}"`);
 	}
@@ -748,7 +763,8 @@ export function pluginList(project: Project, plugins: string[], modules = shared
  * The modules the project needs on the server, in load order: the ones its
  * plugins import - by hand or through an auto-import, themselves or through
  * the files they import - with what those modules import and require, and
- * the ones `pawn` keeps for Pawn plugins, whose use no build can see.
+ * the ones `pawn` keeps for Pawn plugins, whose use no build can see, and the
+ * ones that work on their own (`standalone`).
  * Without amxts.config.ts every module is in use: a module's own
  * repository, testing itself. A library is never one: it is compiled into
  * the plugins, and what it imports is reached through them.
@@ -756,7 +772,7 @@ export function pluginList(project: Project, plugins: string[], modules = shared
 export function modulesInUse(sources: Sources, plugins: string[]): ModulePackage[] {
 	const { project } = sources;
 	if (!project.config) return shared(project.modules);
-	const used = new Set(project.config.pawn ?? []);
+	const used = new Set([...(project.config.pawn ?? []), ...shared(project.modules).filter(pkg => pkg.definition.standalone).map(pkg => pkg.name)]);
 	const reached = new Set<string>();
 	const reach = (source: string) => sources.reach(join(sources.root, sources.entry(source)), reached);
 	plugins.forEach(reach);

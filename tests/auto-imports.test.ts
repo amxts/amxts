@@ -219,6 +219,21 @@ describe('a project', () => {
 		expect(modulesInUse(sourcesFor(CORE_PLUGINS), [join(dir, 'plugins/welcome.ts')]).map(pkg => pkg.name)).toEqual(['@test/greeter', '@test/counter']);
 	});
 
+	test('a standalone module is built when the config lists it, with no plugin using it', async () => {
+		const dir = project({
+			...GREETER,
+			'modules/solo/package.json': JSON.stringify({ name: '@test/solo', version: '1.0.0', amxts: { module: 'src/index.ts' } }),
+			'modules/solo/src/index.ts': 'export default defineModule({\n\tmeta: { name: "solo" },\n\tstandalone: true,\n\tsetup() {\n\t\tconsole.log("solo is up");\n\t},\n});\n',
+			'amxts.config.ts': 'export default defineConfig({ modules: ["@test/greeter", "@test/solo"] });\n',
+			'plugins/welcome.ts': WELCOME,
+		});
+		setProjectDir(dir);
+		expect(modulesInUse(sourcesFor(CORE_PLUGINS), [join(dir, 'plugins/welcome.ts')]).map(pkg => pkg.name)).toEqual(['@test/greeter', '@test/solo']);
+
+		const server = await setup({ rootDir: dir });
+		expect(server.log).toContain('solo is up');
+	});
+
 	test('an explicit import works as it always has, and a local of the same name wins', async () => {
 		const dir = project({
 			...GREETER,

@@ -42,6 +42,12 @@ declare global {
 		 */
 		imports?: AmxtsModuleImport[];
 		/**
+		 * `true` for a module that does its work with no plugin calling it -
+		 * semiclip's rule for everyone: it is built whenever `amxts.config.ts`
+		 * lists it. Else a module no plugin uses is left out of the build.
+		 */
+		standalone?: boolean;
+		/**
 		 * Runs once, in the module's plugin, when the server loads it. Gets the
 		 * defaults with what `amxts.config.ts` sets under `configKey` on top.
 		 */
