@@ -140,6 +140,9 @@ const userEnv: NodeJS.ProcessEnv = {
 	NPM_CONFIG_REGISTRY: registry,
 	// npx asks before it installs create-amxts: nobody is there to answer.
 	npm_config_yes: 'true',
+	// The catalog the command goes out with: the registry's on GitHub names a
+	// module only once it is on npm, after this test.
+	AMXTS_CATALOG: join(CORE, '../amxts-cli/packages/cli/src/modules.json'),
 };
 
 /** Runs a step, its output to the terminal; a failed one ends the run. */
