@@ -9,6 +9,8 @@ import type { Kind } from './upgrade-names';
 // becomes one by the package's name (`@amxts/core/natives`, `@amxts/core`),
 // and an import of a module package by its place in the build's tree
 // (`~/modules/menu-core`) one by its name: `~/` is the project's own files.
+// An official module that took another name is imported by the new one:
+// `@amxts/resemiclip` is `@amxts/semiclip`.
 // The specifiers are found with the TypeScript parser - imports, exports,
 // `import()` and `declare module` - so a string or a comment that looks like
 // one is left alone, and only the text between the quotes changes. A
@@ -56,13 +58,16 @@ export interface Change {
 /** The facade's own files, whose exports it gives as its own. */
 const FACADE_PARTS = ['entities', 'events', 'flags', 'hooks', 'vector', 'effects', 'fetch'];
 
+/** The official modules that took another name: the old one, the new one. */
+const RENAMED_PACKAGES: Renames = new Map([['@amxts/resemiclip', '@amxts/semiclip']]);
+
 /**
  * What `~/<place>` meant and is now written: the core's entries, the files
  * the facade exports, the modules the project lists. A place the project's
  * plugins folder has a file at is its own, and stays.
  */
 export function renamesFor(modules: { name: string; short: string }[], own: (place: string) => boolean = () => false): Renames {
-	const renames: Renames = new Map();
+	const renames: Renames = new Map(RENAMED_PACKAGES);
 	const add = (place: string, to: string) => {
 		if (!own(`${place}.ts`)) renames.set(`~/${place}`, to);
 	};
@@ -835,7 +840,7 @@ export function upgradeProject(dir: string, { write = true } = {}): { changes: C
 		const text = readFileSync(file, 'utf8');
 		const name = relative(project.dir, file).replace(/\\/g, '/');
 		const http = dropHttpImports(name, text);
-		const imports = http.text.includes('~/') ? upgradeText(name, http.text, renames) : { text: http.text, changes: [] };
+		const imports = http.text.includes('~/') || [...RENAMED_PACKAGES.keys()].some(old => http.text.includes(old)) ? upgradeText(name, http.text, renames) : { text: http.text, changes: [] };
 		const handlers = upgradeHandlers(name, imports.text);
 		// A menu's functions first: `({ player }) =>` says what `player` is, so
 		// the names in their bodies are rewritten rather than listed.

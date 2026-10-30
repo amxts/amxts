@@ -74,6 +74,12 @@ test('every import of the core\'s API and of a module package by ~/ is rewritten
 	expect(upgradeText('plugins/a.ts', text, renamesFor(MODULES)).changes).toEqual([]);
 });
 
+test('an official module that took another name is imported by the new one', () => {
+	const { text, changes } = upgradeText('plugins/a.ts', 'import { semiclip } from "@amxts/resemiclip";\n', renamesFor(MODULES));
+	expect(text).toBe('import { semiclip } from "@amxts/semiclip";\n');
+	expect(changes.map(change => `${change.from} -> ${change.to}`)).toEqual(['@amxts/resemiclip -> @amxts/semiclip']);
+});
+
 test('a place the project\'s plugins folder has a file at is its own', () => {
 	const renames = renamesFor(MODULES, place => place === 'os.ts');
 	expect(upgradeText('a.ts', 'import { EOL } from "~/os";\n', renames).changes).toEqual([]);
