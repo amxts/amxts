@@ -17704,10 +17704,10 @@ index a604397..ae5b814 100644
    lastIndexOf(other: string, fromIndex?: i32): i32;
 diff --git a/std/assembly/json.ts b/std/assembly/json.ts
 new file mode 100644
-index 0000000..572edaf
+index 0000000..0069891
 --- /dev/null
 +++ b/std/assembly/json.ts
-@@ -0,0 +1,1024 @@
+@@ -0,0 +1,1040 @@
 +// amxts: JSON as JavaScript has it, typed. JSON.parse<T>(text) - or
 +// `JSON.parse(text) as T` - builds a T from the text: what T is the compiler
 +// knows, so __jsonRead walks it, field by field for an object
@@ -17738,6 +17738,12 @@ index 0000000..572edaf
 +@inline const ARRAY = 4;
 +// @ts-ignore: decorator
 +@inline const OBJECT = 5;
++
++/** The UTF-16 unit at `at` of `text`, a place inside it: a load, with no check of the place. */
++// @ts-ignore: decorator
++@inline function codeAt(text: string, at: i32): i32 {
++  return <i32>load<u16>(changetype<usize>(text) + (<usize>at << 1));
++}
 +
 +/** @hidden a value of JSON text: what __jsonRead makes a T of. */
 +export class __JsonValue {
@@ -17797,9 +17803,10 @@ index 0000000..572edaf
 +
 +  private space(): void {
 +    let text = this.text;
++    let length = text.length;
 +    let position = this.position;
-+    while (position < text.length) {
-+      let code = text.charCodeAt(position);
++    while (position < length) {
++      let code = codeAt(text, position);
 +      if (code != 0x20 && code != 0x09 && code != 0x0A && code != 0x0D) break;
 +      ++position;
 +    }
@@ -17906,40 +17913,91 @@ index 0000000..572edaf
 +    return value;
 +  }
 +
-+  private digits(): i32 {
-+    let text = this.text;
-+    let start = this.position;
-+    while (this.position < text.length) {
-+      let code = text.charCodeAt(this.position);
-+      if (code < 0x30 || code > 0x39) break;
-+      ++this.position;
-+    }
-+    return this.position - start;
++  /** A SyntaxError at `at`, where a digit was to be. */
++  private noDigit(at: i32): void {
++    this.position = at;
++    this.unexpected();
 +  }
 +
++  /**
++   * A number, in one pass: checked as JSON writes one, and with at most 15
++   * digits and a power of ten up to 22 - nearly every number - it is the
++   * digits times or over the power, rounded once and so exact (Clinger's
++   * fast path); any other is parseFloat's.
++   */
 +  private number(): f64 {
 +    let text = this.text;
++    let length = text.length;
 +    let start = this.position;
-+    if (text.charCodeAt(this.position) == 0x2D) ++this.position;
-+    if (this.position < text.length && text.charCodeAt(this.position) == 0x30) {
-+      ++this.position;
-+    } else if (!this.digits()) {
-+      this.unexpected();
++    let at = start;
++    let negative = codeAt(text, at) == 0x2D;
++    if (negative) ++at;
++    let digits: i64 = 0;
++    let count = 0;
++    let scale = 0;
++    if (at < length && codeAt(text, at) == 0x30) {
++      ++at;
++    } else {
++      let from = at;
++      for (let digit = 0; at < length && <u32>(digit = codeAt(text, at) - 0x30) <= 9; ++at) {
++        digits = digits * 10 + digit;
++        if (digits != 0) ++count;
++      }
++      if (at == from) this.noDigit(at);
 +    }
-+    if (this.position < text.length && text.charCodeAt(this.position) == 0x2E) {
-+      ++this.position;
-+      if (!this.digits()) this.unexpected();
++    if (at < length && codeAt(text, at) == 0x2E) {
++      let from = ++at;
++      for (let digit = 0; at < length && <u32>(digit = codeAt(text, at) - 0x30) <= 9; ++at) {
++        digits = digits * 10 + digit;
++        if (digits != 0) ++count;
++        --scale;
++      }
++      if (at == from) this.noDigit(at);
 +    }
-+    if (this.position < text.length && (text.charCodeAt(this.position) | 0x20) == 0x65) {
-+      ++this.position;
-+      let sign = this.position < text.length ? text.charCodeAt(this.position) : 0;
-+      if (sign == 0x2B || sign == 0x2D) ++this.position;
-+      if (!this.digits()) this.unexpected();
++    if (at < length && (codeAt(text, at) | 0x20) == 0x65) {
++      let sign = ++at < length ? codeAt(text, at) : 0;
++      if (sign == 0x2B || sign == 0x2D) ++at;
++      let from = at;
++      let power = 0;
++      for (let digit = 0; at < length && <u32>(digit = codeAt(text, at) - 0x30) <= 9; ++at) {
++        if (power < 1000) power = power * 10 + digit;
++      }
++      if (at == from) this.noDigit(at);
++      scale += sign == 0x2D ? -power : power;
 +    }
-+    return numberOf(text, start, this.position);
++    this.position = at;
++    if (count > 15 || scale < -22 || scale > 22) return parseFloat(text.substring(start, at));
++    let value = <f64>digits;
++    value = scale < 0 ? value / unchecked(POWERS_OF_TEN[-scale]) : value * unchecked(POWERS_OF_TEN[scale]);
++    return negative ? -value : value;
++  }
++
++  /** Where text from `start` that is plain - no `"`, `\` or control character - ends. */
++  private plainEnd(start: i32): i32 {
++    let text = this.text;
++    let length = text.length;
++    let end = start;
++    while (end < length) {
++      let code = codeAt(text, end);
++      if (code == 0x22 || code == 0x5C || code < 0x20) break;
++      ++end;
++    }
++    return end;
 +  }
 +
 +  private string(): string {
++    let text = this.text;
++    let start = this.position + 1;
++    let end = this.plainEnd(start);
++    if (end < text.length && codeAt(text, end) == 0x22) {
++      this.position = end + 1;
++      return text.substring(start, end);
++    }
++    return this.escaped();
++  }
++
++  /** Text with escapes, from its `"`. */
++  private escaped(): string {
 +    let text = this.text;
 +    ++this.position; // "
 +    let parts: string[] | null = null;
@@ -18133,13 +18191,8 @@ index 0000000..572edaf
 +    if (code != 0x22) this.unexpected();
 +    let text = this.text;
 +    let start = this.position + 1;
-+    let end = start;
-+    while (end < text.length) {
-+      let c = text.charCodeAt(end);
-+      if (c == 0x22 || c == 0x5C || c < 0x20) break;
-+      ++end;
-+    }
-+    if (end < text.length && text.charCodeAt(end) == 0x22) {
++    let end = this.plainEnd(start);
++    if (end < text.length && codeAt(text, end) == 0x22) {
 +      this.keyText = null;
 +      this.keyStart = start;
 +      this.keyEnd = end;
@@ -18174,43 +18227,6 @@ index 0000000..572edaf
 +  1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22
 +];
 +
-+/**
-+ * The number JSON text writes at [start, end), checked already. With at most
-+ * 15 digits and a power of ten up to 22 - nearly every number - it is the
-+ * digits times or over the power, rounded once and so exact (Clinger's fast
-+ * path); any other is parseFloat's.
-+ */
-+function numberOf(text: string, start: i32, end: i32): f64 {
-+  let at = start;
-+  let negative = text.charCodeAt(at) == 0x2D;
-+  if (negative) ++at;
-+  let digits: i64 = 0;
-+  let count = 0;
-+  let scale = 0;
-+  let point = false;
-+  for (; at < end; ++at) {
-+    let code = text.charCodeAt(at);
-+    if (code == 0x2E) {
-+      point = true;
-+      continue;
-+    }
-+    if (code < 0x30 || code > 0x39) break;
-+    digits = digits * 10 + (code - 0x30);
-+    if (digits != 0 && ++count > 15) return parseFloat(text.substring(start, end));
-+    if (point) --scale;
-+  }
-+  if (at < end) { // e
-+    let sign = text.charCodeAt(++at);
-+    if (sign == 0x2B || sign == 0x2D) ++at;
-+    let power = 0;
-+    for (; at < end && power < 1000; ++at) power = power * 10 + (text.charCodeAt(at) - 0x30);
-+    scale += sign == 0x2D ? -power : power;
-+  }
-+  if (scale < -22 || scale > 22) return parseFloat(text.substring(start, end));
-+  let value = <f64>digits;
-+  value = scale < 0 ? value / unchecked(POWERS_OF_TEN[-scale]) : value * unchecked(POWERS_OF_TEN[scale]);
-+  return negative ? -value : value;
-+}
 +
 +/** @hidden JSON text as values; a SyntaxError where it is not JSON. */
 +export function __jsonParse(text: string): __JsonValue {
