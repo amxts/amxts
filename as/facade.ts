@@ -21,7 +21,7 @@ import {
 	get_maxplayers, is_user_alive, is_user_bot, is_user_connected,
 	set_user_armor, set_user_frags,
 	get_user_msgid, message_begin, message_end, write_byte, write_short,
-	user_kill, get_user_flags, read_flags,
+	get_user_flags, read_flags,
 	get_cvar_num, get_cvar_string, set_cvar_num, set_cvar_string, get_players, get_user_info,
 	LibraryExists, module_exists, get_speak, set_speak,
 	read_args, read_argv, create_cvar, get_cvar_pointer,
@@ -1916,7 +1916,7 @@ export interface KillOptions {
 // ---------------------------------------------------------------- bots
 
 import { __textFrom, __textInto, __textRoom, dllfunc, engfunc, get_usercmd, global_get, set_pev } from "./natives";
-import { DLLFunc_ClientConnect, DLLFunc_ClientPutInServer, EngFunc_CreateFakeClient, EngFunc_RunPlayerMove, glb_frametime, MAX_PLAYERS, pev_health } from "./constants";
+import { DLLFunc_ClientConnect, DLLFunc_ClientPutInServer, EngFunc_CreateFakeClient, EngFunc_RunPlayerMove, GIB_NEVER, glb_frametime, MAX_PLAYERS, pev_health } from "./constants";
 import { BUTTON, Button } from "./flags";
 
 // What a bot's move reads its angles into, made once: a move is made every frame.
@@ -2494,13 +2494,23 @@ export class Player extends PlayerFields implements Client {
 	}
 
 	/**
-	 * Kills the player, as the `kill` console command does. With
-	 * `{ keepFrags: true }` the death costs no frags.
+	 * Kills a living player as the `kill` console command does: a suicide,
+	 * which costs him a frag. With `{ keepFrags: true }` the death costs no
+	 * frags.
 	 *
 	 * Pawn: `user_kill`, `user_silentkill`
 	 */
 	kill(options: KillOptions = {}): void {
-		user_kill(this.id, options.keepFrags ? 1 : 0);
+		if (!this.isAlive) return;
+		// The game's own suicide, without the kill command's checks: the game
+		// turns it down for a player who did not join through its menus, as a
+		// bot a plugin added on Valve's game. The health is written in the
+		// entity: `health = 0` is the kill command itself.
+		const frags = this.frags;
+		this.lastHitGroup = "generic";
+		set_pev(this.id, pev_health, 0);
+		this.killed(this, GIB_NEVER);
+		if (options.keepFrags) this.frags = frags;
 	}
 
 	/**

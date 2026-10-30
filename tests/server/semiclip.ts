@@ -5,10 +5,9 @@
 // entities, so the state a partner is sent (not solid, the look by
 // distance) only shows with a real client; here the look is set and the
 // frames run with it.
-import { Call, floatCell } from "@amxts/core";
 import { Checks } from "@amxts/core/check";
-import { DMG_GENERIC, Ham_TakeDamage, LibType_Library } from "@amxts/core/constants";
-import { LibraryExists, NATIVE_ExecuteHamB, resemiclip_take_control } from "@amxts/core/natives";
+import { LibType_Library } from "@amxts/core/constants";
+import { LibraryExists, resemiclip_take_control } from "@amxts/core/natives";
 
 const WALKER = "amxts semiclip walker";
 const STANDING = "amxts semiclip standing";
@@ -142,7 +141,7 @@ async function walk(walker: Player, standing: Player, start: Vector, alive: bool
 	let gone = 0;
 	for (let tries = 0; tries < 3; tries++) {
 		if (!walker.isAlive) walker.respawn();
-		if (standing.isAlive && !alive) die(standing);
+		if (standing.isAlive && !alive) standing.kill();
 		if (!standing.isAlive && alive) standing.respawn();
 		await sleep(200);
 		walker.origin = start;
@@ -169,13 +168,4 @@ async function addBot(name: string) {
 		bot = server.addBot(name);
 	}
 	return bot;
-}
-
-/**
- * The game's death by damage, from the world. Not `kill()`: on plain HLDS
- * the game turns the kill command down for a bot the plugin added.
- */
-function die(player: Player) {
-	player.takeDamage = "yes";
-	new Call(NATIVE_ExecuteHamB).num(Ham_TakeDamage).num(player.id).ref(0).ref(0).ref(floatCell(1000)).ref(DMG_GENERIC).run();
 }

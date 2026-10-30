@@ -1369,14 +1369,16 @@ export default {
 	},
 	'Player.kill': {
 		en: `
-			Kills the player, as the \`kill\` console command does. With
-			\`{ keepFrags: true }\` the death costs no frags.
+			Kills a living player as the \`kill\` console command does: a suicide,
+			which costs him a frag. With \`{ keepFrags: true }\` the death costs no
+			frags.
 
 			Pawn: \`user_kill\`, \`user_silentkill\`
 		`,
 		ru: `
-			Убивает игрока, как консольная команда \`kill\`. С
-			\`{ keepFrags: true }\` смерть не отнимает фрагов.
+			Убивает живого игрока, как консольная команда \`kill\`: самоубийство,
+			которое стоит ему фрага. С \`{ keepFrags: true }\` смерть не отнимает
+			фрагов.
 
 			Pawn: \`user_kill\`, \`user_silentkill\`
 		`,
