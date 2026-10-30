@@ -661,6 +661,29 @@ static int32_t w_original_hook(wasm_exec_env_t env, int32_t id)
 	return i >= 0 && OriginalAttach(i) ? 1 : 0;
 }
 
+// reapi's number of ReGameDLL's PlayerKilled chain (as/constants.ts).
+#define RG_PLAYER_KILLED 4104
+
+/**
+ * Valve's game has a death's inflictor only from the damage that killed:
+ * a plugin's Ham_Killed by the world hands PlayerKilled none, and the game
+ * reads it there and crashed. On Valve's game the module's hook of
+ * PlayerKilled stays in the rules' table for the map, whatever the plugins
+ * listen to, and gives the game the killer as the inflictor then
+ * (Rules_146), as the game's own damage from the world has it. ReGameDLL
+ * asks whether there is one.
+ */
+static void HookPlayerKilled()
+{
+	int i = ChainOf(RG_PLAYER_KILLED);
+	void (*attach)(bool on) = i >= 0 ? OriginalAttach(i) : NULL;
+	if (!attach)
+		return;
+	g_chainPoints[i].attach = attach;
+	g_chainPoints[i].on++;
+	SettleHook(g_chainPoints[i]);
+}
+
 /**
  * ham(function, class, handler, post) - a handler of a Ham Sandwich function
  * on one class, by its Ham_* number: the module's hook goes into the class's

@@ -267,9 +267,10 @@ const AROUND: Record<string, { before: string; next: string; after: string }> = 
  * CHalfLifeMultiplay's own (CleanUpMap is 63). `args` are its arguments as
  * GCC names them: on Linux the slot is checked against the function's name
  * before it is hooked. `void`: the original returns nothing where
- * ReGameDLL's chain answers.
+ * ReGameDLL's chain answers. `first`: a line the hook starts with, for what
+ * the original gets wrong.
  */
-const RULES: Record<string, { slot: number; args: string; void?: true }> = {
+const RULES: Record<string, { slot: number; args: string; void?: true; first?: string }> = {
 	CSGameRules_Think: { slot: 1, args: 'v' },
 	CSGameRules_FShouldSwitchWeapon: { slot: 4, args: 'P11CBasePlayerP15CBasePlayerItem' },
 	CSGameRules_GetNextBestWeapon: { slot: 5, args: 'P11CBasePlayerP15CBasePlayerItem' },
@@ -279,7 +280,11 @@ const RULES: Record<string, { slot: number; args: string; void?: true }> = {
 	CSGameRules_FPlayerCanRespawn: { slot: 20, args: 'P11CBasePlayer' },
 	CSGameRules_GetPlayerSpawnSpot: { slot: 22, args: 'P11CBasePlayer' },
 	CSGameRules_ClientUserInfoChanged: { slot: 26, args: 'P11CBasePlayerPc' },
-	CSGameRules_PlayerKilled: { slot: 28, args: 'P11CBasePlayerP9entvars_sS3_' },
+	// The original reads the inflictor of a killer who is not a player without
+	// asking whether there is one, and a plugin's Ham_Killed has none: the
+	// killer is it then, as in the game's own damage from the world. The
+	// module keeps this hook for the map (HookPlayerKilled).
+	CSGameRules_PlayerKilled: { slot: 28, args: 'P11CBasePlayerP9entvars_sS3_', first: 'if (!a2 && a1 && !(a1->flags & FL_CLIENT)) a2 = a1;' },
 	CSGameRules_DeathNotice: { slot: 29, args: 'P11CBasePlayerP9entvars_sS3_' },
 	CSGameRules_CanHavePlayerItem: { slot: 30, args: 'P11CBasePlayerP15CBasePlayerItem' },
 	CSGameRules_PlayerGotWeapon: { slot: 31, args: 'P11CBasePlayerP15CBasePlayerItem' },
@@ -357,10 +362,13 @@ chains.forEach((chain, index) => {
 	const fn = name.slice('CSGameRules_'.length);
 	// What the original returns: nothing, where the chain answers and the original does not.
 	const own = rules.void ? VOID : ret;
+	const [open, ...rest] = body(`((${own.decl} (HAM_CC *)(${['HAM_SELF', ...args].join(', ')}))g_chainPoints[${index}].original)(${['HAM_PASS', ...next].join(', ')})`, own);
 	rulesBlocks.push([
 		`// ${chain.constant} in the original game rules' table`,
 		`NO_STACK_COOKIE static ${own === VOID ? 'void ' : retDecl}HAM_CC Rules_${index}(${['HAM_SELF', ...declared].join(', ')})`,
-		...body(`((${own.decl} (HAM_CC *)(${['HAM_SELF', ...args].join(', ')}))g_chainPoints[${index}].original)(${['HAM_PASS', ...next].join(', ')})`, own),
+		open,
+		...(rules.first ? [`\t${rules.first}`] : []),
+		...rest,
 		`static void AttachRules_${index}(bool on)`,
 		`{`,
 		`\tRulesAttach(${rulesTable.length}, on);`,
