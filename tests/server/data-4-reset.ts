@@ -49,26 +49,33 @@ async function run() {
 	);
 	const before = changes.length;
 
-	server.command(`kick #${get_user_userid(slot)}`);
-	const next = await nextBot();
+	const userid = get_user_userid(slot);
+	server.command(`kick #${userid}`);
+	const added = await botIn(slot, userid);
 	check.expect(changes.slice(before).join(", "), "the bot leaving is not a change").toBe("");
-	check.expect(next != null, "another bot came").toBe(true);
-	if (next != null) check.expect(next.id, "it is in the same slot").toBe(slot);
-
 	const after = new Player(slot);
+	check.expect(after.isConnected && get_user_userid(slot) != userid, "another bot came into the slot").toBe(true);
 	check.expect(after.ghost, "ghost in the slot is the default").toBe(false);
 	check.expect(after.testTag, "the string in the slot is empty").toBe("");
+	for (const bot of added) server.command(`kick #${get_user_userid(bot.id)}`);
 	check.done();
 }
 
-/** A bot that came after the previous one left: YaPB adds it itself, otherwise yb add. */
-async function nextBot() {
-	await sleep(1000);
+/**
+ * Bots added until another player than `userid` is in `slot`: a new client
+ * takes the lowest free slot, and YaPB's own bots may take one below it
+ * first. The bots this added, to kick after.
+ */
+async function botIn(slot: number, userid: number) {
+	const added: Player[] = [];
 	for (let waited = 0; waited < 12000; waited += 500) {
-		const found = server.players.find(player => player.isBot && player.isConnected);
-		if (found != null) return found;
-		if (waited == 2000) server.command("yb add");
 		await sleep(500);
+		if (new Player(slot).isConnected) {
+			if (get_user_userid(slot) != userid) break;
+			continue;
+		}
+		const bot = server.addBot(`amxts data-reset ${added.length + 1}`);
+		if (bot != null) added.push(bot);
 	}
-	return null;
+	return added;
 }

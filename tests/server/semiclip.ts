@@ -61,16 +61,21 @@ async function run() {
 	}
 	check.expect(walker.isAlive && standing.isAlive, "both alive").toBe(true);
 
-	// A spawn point may be above the floor: the walk starts where he lands.
-	for (let waited = 0; waited < 1000 && !walker.flags.includes("onGround"); waited += 100) await sleep(100);
-	const start = walker.origin;
-	yaw = clearWay(walker);
-	check.expect(yaw >= 0, "a clear way ahead of the walker").toBe(true);
-	if (yaw < 0) {
+	// Where the bots happen to spawn decides nothing: the walk starts on the
+	// floor at a spawn point with a clear way.
+	const way = clearWay(walker);
+	check.expect(way != null, "a clear way from a spawn point").toBe(true);
+	if (way == null) {
 		if (resemiclip) resemiclip_take_control(false);
 		check.done();
 		return;
 	}
+	const start = way.start;
+	yaw = way.yaw;
+	// YaPB's bots spawn at the same points and run about: the walker passes
+	// them, and only the world and the other one stand in his way.
+	const others = server.players.filter(player => player.id != walker.id && player.id != standing.id);
+	for (const other of others) walker.walksThrough.add(other);
 
 	const blocked = await walk(walker, standing, start, true);
 	check.expect(blocked < AHEAD, `without a pair the other stops him (${Math.round(blocked)} units)`).toBe(true);
@@ -92,15 +97,13 @@ async function run() {
 
 	standing.walksThrough.delete(walker);
 	check.expect(walker.walksThrough.has(standing), "deleted from either side, the pair is gone").toBe(false);
-	// A dead player passes everyone while a pair is set: one of the walker's
-	// with a third player keeps it so.
-	const third = server.players.find(player => player.id != walker.id && player.id != standing.id);
-	if (third != null) walker.walksThrough.add(third);
+	// A dead player passes everyone while a pair is set: the walker's with
+	// the others keep it so.
 	const pastDead = await walk(walker, standing, start, false);
-	if (third != null) walker.walksThrough.delete(third);
 	check.expect(standing.isAlive, `the other one is dead (${standing.health} health)`).toBe(false);
-	check.expect(pastDead > AHEAD + 32, `a dead player stops nobody (${Math.round(pastDead)} units, a third player ${third != null})`).toBe(true);
+	check.expect(pastDead > AHEAD + 32, `a dead player stops nobody (${Math.round(pastDead)} units, ${others.length} others)`).toBe(true);
 
+	for (const other of others) walker.walksThrough.delete(other);
 	walker.walksThrough.add(standing);
 	check.expect(walker.walksThrough.size, "the pair is counted").toBe(1);
 	bots.length = 0;
@@ -113,20 +116,34 @@ async function run() {
 	check.done();
 }
 
+/** Where a walk starts - a standing player's origin on the floor - and toward which yaw. */
+class Way {
+	constructor(readonly start: Vector, readonly yaw: number) {}
+}
+
 /**
- * A yaw along an axis the walker has CLEAR units of nothing ahead of, at his
- * eyes and at his knees; -1 for none. Along an axis he meets the other's box
- * face on: at a slant he would slide along it and round him.
+ * A spot on the floor, where the walker stands or at a spawn point, with
+ * CLEAR units of nothing ahead of a standing player's box along an axis and
+ * floor under the spot AHEAD of it; null for none. Along an axis he meets the
+ * other's box face on: at a slant he would slide along it and round him.
+ * Players are not counted: they move.
  */
-function clearWay(walker: Player) {
-	for (let turn = 0; turn < 360; turn += 90) {
-		const way = new Vector(Math.cos(turn * Math.PI / 180), Math.sin(turn * Math.PI / 180), 0);
-		const knees = walker.origin.subtract([0, 0, 20]);
-		const high = trace.line(walker.eyes, walker.eyes.add(way.scale(CLEAR)), { ignore: walker });
-		const low = trace.line(knees, knees.add(way.scale(CLEAR)), { ignore: walker });
-		if (!high.hit && !low.hit) return turn;
+function clearWay(walker: Player): Way | null {
+	const spots = [walker.origin].concat(
+		Entity.findAll({ classname: "info_player_start" }).concat(Entity.findAll({ classname: "info_player_deathmatch" })).map<Vector>(spot => spot.origin),
+	);
+	for (const spot of spots) {
+		const fall = trace.hull(spot.add([0, 0, 16]), spot.subtract([0, 0, 256]), "human", { monsters: false });
+		if (fall.startSolid || !fall.hit) continue;
+		const start = fall.end;
+		for (let turn = 0; turn < 360; turn += 90) {
+			const way = new Vector(Math.cos(turn * Math.PI / 180), Math.sin(turn * Math.PI / 180), 0);
+			const ahead = start.add(way.scale(AHEAD));
+			if (trace.hull(start, start.add(way.scale(CLEAR)), "human", { monsters: false }).hit) continue;
+			if (trace.hull(ahead, ahead.subtract([0, 0, 8]), "human", { monsters: false }).hit) return new Way(start, turn);
+		}
 	}
-	return -1;
+	return null;
 }
 
 /**
