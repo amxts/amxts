@@ -39,7 +39,7 @@ import { existsSync, readFileSync, statSync } from './tracked-fs';
 export interface AutoImport {
 	/** What the plugin writes: `Player`, `semiclip`. */
 	name: string;
-	/** Where it comes from, as an import line writes it: `@amxts/core`, `@amxts/resemiclip`. */
+	/** Where it comes from, as an import line writes it: `@amxts/core`, `@amxts/semiclip`. */
 	from: string;
 	/** `import * as semiclip from "..."` rather than `import { Player } from "..."`. */
 	namespace: boolean;

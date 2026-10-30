@@ -26,7 +26,7 @@ runs:
       run: |
         line=
         [[ "$REF" =~ ^([0-9]+\.[0-9]+\.x|v[0-9]+\.[0-9]+\.[1-9][0-9]*)$ ]] && line=1
-        for dir in amxts-cli amxts-modules/{config-core,menu-core,resemiclip,ftp,perms}; do
+        for dir in amxts-cli amxts-modules/{config-core,menu-core,semiclip,ftp,perms}; do
           url="https://github.com/$OWNER/${dir#amxts-modules/}"
           branch=
           [ -z "$line" ] || branch=$(git ls-remote --heads "$url" | grep -oE '[0-9]+\.[0-9]+\.x$' | sort -V | tail -n 1)

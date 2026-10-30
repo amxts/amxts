@@ -117,7 +117,7 @@ export interface ModuleDefinition {
 	configKey: string | null;
 	requires: string[];
 	defaults: Options;
-	/** What plugins use without an import: `[{ from: "@amxts/menu-core", as: "menus" }]`, `[{ from: "@amxts/resemiclip", name: "semiclip" }]`. */
+	/** What plugins use without an import: `[{ from: "@amxts/menu-core", as: "menus" }]`, `[{ from: "@amxts/semiclip", name: "semiclip" }]`. */
 	imports: ModuleImport[];
 	/** `defineModule<MenuCoreOptions>`: the type setup's parameter is. */
 	optionsType: string | null;
