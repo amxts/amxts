@@ -5,9 +5,10 @@
 // entities, so the state a partner is sent (not solid, the look by
 // distance) only shows with a real client; here the look is set and the
 // frames run with it.
+import { Call, floatCell } from "@amxts/core";
 import { Checks } from "@amxts/core/check";
-import { LibType_Library } from "@amxts/core/constants";
-import { LibraryExists, resemiclip_take_control } from "@amxts/core/natives";
+import { DMG_GENERIC, Ham_TakeDamage, LibType_Library } from "@amxts/core/constants";
+import { LibraryExists, NATIVE_ExecuteHamB, resemiclip_take_control } from "@amxts/core/natives";
 
 const WALKER = "amxts semiclip walker";
 const STANDING = "amxts semiclip standing";
@@ -22,8 +23,13 @@ const bots: Player[] = [];
 let walking: Player | null = null;
 let yaw = 0;
 
+// YaPB's bots play the round, and a spawn point taken kills who is on it:
+// nothing may kill these two, and a spawn takes that away again.
 server.addEventListener("frame", () => {
-	for (const bot of bots) bot.move({ forward: bot.id == walking?.id ? 250 : 0, angles: [0, yaw, 0], msec: 10 });
+	for (const bot of bots) {
+		if (bot.isAlive) bot.takeDamage = "no";
+		bot.move({ forward: bot.id == walking?.id ? 250 : 0, angles: [0, yaw, 0], msec: 10 });
+	}
 });
 
 server.addServerCommand("amxts_test_semiclip", run);
@@ -46,10 +52,6 @@ async function run() {
 	// suite it lets nobody through.
 	const resemiclip = LibraryExists("resemiclip", LibType_Library) != 0;
 	if (resemiclip) resemiclip_take_control(true);
-	// YaPB's bots play the round, and a spawn point taken kills who is on it:
-	// nothing may kill these two.
-	walker.takeDamage = "no";
-	standing.takeDamage = "no";
 	bots.push(walker);
 	bots.push(standing);
 	// A respawn comes about on the bot's own next commands.
@@ -140,8 +142,7 @@ async function walk(walker: Player, standing: Player, start: Vector, alive: bool
 	let gone = 0;
 	for (let tries = 0; tries < 3; tries++) {
 		if (!walker.isAlive) walker.respawn();
-		// The game's own death: on plain HLDS the game turns down the kill command for him.
-		if (standing.isAlive && !alive) standing.killed(new Entity(0), 0);
+		if (standing.isAlive && !alive) die(standing);
 		if (!standing.isAlive && alive) standing.respawn();
 		await sleep(200);
 		walker.origin = start;
@@ -168,4 +169,13 @@ async function addBot(name: string) {
 		bot = server.addBot(name);
 	}
 	return bot;
+}
+
+/**
+ * The game's death by damage, from the world. Not `kill()`: on plain HLDS
+ * the game turns the kill command down for a bot the plugin added.
+ */
+function die(player: Player) {
+	player.takeDamage = "yes";
+	new Call(NATIVE_ExecuteHamB).num(Ham_TakeDamage).num(player.id).ref(0).ref(0).ref(floatCell(1000)).ref(DMG_GENERIC).run();
 }
