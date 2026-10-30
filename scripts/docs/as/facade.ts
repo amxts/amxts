@@ -1063,6 +1063,18 @@ export default {
 			не сменится карта или игрок не уйдёт.
 		`,
 	},
+	'Player.walksThrough': {
+		en: `
+			The players he walks through, who walk through him: a pair is both
+			ways. \`player.walksThrough.add(teammate)\`; a pair lasts until it is
+			deleted or one of the two leaves.
+		`,
+		ru: `
+			Игроки, сквозь которых он проходит и которые проходят сквозь него: пара
+			действует в обе стороны. \`player.walksThrough.add(teammate)\`; пара
+			держится, пока её не удалят или один из двоих не уйдёт.
+		`,
+	},
 	'Player.jumpSlowdown': {
 		en: `
 			The player's slowdown after a jump, in milliseconds left: the game sets
@@ -1201,6 +1213,91 @@ export default {
 	'Movement.reset': {
 		en: `Gives the player the server's movement variables again.`,
 		ru: `Возвращает игроку переменные движения сервера.`,
+	},
+	'WalksThrough': {
+		en: `
+			The players a player walks through, as a set: a pair is both ways, so
+			\`a.walksThrough.add(b)\` is \`b.walksThrough.add(a)\`. The two pass through
+			each other, and their games predict it; a dead player or a spectator
+			passes everyone. How a partner looks close up is \`server.walkThroughLook\`.
+
+			\`\`\`ts
+			game.addEventListener("playerSpawn", ({ player }) => {
+			  for (const other of server.players) {
+			    if (other.team == player.team) player.walksThrough.add(other);
+			  }
+			}, { post: true });
+			\`\`\`
+		`,
+		ru: `
+			Игроки, сквозь которых проходит игрок, как множество: пара действует в обе
+			стороны, так что \`a.walksThrough.add(b)\` — то же, что \`b.walksThrough.add(a)\`.
+			Двое проходят друг сквозь друга, и их игры это предсказывают; мёртвый игрок
+			и зритель проходят сквозь всех. Как партнёр выглядит вблизи —
+			\`server.walkThroughLook\`.
+
+			\`\`\`ts
+			game.addEventListener("playerSpawn", ({ player }) => {
+			  for (const other of server.players) {
+			    if (other.team == player.team) player.walksThrough.add(other);
+			  }
+			}, { post: true });
+			\`\`\`
+		`,
+	},
+	'WalksThrough.size': {
+		en: `The number of players he walks through.`,
+		ru: `Число игроков, сквозь которых он проходит.`,
+	},
+	'WalksThrough.add': {
+		en: `Lets him and \`player\` walk through each other.`,
+		ru: `Пускает его и \`player\` друг сквозь друга.`,
+	},
+	'WalksThrough.delete': {
+		en: `Makes him and \`player\` solid to each other again; \`false\` when they were.`,
+		ru: `Делает его и \`player\` снова твёрдыми друг для друга; \`false\`, если они и были.`,
+	},
+	'WalksThrough.has': {
+		en: `Whether he and \`player\` walk through each other.`,
+		ru: `Проходят ли он и \`player\` друг сквозь друга.`,
+	},
+	'WalksThrough.clear': {
+		en: `Makes him solid to everyone again.`,
+		ru: `Делает его снова твёрдым для всех.`,
+	},
+	'WalkThroughLook': {
+		en: `
+			The look of a player one walks through, close up, for every player:
+			see-through below \`fadeDistance\`, not drawn at all below \`hideDistance\`.
+			Both are off, \`0\`, by default.
+
+			\`\`\`ts
+			server.walkThroughLook.fadeDistance = 250;
+			server.walkThroughLook.opacity = 0.4;
+			\`\`\`
+		`,
+		ru: `
+			Вид игрока, сквозь которого проходишь, вблизи, для каждого игрока:
+			полупрозрачным ближе \`fadeDistance\`, совсем не виден ближе \`hideDistance\`.
+			Оба по умолчанию выключены, \`0\`.
+
+			\`\`\`ts
+			server.walkThroughLook.fadeDistance = 250;
+			server.walkThroughLook.opacity = 0.4;
+			\`\`\`
+		`,
+	},
+	'WalkThroughLook.fadeDistance': {
+		en: `Closer than this, in units, a player he walks through is see-through to him; \`0\` is off.`,
+		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, для него полупрозрачен; \`0\` — выключено.`,
+	},
+	'WalkThroughLook.opacity': {
+		en: `The opacity of a partner at the closest, \`0\` to \`1\`: he grows to whole at \`fadeDistance\`. \`0\` by default.`,
+		ru: `Насколько он непрозрачен вплотную, от \`0\` до \`1\`: к \`fadeDistance\` он становится целым. По умолчанию \`0\`.`,
+	},
+	'WalkThroughLook.hideDistance': {
+		en: `Closer than this, in units, a player he walks through is not drawn for him at all; \`0\` is off.`,
+		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, для него совсем не рисуется; \`0\` — выключено.`,
 	},
 	'Player.give': {
 		en: `
@@ -3643,6 +3740,18 @@ export default {
 			Pawn: \`get_modname\`
 		`,
 	},
+	'Server.walkThroughLook': {
+		en: `
+			The look of a player one walks through, close up:
+			\`server.walkThroughLook.fadeDistance = 250\` makes him see-through
+			nearer than 250 units. Off by default.
+		`,
+		ru: `
+			Вид игрока, сквозь которого проходишь, вблизи:
+			\`server.walkThroughLook.fadeDistance = 250\` делает его полупрозрачным
+			ближе 250 юнитов. По умолчанию выключено.
+		`,
+	},
 	'Server.versions': {
 		en: `
 			The versions of what the server runs: \`server.versions.reGameDll
@@ -4223,6 +4332,18 @@ export default {
 			Получает ли он игрока присевшим: его клиент тогда берёт размер присевшего игрока и, при наблюдении его глазами, высоту глаз присевшего. Позу присевшего задают \`sequence\` и \`gaitSequence\`.
 
 			Pawn: \`ES_UseHull\`
+		`,
+	},
+	'EntityStateEvent.solid': {
+		en: `
+			Whether he is sent the entity as solid: his client predicts a collision with it. The server's own collisions do not change; a player he walks through is sent not solid.
+
+			Pawn: \`ES_Solid\`
+		`,
+		ru: `
+			Получает ли он сущность твёрдой: его клиент предсказывает столкновение с ней. Столкновения на сервере от этого не меняются; игрок, сквозь которого он проходит, приходит нетвёрдым.
+
+			Pawn: \`ES_Solid\`
 		`,
 	},
 	'EntityStateEvent.preventDefault': {

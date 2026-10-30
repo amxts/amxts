@@ -63,6 +63,21 @@ enum StateField {
 	STATE_USE_HULL = 21,
 };
 
+/** state_solid() - whether the entity is sent solid: his client predicts a collision with it. */
+static int32_t w_stateSolid(wasm_exec_env_t env)
+{
+	(void)env;
+	return g_state && g_state->solid != SOLID_NOT;
+}
+
+/** state_solid_set(solid) - sends it solid or not; the server's own collisions do not change. */
+static void w_stateSolidSet(wasm_exec_env_t env, int32_t solid)
+{
+	(void)env;
+	if (g_state && (g_state->solid != SOLID_NOT) != (solid != 0))
+		g_state->solid = solid ? SOLID_SLIDEBOX : SOLID_NOT;
+}
+
 /** state_get(field) - a field of the state being sent, as a number. */
 static double w_stateGet(wasm_exec_env_t env, int32_t field)
 {
@@ -133,14 +148,18 @@ static void w_stateSet(wasm_exec_env_t env, int32_t field, double value)
 
 /**
  * The game's AddToFullPack, after it: the entity's state the player `host`
- * is sent. The listeners of its class get (host, entity); one that stops it
+ * is sent. A partner of his is sent as one he walks through (semiclip.h),
+ * then the listeners of its class get (host, entity); one that stops it
  * hides the entity from him. Nothing for an entity the game did not send.
  */
 static ALIGNED_ENTRY int AddToFullPack_Post(entity_state_t *state, int e, edict_t *ent, edict_t *host, int hostflags, int player, unsigned char *set)
 {
-	(void)e; (void)hostflags; (void)player; (void)set;
+	(void)hostflags; (void)player; (void)set;
 	if (!g_statesHooked || !META_RESULT_ORIG_RET(int) || !ent || !host)
 		RETURN_META_VALUE(MRES_IGNORED, 0);
+
+	if (g_walkers && !WalkThroughState(state, e, ent, host))
+		RETURN_META_VALUE(MRES_OVERRIDE, 0);
 
 	static const unsigned char roles[2] = { ROLE_EDICT, ROLE_EDICT };
 	const char *classname = STRING(ent->v.classname);

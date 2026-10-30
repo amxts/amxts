@@ -4600,6 +4600,8 @@ static void HudSlotReset(int id);
 static int32_t w_stateHook(wasm_exec_env_t env, int32_t classname, int32_t fn);
 static double w_stateGet(wasm_exec_env_t env, int32_t field);
 static void w_stateSet(wasm_exec_env_t env, int32_t field, double value);
+static int32_t w_stateSolid(wasm_exec_env_t env);
+static void w_stateSolidSet(wasm_exec_env_t env, int32_t solid);
 static int32_t w_clientDataHook(wasm_exec_env_t env, int32_t fn);
 static double w_clientDataGet(wasm_exec_env_t env, int32_t field);
 static void w_clientDataSet(wasm_exec_env_t env, int32_t field, double value);
@@ -4635,6 +4637,11 @@ static void w_intermission(wasm_exec_env_t env);
 static void w_playerMovement(wasm_exec_env_t env, int32_t id, int32_t field, double value);
 static double w_playerMovementGet(wasm_exec_env_t env, int32_t id, int32_t field);
 static void ResetMovement(int id);
+static void w_walkThrough(wasm_exec_env_t env, int32_t id, int32_t other, int32_t on);
+static int32_t w_walkThroughGet(wasm_exec_env_t env, int32_t id);
+static void w_walkLook(wasm_exec_env_t env, int32_t field, double value);
+static double w_walkLookGet(wasm_exec_env_t env, int32_t field);
+static void ResetPartners(int id);
 static void w_playbackBlock(wasm_exec_env_t env);
 static void w_playbackTo(wasm_exec_env_t env, int32_t ids, int32_t count);
 static void w_playerView(wasm_exec_env_t env, int32_t id, int32_t target);
@@ -4730,6 +4737,8 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "state_get",      (void *)w_stateGet,      "(i)F", NULL },
 	{ "move_get",       (void *)w_moveGet,       "(i)F", NULL },
 	{ "state_set",      (void *)w_stateSet,      "(iF)", NULL },
+	{ "state_solid",    (void *)w_stateSolid,    "()i", NULL },
+	{ "state_solid_set", (void *)w_stateSolidSet, "(i)", NULL },
 	{ "client_data_hook", (void *)w_clientDataHook, "(i)i", NULL },
 	{ "client_data_get", (void *)w_clientDataGet, "(i)F", NULL },
 	{ "client_data_set", (void *)w_clientDataSet, "(iF)", NULL },
@@ -4764,6 +4773,10 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "intermission",   (void *)w_intermission,  "()",   NULL },
 	{ "player_movement", (void *)w_playerMovement, "(iiF)", NULL },
 	{ "player_movement_get", (void *)w_playerMovementGet, "(ii)F", NULL },
+	{ "walk_through",   (void *)w_walkThrough,   "(iii)", NULL },
+	{ "walk_through_get", (void *)w_walkThroughGet, "(i)i", NULL },
+	{ "walk_look",      (void *)w_walkLook,      "(iF)", NULL },
+	{ "walk_look_get",  (void *)w_walkLookGet,   "(i)F", NULL },
 	{ "player_view",    (void *)w_playerView,    "(ii)", NULL },
 	{ "player_view_get", (void *)w_playerViewGet, "(i)i", NULL },
 	{ "plugins_count",  (void *)w_pluginsCount,  "()i",   NULL },
@@ -7718,6 +7731,7 @@ static void PutInServer(int id)
 {
 	g_inGame[id] = true;
 	ResetMovement(id);
+	ResetPartners(id);
 	RaiseFor(FORWARD_CLIENT_PUTINSERVER, id);
 }
 
@@ -7752,6 +7766,7 @@ static void Removed(int id, bool dropped, const char *reason)
 	bool had = g_connected[id] || g_inGame[id];
 	g_connected[id] = g_inGame[id] = false;
 	CloseMenu(id);
+	ResetPartners(id);
 	if (had && Heard(FORWARD_CLIENT_REMOVE)) {
 		ImageHeap heap;
 		cell args[3] = { id, dropped, PushString(reason) };
@@ -9251,6 +9266,9 @@ static cell AMX_NATIVE_CALL n_amxclientCmd(AMX *amx, cell *params)
 
 // The server's game, versions, map and light.
 #include "world.h"
+
+// Who walks through whom, and how a player one walks through looks to him.
+#include "semiclip.h"
 
 // A player's own movement variables.
 #include "movement.h"

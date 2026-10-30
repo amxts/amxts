@@ -1646,6 +1646,18 @@ function sendServerName(id: number, name: string): void {
 @external("env", "player_movement") declare function _playerMovement(id: i32, field: i32, value: f64): void;
 // @ts-ignore: decorator
 @external("env", "player_movement_get") declare function _playerMovementGet(id: i32, field: i32): f64;
+// Who walks through whom, and how a partner looks close up (runtime/src/semiclip.h).
+// @ts-ignore: decorator
+@external("env", "walk_through") declare function _walkThrough(id: i32, other: i32, on: i32): void;
+// @ts-ignore: decorator
+@external("env", "walk_through_get") declare function _walkThroughGet(id: i32): i32;
+// @ts-ignore: decorator
+@external("env", "walk_look") declare function _walkLook(field: i32, value: f64): void;
+// @ts-ignore: decorator
+@external("env", "walk_look_get") declare function _walkLookGet(field: i32): f64;
+const LOOK_FADE: i32 = 0;
+const LOOK_OPACITY: i32 = 1;
+const LOOK_HIDE: i32 = 2;
 // @ts-ignore: decorator
 @external("env", "player_view")  declare function _playerView(id: i32, target: i32): void;
 // @ts-ignore: decorator
@@ -2400,6 +2412,13 @@ export class Player extends PlayerFields implements Client {
 	 * changes or the player leaves.
 	 */
 	get movement(): Movement { return new Movement(this.id); }
+
+	/**
+	 * The players he walks through, who walk through him: a pair is both
+	 * ways. `player.walksThrough.add(teammate)`; a pair lasts until it is
+	 * deleted or one of the two leaves.
+	 */
+	get walksThrough(): WalksThrough { return new WalksThrough(this.id); }
 
 	/**
 	 * The player's slowdown after a jump, in milliseconds left: the game sets
@@ -3803,6 +3822,70 @@ export class Movement {
 }
 
 /**
+ * The players a player walks through, as a set: a pair is both ways, so
+ * `a.walksThrough.add(b)` is `b.walksThrough.add(a)`. The two pass through
+ * each other, and their games predict it; a dead player or a spectator
+ * passes everyone. How a partner looks close up is `server.walkThroughLook`.
+ *
+ * ```ts
+ * game.addEventListener("playerSpawn", ({ player }) => {
+ *   for (const other of server.players) {
+ *     if (other.team == player.team) player.walksThrough.add(other);
+ *   }
+ * }, { post: true });
+ * ```
+ */
+export class WalksThrough {
+	constructor(private id: i32) {}
+
+	/** The number of players he walks through. */
+	get size(): number { return <i32>popcnt<u32>(<u32>_walkThroughGet(this.id)); }
+
+	/** Lets him and `player` walk through each other. */
+	add(player: Player): WalksThrough {
+		_walkThrough(this.id, player.id, 1);
+		return this;
+	}
+
+	/** Makes him and `player` solid to each other again; `false` when they were. */
+	delete(player: Player): boolean {
+		const had = this.has(player);
+		_walkThrough(this.id, player.id, 0);
+		return had;
+	}
+
+	/** Whether he and `player` walk through each other. */
+	has(player: Player): boolean { return ((_walkThroughGet(this.id) >>> (player.id - 1)) & 1) != 0; }
+
+	/** Makes him solid to everyone again. */
+	clear(): void { _walkThrough(this.id, 0, 0); }
+}
+
+/**
+ * The look of a player one walks through, close up, for every player:
+ * see-through below `fadeDistance`, not drawn at all below `hideDistance`.
+ * Both are off, `0`, by default.
+ *
+ * ```ts
+ * server.walkThroughLook.fadeDistance = 250;
+ * server.walkThroughLook.opacity = 0.4;
+ * ```
+ */
+export class WalkThroughLook {
+	/** Closer than this, in units, a player he walks through is see-through to him; `0` is off. */
+	get fadeDistance(): number { return _walkLookGet(LOOK_FADE); }
+	set fadeDistance(value: number) { _walkLook(LOOK_FADE, value); }
+
+	/** The opacity of a partner at the closest, `0` to `1`: he grows to whole at `fadeDistance`. `0` by default. */
+	get opacity(): number { return _walkLookGet(LOOK_OPACITY); }
+	set opacity(value: number) { _walkLook(LOOK_OPACITY, value); }
+
+	/** Closer than this, in units, a player he walks through is not drawn for him at all; `0` is off. */
+	get hideDistance(): number { return _walkLookGet(LOOK_HIDE); }
+	set hideDistance(value: number) { _walkLook(LOOK_HIDE, value); }
+}
+
+/**
  * The channel a sound plays on, one of `"auto"` (the default), `"weapon"`,
  * `"voice"`, `"item"`, `"body"`, `"stream"`, `"static"`. A new sound on an
  * entity's channel cuts the one playing there; `"auto"` never cuts.
@@ -5120,6 +5203,20 @@ export class Server {
 	 *
 	 * Pawn: `get_amxx_verstring`, `is_rehlds`, `is_regamedll`
 	 */
+	/**
+	 * The look of a player one walks through, close up:
+	 * `server.walkThroughLook.fadeDistance = 250` makes him see-through
+	 * nearer than 250 units. Off by default.
+	 */
+	get walkThroughLook(): WalkThroughLook { return new WalkThroughLook(); }
+
+	/**
+	 * The versions of what the server runs: `server.versions.reGameDll
+	 * != null` on ReGameDLL. ReHLDS's and ReGameDLL's are their API's,
+	 * `null` on a server without them.
+	 *
+	 * Pawn: `get_amxx_verstring`, `is_rehlds`, `is_regamedll`
+	 */
 	get versions(): ServerVersions {
 		const reHlds = serverText(SERVER_REHLDS);
 		const reGameDll = serverText(SERVER_REGAMEDLL);
@@ -5763,6 +5860,10 @@ export function __moveGet(field: i32): f64 {
 @external("env", "state_get")  declare function _stateGet(field: i32): f64;
 // @ts-ignore: decorator
 @external("env", "state_set")  declare function _stateSet(field: i32, value: f64): void;
+// @ts-ignore: decorator
+@external("env", "state_solid") declare function _stateSolid(): i32;
+// @ts-ignore: decorator
+@external("env", "state_solid_set") declare function _stateSolidSet(solid: i32): void;
 const STATE_ORIGIN: i32 = 0;
 const STATE_ANGLES: i32 = 3;
 const STATE_RENDER_MODE: i32 = 6;
@@ -5948,6 +6049,14 @@ export class EntityStateEvent {
 	 */
 	get ducking(): boolean { return _stateGet(STATE_USE_HULL) != 0; }
 	set ducking(value: boolean) { _stateSet(STATE_USE_HULL, value ? 1 : 0); }
+
+	/**
+	 * Whether he is sent the entity as solid: his client predicts a collision with it. The server's own collisions do not change; a player he walks through is sent not solid.
+	 *
+	 * Pawn: `ES_Solid`
+	 */
+	get solid(): boolean { return _stateSolid() != 0; }
+	set solid(value: boolean) { _stateSolidSet(value ? 1 : 0); }
 
 	/** Hides the entity from him this frame. */
 	preventDefault(): void {

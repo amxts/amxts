@@ -189,16 +189,19 @@ static bool MoveHeard(playermove_t *pm, int post)
 }
 
 /**
- * The game's PM_Move: a player of his own moves by his set, and the move
+ * The game's PM_Move: a player of his own moves by his set, his partners
+ * are taken out of what he collides with (semiclip.h), and the move
  * event is heard here on a server without ReGameDLL, whose own chain hears
  * it otherwise. Nothing else while neither is wanted.
  */
 void PM_Move(playermove_t *pm, int server)
 {
 	(void)server;
-	if (!g_movementOwners && !g_stocksHooked[STOCK_PM_MOVE])
+	if (!g_movementOwners && !g_stocksHooked[STOCK_PM_MOVE] && !g_walkers)
 		RETURN_META(MRES_IGNORED);
 
+	if (g_walkers)
+		WalkThrough(pm);
 	int id = pm->player_index + 1;
 	if (g_movementOwners)
 		g_movevars = pm->movevars;
