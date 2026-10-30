@@ -14378,7 +14378,7 @@ index f5d9b7c..4af9503 100644
 +  }
 +}
 diff --git a/src/resolver.ts b/src/resolver.ts
-index 9576a47..f26c2cc 100644
+index 9576a47..601708f 100644
 --- a/src/resolver.ts
 +++ b/src/resolver.ts
 @@ -36,7 +36,9 @@ import {
@@ -15539,7 +15539,7 @@ index 9576a47..f26c2cc 100644
          );
        }
  
-@@ -3749,6 +4410,1092 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3749,6 +4410,1101 @@ export class Resolver extends DiagnosticEmitter {
      return instance;
    }
  
@@ -16192,7 +16192,7 @@ index 9576a47..f26c2cc 100644
 +        return replacement;
 +      }
 +    }
-+    // `[...x]`: an array's items, a Map's entries, a Set's values, a text's characters
++    // `[...x]`: an array's items, a Map's entries, a Set's values - or those of a class of its own with values() -, a text's characters
 +    if (callee.kind == NodeKind.Identifier && (<IdentifierExpression>callee).text == "__spreadOf" && node.args.length == 1) {
 +      let spread = node.args[0];
 +      let spreadType = this.resolveExpression(spread, ctxFlow, Type.auto, ReportMode.Swallow);
@@ -16200,7 +16200,7 @@ index 9576a47..f26c2cc 100644
 +      let walked = spread;
 +      if (spreadClass) {
 +        let method = spreadClass.extendsPrototype(this.program.mapPrototype) && !this.isRecordClass(spreadClass) ? "entries"
-+          : spreadClass.extendsPrototype(this.program.setPrototype) ? "values"
++          : spreadClass.extendsPrototype(this.program.setPrototype) || this.walksByValues(spreadClass) ? "values"
 +          : spreadClass == this.program.stringInstance ? "split"
 +          : null;
 +        if (method) {
@@ -16212,7 +16212,7 @@ index 9576a47..f26c2cc 100644
 +      this.objectCalls.set(node, walked);
 +      return walked;
 +    }
-+    // `for (const x of map)`: a Map's entries, a Set's values, anything else itself
++    // `for (const x of map)`: a Map's entries, a Set's values - or those of a class of its own with values() -, anything else itself
 +    if (callee.kind == NodeKind.Identifier && (<IdentifierExpression>callee).text == "__forOf" && node.args.length == 1) {
 +      let iterable = node.args[0];
 +      let iterableType = this.resolveExpression(iterable, ctxFlow, Type.auto, ReportMode.Swallow);
@@ -16220,7 +16220,7 @@ index 9576a47..f26c2cc 100644
 +      let walked = iterable;
 +      if (iterableClass && !this.isRecordClass(iterableClass)) {
 +        let method = iterableClass.extendsPrototype(this.program.mapPrototype) ? "entries"
-+          : iterableClass.extendsPrototype(this.program.setPrototype) ? "values"
++          : iterableClass.extendsPrototype(this.program.setPrototype) || this.walksByValues(iterableClass) ? "values"
 +          : null;
 +        if (method) {
 +          let member = Node.createPropertyAccessExpression(iterable, Node.createIdentifierExpression(method, node.range), node.range);
@@ -16465,6 +16465,15 @@ index 9576a47..f26c2cc 100644
 +  /** amxts: the element access each `record.name` is read as - see recordKeyOf. */
 +  recordKeys: Map<PropertyAccessExpression, ElementAccessExpression> = new Map();
 +
++  /**
++   * amxts: whether a class of its own is walked by its values(), as a Set is:
++   * a method `values` and no `length` - one with a length is walked by `[]`.
++   */
++  walksByValues(classInstance: Class): bool {
++    let values = classInstance.getMember("values");
++    return values != null && values.kind == ElementKind.FunctionPrototype && !classInstance.getMember("length");
++  }
++
 +  /** amxts: whether a class is std's Record, a Map underneath - see recordKeyOf. */
 +  isRecordClass(classInstance: Class): bool {
 +    let current: Class | null = classInstance;
@@ -16632,7 +16641,7 @@ index 9576a47..f26c2cc 100644
    ensureOneTypeArgument(
      /** The type to resolve. */
      node: NamedTypeNode,
-@@ -3769,3 +5516,55 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3769,3 +5525,55 @@ export class Resolver extends DiagnosticEmitter {
      return typeArgumentNodes[0];
    }
  }

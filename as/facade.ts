@@ -3869,30 +3869,53 @@ export class WalksThrough {
 
 	/** Makes him solid to everyone again. */
 	clear(): void { _walkThrough(this.id, 0, 0); }
+
+	/** The players he walks through: `for...of` and `[...]` walk them too. */
+	values(): Player[] {
+		const bits = _walkThroughGet(this.id);
+		const players: Player[] = [];
+		for (let id = 1; id <= get_maxplayers(); id++) {
+			if ((bits >>> (id - 1)) & 1) players.push(__playerOf(id));
+		}
+		return players;
+	}
+
+	/** Calls `callback` for each player he walks through. */
+	forEach(callback: (player: Player) => void): void {
+		const players = this.values();
+		for (let i = 0; i < players.length; i++) callback(players[i]);
+	}
 }
 
 /**
  * The look of a player one walks through, close up, for every player:
  * see-through below `fadeDistance`, not drawn at all below `hideDistance`.
- * Both are off, `0`, by default.
+ * Both are off, `0`, by default. It is set as a whole, or a part of it:
  *
  * ```ts
- * server.walkThroughLook.fadeDistance = 250;
- * server.walkThroughLook.opacity = 0.4;
+ * server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 48 };
+ * server.walkThroughLook = { hideDistance: 0 };
  * ```
  */
 export class WalkThroughLook {
 	/** Closer than this, in units, a player he walks through is see-through to him; `0` is off. */
 	get fadeDistance(): number { return _walkLookGet(LOOK_FADE); }
-	set fadeDistance(value: number) { _walkLook(LOOK_FADE, value); }
 
 	/** The opacity of a partner at the closest, `0` to `1`: he grows to whole at `fadeDistance`. `0` by default. */
 	get opacity(): number { return _walkLookGet(LOOK_OPACITY); }
-	set opacity(value: number) { _walkLook(LOOK_OPACITY, value); }
 
 	/** Closer than this, in units, a player he walks through is not drawn for him at all, and his aim, shots and `+use` go through him; `0` is off. */
 	get hideDistance(): number { return _walkLookGet(LOOK_HIDE); }
-	set hideDistance(value: number) { _walkLook(LOOK_HIDE, value); }
+}
+
+/** The look of `server.walkThroughLook` to set: the fields given change, the others stay. */
+export interface WalkThroughLookOptions {
+	/** Closer than this, in units, a player he walks through is see-through to him; `0` is off. */
+	fadeDistance?: number;
+	/** The opacity of a partner at the closest, `0` to `1`: he grows to whole at `fadeDistance`. */
+	opacity?: number;
+	/** Closer than this, in units, a player he walks through is not drawn for him at all, and his aim, shots and `+use` go through him; `0` is off. */
+	hideDistance?: number;
 }
 
 /**
@@ -5207,18 +5230,16 @@ export class Server {
 	}
 
 	/**
-	 * The versions of what the server runs: `server.versions.reGameDll
-	 * != null` on ReGameDLL. ReHLDS's and ReGameDLL's are their API's,
-	 * `null` on a server without them.
-	 *
-	 * Pawn: `get_amxx_verstring`, `is_rehlds`, `is_regamedll`
-	 */
-	/**
 	 * The look of a player one walks through, close up:
-	 * `server.walkThroughLook.fadeDistance = 250` makes him see-through
+	 * `server.walkThroughLook = { fadeDistance: 250 }` makes him see-through
 	 * nearer than 250 units. Off by default.
 	 */
 	get walkThroughLook(): WalkThroughLook { return new WalkThroughLook(); }
+	set walkThroughLook(value: WalkThroughLookOptions) {
+		if (value.fadeDistance !== undefined) _walkLook(LOOK_FADE, value.fadeDistance);
+		if (value.opacity !== undefined) _walkLook(LOOK_OPACITY, value.opacity);
+		if (value.hideDistance !== undefined) _walkLook(LOOK_HIDE, value.hideDistance);
+	}
 
 	/**
 	 * The versions of what the server runs: `server.versions.reGameDll

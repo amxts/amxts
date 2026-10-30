@@ -1265,27 +1265,51 @@ export default {
 		en: `Makes him solid to everyone again.`,
 		ru: `Делает его снова твёрдым для всех.`,
 	},
+	'WalksThrough.values': {
+		en: `The players he walks through: \`for...of\` and \`[...]\` walk them too.`,
+		ru: `Игроки, сквозь которых он проходит: их обходят и \`for...of\`, и \`[...]\`.`,
+	},
+	'WalksThrough.forEach': {
+		en: `Calls \`callback\` for each player he walks through.`,
+		ru: `Вызывает \`callback\` для каждого игрока, сквозь которого он проходит.`,
+	},
 	'WalkThroughLook': {
 		en: `
 			The look of a player one walks through, close up, for every player:
 			see-through below \`fadeDistance\`, not drawn at all below \`hideDistance\`.
-			Both are off, \`0\`, by default.
+			Both are off, \`0\`, by default. It is set as a whole, or a part of it:
 
 			\`\`\`ts
-			server.walkThroughLook.fadeDistance = 250;
-			server.walkThroughLook.opacity = 0.4;
+			server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 48 };
+			server.walkThroughLook = { hideDistance: 0 };
 			\`\`\`
 		`,
 		ru: `
 			Вид игрока, сквозь которого проходишь, вблизи, для каждого игрока:
 			полупрозрачным ближе \`fadeDistance\`, совсем не виден ближе \`hideDistance\`.
-			Оба по умолчанию выключены, \`0\`.
+			Оба по умолчанию выключены, \`0\`. Задаётся целиком или частью:
 
 			\`\`\`ts
-			server.walkThroughLook.fadeDistance = 250;
-			server.walkThroughLook.opacity = 0.4;
+			server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 48 };
+			server.walkThroughLook = { hideDistance: 0 };
 			\`\`\`
 		`,
+	},
+	'WalkThroughLookOptions': {
+		en: `The look of \`server.walkThroughLook\` to set: the fields given change, the others stay.`,
+		ru: `Вид для \`server.walkThroughLook\`: названные поля меняются, остальные остаются.`,
+	},
+	'WalkThroughLookOptions.fadeDistance': {
+		en: `Closer than this, in units, a player he walks through is see-through to him; \`0\` is off.`,
+		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, для него полупрозрачен; \`0\` — выключено.`,
+	},
+	'WalkThroughLookOptions.opacity': {
+		en: `The opacity of a partner at the closest, \`0\` to \`1\`: he grows to whole at \`fadeDistance\`.`,
+		ru: `Насколько он непрозрачен вплотную, от \`0\` до \`1\`: к \`fadeDistance\` он становится целым.`,
+	},
+	'WalkThroughLookOptions.hideDistance': {
+		en: `Closer than this, in units, a player he walks through is not drawn for him at all, and his aim, shots and \`+use\` go through him; \`0\` is off.`,
+		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, для него совсем не рисуется, а его прицел, выстрелы и \`+use\` проходят сквозь этого игрока; \`0\` — выключено.`,
 	},
 	'WalkThroughLook.fadeDistance': {
 		en: `Closer than this, in units, a player he walks through is see-through to him; \`0\` is off.`,
@@ -3745,12 +3769,12 @@ export default {
 	'Server.walkThroughLook': {
 		en: `
 			The look of a player one walks through, close up:
-			\`server.walkThroughLook.fadeDistance = 250\` makes him see-through
+			\`server.walkThroughLook = { fadeDistance: 250 }\` makes him see-through
 			nearer than 250 units. Off by default.
 		`,
 		ru: `
 			Вид игрока, сквозь которого проходишь, вблизи:
-			\`server.walkThroughLook.fadeDistance = 250\` делает его полупрозрачным
+			\`server.walkThroughLook = { fadeDistance: 250 }\` делает его полупрозрачным
 			ближе 250 юнитов. По умолчанию выключено.
 		`,
 	},

@@ -94,15 +94,13 @@ async function run() {
 	const through = await walk(walker, standing, start, true);
 	check.expect(through > AHEAD + 32, `with the pair he walks through (${Math.round(through)} units)`).toBe(true);
 
-	// The look is set and the frames run with it.
+	// The look is set, a part of it at a time, and the frames run with it.
+	server.walkThroughLook = { fadeDistance: 200, hideDistance: 40 };
+	server.walkThroughLook = { opacity: 0.3 };
 	const look = server.walkThroughLook;
-	look.fadeDistance = 200;
-	look.opacity = 0.3;
-	look.hideDistance = 40;
 	check.expect(`${look.fadeDistance} ${look.opacity} ${look.hideDistance}`, "the look reads as set").toBe("200 0.3 40");
 	await walk(walker, standing, start, true);
-	look.fadeDistance = 0;
-	look.hideDistance = 0;
+	server.walkThroughLook = { fadeDistance: 0, hideDistance: 0 };
 
 	// A partner not drawn for him stops none of his lines: the game's own aim,
 	// which names the player under his crosshair, goes on through.
@@ -122,9 +120,9 @@ async function run() {
 		drawnAim = await aimed(standing.id);
 	}
 	const line = trace.line(walker.eyes, walker.eyes.add(Vector.fromAngles(walker.viewAngle).scale(2048)), { ignore: walker }).entity?.id ?? -1;
-	look.hideDistance = AHEAD * 2;
+	server.walkThroughLook = { hideDistance: AHEAD * 2 };
 	const hiddenAim = await aimed(0);
-	look.hideDistance = 0;
+	server.walkThroughLook = { hideDistance: 0 };
 	check.expect(`${drawnAim == standing.id} ${hiddenAim}`, `the name under his crosshair is not of a partner not drawn for him (named ${drawnAim}, then ${hiddenAim}; standing ${standing.id}, his line meets ${line})`).toBe("true 0");
 
 	standing.walksThrough.delete(walker);
@@ -138,6 +136,9 @@ async function run() {
 	for (const other of others) walker.walksThrough.delete(other);
 	walker.walksThrough.add(standing);
 	check.expect(walker.walksThrough.size, "the pair is counted").toBe(1);
+	const walked: number[] = [];
+	for (const other of walker.walksThrough) walked.push(other.id);
+	check.expect(`${walked} ${[...walker.walksThrough].length}`, "his partners are walked as a set's values").toBe(`${standing.id} 1`);
 	bots.length = 0;
 	server.command(`kick "${STANDING}"`);
 	await sleep(100);
