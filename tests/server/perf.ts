@@ -1,7 +1,7 @@
 // The speed check: what a native, a field, a vector, the HUD's money, a HUD
 // message, text, the values a plugin keeps, an event, a forward, a timer, a
 // variadic native, a command, a menu's choice, Pawn calling this plugin, whole
-// and fractional arithmetic, work over bytes and a real plugin's hot path cost here, against the
+// and fractional arithmetic, work over bytes, a query's rows read and a real plugin's hot path cost here, against the
 // same in Pawn (perf-pawn.sma), measured in one run on one machine. It
 // checks ratios, not times, so it holds on any machine; most figures are the
 // best of three runs, a move of the bot the median of turns. A limit is
@@ -23,6 +23,8 @@ const FEW = 100_000;
 const FRAMES = 10_000;
 const BYTES = 16_384;
 const BYTE_RUNS = 30;
+// The rows of a query read, a map's name and a time each.
+const ROWS = 5000;
 const TIMERS = 300;
 // The turns perf-pawn.sma times an impulse listener in, and the moves of each.
 const IMPULSE_ROUNDS = 1001;
@@ -82,11 +84,24 @@ const LIMITS: Record<string, number> = {
 	"remainder": 1.25,
 	"fractions": 0.5,
 	"bytes": 2,
+	"rows of a query": 40,
 	"hot path": 1.5,
 };
 
 let sink = 0;
 let touches = 0;
+
+interface QueryRow {
+	map: string;
+	time: number;
+}
+
+/** A query's rows as the module gives them: JSON text, as UTF-8. */
+function queryRows(): ArrayBuffer {
+	const rows: string[] = [];
+	for (let i = 0; i < ROWS; i++) rows.push(`{"map":"kz_bhop_${i}_long","time":${i * 7 + 13.125}}`);
+	return String.UTF8.encode(`[${rows.join(",")}]`);
+}
 
 game.addEventListener("touch", countTouch, { touched: "info_teleport_destination" });
 
@@ -491,6 +506,11 @@ function measure(player: Player) {
 	}));
 	ours.set("bytes", msBest(() => {
 		sink += readBytes(BYTE_RUNS);
+	}));
+	// What a query's promise does with the module's result: text read into rows.
+	const result = queryRows();
+	ours.set("rows of a query", nsEach(ROWS, () => {
+		sink += JSON.parse<QueryRow[]>(String.UTF8.decode(result)).length;
 	}));
 
 	// The bridge alone: a raw hook on the post side, so it is not the

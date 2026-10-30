@@ -22,6 +22,8 @@
 #define FRAMES 10000
 #define BYTES 16384
 #define BYTE_RUNS 30
+// The rows of a query read, a map's name and a time each.
+#define ROWS 5000
 #define TIMERS 300
 #define TASK_ID 7300
 // The turns impulse_listener_ns takes, and the moves of each, as perf.ts's.
@@ -56,6 +58,7 @@ enum
 	POWERS,
 	FRACTIONS,
 	BYTES_READ,
+	QUERY_ROWS,
 	HOT_PATH,
 	STRING_IN,
 	STRING_OUT,
@@ -99,6 +102,9 @@ new Float:g_firing = 1000000.0;
 
 // A buffer of bytes, a byte a cell, and the table of CRC-32 by its bytes.
 new g_bytes[BYTES], g_crcTable[256];
+
+// A row's text, as SQL_ReadResult copies it.
+new g_row[32];
 
 // What the hot path keeps about each player between frames.
 new Float:g_x[33], Float:g_y[33], Float:g_speed[33], Float:g_top[33], Float:g_travelled[33];
@@ -438,6 +444,15 @@ run(what, id, count)
 		case POWERS: g_sink += sum_powers(2000, 2000);
 		case FRACTIONS: g_fsink += sum_distances(MANY);
 		case BYTES_READ: g_sink += read_bytes(BYTE_RUNS);
+		case QUERY_ROWS:
+		{
+			// What SQL_ReadResult does a row: the text copied out, the number read off its text.
+			for (new i = 0; i < count; i++)
+			{
+				copy(g_row, charsmax(g_row), "kz_bhop_1234_long");
+				g_fsink += str_to_float("38114.125");
+			}
+		}
 		case HOT_PATH: g_writes = hot_path();
 		case STRING_IN: for (new i = 0; i < count; i++) g_sink += strlen("hello, world");
 		case STRING_OUT: for (new i = 0; i < count; i++) g_sink += get_user_name(id, name, charsmax(name));
@@ -579,6 +594,7 @@ public measure()
 	perf_report("remainder: powers", best(POWERS, id, 1));
 	perf_report("fractions", best(FRACTIONS, id, 1));
 	perf_report("bytes", best(BYTES_READ, id, 1));
+	report_each("rows of a query", QUERY_ROWS, id, ROWS);
 	perf_report("hot path", best(HOT_PATH, id, 1));
 	perf_report("hot path writes", float(g_writes));
 	new alive[MAX_PLAYERS], living;
