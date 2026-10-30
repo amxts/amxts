@@ -182,6 +182,7 @@ describe('options', () => {
 			defaults: { greeting: 'Hello', times: 1, loud: false },
 			imports: [],
 			optionsType: 'GreeterOptions',
+			standalone: false,
 			hasSetup: true,
 		});
 
