@@ -674,6 +674,7 @@ export class FakePlayer extends FakeEntity {
 		const reason = options.reason ?? 'Client sent \'drop\'';
 		this.server.fire('client_disconnected', this.id, dropped, reason, 192);
 		this.server.clearPlayerData(this.id);
+		for (const other of this.server.walksThrough(this.id)) this.server.setWalkPair(this.id, other, false);
 		this.server.shownMenus.delete(this.id);
 		this.server.fire('client_disconnect', this.id);
 		this.connected = false;
@@ -956,6 +957,10 @@ export class FakeServer {
 	readonly semiclipMasks = new Map<number, number>();
 	/** Whether a plugin took resemiclip's rules over (resemiclip_take_control). */
 	semiclipControlled = false;
+	/** The players each walks through (player.walksThrough), by player: bit N - player N+1. One pair sets both. @internal */
+	readonly walkPartners = new Map<number, number>();
+	/** How a partner looks close up, as plugins set server.walkThroughLook. */
+	readonly walkThroughLook = { fadeDistance: 0, opacity: 0, hideDistance: 0 };
 	/** The progress bar each player was last shown (rg_send_bartime), in seconds. */
 	readonly bartimes = new Map<number, number>();
 	/** RegisterHam's callbacks, by `<function id>:<class>:pre|post`. */
@@ -1371,6 +1376,21 @@ export class FakeServer {
 	}
 
 	// ------------------------------------------------------------ what a test does
+
+	/** The ids of the players `id` walks through (player.walksThrough), in order. */
+	walksThrough(id: number): number[] {
+		const bits = this.walkPartners.get(id) ?? 0;
+		return Array.from({ length: 32 }, (_, at) => at + 1).filter(other => (bits >>> (other - 1)) & 1);
+	}
+
+	/** Two players walk through each other, or not: both bits at once, as semiclip.h's SetPair. @internal */
+	setWalkPair(a: number, b: number, on: boolean): void {
+		const bit = (id: number) => 1 << (id - 1);
+		for (const [one, other] of [[a, b], [b, a]]) {
+			const bits = this.walkPartners.get(one) ?? 0;
+			this.walkPartners.set(one, on ? bits | bit(other) : bits & ~bit(other));
+		}
+	}
 
 	/** A player connects: client_connect, client_authorized, client_putinserver. */
 	join(name: string, options: JoinOptions = {}): FakePlayer {
@@ -3608,6 +3628,33 @@ export class FakeServer {
 			if (kinds & 3) this.writing?.args.push(first);
 			if ((kinds >> 2) & 3) this.writing?.args.push(second);
 			this.callNativeImpl(plugin, 'emessage_end', []);
+		},
+
+		// Players walking through each other: semiclip.h's w_walkThrough and the rest; other 0 clears his pairs.
+		walk_through(this: FakeServer, plugin: PluginInstance, id: number, other: number, on: number) {
+			if (!this.player(id)) return;
+			if (other === 0 && !on) {
+				for (const each of this.walksThrough(id)) this.setWalkPair(id, each, false);
+			} else if (other !== id && this.player(other)) {
+				this.setWalkPair(id, other, on !== 0);
+			}
+		},
+
+		walk_through_get(this: FakeServer, plugin: PluginInstance, id: number) {
+			return this.walkPartners.get(id) ?? 0;
+		},
+
+		walk_look(this: FakeServer, plugin: PluginInstance, field: number, value: number) {
+			const look = this.walkThroughLook;
+			const v = value > 0 ? value : 0;
+			if (field === 0) look.fadeDistance = v;
+			else if (field === 1) look.opacity = Math.min(v, 1);
+			else if (field === 2) look.hideDistance = v;
+		},
+
+		walk_look_get(this: FakeServer, plugin: PluginInstance, field: number) {
+			const look = this.walkThroughLook;
+			return [look.fadeDistance, look.opacity, look.hideDistance][field] ?? 0;
 		},
 
 		ent_entity(this: FakeServer, plugin: PluginInstance, id: number, offset: number) {
