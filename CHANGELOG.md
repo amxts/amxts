@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.3.4
+
+> v0.3.4 is a patch release of the 0.3 line. Plugins built with 0.3.0 to 0.3.3 load on its module as they are.
+
+#### 🧩 A module that works on its own
+
+A module no plugin uses is left out of the build, so that one installed and forgotten does not load on the server. That left out a module whose whole job needs no plugin: `semiclip`, whose rule covers every player. 👉 **A module now says so in its definition, and is built whenever `amxts.config.ts` lists it:**
+
+```ts
+export default defineModule({
+	meta: { name: "semiclip" },
+	standalone: true,   // built whenever the config lists it
+});
+```
+
+`semiclip` 0.2.1 says it: `npx amxts module add semiclip`, and teammates walk through each other with no plugin of your own.
+
+### ✅ Upgrading
+
+```sh
+npm install -D @amxts/cli@latest   # pnpm add -D, yarn add -D, bun add -d
+npx amxts upgrade
+```
+
+It moves `@amxts/core` to 0.3.4 and `@amxts/semiclip` to 0.2.1, and puts the 0.3.4 module on the server in `AMXTS_SERVER`.
+
+### 👉 Changelog
+
+[compare changes](https://github.com/amxts/amxts/compare/v0.3.3...v0.3.4)
+
+### 🚀 Enhancements
+
+- **modules:** A standalone module is built unused ([91c5911](https://github.com/amxts/amxts/commit/91c5911))
+
+### ❤️ Contributors
+
+- Ernest Manukyan ([@kukson777](https://github.com/kukson777))
+
 ## v0.3.3
 
 > v0.3.3 is a patch release of the 0.3 line. Plugins built with 0.3.0, 0.3.1 and 0.3.2 load on its module as they are; the new events need the 0.3.3 module, which `npx amxts upgrade` puts on your server.
