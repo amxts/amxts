@@ -67,6 +67,9 @@ const USES = `
 // resemiclip, without an import.
 semiclip.rule = (player, target) => player.team == target.team;
 
+// perms, without an import.
+perms.declare({ "hello.greet": { description: "Be greeted", everyone: true } });
+
 // ftp, a library: compiled into this plugin.
 tryFtp();
 
