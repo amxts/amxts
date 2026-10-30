@@ -140,10 +140,9 @@ async function walk(walker: Player, standing: Player, start: Vector, alive: bool
 	let gone = 0;
 	for (let tries = 0; tries < 3; tries++) {
 		if (!walker.isAlive) walker.respawn();
-		if (standing.isAlive != alive) {
-			if (alive) standing.respawn();
-			else standing.kill();
-		}
+		// The game's own death: on plain HLDS the game turns down the kill command for him.
+		if (standing.isAlive && !alive) standing.killed(new Entity(0), 0);
+		if (!standing.isAlive && alive) standing.respawn();
 		await sleep(200);
 		walker.origin = start;
 		walker.velocity = [0, 0, 0];
