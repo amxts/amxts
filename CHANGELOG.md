@@ -46,7 +46,7 @@ server.walkThroughLook.opacity = 0.4;        // ...this opaque right next to you
 server.walkThroughLook.hideDistance = 48;    // and closer than this, not drawn at all
 ```
 
-A partner's grenade passes through you too, and on ReGameDLL he does not shield you from a flash. The official `resemiclip` module moves onto it in its next release, and then needs nothing but amxts.
+One you cannot see is no target either: the name under your crosshair, your shots and `+use` go through him. And on ReGameDLL a partner does not shield you from a flash. The official `resemiclip` module moves onto it in its next release, and then needs nothing but amxts.
 
 ### 👀 Highlights
 
@@ -196,6 +196,7 @@ The command and the core move together this time: every task of the command runs
 - **lang:** A dictionary is read again when it changes ([8ea5dde](https://github.com/amxts/amxts/commit/8ea5dde))
 - **module:** Name the slow listener, repeat the line less often ([40a0354](https://github.com/amxts/amxts/commit/40a0354))
 - **api:** Players walk through each other ([55c0183](https://github.com/amxts/amxts/commit/55c0183))
+- **api:** A partner not drawn is no target ([511c34c](https://github.com/amxts/amxts/commit/511c34c))
 
 ### 🩹 Fixes
 
