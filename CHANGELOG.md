@@ -48,7 +48,7 @@ server.walkThroughLook = {
 };
 ```
 
-One you cannot see is no target either: the name under your crosshair, your shots and `+use` go through him. And on ReGameDLL a partner does not shield you from a flash. The official `resemiclip` module moves onto it in its next release, and then needs nothing but amxts.
+One you cannot see is no target either: the name under your crosshair, your shots and `+use` go through him. And on ReGameDLL a partner does not shield you from a flash. The official `semiclip` module, `@amxts/semiclip` (the former `resemiclip`), moves onto it in its 0.2.0 and needs nothing but amxts; `npx amxts upgrade` puts it in place of `@amxts/resemiclip`.
 
 ### 👀 Highlights
 
