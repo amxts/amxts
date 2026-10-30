@@ -40,21 +40,20 @@ server.addServerCommand("amxts_test_movement", async () => {
 		return;
 	}
 
+	// YaPB's bots play the round: nothing may kill the watched one meanwhile.
+	const damage = bot.takeDamage;
+	bot.takeDamage = "no";
 	const air = new Cvar("sv_airaccelerate").number;
 	bot.movement.airAccelerate = air + 90;
 	check.expect(`${bot.movement.airAccelerate} ${bot.movement.friction}`, "his own value, and the server's for one not set").toBe(`${air + 90} ${new Cvar("sv_friction").number}`);
 	watched = bot.id;
-	bot.origin = bot.origin.add([0, 0, 32]);
-	await sleep(300);
-	if (regame) check.expect(heardAir, "the game moves him in the air by his own").toBe(air + 90);
+	if (regame) check.expect(await inAir(bot), "the game moves him in the air by his own").toBe(air + 90);
 
 	bot.movement.reset();
-	heardAir = -1;
-	bot.origin = bot.origin.add([0, 0, 32]);
-	await sleep(300);
-	if (regame) check.expect(heardAir, "and by the server's after reset()").toBe(air);
+	if (regame) check.expect(await inAir(bot), "and by the server's after reset()").toBe(air);
 	check.expect(bot.movement.airAccelerate, "reset() gives him the server's").toBe(air);
 	watched = 0;
+	bot.takeDamage = damage;
 
 	bot.slowdown = 0.5;
 	bot.jumpSlowdown = 500;
@@ -63,3 +62,14 @@ server.addServerCommand("amxts_test_movement", async () => {
 	bot.jumpSlowdown = 0;
 	check.done();
 });
+
+/** The air acceleration the game moves the bot by once lifted; a ceiling or a ladder may keep him from the air, so lift him again. */
+async function inAir(bot: Player) {
+	heardAir = -1;
+	for (let tries = 0; tries < 3; tries++) {
+		bot.origin = bot.origin.add([0, 0, 32]);
+		await sleep(300);
+		if (heardAir != -1) break;
+	}
+	return heardAir;
+}
