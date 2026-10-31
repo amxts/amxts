@@ -427,13 +427,10 @@ static void DispatchThink_Source(edict_t *e)
 	DispatchThink(e);
 }
 
-static void DispatchThink_SourcePost(edict_t *e)
-{
-	(void)e;
-	if (g_thinks > 0)
-		g_thinks--;
-	RETURN_META(MRES_IGNORED);
-}
+// The think after it, which also gives a grenade its groups back, and a
+// grenade out of them while it thinks or touches: semiclip.h.
+static void ThinkPostAttach();
+static void GroupsAside(edict_t *e);
 
 static void CmdStart_Source(const edict_t *player, const struct usercmd_s *cmd, unsigned int seed)
 {
@@ -458,7 +455,7 @@ static void SourceHooks(bool on)
 	if (!g_pFunctionTable || !g_pFunctionTable_Post)
 		return;
 	g_pFunctionTable->pfnThink = on ? DispatchThink_Source : DispatchThink;
-	g_pFunctionTable_Post->pfnThink = on ? DispatchThink_SourcePost : NULL;
+	ThinkPostAttach();
 	g_pFunctionTable->pfnCmdStart = on ? CmdStart_Source : NULL;
 	g_pFunctionTable_Post->pfnCmdEnd = on ? CmdEnd_SourcePost : NULL;
 }
@@ -1012,6 +1009,8 @@ static ALWAYS_INLINE bool TouchHeard(edict_t *touched, edict_t *other, int touch
  */
 void DispatchTouch(edict_t *touched, edict_t *other)
 {
+	GroupsAside(touched);
+	GroupsAside(other);
 	if (!touched || !other || TouchHeard(touched, other, IndexOf(touched), IndexOf(other)))
 		RETURN_META(MRES_IGNORED);
 	RETURN_META(MRES_SUPERCEDE);

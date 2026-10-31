@@ -53,6 +53,12 @@
 // A player's line past a partner not drawn for him (semiclip.h): in the
 // table from load, as Metamod-R wants, and out of it at attach until a pair.
 #define FN_TraceLine_Post TraceLine_Post
+// A grenade passing its thrower's partners (semiclip.h): the same, out of the
+// tables at attach until a grenade is grouped. The think after it keeps a
+// temporary entity's source too (enginehooks.h).
+#define FN_AddToFullPack AddToFullPack
+#define FN_DispatchTouch_Post DispatchTouch_Post
+#define FN_DispatchThink_Post DispatchThink_Post
 // What enginehooks.h hears: messages, touches, and fakemeta's functions.
 #define FN_MessageBegin MessageBegin
 #define FN_MessageEnd MessageEnd

@@ -1,19 +1,22 @@
-// Who walks through whom - player.walksThrough - and how a player one walks
-// through looks to him close up - server.walkThroughLook. A pair is one bit
-// both ways, and everything for it is done here, with no call into a plugin:
-// these run for every pair every frame.
+// Who walks through whom - player.walksThrough - how a player one walks
+// through looks to him close up - server.walkThroughLook - and what else
+// passes a partner - server.walkThroughOptions. A pair is one bit both ways,
+// and everything for it is done here, with no call into a plugin: these run
+// for every pair every frame.
 //
 // - PM_Move (movement.h) takes the mover's partners out of his physents, so
-//   the game moves him through them;
+//   the game moves him through them - all but one he stands on, or who
+//   stands on him (standOnHead);
 // - AddToFullPack (entitystate.h) sends each partner to him not solid, so his
 //   client predicts no collision either, and draws a partner see-through or
 //   not at all by the distance, with the weapon model he holds;
 // - TraceLine, after the engine: a line a player traces - his aim, so the
 //   name under his crosshair, his shots, his +use - goes on through a
 //   partner not drawn for him;
-// - ReGameDLL's RadiusFlash_TraceLine lets a flash's line through a partner
-//   of the player it blinds. Without ReGameDLL a partner still blocks it.
+// - a grenade in flight passes its thrower's partners (grenades): for the
+//   frame's physics the engine's collision groups say so.
 //
+// A flash's light, an explosion and shots stop at a partner as at anyone.
 // While a player is dead or a spectator he passes everyone. Nothing is hooked
 // while no pair is set.
 //
@@ -36,12 +39,17 @@ static WalkLook g_walkLooks[CLIENT_SLOTS];
 
 enum WalkLookField { LOOK_FADE = 0, LOOK_OPACITY = 1, LOOK_HIDE = 2 };
 
-static void StatesAttach(bool on);
-static void FlashLine(re::IHookChain<void, void *, entvars_t *, entvars_t *, Vector &, Vector &, void *> *chain, void *player, entvars_t *inflictor, entvars_t *attacker, Vector &start, Vector &end, void *trace);
+// What else passes a partner, for every pair; both on until a plugin says.
+enum WalkOption { WALK_GRENADES = 0, WALK_STAND_ON_HEAD = 1 };
+static bool g_walkGrenades = true;
+static bool g_standOnHead = true;
 
-typedef re::IHookChainRegistry<void, void *, entvars_t *, entvars_t *, Vector &, Vector &, void *> FlashLineChain;
+static void StatesAttach(bool on);
+static void GroupsClose();
 
 extern enginefuncs_t *g_pengfuncsTable_Post;
+extern DLL_FUNCTIONS *g_pFunctionTable;
+extern DLL_FUNCTIONS *g_pFunctionTable_Post;
 
 /** ReSemiclip on the server too, said once when a pair is first set. */
 static void SaySemiclipBoth()
@@ -59,13 +67,10 @@ static void WalkersAttach(bool on)
 	StatesAttach(on);
 	if (g_pengfuncsTable_Post)
 		g_pengfuncsTable_Post->pfnTraceLine = on ? TraceLine_Post : NULL;
-	if (g_regameChains) {
-		FlashLineChain *chain = (FlashLineChain *)g_regameChains->RadiusFlash_TraceLine();
-		if (on) chain->registerHook(FlashLine, CHAIN_PRIORITY);
-		else chain->unregisterHook(FlashLine);
-	}
 	if (on)
 		SaySemiclipBoth();
+	else
+		GroupsClose();
 }
 
 /** `id`'s partners `partners`, kept counted in g_walkers. */
@@ -140,16 +145,53 @@ static double w_walkLookGet(wasm_exec_env_t env, int32_t field)
 	return 0;
 }
 
+/** walk_option(field, on) - what else passes a partner, for every pair. */
+static void w_walkOption(wasm_exec_env_t env, int32_t field, int32_t on)
+{
+	(void)env;
+	switch (field) {
+		case WALK_GRENADES:
+			g_walkGrenades = on != 0;
+			if (!on) GroupsClose();
+			break;
+		case WALK_STAND_ON_HEAD: g_standOnHead = on != 0; break;
+	}
+}
+
+/** walk_option_get(field) - whether it passes. */
+static int32_t w_walkOptionGet(wasm_exec_env_t env, int32_t field)
+{
+	(void)env;
+	switch (field) {
+		case WALK_GRENADES:      return g_walkGrenades;
+		case WALK_STAND_ON_HEAD: return g_standOnHead;
+	}
+	return 0;
+}
+
 /** Dead, dying or a spectator: solid to nobody. */
 static ALWAYS_INLINE bool Ghost(const edict_t *player)
 {
 	return player->v.deadflag != DEAD_NO || player->v.iuser1 != 0;
 }
 
+/**
+ * Whether one of the two is wholly above the other: the one on top stands on
+ * him. Two already in each other are not, or they would stick.
+ */
+static ALWAYS_INLINE bool Stacked(const edict_t *a, const edict_t *b)
+{
+	return a->v.origin.z + a->v.mins.z >= b->v.origin.z + b->v.maxs.z
+		|| b->v.origin.z + b->v.mins.z >= a->v.origin.z + a->v.maxs.z;
+}
+
 /** Whether players `a` and `b` walk through each other now. */
 static ALWAYS_INLINE bool Passes(int a, int b)
 {
-	return (g_partners[a] >> b & 1) || Ghost(INDEXENT(a)) || Ghost(INDEXENT(b));
+	const edict_t *ea = INDEXENT(a), *eb = INDEXENT(b);
+	if (Ghost(ea) || Ghost(eb))
+		return true;
+	return (g_partners[a] >> b & 1) && !(g_standOnHead && Stacked(ea, eb));
 }
 
 /** PM_Move, before the game: the mover's partners out of his physents. */
@@ -222,9 +264,10 @@ static bool WalkThroughState(entity_state_t *state, int e, edict_t *ent, edict_t
 		if (other < 1 || other > gpGlobals->maxClients)
 			return true;
 	}
-	if (other == viewer || viewer < 1 || viewer >= CLIENT_SLOTS || !Passes(viewer, other))
+	if (other == viewer || viewer < 1 || viewer >= CLIENT_SLOTS)
 		return true;
-	if (other == e)
+	// Sent solid while one stands on the other, so his client predicts it too.
+	if (other == e && Passes(viewer, other))
 		state->solid = SOLID_NOT;
 
 	const WalkLook &look = g_walkLooks[viewer];
@@ -246,20 +289,164 @@ static bool WalkThroughState(entity_state_t *state, int e, edict_t *ent, edict_t
 	return true;
 }
 
-/**
- * ReGameDLL's RadiusFlash_TraceLine: the line from a flash to the eyes of
- * `player`. One that stops at a partner of his goes on from the partner.
- */
-static void FlashLine(re::IHookChain<void, void *, entvars_t *, entvars_t *, Vector &, Vector &, void *> *chain, void *player, entvars_t *inflictor, entvars_t *attacker, Vector &start, Vector &end, void *trace)
+// ---------------------------------------------------------------- grenades
+
+// A grenade in flight passes its thrower's partners. The engine moves it in
+// SV_Physics, with no call per entity a module can hook, but its traces and
+// touches ask the collision groups (groupinfo, GROUP_OP_AND: two entities
+// both in groups collide only when they share one). So for the frame's
+// physics - from the end of StartFrame to the first entity sent - every
+// player is in a group of his own and in one all players share, and a
+// grenade in the groups of the players it hits: not its thrower's partners.
+// Its think and touch - its sounds, its explosion, a flash's light - run
+// out of its groups, as the game's own, and everything is out of them
+// before anything is sent: the groups decide what a player is sent too.
+//
+// Players already in groups are another plugin's: that frame nothing is
+// grouped. Ids 1 and 32 share a group (32 bits, one for all): on a 32-slot
+// server a grenade passing one of them passes the other.
+
+#define GROUP_PLAYERS (1u << 31)
+#define GROUPED_MAX 64
+
+/** A grenade in groups for the frame: its groups, while it is the same entity. */
+struct GroupedGrenade {
+	edict_t *e;
+	int serial;
+	int groups;
+};
+
+static GroupedGrenade g_grouped[GROUPED_MAX];
+static int  g_groupedCount = 0;
+static bool g_groupsOn = false;
+
+static void ThinkPostAttach();
+void DispatchThink_Post(edict_t *e);
+void DispatchTouch_Post(edict_t *touched, edict_t *other);
+int AddToFullPack(entity_state_t *state, int e, edict_t *ent, edict_t *host, int hostflags, int player, unsigned char *set);
+
+/** A player's own group. */
+static ALWAYS_INLINE int PlayerGroup(int id)
 {
-	chain->callNext(player, inflictor, attacker, start, end, trace);
-	int blinded = CellOfCbase(player);
-	TraceResult *tr = (TraceResult *)trace;
-	for (int i = 0; i < gpGlobals->maxClients && tr->pHit; i++) {
-		int hit = ENTINDEX(tr->pHit);
-		if (hit < 1 || hit > gpGlobals->maxClients || blinded < 1 || !(g_partners[blinded] >> hit & 1))
-			break;
-		Vector eyes = tr->pHit->v.origin + tr->pHit->v.view_ofs;
-		TRACE_LINE(eyes, end, 0, tr->pHit, tr);
+	return (int)(1u << ((id - 1) % 31));
+}
+
+/** The hooks that take a grenade out of its groups and the frame's groups off, in Metamod's tables while the groups are on. */
+static void GroupHooks(bool on)
+{
+	g_groupsOn = on;
+	ThinkPostAttach();
+	if (g_pFunctionTable_Post)
+		g_pFunctionTable_Post->pfnTouch = on ? DispatchTouch_Post : NULL;
+	if (g_pFunctionTable)
+		g_pFunctionTable->pfnAddToFullPack = on ? AddToFullPack : NULL;
+}
+
+/** The frame's groups off: the players and the grenades out of them. */
+static void GroupsClose()
+{
+	if (!g_groupsOn)
+		return;
+	for (int i = 0; i < g_groupedCount; i++) {
+		const GroupedGrenade &g = g_grouped[i];
+		if (!g.e->free && g.e->serialnumber == g.serial)
+			g.e->v.groupinfo = 0;
 	}
+	g_groupedCount = 0;
+	for (int id = 1; id <= gpGlobals->maxClients; id++)
+		INDEXENT(id)->v.groupinfo = 0;
+	GroupHooks(false);
+}
+
+/** End of StartFrame: the grenades thrown by a player with partners, and the players, into groups for the frame's physics. */
+static void GroupsOpen()
+{
+	GroupsClose();
+	if (!g_walkers || !g_walkGrenades)
+		return;
+	int maxClients = gpGlobals->maxClients;
+	edict_t *edicts = INDEXENT(0);
+	for (int id = 1; id <= maxClients; id++)
+		if (edicts[id].v.groupinfo)
+			return;
+	for (int i = maxClients + 1; i < gpGlobals->maxEntities && g_groupedCount < GROUPED_MAX; i++) {
+		edict_t *e = &edicts[i];
+		if (e->free || e->v.movetype != MOVETYPE_BOUNCE || !e->v.owner || e->v.groupinfo)
+			continue;
+		int thrower = ENTINDEX(e->v.owner);
+		if (thrower < 1 || thrower > maxClients || !g_partners[thrower])
+			continue;
+		int groups = 0;
+		for (int id = 1; id <= maxClients; id++)
+			if (id != thrower && !(g_partners[thrower] >> id & 1))
+				groups |= PlayerGroup(id);
+		// Everyone else a partner: a group nobody else is in, the thrower's, whom it passes anyway.
+		if (!groups)
+			groups = PlayerGroup(thrower);
+		e->v.groupinfo = groups;
+		g_grouped[g_groupedCount++] = { e, e->serialnumber, groups };
+	}
+	if (!g_groupedCount)
+		return;
+	for (int id = 1; id <= maxClients; id++)
+		edicts[id].v.groupinfo = (int)GROUP_PLAYERS | PlayerGroup(id);
+	GroupHooks(true);
+}
+
+/** The grouped grenade `e` is, or null. */
+static GroupedGrenade *Grouped(const edict_t *e)
+{
+	for (int i = 0; i < g_groupedCount; i++)
+		if (g_grouped[i].e == e)
+			return &g_grouped[i];
+	return NULL;
+}
+
+/** Before a think or a touch: a grouped grenade out of its groups, so what it does is the game's own. */
+static void GroupsAside(edict_t *e)
+{
+	if (g_groupsOn && Grouped(e))
+		e->v.groupinfo = 0;
+}
+
+/** After it: back into them, for the rest of its move. */
+static void GroupsBack(edict_t *e)
+{
+	GroupedGrenade *g = g_groupsOn ? Grouped(e) : NULL;
+	if (g && !e->free && e->serialnumber == g->serial && !(e->v.flags & FL_KILLME))
+		e->v.groupinfo = g->groups;
+}
+
+/**
+ * The think after it, in Metamod's table while a temporary entity's source
+ * is kept (enginehooks.h) or the groups are on: the think done, and a
+ * grenade back into its groups.
+ */
+static void ThinkPostAttach()
+{
+	if (g_pFunctionTable_Post)
+		g_pFunctionTable_Post->pfnThink = g_sourcesHooked || g_groupsOn ? DispatchThink_Post : NULL;
+}
+
+void DispatchThink_Post(edict_t *e)
+{
+	if (g_sourcesHooked && g_thinks > 0)
+		g_thinks--;
+	GroupsBack(e);
+	RETURN_META(MRES_IGNORED);
+}
+
+/** The game's AddToFullPack, before it, while the groups are on: the first entity sent ends the frame's physics. */
+int AddToFullPack(entity_state_t *state, int e, edict_t *ent, edict_t *host, int hostflags, int player, unsigned char *set)
+{
+	(void)state; (void)e; (void)ent; (void)host; (void)hostflags; (void)player; (void)set;
+	GroupsClose();
+	RETURN_META_VALUE(MRES_IGNORED, 0);
+}
+
+void DispatchTouch_Post(edict_t *touched, edict_t *other)
+{
+	GroupsBack(touched);
+	GroupsBack(other);
+	RETURN_META(MRES_IGNORED);
 }

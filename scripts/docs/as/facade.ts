@@ -1323,6 +1323,46 @@ export default {
 		en: `Closer than this, in units, a player he walks through is not drawn for him at all, and his aim, shots and \`+use\` go through him; \`0\` is off.`,
 		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, для него совсем не рисуется, а его прицел, выстрелы и \`+use\` проходят сквозь этого игрока; \`0\` — выключено.`,
 	},
+	'WalkThroughOptions': {
+		en: `
+			The server's switches of walking through, for every pair: a grenade
+			passing its thrower's partners, and a player standing on a partner's
+			head. Both are on by default. It is set as a whole, or a part of it:
+
+			\`\`\`ts
+			server.walkThroughOptions = { grenades: false };   // a grenade bounces off a partner of its thrower
+			\`\`\`
+		`,
+		ru: `
+			Выключатели прохода сквозь партнёров на сервере, для всех пар: граната
+			сквозь партнёров бросившего и стояние на голове партнёра. Оба по
+			умолчанию включены. Задаётся целиком или частью:
+
+			\`\`\`ts
+			server.walkThroughOptions = { grenades: false };   // граната отскакивает от партнёра бросившего
+			\`\`\`
+		`,
+	},
+	'WalkThroughOptions.grenades': {
+		en: `Whether a grenade in flight passes the players its thrower walks through.`,
+		ru: `Пролетает ли граната сквозь игроков, сквозь которых проходит бросивший её.`,
+	},
+	'WalkThroughOptions.standOnHead': {
+		en: `Whether a player wholly above one he walks through stands on him, instead of falling through.`,
+		ru: `Стоит ли игрок, целиком оказавшийся над тем, сквозь кого проходит, у него на голове, а не проваливается.`,
+	},
+	'WalkThroughOptionsInit': {
+		en: `The options of \`server.walkThroughOptions\` to set: the fields given change, the others stay.`,
+		ru: `Настройки для \`server.walkThroughOptions\`: названные поля меняются, остальные остаются.`,
+	},
+	'WalkThroughOptionsInit.grenades': {
+		en: `Whether a grenade in flight passes the players its thrower walks through.`,
+		ru: `Пролетает ли граната сквозь игроков, сквозь которых проходит бросивший её.`,
+	},
+	'WalkThroughOptionsInit.standOnHead': {
+		en: `Whether a player wholly above one he walks through stands on him, instead of falling through.`,
+		ru: `Стоит ли игрок, целиком оказавшийся над тем, сквозь кого проходит, у него на голове, а не проваливается.`,
+	},
 	'Player.give': {
 		en: `
 			Gives the player a weapon or an item: \`player.give("weapon_flashbang")\`.
@@ -3776,6 +3816,18 @@ export default {
 			Вид игрока, сквозь которого проходишь, вблизи:
 			\`server.walkThroughLook = { fadeDistance: 250 }\` делает его полупрозрачным
 			ближе 250 юнитов. По умолчанию выключено.
+		`,
+	},
+	'Server.walkThroughOptions': {
+		en: `
+			The server's switches of walking through: a grenade passing its
+			thrower's partners, and a player standing on a partner's head. Both on
+			by default: \`server.walkThroughOptions = { grenades: false }\`.
+		`,
+		ru: `
+			Выключатели прохода сквозь партнёров на сервере: граната сквозь
+			партнёров бросившего и стояние на голове партнёра. Оба по умолчанию
+			включены: \`server.walkThroughOptions = { grenades: false }\`.
 		`,
 	},
 	'Server.versions': {

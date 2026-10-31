@@ -961,6 +961,8 @@ export class FakeServer {
 	readonly walkPartners = new Map<number, number>();
 	/** How a partner looks close up, as plugins set server.walkThroughLook. */
 	readonly walkThroughLook = { fadeDistance: 0, opacity: 0, hideDistance: 0 };
+	/** What else passes a partner, as plugins set server.walkThroughOptions. */
+	readonly walkThroughOptions = { grenades: true, standOnHead: true };
 	/** The progress bar each player was last shown (rg_send_bartime), in seconds. */
 	readonly bartimes = new Map<number, number>();
 	/** RegisterHam's callbacks, by `<function id>:<class>:pre|post`. */
@@ -3655,6 +3657,17 @@ export class FakeServer {
 		walk_look_get(this: FakeServer, plugin: PluginInstance, field: number) {
 			const look = this.walkThroughLook;
 			return [look.fadeDistance, look.opacity, look.hideDistance][field] ?? 0;
+		},
+
+		walk_option(this: FakeServer, plugin: PluginInstance, field: number, on: number) {
+			const options = this.walkThroughOptions;
+			if (field === 0) options.grenades = on !== 0;
+			else if (field === 1) options.standOnHead = on !== 0;
+		},
+
+		walk_option_get(this: FakeServer, plugin: PluginInstance, field: number) {
+			const options = this.walkThroughOptions;
+			return Number([options.grenades, options.standOnHead][field] ?? false);
 		},
 
 		ent_entity(this: FakeServer, plugin: PluginInstance, id: number, offset: number) {
