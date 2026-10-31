@@ -50,5 +50,41 @@ export function text(): string {
 			expect(error).toBe('');
 			expect(text()).toBe('0x1yak472500awp47500p1012');
 		});
+
+		test('a typed array\'s entries(), keys() and values()', async () => {
+			const { error, text } = await compile(`
+export function text(): string {
+	const bytes = new Uint8Array(3);
+	bytes[0] = 7; bytes[1] = 8; bytes[2] = 9;
+	const scores = new Float32Array(2);
+	scores[1] = 1.5;
+	const out: string[] = [];
+	for (const [index, byte] of bytes.entries()) out.push(\`\${index} \${byte}\`);
+	for (const [, score] of scores.entries()) out.push(score.toString());
+	for (const index of bytes.keys()) out.push(index.toString());
+	for (const byte of bytes.values()) out.push(byte.toString());
+	for (const entry of new Int32Array(1).entries()) out.push(entry[0].toString() + entry[1].toString());
+	out.push([...bytes.keys()].join(""));
+	return out.join(",");
+}
+`, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('0 7,1 8,2 9,0,1.5,0,1,2,7,8,9,00,012');
+		});
+
+		test('for...of over keys() walks the index, a Map\'s keys() its keys', async () => {
+			const { error, text } = await compile(`
+export function text(): string {
+	const names = ["a", "b"];
+	const prices = new Map<string, number>([["ak47", 2500]]);
+	let out = "";
+	for (const index of names.keys()) out += index.toString();
+	for (const name of prices.keys()) out += name;
+	return out;
+}
+`, optimize);
+			expect(error).toBe('');
+			expect(text()).toBe('01ak47');
+		});
 	});
 }

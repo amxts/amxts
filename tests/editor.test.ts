@@ -24,7 +24,8 @@ test('as/ has no errors in the editor', () => {
 
 test('the standard library takes what JavaScript\'s does in the editor', () => {
 	// A Map of its entries, a Set of its values, Date.UTC of the year and
-	// month: the typings asc ships refused them, and the build compiles them.
+	// month, an array's and a typed array's entries(), keys() and values():
+	// the typings asc ships refused them, and the build compiles them.
 	const dir = join(tmpdir(), 'amxts-editor-test');
 	mkdirSync(dir, { recursive: true });
 	writeFileSync(join(dir, 'tsconfig.json'), JSON.stringify({ extends: resolve('node_modules/assemblyscript/std/assembly.json'), files: ['probe.ts'] }));
@@ -32,6 +33,10 @@ test('the standard library takes what JavaScript\'s does in the editor', () => {
 		'const scores = new Map([["ann", 1], ["bob", 2]]);',
 		'const names = new Set(["ann", "bob"]);',
 		'export const total: number = scores.get("ann") + names.size + Date.UTC(2024, 0) + Date.UTC(2024, 0, 2) + ["a"].flatMap(name => [name, name]).length;',
+		'for (const [index, name] of ["a"].entries()) console.log(`${index} ${name}`);',
+		'for (const [index, byte] of new Uint8Array(1).entries()) console.log(`${index + byte}`);',
+		'for (const index of new Int32Array(1).keys()) console.log(`${index}`);',
+		'for (const value of new Float32Array(1).values()) console.log(`${value}`);',
 		'',
 	].join('\n'));
 

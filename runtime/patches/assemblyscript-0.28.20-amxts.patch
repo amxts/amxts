@@ -7856,7 +7856,7 @@ index def4e78..e4d4d84 100644
      let cases = this.cases;
      let index = cases.indexOf(code);
 diff --git a/src/parser.ts b/src/parser.ts
-index 157351c..f58cd70 100644
+index 157351c..bef4899 100644
 --- a/src/parser.ts
 +++ b/src/parser.ts
 @@ -31,7 +31,8 @@ import {
@@ -9700,7 +9700,7 @@ index 157351c..f58cd70 100644
        let retMethod = Node.createMethodDeclaration(
          name,
          decorators,
-@@ -2415,61 +3750,310 @@ export class Parser extends DiagnosticEmitter {
+@@ -2415,23 +3750,21 @@ export class Parser extends DiagnosticEmitter {
        }
  
        let type: TypeNode | null = null;
@@ -9724,25 +9724,24 @@ index 157351c..f58cd70 100644
          type = this.parseType(tn);
          if (!type) return null;
        } else {
+-        this.error(
+-          DiagnosticCode.Type_expected,
+-          tn.range()
+-        ); // recoverable
 +        missingTypeRange = tn.range();
-+      }
-+      let initializer: Expression | null = null;
-+      if (tn.skip(Token.Equals)) {
-+        if (flags & CommonFlags.Ambient) {
-+          this.error(
-+            DiagnosticCode.Initializers_are_not_allowed_in_ambient_contexts,
-+            tn.range()
-+          ); // recoverable
-+        }
-+        initializer = this.parseExpression(tn);
-+        if (!initializer) return null;
-+        if (flags & CommonFlags.DefinitelyAssigned) {
-+          this.error(
-+            DiagnosticCode.Declarations_with_initializers_cannot_also_have_definite_assignment_assertions,
-+            name.range
-+          );
-+        }
-+      }
+       }
+       let initializer: Expression | null = null;
+       if (tn.skip(Token.Equals)) {
+@@ -2450,26 +3783,277 @@ export class Parser extends DiagnosticEmitter {
+           );
+         }
+       }
+-      let range = tn.range(startPos, tn.pos);
+-      if ((flags & CommonFlags.DefinitelyAssigned) != 0 && (isInterface || (flags & CommonFlags.Ambient) != 0)) {
+-        this.error(
+-          DiagnosticCode.A_definite_assignment_assertion_is_not_permitted_in_this_context,
+-          range
+-        );
 +
 +      // amxts: a field's type is read off its initializer, as TypeScript
 +      // reads it.
@@ -9757,19 +9756,11 @@ index 157351c..f58cd70 100644
 +      // original refusal: the field then says its type in words.
 +      if (!type && initializer) type = this.typeOfInitializer(initializer);
 +      if (!type && missingTypeRange) {
-         this.error(
-           DiagnosticCode.Type_expected,
--          tn.range()
++        this.error(
++          DiagnosticCode.Type_expected,
 +          missingTypeRange
-         ); // recoverable
-       }
--      let initializer: Expression | null = null;
--      if (tn.skip(Token.Equals)) {
--        if (flags & CommonFlags.Ambient) {
--          this.error(
--            DiagnosticCode.Initializers_are_not_allowed_in_ambient_contexts,
--            tn.range()
--          ); // recoverable
++        ); // recoverable
++      }
 +      // amxts: `time?: number` without a default - TypeScript's optional
 +      // property: an object literal may leave it out, and then it reads as
 +      // undefined. How undefined is held depends on the type:
@@ -9950,27 +9941,13 @@ index 157351c..f58cd70 100644
 +            locals.set(caught.text, Node.createVariableDeclaration(caught, null, CommonFlags.Let, type, null, range));
 +          }
 +          for (let i = 0, k = catchStatements.length; i < k; ++i) this.collectReturns(catchStatements[i], values, locals);
-         }
--        initializer = this.parseExpression(tn);
--        if (!initializer) return null;
--        if (flags & CommonFlags.DefinitelyAssigned) {
--          this.error(
--            DiagnosticCode.Declarations_with_initializers_cannot_also_have_definite_assignment_assertions,
--            name.range
--          );
++        }
 +        let finallyStatements = node.finallyStatements;
 +        if (finallyStatements) {
 +          for (let i = 0, k = finallyStatements.length; i < k; ++i) this.collectReturns(finallyStatements[i], values, locals);
-         }
++        }
 +        break;
        }
--      let range = tn.range(startPos, tn.pos);
--      if ((flags & CommonFlags.DefinitelyAssigned) != 0 && (isInterface || (flags & CommonFlags.Ambient) != 0)) {
--        this.error(
--          DiagnosticCode.A_definite_assignment_assertion_is_not_permitted_in_this_context,
--          range
--        );
--      }
 -      let retField = Node.createFieldDeclaration(
 -        name,
 -        decorators,
@@ -10267,7 +10244,7 @@ index 157351c..f58cd70 100644
  
      // at 'of': Expression ')' Statement
  
-@@ -3308,15 +5017,103 @@ export class Parser extends DiagnosticEmitter {
+@@ -3308,15 +5017,111 @@ export class Parser extends DiagnosticEmitter {
  
      let statement = this.parseStatement(tn);
      if (!statement) return null;
@@ -10290,6 +10267,15 @@ index 157351c..f58cd70 100644
 +        let indexName = Node.createIdentifierExpression("__ofi" + n.toString(), range);
 +        let i32Type = Node.createNamedType(Node.createSimpleTypeName("i32", range), null, false, range);
 +
++        // `for (const index of list.keys())` walks an array or a typed array
++        // by index with no array of indexes made: `__keysOf(list)` is the list
++        // itself and `__keyOf(list, item, index)` the index, and of a Map its
++        // keys() and the item (Resolver.objectCallOf)
++        let forAwaits = this.forAwaits;
++        let forAwait = forAwaits.length > 0 && forAwaits[forAwaits.length - 1];
++        let keysOf = forAwait ? null : memberCallOf(iterable, "keys");
++        if (keysOf) iterable = Node.createCallExpression(Node.createIdentifierExpression("__keysOf", iterable.range), null, [ keysOf ], iterable.range);
++
 +        // A Map walks its entries and a Set its values (Resolver.forOfOf).
 +        let walked = Node.createCallExpression(Node.createIdentifierExpression("__forOf", iterable.range), null, [ iterable ], iterable.range);
 +        let listDeclaration = Node.createVariableStatement(null, [
@@ -10311,9 +10297,12 @@ index 157351c..f58cd70 100644
 +          Node.createIdentifierExpression(indexName.text, range),
 +          range);
 +        // `for await`: each item awaited
-+        let forAwaits = this.forAwaits;
-+        if (forAwaits.length && forAwaits[forAwaits.length - 1]) {
++        if (forAwait) {
 +          item = Node.createCallExpression(Node.createIdentifierExpression("__await", range), null, [ item ], range);
++        } else if (keysOf) {
++          item = Node.createCallExpression(Node.createIdentifierExpression("__keyOf", range), null, [
++            keysOf, item, Node.createIdentifierExpression(indexName.text, range)
++          ], range);
 +        }
 +        declarations[0].initializer = item;
 +
@@ -10362,17 +10351,13 @@ index 157351c..f58cd70 100644
 +    if (!pattern.isArray || pattern.rest || pattern.elements.length > 2) return null;
 +    let forAwaits = this.forAwaits;
 +    if (forAwaits.length && forAwaits[forAwaits.length - 1]) return null;
-+    if (iterable.kind != NodeKind.Call) return null;
-+    let call = <CallExpression>iterable;
-+    if (call.args.length || call.typeArguments || call.expression.kind != NodeKind.PropertyAccess) return null;
-+    let member = <PropertyAccessExpression>call.expression;
-+    return member.property.text == "entries" ? member.expression : null;
++    return memberCallOf(iterable, "entries");
 +  }
 +
    parseIfStatement(
      tn: Tokenizer
    ): IfStatement | null {
-@@ -3496,27 +5293,27 @@ export class Parser extends DiagnosticEmitter {
+@@ -3496,27 +5301,27 @@ export class Parser extends DiagnosticEmitter {
        let catchStatements: Statement[] | null = null;
        let finallyStatements: Statement[] | null = null;
        if (tn.skip(Token.Catch)) {
@@ -10421,7 +10406,7 @@ index 157351c..f58cd70 100644
          }
          if (!tn.skip(Token.OpenBrace)) {
            this.error(
-@@ -3561,6 +5358,9 @@ export class Parser extends DiagnosticEmitter {
+@@ -3561,6 +5366,9 @@ export class Parser extends DiagnosticEmitter {
          finallyStatements,
          tn.range(startPos, tn.pos)
        );
@@ -10431,7 +10416,7 @@ index 157351c..f58cd70 100644
        tn.skip(Token.Semicolon);
        return ret;
      } else {
-@@ -3608,6 +5408,11 @@ export class Parser extends DiagnosticEmitter {
+@@ -3608,6 +5416,11 @@ export class Parser extends DiagnosticEmitter {
            type,
            tn.range(startPos, tn.pos)
          );
@@ -10443,7 +10428,7 @@ index 157351c..f58cd70 100644
          tn.skip(Token.Semicolon);
          ret.overriddenModuleName = this.currentModuleName;
          return ret;
-@@ -3694,6 +5499,19 @@ export class Parser extends DiagnosticEmitter {
+@@ -3694,6 +5507,19 @@ export class Parser extends DiagnosticEmitter {
    ): Expression | null {
      let token = tn.next(IdentifierHandling.Prefer);
      let startPos = tn.tokenPos;
@@ -10463,7 +10448,7 @@ index 157351c..f58cd70 100644
      switch (token) {
  
        // TODO: SpreadExpression, YieldExpression
-@@ -3712,6 +5530,51 @@ export class Parser extends DiagnosticEmitter {
+@@ -3712,6 +5538,51 @@ export class Parser extends DiagnosticEmitter {
          if (!operand) return null;
          return Node.createUnaryPrefixExpression(token, operand, tn.range(startPos, tn.pos));
        }
@@ -10515,7 +10500,7 @@ index 157351c..f58cd70 100644
        case Token.Plus_Plus:
        case Token.Minus_Minus: {
          let operand = this.parseExpression(tn, Precedence.UnaryPrefix);
-@@ -3752,6 +5615,9 @@ export class Parser extends DiagnosticEmitter {
+@@ -3752,6 +5623,9 @@ export class Parser extends DiagnosticEmitter {
          } else {
            arguments_ = []; // new Type;
          }
@@ -10525,7 +10510,7 @@ index 157351c..f58cd70 100644
          return Node.createNewExpression(
            typeName,
            typeArguments,
-@@ -3790,6 +5656,24 @@ export class Parser extends DiagnosticEmitter {
+@@ -3790,6 +5664,24 @@ export class Parser extends DiagnosticEmitter {
                tn.reset(state);
                return this.parseFunctionExpression(tn);
              }
@@ -10550,7 +10535,7 @@ index 157351c..f58cd70 100644
              // can be both
              case Token.Identifier: {
                tn.readIdentifier();
-@@ -3896,6 +5780,25 @@ export class Parser extends DiagnosticEmitter {
+@@ -3896,6 +5788,25 @@ export class Parser extends DiagnosticEmitter {
          let values = new Array<Expression>();
          let name: IdentifierExpression;
          while (!tn.skip(Token.CloseBrace)) {
@@ -10576,7 +10561,7 @@ index 157351c..f58cd70 100644
            if (!tn.skipIdentifier()) {
              if (!tn.skip(Token.StringLiteral)) {
                this.error(
-@@ -3914,6 +5817,17 @@ export class Parser extends DiagnosticEmitter {
+@@ -3914,6 +5825,17 @@ export class Parser extends DiagnosticEmitter {
              let value = this.parseExpression(tn, Precedence.Comma + 1);
              if (!value) return null;
              values.push(value);
@@ -10594,7 +10579,7 @@ index 157351c..f58cd70 100644
            } else if (!name.isQuoted) {
              values.push(name);
            } else {
-@@ -3935,7 +5849,10 @@ export class Parser extends DiagnosticEmitter {
+@@ -3935,7 +5857,10 @@ export class Parser extends DiagnosticEmitter {
              }
            }
          }
@@ -10606,7 +10591,7 @@ index 157351c..f58cd70 100644
        }
        // AssertionExpression (unary prefix)
        case Token.LessThan: {
-@@ -4129,20 +6046,32 @@ export class Parser extends DiagnosticEmitter {
+@@ -4129,20 +6054,32 @@ export class Parser extends DiagnosticEmitter {
      // see: http://www.engr.mun.ca/~theo/Misc/exp_parsing.htm#climbing
      let nextPrecedence: Precedence;
      while (
@@ -10646,7 +10631,7 @@ index 157351c..f58cd70 100644
            } else {
              let toType = this.parseType(tn); // reports
              if (!toType) return null;
-@@ -4281,6 +6210,44 @@ export class Parser extends DiagnosticEmitter {
+@@ -4281,6 +6218,44 @@ export class Parser extends DiagnosticEmitter {
            }
            break;
          }
@@ -10691,7 +10676,7 @@ index 157351c..f58cd70 100644
          // BinaryExpression (right associative)
          case Token.Equals:
          case Token.Plus_Equals:
-@@ -4295,6 +6262,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -4295,6 +6270,7 @@ export class Parser extends DiagnosticEmitter {
          case Token.Ampersand_Equals:
          case Token.Caret_Equals:
          case Token.Bar_Equals:
@@ -10699,7 +10684,7 @@ index 157351c..f58cd70 100644
          case Token.Asterisk_Asterisk: {
            let next = this.parseExpression(tn, nextPrecedence);
            if (!next) return null;
-@@ -4323,6 +6291,7 @@ export class Parser extends DiagnosticEmitter {
+@@ -4323,6 +6299,7 @@ export class Parser extends DiagnosticEmitter {
          case Token.Caret:
          case Token.Ampersand_Ampersand:
          case Token.Bar_Bar:
@@ -10707,7 +10692,7 @@ index 157351c..f58cd70 100644
          case Token.In: {
            let next = this.parseExpression(tn, nextPrecedence + 1);
            if (!next) return null;
-@@ -4335,6 +6304,26 @@ export class Parser extends DiagnosticEmitter {
+@@ -4335,6 +6312,26 @@ export class Parser extends DiagnosticEmitter {
      return expr;
    }
  
@@ -10734,7 +10719,7 @@ index 157351c..f58cd70 100644
    private parseTemplateLiteral(tn: Tokenizer, tag: Expression | null = null): Expression | null {
      // at '`': ... '`'
      let startPos = tag ? tag.range.start : tn.tokenPos;
-@@ -4569,9 +6558,11 @@ function determinePrecedence(kind: Token): Precedence {
+@@ -4569,9 +6566,11 @@ function determinePrecedence(kind: Token): Precedence {
      case Token.GreaterThan_GreaterThan_GreaterThan_Equals:
      case Token.Ampersand_Equals:
      case Token.Caret_Equals:
@@ -10748,7 +10733,7 @@ index 157351c..f58cd70 100644
      case Token.Ampersand_Ampersand: return Precedence.LogicalAnd;
      case Token.Bar: return Precedence.BitwiseOr;
      case Token.Caret: return Precedence.BitwiseXor;
-@@ -4599,6 +6590,7 @@ function determinePrecedence(kind: Token): Precedence {
+@@ -4599,6 +6598,7 @@ function determinePrecedence(kind: Token): Precedence {
      case Token.Plus_Plus:
      case Token.Minus_Minus: return Precedence.UnaryPostfix;
      case Token.Dot:
@@ -10756,7 +10741,7 @@ index 157351c..f58cd70 100644
      case Token.OpenBracket:
      case Token.Exclamation: return Precedence.MemberAccess;
    }
-@@ -4640,3 +6632,94 @@ function isCircularTypeAlias(name: string, type: TypeNode): bool {
+@@ -4640,3 +6640,103 @@ function isCircularTypeAlias(name: string, type: TypeNode): bool {
    }
    return false;
  }
@@ -10824,6 +10809,15 @@ index 157351c..f58cd70 100644
 +    text += "<" + parts.join(",") + ">";
 +  }
 +  return named.isNullable ? text + "|null" : text;
++}
++
++/** amxts: `x` of `x.name()`, a call with no arguments, or null. */
++function memberCallOf(expression: Expression, name: string): Expression | null {
++  if (expression.kind != NodeKind.Call) return null;
++  let call = <CallExpression>expression;
++  if (call.args.length || call.typeArguments || call.expression.kind != NodeKind.PropertyAccess) return null;
++  let member = <PropertyAccessExpression>call.expression;
++  return member.property.text == name ? member.expression : null;
 +}
 +
 +/** amxts: gives a loop its label - a `for...of` is a block around the loop it became (Parser.lowerForOf). */
@@ -14413,7 +14407,7 @@ index f5d9b7c..4af9503 100644
 +  }
 +}
 diff --git a/src/resolver.ts b/src/resolver.ts
-index 9576a47..37bf885 100644
+index 9576a47..ff067fe 100644
 --- a/src/resolver.ts
 +++ b/src/resolver.ts
 @@ -36,7 +36,9 @@ import {
@@ -15574,7 +15568,7 @@ index 9576a47..37bf885 100644
          );
        }
  
-@@ -3749,6 +4410,1129 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3749,6 +4410,1135 @@ export class Resolver extends DiagnosticEmitter {
      return instance;
    }
  
@@ -16247,28 +16241,34 @@ index 9576a47..37bf885 100644
 +      this.objectCalls.set(node, walked);
 +      return walked;
 +    }
-+    // `for (const [index, item] of list.entries())` (Parser.forOfEntriesOf):
-+    // `__entriesOf(list)` is an array itself and anything else's entries(), and
-+    // `__entryOf(list, item, index, position)` an array's index or item, and
-+    // the position of anything else's entry
++    // `for (const [index, item] of list.entries())` and `for (const index of
++    // list.keys())` (Parser.forOfEntriesOf, Parser.lowerForOf):
++    // `__entriesOf(list)` and `__keysOf(list)` are an array or a typed array
++    // itself and anything else's entries() or keys(), `__entryOf(list, item,
++    // index, position)` an array's index or item and the position of anything
++    // else's entry, and `__keyOf(list, item, index)` an array's index and
++    // anything else's item
 +    if (callee.kind == NodeKind.Identifier && node.args.length >= 1) {
 +      let name = (<IdentifierExpression>callee).text;
-+      if (name == "__entriesOf" || name == "__entryOf" && node.args.length == 4) {
++      if (name == "__entriesOf" || name == "__keysOf" || name == "__entryOf" && node.args.length == 4 || name == "__keyOf" && node.args.length == 3) {
 +        let args = node.args;
 +        let listType = this.resolveExpression(args[0], ctxFlow, Type.auto, ReportMode.Swallow);
 +        let listClass = listType ? listType.getClass() : null;
-+        let isArray = listClass != null && listClass.extendsPrototype(this.program.arrayPrototype);
++        let byIndex = listClass != null && (listClass.extendsPrototype(this.program.arrayPrototype)
++          || listClass.extends(this.program.arrayBufferViewInstance) && listClass.getMember("length") != null); // not a DataView
 +        let replacement: Expression;
-+        if (name == "__entriesOf") {
-+          if (isArray) replacement = args[0];
++        if (name == "__entriesOf" || name == "__keysOf") {
++          if (byIndex) replacement = args[0];
 +          else {
-+            let member = Node.createPropertyAccessExpression(args[0], Node.createIdentifierExpression("entries", node.range), node.range);
++            let member = Node.createPropertyAccessExpression(args[0], Node.createIdentifierExpression(name == "__keysOf" ? "keys" : "entries", node.range), node.range);
 +            member.isHood = true;
 +            replacement = Node.createCallExpression(member, null, [], node.range);
 +          }
++        } else if (name == "__keyOf") {
++          replacement = byIndex ? args[2] : args[1];
 +        } else {
 +          let position = i64_low((<IntegerLiteralExpression>(<AssertionExpression>args[3]).expression).value);
-+          replacement = !isArray ? Node.createElementAccessExpression(args[1], args[3], node.range)
++          replacement = !byIndex ? Node.createElementAccessExpression(args[1], args[3], node.range)
 +            : position == 0 ? args[2] : args[1];
 +        }
 +        this.objectCalls.set(node, replacement);
@@ -16704,7 +16704,7 @@ index 9576a47..37bf885 100644
    ensureOneTypeArgument(
      /** The type to resolve. */
      node: NamedTypeNode,
-@@ -3769,3 +5553,55 @@ export class Resolver extends DiagnosticEmitter {
+@@ -3769,3 +5559,55 @@ export class Resolver extends DiagnosticEmitter {
      return typeArgumentNodes[0];
    }
  }
@@ -16906,7 +16906,7 @@ index 6a07f6f..5f05683 100644
      }
      sb.push(validWat ? "%29=>" : ") => ");
 diff --git a/std/assembly/array.ts b/std/assembly/array.ts
-index faa6d9b..425444a 100644
+index faa6d9b..4d78192 100644
 --- a/std/assembly/array.ts
 +++ b/std/assembly/array.ts
 @@ -6,7 +6,7 @@ import { COMPARATOR, SORT } from "./util/sort";
@@ -17085,7 +17085,7 @@ index faa6d9b..425444a 100644
 +  /**
 +   * amxts: `[index, item]` of each item. `for (const [index, item] of
 +   * list.entries())` makes none of them: it walks the list by index
-+   * (Parser.lowerForOfEntries).
++   * (Parser.forOfEntriesOf).
 +   */
 +  entries(): __Tuple2<i32,T>[] {
 +    let len = this.length_;
@@ -20672,7 +20672,7 @@ index 7675318..180534b 100644
  export namespace String {
  
 diff --git a/std/assembly/typedarray.ts b/std/assembly/typedarray.ts
-index 3eb3945..69c89b8 100644
+index 3eb3945..7a040e0 100644
 --- a/std/assembly/typedarray.ts
 +++ b/std/assembly/typedarray.ts
 @@ -1,5 +1,5 @@
@@ -20709,7 +20709,29 @@ index 3eb3945..69c89b8 100644
      SORT<i8>(this.dataStart, this.length, comparator);
      return this;
    }
-@@ -164,7 +164,7 @@ export class Uint8Array extends ArrayBufferView {
+@@ -125,6 +125,21 @@ export class Int8Array extends ArrayBufferView {
+     FOREACH<Int8Array, i8>(this, fn);
+   }
+ 
++  /** amxts: the indexes, `0` to `length - 1`. */
++  keys(): i32[] {
++    return KEYS(this.length);
++  }
++
++  /** amxts: the items - the array itself, which JavaScript's iterator walks as it is. */
++  values(): Int8Array {
++    return this;
++  }
++
++  /** amxts: `[index, item]` of each item; `for (const [index, item] of list.entries())` makes none of them. */
++  entries(): __Tuple2<i32,i8>[] {
++    return ENTRIES<Int8Array, i8>(this);
++  }
++
+   reverse(): Int8Array {
+     REVERSE<u8>(this.dataStart, this.length);
+     return this;
+@@ -164,7 +179,7 @@ export class Uint8Array extends ArrayBufferView {
  
    @operator("[]")
    private __get(index: i32): u8 {
@@ -20718,7 +20740,7 @@ index 3eb3945..69c89b8 100644
      return load<u8>(this.dataStart + <usize>index);
    }
  
-@@ -175,7 +175,7 @@ export class Uint8Array extends ArrayBufferView {
+@@ -175,7 +190,7 @@ export class Uint8Array extends ArrayBufferView {
  
    @operator("[]=")
    private __set(index: i32, value: native<u8>): void {
@@ -20727,7 +20749,7 @@ index 3eb3945..69c89b8 100644
      store<u8>(this.dataStart + <usize>index, value);
    }
  
-@@ -208,7 +208,7 @@ export class Uint8Array extends ArrayBufferView {
+@@ -208,7 +223,7 @@ export class Uint8Array extends ArrayBufferView {
      return this;
    }
  
@@ -20736,7 +20758,29 @@ index 3eb3945..69c89b8 100644
      SORT<u8>(this.dataStart, this.length, comparator);
      return this;
    }
-@@ -306,7 +306,7 @@ export class Uint8ClampedArray extends ArrayBufferView {
+@@ -267,6 +282,21 @@ export class Uint8Array extends ArrayBufferView {
+     FOREACH<Uint8Array, u8>(this, fn);
+   }
+ 
++  /** amxts: the indexes, `0` to `length - 1`. */
++  keys(): i32[] {
++    return KEYS(this.length);
++  }
++
++  /** amxts: the items - the array itself, which JavaScript's iterator walks as it is. */
++  values(): Uint8Array {
++    return this;
++  }
++
++  /** amxts: `[index, item]` of each item; `for (const [index, item] of list.entries())` makes none of them. */
++  entries(): __Tuple2<i32,u8>[] {
++    return ENTRIES<Uint8Array, u8>(this);
++  }
++
+   reverse(): Uint8Array {
+     REVERSE<u8>(this.dataStart, this.length);
+     return this;
+@@ -306,7 +336,7 @@ export class Uint8ClampedArray extends ArrayBufferView {
  
    @operator("[]")
    private __get(index: i32): u8 {
@@ -20745,7 +20789,7 @@ index 3eb3945..69c89b8 100644
      return load<u8>(this.dataStart + <usize>index);
    }
  
-@@ -317,7 +317,7 @@ export class Uint8ClampedArray extends ArrayBufferView {
+@@ -317,7 +347,7 @@ export class Uint8ClampedArray extends ArrayBufferView {
  
    @operator("[]=")
    private __set(index: i32, value: native<u8>): void {
@@ -20754,7 +20798,7 @@ index 3eb3945..69c89b8 100644
      store<u8>(this.dataStart + <usize>index, ~(<i32>value >> 31) & (((255 - value) >> 31) | value));
    }
  
-@@ -351,7 +351,7 @@ export class Uint8ClampedArray extends ArrayBufferView {
+@@ -351,7 +381,7 @@ export class Uint8ClampedArray extends ArrayBufferView {
      return this;
    }
  
@@ -20763,7 +20807,29 @@ index 3eb3945..69c89b8 100644
      SORT<u8>(this.dataStart, this.length, comparator);
      return this;
    }
-@@ -449,7 +449,7 @@ export class Int16Array extends ArrayBufferView {
+@@ -410,6 +440,21 @@ export class Uint8ClampedArray extends ArrayBufferView {
+     FOREACH<Uint8ClampedArray, u8>(this, fn);
+   }
+ 
++  /** amxts: the indexes, `0` to `length - 1`. */
++  keys(): i32[] {
++    return KEYS(this.length);
++  }
++
++  /** amxts: the items - the array itself, which JavaScript's iterator walks as it is. */
++  values(): Uint8ClampedArray {
++    return this;
++  }
++
++  /** amxts: `[index, item]` of each item; `for (const [index, item] of list.entries())` makes none of them. */
++  entries(): __Tuple2<i32,u8>[] {
++    return ENTRIES<Uint8ClampedArray, u8>(this);
++  }
++
+   reverse(): Uint8ClampedArray {
+     REVERSE<u8>(this.dataStart, this.length);
+     return this;
+@@ -449,7 +494,7 @@ export class Int16Array extends ArrayBufferView {
  
    @operator("[]")
    private __get(index: i32): i16 {
@@ -20772,7 +20838,7 @@ index 3eb3945..69c89b8 100644
      return load<i16>(this.dataStart + (<usize>index << alignof<i16>()));
    }
  
-@@ -460,7 +460,7 @@ export class Int16Array extends ArrayBufferView {
+@@ -460,7 +505,7 @@ export class Int16Array extends ArrayBufferView {
  
    @operator("[]=")
    private __set(index: i32, value: native<i16>): void {
@@ -20781,7 +20847,7 @@ index 3eb3945..69c89b8 100644
      store<i16>(this.dataStart + (<usize>index << alignof<i16>()), value);
    }
  
-@@ -493,7 +493,7 @@ export class Int16Array extends ArrayBufferView {
+@@ -493,7 +538,7 @@ export class Int16Array extends ArrayBufferView {
      return this;
    }
  
@@ -20790,7 +20856,29 @@ index 3eb3945..69c89b8 100644
      SORT<i16>(this.dataStart, this.length, comparator);
      return this;
    }
-@@ -591,7 +591,7 @@ export class Uint16Array extends ArrayBufferView {
+@@ -552,6 +597,21 @@ export class Int16Array extends ArrayBufferView {
+     FOREACH<Int16Array, i16>(this, fn);
+   }
+ 
++  /** amxts: the indexes, `0` to `length - 1`. */
++  keys(): i32[] {
++    return KEYS(this.length);
++  }
++
++  /** amxts: the items - the array itself, which JavaScript's iterator walks as it is. */
++  values(): Int16Array {
++    return this;
++  }
++
++  /** amxts: `[index, item]` of each item; `for (const [index, item] of list.entries())` makes none of them. */
++  entries(): __Tuple2<i32,i16>[] {
++    return ENTRIES<Int16Array, i16>(this);
++  }
++
+   reverse(): Int16Array {
+     REVERSE<u16>(this.dataStart, this.length);
+     return this;
+@@ -591,7 +651,7 @@ export class Uint16Array extends ArrayBufferView {
  
    @operator("[]")
    private __get(index: i32): u16 {
@@ -20799,7 +20887,7 @@ index 3eb3945..69c89b8 100644
      return load<u16>(this.dataStart + (<usize>index << alignof<u16>()));
    }
  
-@@ -602,7 +602,7 @@ export class Uint16Array extends ArrayBufferView {
+@@ -602,7 +662,7 @@ export class Uint16Array extends ArrayBufferView {
  
    @operator("[]=")
    private __set(index: i32, value: native<u16>): void {
@@ -20808,7 +20896,7 @@ index 3eb3945..69c89b8 100644
      store<u16>(this.dataStart + (<usize>index << alignof<u16>()), value);
    }
  
-@@ -635,7 +635,7 @@ export class Uint16Array extends ArrayBufferView {
+@@ -635,7 +695,7 @@ export class Uint16Array extends ArrayBufferView {
      return this;
    }
  
@@ -20817,7 +20905,29 @@ index 3eb3945..69c89b8 100644
      SORT<u16>(this.dataStart, this.length, comparator);
      return this;
    }
-@@ -733,7 +733,7 @@ export class Int32Array extends ArrayBufferView {
+@@ -694,6 +754,21 @@ export class Uint16Array extends ArrayBufferView {
+     FOREACH<Uint16Array, u16>(this, fn);
+   }
+ 
++  /** amxts: the indexes, `0` to `length - 1`. */
++  keys(): i32[] {
++    return KEYS(this.length);
++  }
++
++  /** amxts: the items - the array itself, which JavaScript's iterator walks as it is. */
++  values(): Uint16Array {
++    return this;
++  }
++
++  /** amxts: `[index, item]` of each item; `for (const [index, item] of list.entries())` makes none of them. */
++  entries(): __Tuple2<i32,u16>[] {
++    return ENTRIES<Uint16Array, u16>(this);
++  }
++
+   reverse(): Uint16Array {
+     REVERSE<u16>(this.dataStart, this.length);
+     return this;
+@@ -733,7 +808,7 @@ export class Int32Array extends ArrayBufferView {
  
    @operator("[]")
    private __get(index: i32): i32 {
@@ -20826,7 +20936,7 @@ index 3eb3945..69c89b8 100644
      return load<i32>(this.dataStart + (<usize>index << alignof<i32>()));
    }
  
-@@ -744,7 +744,7 @@ export class Int32Array extends ArrayBufferView {
+@@ -744,7 +819,7 @@ export class Int32Array extends ArrayBufferView {
  
    @operator("[]=")
    private __set(index: i32, value: i32): void {
@@ -20835,7 +20945,7 @@ index 3eb3945..69c89b8 100644
      store<i32>(this.dataStart + (<usize>index << alignof<i32>()), value);
    }
  
-@@ -777,7 +777,7 @@ export class Int32Array extends ArrayBufferView {
+@@ -777,7 +852,7 @@ export class Int32Array extends ArrayBufferView {
      return this;
    }
  
@@ -20844,7 +20954,29 @@ index 3eb3945..69c89b8 100644
      SORT<i32>(this.dataStart, this.length, comparator);
      return this;
    }
-@@ -875,7 +875,7 @@ export class Uint32Array extends ArrayBufferView {
+@@ -836,6 +911,21 @@ export class Int32Array extends ArrayBufferView {
+     FOREACH<Int32Array, i32>(this, fn);
+   }
+ 
++  /** amxts: the indexes, `0` to `length - 1`. */
++  keys(): i32[] {
++    return KEYS(this.length);
++  }
++
++  /** amxts: the items - the array itself, which JavaScript's iterator walks as it is. */
++  values(): Int32Array {
++    return this;
++  }
++
++  /** amxts: `[index, item]` of each item; `for (const [index, item] of list.entries())` makes none of them. */
++  entries(): __Tuple2<i32,i32>[] {
++    return ENTRIES<Int32Array, i32>(this);
++  }
++
+   reverse(): Int32Array {
+     REVERSE<u32>(this.dataStart, this.length);
+     return this;
+@@ -875,7 +965,7 @@ export class Uint32Array extends ArrayBufferView {
  
    @operator("[]")
    private __get(index: i32): u32 {
@@ -20853,7 +20985,7 @@ index 3eb3945..69c89b8 100644
      return load<u32>(this.dataStart + (<usize>index << alignof<u32>()));
    }
  
-@@ -886,7 +886,7 @@ export class Uint32Array extends ArrayBufferView {
+@@ -886,7 +976,7 @@ export class Uint32Array extends ArrayBufferView {
  
    @operator("[]=")
    private __set(index: i32, value: u32): void {
@@ -20862,7 +20994,7 @@ index 3eb3945..69c89b8 100644
      store<u32>(this.dataStart + (<usize>index << alignof<u32>()), value);
    }
  
-@@ -919,7 +919,7 @@ export class Uint32Array extends ArrayBufferView {
+@@ -919,7 +1009,7 @@ export class Uint32Array extends ArrayBufferView {
      return this;
    }
  
@@ -20871,7 +21003,29 @@ index 3eb3945..69c89b8 100644
      SORT<u32>(this.dataStart, this.length, comparator);
      return this;
    }
-@@ -1017,7 +1017,7 @@ export class Int64Array extends ArrayBufferView {
+@@ -978,6 +1068,21 @@ export class Uint32Array extends ArrayBufferView {
+     FOREACH<Uint32Array, u32>(this, fn);
+   }
+ 
++  /** amxts: the indexes, `0` to `length - 1`. */
++  keys(): i32[] {
++    return KEYS(this.length);
++  }
++
++  /** amxts: the items - the array itself, which JavaScript's iterator walks as it is. */
++  values(): Uint32Array {
++    return this;
++  }
++
++  /** amxts: `[index, item]` of each item; `for (const [index, item] of list.entries())` makes none of them. */
++  entries(): __Tuple2<i32,u32>[] {
++    return ENTRIES<Uint32Array, u32>(this);
++  }
++
+   reverse(): Uint32Array {
+     REVERSE<u32>(this.dataStart, this.length);
+     return this;
+@@ -1017,7 +1122,7 @@ export class Int64Array extends ArrayBufferView {
  
    @operator("[]")
    private __get(index: i32): i64 {
@@ -20880,7 +21034,7 @@ index 3eb3945..69c89b8 100644
      return load<i64>(this.dataStart + (<usize>index << alignof<i64>()));
    }
  
-@@ -1028,7 +1028,7 @@ export class Int64Array extends ArrayBufferView {
+@@ -1028,7 +1133,7 @@ export class Int64Array extends ArrayBufferView {
  
    @operator("[]=")
    private __set(index: i32, value: i64): void {
@@ -20889,7 +21043,7 @@ index 3eb3945..69c89b8 100644
      store<i64>(this.dataStart + (<usize>index << alignof<i64>()), value);
    }
  
-@@ -1061,7 +1061,7 @@ export class Int64Array extends ArrayBufferView {
+@@ -1061,7 +1166,7 @@ export class Int64Array extends ArrayBufferView {
      return this;
    }
  
@@ -20898,7 +21052,29 @@ index 3eb3945..69c89b8 100644
      SORT<i64>(this.dataStart, this.length, comparator);
      return this;
    }
-@@ -1159,7 +1159,7 @@ export class Uint64Array extends ArrayBufferView {
+@@ -1120,6 +1225,21 @@ export class Int64Array extends ArrayBufferView {
+     FOREACH<Int64Array, i64>(this, fn);
+   }
+ 
++  /** amxts: the indexes, `0` to `length - 1`. */
++  keys(): i32[] {
++    return KEYS(this.length);
++  }
++
++  /** amxts: the items - the array itself, which JavaScript's iterator walks as it is. */
++  values(): Int64Array {
++    return this;
++  }
++
++  /** amxts: `[index, item]` of each item; `for (const [index, item] of list.entries())` makes none of them. */
++  entries(): __Tuple2<i32,i64>[] {
++    return ENTRIES<Int64Array, i64>(this);
++  }
++
+   reverse(): Int64Array {
+     REVERSE<u64>(this.dataStart, this.length);
+     return this;
+@@ -1159,7 +1279,7 @@ export class Uint64Array extends ArrayBufferView {
  
    @operator("[]")
    private __get(index: i32): u64 {
@@ -20907,7 +21083,7 @@ index 3eb3945..69c89b8 100644
      return load<u64>(this.dataStart + (<usize>index << alignof<u64>()));
    }
  
-@@ -1170,7 +1170,7 @@ export class Uint64Array extends ArrayBufferView {
+@@ -1170,7 +1290,7 @@ export class Uint64Array extends ArrayBufferView {
  
    @operator("[]=")
    private __set(index: i32, value: u64): void {
@@ -20916,7 +21092,7 @@ index 3eb3945..69c89b8 100644
      store<u64>(this.dataStart + (<usize>index << alignof<u64>()), value);
    }
  
-@@ -1203,7 +1203,7 @@ export class Uint64Array extends ArrayBufferView {
+@@ -1203,7 +1323,7 @@ export class Uint64Array extends ArrayBufferView {
      return this;
    }
  
@@ -20925,7 +21101,29 @@ index 3eb3945..69c89b8 100644
      SORT<u64>(this.dataStart, this.length, comparator);
      return this;
    }
-@@ -1301,7 +1301,7 @@ export class Float32Array extends ArrayBufferView {
+@@ -1262,6 +1382,21 @@ export class Uint64Array extends ArrayBufferView {
+     FOREACH<Uint64Array, u64>(this, fn);
+   }
+ 
++  /** amxts: the indexes, `0` to `length - 1`. */
++  keys(): i32[] {
++    return KEYS(this.length);
++  }
++
++  /** amxts: the items - the array itself, which JavaScript's iterator walks as it is. */
++  values(): Uint64Array {
++    return this;
++  }
++
++  /** amxts: `[index, item]` of each item; `for (const [index, item] of list.entries())` makes none of them. */
++  entries(): __Tuple2<i32,u64>[] {
++    return ENTRIES<Uint64Array, u64>(this);
++  }
++
+   reverse(): Uint64Array {
+     REVERSE<u64>(this.dataStart, this.length);
+     return this;
+@@ -1301,7 +1436,7 @@ export class Float32Array extends ArrayBufferView {
  
    @operator("[]")
    private __get(index: i32): f32 {
@@ -20934,7 +21132,7 @@ index 3eb3945..69c89b8 100644
      return load<f32>(this.dataStart + (<usize>index << alignof<f32>()));
    }
  
-@@ -1312,7 +1312,7 @@ export class Float32Array extends ArrayBufferView {
+@@ -1312,7 +1447,7 @@ export class Float32Array extends ArrayBufferView {
  
    @operator("[]=")
    private __set(index: i32, value: f32): void {
@@ -20943,7 +21141,7 @@ index 3eb3945..69c89b8 100644
      store<f32>(this.dataStart + (<usize>index << alignof<f32>()), value);
    }
  
-@@ -1345,7 +1345,7 @@ export class Float32Array extends ArrayBufferView {
+@@ -1345,7 +1480,7 @@ export class Float32Array extends ArrayBufferView {
      return this;
    }
  
@@ -20952,7 +21150,29 @@ index 3eb3945..69c89b8 100644
      SORT<f32>(this.dataStart, this.length, comparator);
      return this;
    }
-@@ -1443,7 +1443,7 @@ export class Float64Array extends ArrayBufferView {
+@@ -1404,6 +1539,21 @@ export class Float32Array extends ArrayBufferView {
+     FOREACH<Float32Array, f32>(this, fn);
+   }
+ 
++  /** amxts: the indexes, `0` to `length - 1`. */
++  keys(): i32[] {
++    return KEYS(this.length);
++  }
++
++  /** amxts: the items - the array itself, which JavaScript's iterator walks as it is. */
++  values(): Float32Array {
++    return this;
++  }
++
++  /** amxts: `[index, item]` of each item; `for (const [index, item] of list.entries())` makes none of them. */
++  entries(): __Tuple2<i32,f32>[] {
++    return ENTRIES<Float32Array, f32>(this);
++  }
++
+   reverse(): Float32Array {
+     REVERSE<f32>(this.dataStart, this.length);
+     return this;
+@@ -1443,7 +1593,7 @@ export class Float64Array extends ArrayBufferView {
  
    @operator("[]")
    private __get(index: i32): f64 {
@@ -20961,7 +21181,7 @@ index 3eb3945..69c89b8 100644
      return load<f64>(this.dataStart + (<usize>index << alignof<f64>()));
    }
  
-@@ -1454,7 +1454,7 @@ export class Float64Array extends ArrayBufferView {
+@@ -1454,7 +1604,7 @@ export class Float64Array extends ArrayBufferView {
  
    @operator("[]=")
    private __set(index: i32, value: f64): void {
@@ -20970,7 +21190,7 @@ index 3eb3945..69c89b8 100644
      store<f64>(this.dataStart + (<usize>index << alignof<f64>()), value);
    }
  
-@@ -1487,7 +1487,7 @@ export class Float64Array extends ArrayBufferView {
+@@ -1487,7 +1637,7 @@ export class Float64Array extends ArrayBufferView {
      return this;
    }
  
@@ -20979,6 +21199,52 @@ index 3eb3945..69c89b8 100644
      SORT<f64>(this.dataStart, this.length, comparator);
      return this;
    }
+@@ -1546,6 +1696,21 @@ export class Float64Array extends ArrayBufferView {
+     FOREACH<Float64Array, f64>(this, fn);
+   }
+ 
++  /** amxts: the indexes, `0` to `length - 1`. */
++  keys(): i32[] {
++    return KEYS(this.length);
++  }
++
++  /** amxts: the items - the array itself, which JavaScript's iterator walks as it is. */
++  values(): Float64Array {
++    return this;
++  }
++
++  /** amxts: `[index, item]` of each item; `for (const [index, item] of list.entries())` makes none of them. */
++  entries(): __Tuple2<i32,f64>[] {
++    return ENTRIES<Float64Array, f64>(this);
++  }
++
+   reverse(): Float64Array {
+     REVERSE<f64>(this.dataStart, this.length);
+     return this;
+@@ -1846,6 +2011,23 @@ function FOREACH<TArray extends ArrayBufferView, T extends number>(
+   }
+ }
+ 
++// amxts: a typed array's keys() and entries()
++function KEYS(length: i32): i32[] {
++  let keys = new Array<i32>(length);
++  for (let i = 0; i < length; ++i) unchecked(keys[i] = i);
++  return keys;
++}
++
++function ENTRIES<TArray extends ArrayBufferView, T extends number>(array: TArray): __Tuple2<i32,T>[] {
++  let ptr = array.dataStart;
++  let length = array.length;
++  let entries = new Array<__Tuple2<i32,T>>(length);
++  for (let i = 0; i < length; ++i) {
++    unchecked(entries[i] = new __Tuple2<i32,T>(i, load<T>(ptr + (<usize>i << alignof<T>()))));
++  }
++  return entries;
++}
++
+ // @ts-ignore: decorator
+ @inline
+ function WRAP<TArray extends ArrayBufferView, T>(
 diff --git a/std/assembly/util/error.ts b/std/assembly/util/error.ts
 index ba34252..e515357 100644
 --- a/std/assembly/util/error.ts

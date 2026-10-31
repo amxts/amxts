@@ -329,7 +329,21 @@ if (!text.includes(numberCallable)) {
 // A Map's entries and forEach, a Set's forEach, and for...of over both, which
 // our AssemblyScript has (runtime/patches): the loop walks a Map's entries
 // and a Set's values. A Map is made of its entries and a Set of its values.
+// An array's and a typed array's keys(), values() and entries().
+function listMethods(list: string, item: string) {
+	return [
+		'  /** The indexes, `0` to `length - 1`. */',
+		'  keys(): i32[];',
+		'  /** The items - the array itself. */',
+		`  values(): ${list};`,
+		'  /** `[index, item]` of each item. */',
+		`  entries(): [i32, ${item}][];`,
+		'',
+	].join('\n');
+}
 for (const [owner, added] of [
+	['declare class Array<T> {\n', listMethods('Array<T>', 'T')],
+	['declare abstract class TypedArray<T> implements ArrayBufferView {\n', listMethods('this', 'T')],
 	['declare class Map<K,V> {\n', [
 		'  /** The entries, `[key, value]`, in the order the keys were added. */',
 		'  entries(): [K, V][];',
@@ -353,7 +367,7 @@ for (const [owner, added] of [
 		process.exit(1);
 	}
 	text = text.replace(owner, owner + added);
-	console.log(`typings: ${owner.replace(/^declare class | \{\n$/g, '')} as our AssemblyScript has it, for the editor`);
+	console.log(`typings: ${owner.replace(/^declare (abstract )?class | (implements \w+ )?\{\n$/g, '')} as our AssemblyScript has it, for the editor`);
 }
 
 // Math.max and Math.min of any number of values, a spread list too, which our
