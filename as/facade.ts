@@ -3902,7 +3902,7 @@ export class WalksThrough {
  * Both are off, `0`, by default. It is set as a whole, or a part of it:
  *
  * ```ts
- * server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 48 };
+ * server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 96 };
  * server.walkThroughLook = { hideDistance: 0 };
  * ```
  */
@@ -3910,10 +3910,10 @@ export class WalkThroughLook {
 	/** Closer than this, in units, a player he walks through is see-through to him; `0` is off. */
 	get fadeDistance(): number { return _walkLookGet(LOOK_FADE); }
 
-	/** The opacity of a partner at the closest, `0` to `1`: he grows to whole at `fadeDistance`. `0` by default. */
+	/** The opacity of a partner at `hideDistance` (right up close without one), `0` to `1`: he grows to whole at `fadeDistance`. `0` by default. */
 	get opacity(): number { return _walkLookGet(LOOK_OPACITY); }
 
-	/** Closer than this, in units, a player he walks through is not drawn for him at all, and his aim, shots and `+use` go through him; `0` is off. */
+	/** Closer than this, in units, a player he walks through fades out for him in a tenth of a second and is not drawn at all, and his aim, shots and `+use` go through him; `0` is off. */
 	get hideDistance(): number { return _walkLookGet(LOOK_HIDE); }
 }
 
@@ -3921,9 +3921,9 @@ export class WalkThroughLook {
 export interface WalkThroughLookOptions {
 	/** Closer than this, in units, a player he walks through is see-through to him; `0` is off. */
 	fadeDistance?: number;
-	/** The opacity of a partner at the closest, `0` to `1`: he grows to whole at `fadeDistance`. */
+	/** The opacity of a partner at `hideDistance` (right up close without one), `0` to `1`: he grows to whole at `fadeDistance`. */
 	opacity?: number;
-	/** Closer than this, in units, a player he walks through is not drawn for him at all, and his aim, shots and `+use` go through him; `0` is off. */
+	/** Closer than this, in units, a player he walks through fades out for him in a tenth of a second and is not drawn at all, and his aim, shots and `+use` go through him; `0` is off. */
 	hideDistance?: number;
 }
 

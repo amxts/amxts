@@ -1280,7 +1280,7 @@ export default {
 			Both are off, \`0\`, by default. It is set as a whole, or a part of it:
 
 			\`\`\`ts
-			server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 48 };
+			server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 96 };
 			server.walkThroughLook = { hideDistance: 0 };
 			\`\`\`
 		`,
@@ -1290,7 +1290,7 @@ export default {
 			Оба по умолчанию выключены, \`0\`. Задаётся целиком или частью:
 
 			\`\`\`ts
-			server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 48 };
+			server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 96 };
 			server.walkThroughLook = { hideDistance: 0 };
 			\`\`\`
 		`,
@@ -1304,24 +1304,24 @@ export default {
 		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, для него полупрозрачен; \`0\` — выключено.`,
 	},
 	'WalkThroughLookOptions.opacity': {
-		en: `The opacity of a partner at the closest, \`0\` to \`1\`: he grows to whole at \`fadeDistance\`.`,
-		ru: `Насколько он непрозрачен вплотную, от \`0\` до \`1\`: к \`fadeDistance\` он становится целым.`,
+		en: `The opacity of a partner at \`hideDistance\` (right up close without one), \`0\` to \`1\`: he grows to whole at \`fadeDistance\`.`,
+		ru: `Насколько он непрозрачен на \`hideDistance\` (без неё — вплотную), от \`0\` до \`1\`: к \`fadeDistance\` он становится целым.`,
 	},
 	'WalkThroughLookOptions.hideDistance': {
-		en: `Closer than this, in units, a player he walks through is not drawn for him at all, and his aim, shots and \`+use\` go through him; \`0\` is off.`,
-		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, для него совсем не рисуется, а его прицел, выстрелы и \`+use\` проходят сквозь этого игрока; \`0\` — выключено.`,
+		en: `Closer than this, in units, a player he walks through fades out for him in a tenth of a second and is not drawn at all, and his aim, shots and \`+use\` go through him; \`0\` is off.`,
+		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, за десятую долю секунды исчезает для него и совсем не рисуется, а его прицел, выстрелы и \`+use\` проходят сквозь этого игрока; \`0\` — выключено.`,
 	},
 	'WalkThroughLook.fadeDistance': {
 		en: `Closer than this, in units, a player he walks through is see-through to him; \`0\` is off.`,
 		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, для него полупрозрачен; \`0\` — выключено.`,
 	},
 	'WalkThroughLook.opacity': {
-		en: `The opacity of a partner at the closest, \`0\` to \`1\`: he grows to whole at \`fadeDistance\`. \`0\` by default.`,
-		ru: `Насколько он непрозрачен вплотную, от \`0\` до \`1\`: к \`fadeDistance\` он становится целым. По умолчанию \`0\`.`,
+		en: `The opacity of a partner at \`hideDistance\` (right up close without one), \`0\` to \`1\`: he grows to whole at \`fadeDistance\`. \`0\` by default.`,
+		ru: `Насколько он непрозрачен на \`hideDistance\` (без неё — вплотную), от \`0\` до \`1\`: к \`fadeDistance\` он становится целым. По умолчанию \`0\`.`,
 	},
 	'WalkThroughLook.hideDistance': {
-		en: `Closer than this, in units, a player he walks through is not drawn for him at all, and his aim, shots and \`+use\` go through him; \`0\` is off.`,
-		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, для него совсем не рисуется, а его прицел, выстрелы и \`+use\` проходят сквозь этого игрока; \`0\` — выключено.`,
+		en: `Closer than this, in units, a player he walks through fades out for him in a tenth of a second and is not drawn at all, and his aim, shots and \`+use\` go through him; \`0\` is off.`,
+		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, за десятую долю секунды исчезает для него и совсем не рисуется, а его прицел, выстрелы и \`+use\` проходят сквозь этого игрока; \`0\` — выключено.`,
 	},
 	'WalkThroughOptions': {
 		en: `

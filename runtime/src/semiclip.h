@@ -37,6 +37,12 @@ struct WalkLook {
 };
 static WalkLook g_walkLooks[CLIENT_SLOTS];
 
+// How opaque each partner was last sent to each viewer, 0 hidden to 1
+// whole, and when: from `opacity` to hidden, and back, takes VANISH_SECONDS.
+#define VANISH_SECONDS 0.1f
+static float g_shown[CLIENT_SLOTS][CLIENT_SLOTS];
+static float g_shownAt[CLIENT_SLOTS][CLIENT_SLOTS];
+
 enum WalkLookField { LOOK_FADE = 0, LOOK_OPACITY = 1, LOOK_HIDE = 2 };
 
 // What else passes a partner, for every pair; both on until a plugin says.
@@ -212,7 +218,7 @@ static void WalkThrough(playermove_t *pm)
 	pm->numphysent = kept;
 }
 
-/** Whether `other`, a partner of `viewer`, is too close to him to be drawn. */
+/** Whether `other`, a partner of `viewer`, is too close to him to be drawn: no target of his. */
 static ALWAYS_INLINE bool HiddenFrom(int viewer, int other)
 {
 	const WalkLook &look = g_walkLooks[viewer];
@@ -273,14 +279,33 @@ static bool WalkThroughState(entity_state_t *state, int e, edict_t *ent, edict_t
 	const WalkLook &look = g_walkLooks[viewer];
 	if ((!look.fade && !look.hide) || !(g_partners[viewer] >> other & 1) || Ghost(host))
 		return true;
+	// Whole at fadeDistance, `opacity` at hideDistance, hidden closer.
 	float distance = (INDEXENT(other)->v.origin - host->v.origin).Length();
+	float target = 1;
 	if (distance < look.hide)
+		target = 0;
+	else if (distance < look.fade && look.fade > look.hide)
+		target = (float)(look.opacity + (1 - look.opacity) * (distance - look.hide) / (look.fade - look.hide));
+	// Hidden and shown again over VANISH_SECONDS, never seen fainter
+	// than `opacity` on the way: the player's own entity moves it, the weapon
+	// he holds follows.
+	float &shown = g_shown[viewer][other];
+	if (other == e) {
+		float &at = g_shownAt[viewer][other];
+		float passed = gpGlobals->time - at;
+		at = gpGlobals->time;
+		float step = passed / VANISH_SECONDS * std::max((float)look.opacity, 0.1f);
+		shown = passed < 0 || passed > 1 ? target : shown < target ? std::min(target, shown + step) : std::max(target, shown - step);
+	}
+	double opacity = shown;
+	if (opacity <= 0)
 		return false;
-	if (distance >= look.fade)
+	if (opacity >= 1)
 		return true;
-	double amount = 255 * (look.opacity + (1 - look.opacity) * distance / look.fade);
+	double amount = 255 * opacity;
+	// Blended as a whole: down to nothing as it nears 0, with no light outline left.
 	if (state->rendermode == kRenderNormal) {
-		state->rendermode = kRenderTransAlpha;
+		state->rendermode = kRenderTransTexture;
 		state->renderamt = Whole(amount);
 	}
 	else {
