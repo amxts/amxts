@@ -25,6 +25,8 @@ let walking: Player | null = null;
 /** The one of them the frame holds the attack for, while it is set: a grenade's pin pulled. */
 let attacking: Player | null = null;
 let yaw = 0;
+/** How far down the frame has the bots look: a grenade thrown at a partner's body. */
+let pitch = 0;
 
 // YaPB's bots play the round, and a spawn point taken kills who is on it:
 // nothing may kill these two, and a spawn takes that away again.
@@ -32,7 +34,7 @@ server.addEventListener("frame", () => {
 	for (const bot of bots) {
 		if (bot.isAlive) bot.takeDamage = "no";
 		const buttons: Button[] = bot.id == attacking?.id ? ["attack"] : [];
-		bot.move({ forward: bot.id == walking?.id ? 250 : 0, angles: [0, yaw, 0], buttons, msec: 10 });
+		bot.move({ forward: bot.id == walking?.id ? 250 : 0, angles: [pitch, yaw, 0], buttons, msec: 10 });
 	}
 });
 
@@ -143,21 +145,16 @@ async function run() {
 	check.expect(fell < 36, `with standOnHead off he falls through (${Math.round(fell)} units above him)`).toBe(true);
 	server.walkThroughOptions = { standOnHead: true };
 
-	// A grenade he throws at his partner passes him; with grenades off it
-	// bounces off. First at one who is not his partner: a server that lets a
-	// grenade through him too - ReSemiclip beside amxts does - shows nothing
-	// of amxts's, and says so.
+	// A grenade he throws bounces off one who is not his partner, passes his
+	// partner, and with grenades off bounces off him too.
 	walker.walksThrough.delete(standing);
 	const solid = await throwAt(walker, standing, start, ahead, true);
+	check.expect(solid > -1000 && solid < AHEAD, `his grenade bounces off one who is no partner (${Math.round(solid)} units on)`).toBe(true);
 	walker.walksThrough.add(standing);
-	if (solid > -1000 && solid < AHEAD) {
-		const passed = await throwAt(walker, standing, start, ahead, true);
-		check.expect(passed > AHEAD + 32, `his grenade passes his partner (${Math.round(passed)} units on)`).toBe(true);
-		const bounced = await throwAt(walker, standing, start, ahead, false);
-		check.expect(bounced > -1000 && bounced < AHEAD, `with grenades off it bounces off him (${Math.round(bounced)} units on)`).toBe(true);
-	} else {
-		console.log(`[semiclip] a grenade passes a player who is no partner here (${Math.round(solid)} units on): the grenades' checks are left out`);
-	}
+	const passed = await throwAt(walker, standing, start, ahead, true);
+	check.expect(passed > AHEAD + 32, `his grenade passes his partner (${Math.round(passed)} units on)`).toBe(true);
+	const bounced = await throwAt(walker, standing, start, ahead, false);
+	check.expect(bounced > -1000 && bounced < AHEAD, `with grenades off it bounces off him (${Math.round(bounced)} units on)`).toBe(true);
 	server.walkThroughOptions = { grenades: true };
 
 	standing.walksThrough.delete(walker);
@@ -278,6 +275,10 @@ async function throwAt(walker: Player, standing: Player, start: Vector, spot: Ve
 	walker.switchWeapon("weapon_hegrenade");
 	// Drawn, the pin pulled, then let go: the game throws it as the pull ends.
 	await sleep(800);
+	// At his body: a grenade is a point, and at the height of the eyes it
+	// goes between a player's hitboxes by the game's own rules.
+	pitch = 20;
+	walker.viewAngle = [pitch, yaw, 0];
 	attacking = walker;
 	await sleep(150);
 	attacking = null;
@@ -286,6 +287,7 @@ async function throwAt(walker: Player, standing: Player, start: Vector, spot: Ve
 		await sleep(50);
 		grenade = Entity.find({ classname: "grenade", owner: walker });
 	}
+	pitch = 0;
 	if (grenade == null) return -1000;
 	await sleep(250);
 	const at = grenade.origin;
