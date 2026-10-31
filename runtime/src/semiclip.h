@@ -353,8 +353,10 @@ static void GroupsClose()
 			g.e->v.groupinfo = 0;
 	}
 	g_groupedCount = 0;
+	// From the edicts themselves: Valve's engine names no edict for an empty slot.
+	edict_t *edicts = INDEXENT(0);
 	for (int id = 1; id <= gpGlobals->maxClients; id++)
-		INDEXENT(id)->v.groupinfo = 0;
+		edicts[id].v.groupinfo = 0;
 	GroupHooks(false);
 }
 
