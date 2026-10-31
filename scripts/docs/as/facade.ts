@@ -1280,7 +1280,7 @@ export default {
 			Both are off, \`0\`, by default. It is set as a whole, or a part of it:
 
 			\`\`\`ts
-			server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 48 };
+			server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 60 };
 			server.walkThroughLook = { hideDistance: 0 };
 			\`\`\`
 		`,
@@ -1290,7 +1290,7 @@ export default {
 			Оба по умолчанию выключены, \`0\`. Задаётся целиком или частью:
 
 			\`\`\`ts
-			server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 48 };
+			server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 60 };
 			server.walkThroughLook = { hideDistance: 0 };
 			\`\`\`
 		`,
