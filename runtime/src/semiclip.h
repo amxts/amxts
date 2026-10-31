@@ -264,10 +264,10 @@ static bool WalkThroughState(entity_state_t *state, int e, edict_t *ent, edict_t
 		if (other < 1 || other > gpGlobals->maxClients)
 			return true;
 	}
-	if (other == viewer || viewer < 1 || viewer >= CLIENT_SLOTS)
+	// One he stands on, or who stands on him, is sent solid and whole: his client predicts it.
+	if (other == viewer || viewer < 1 || viewer >= CLIENT_SLOTS || !Passes(viewer, other))
 		return true;
-	// Sent solid while one stands on the other, so his client predicts it too.
-	if (other == e && Passes(viewer, other))
+	if (other == e)
 		state->solid = SOLID_NOT;
 
 	const WalkLook &look = g_walkLooks[viewer];
