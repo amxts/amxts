@@ -15,6 +15,9 @@ const WALKER = "amxts semiclip walker";
 const STANDING = "amxts semiclip standing";
 /** How far ahead of the walker the other one stands. */
 const AHEAD = 64;
+/** A grenade that bounced off the one AHEAD lies no further than at his feet; one that passed him flies on past this. */
+const BOUNCED = AHEAD + 20;
+const PASSED = AHEAD + 40;
 /** How far ahead the way must be clear: a walk's way and more. */
 const CLEAR = 256;
 
@@ -149,12 +152,12 @@ async function run() {
 	// partner, and with grenades off bounces off him too.
 	walker.walksThrough.delete(standing);
 	const solid = await throwAt(walker, standing, start, ahead, true);
-	check.expect(solid > -1000 && solid < AHEAD, `his grenade bounces off one who is no partner (${Math.round(solid)} units on)`).toBe(true);
+	check.expect(solid > -1000 && solid < BOUNCED, `his grenade bounces off one who is no partner (${Math.round(solid)} units on)`).toBe(true);
 	walker.walksThrough.add(standing);
 	const passed = await throwAt(walker, standing, start, ahead, true);
-	check.expect(passed > AHEAD + 32, `his grenade passes his partner (${Math.round(passed)} units on)`).toBe(true);
+	check.expect(passed > PASSED, `his grenade passes his partner (${Math.round(passed)} units on)`).toBe(true);
 	const bounced = await throwAt(walker, standing, start, ahead, false);
-	check.expect(bounced > -1000 && bounced < AHEAD, `with grenades off it bounces off him (${Math.round(bounced)} units on)`).toBe(true);
+	check.expect(bounced > -1000 && bounced < BOUNCED, `with grenades off it bounces off him (${Math.round(bounced)} units on)`).toBe(true);
 	server.walkThroughOptions = { grenades: true };
 
 	standing.walksThrough.delete(walker);
@@ -268,6 +271,10 @@ async function onHead(walker: Player, standing: Player, spot: Vector, stand: boo
  */
 async function throwAt(walker: Player, standing: Player, start: Vector, spot: Vector, pass: boolean) {
 	server.walkThroughOptions = { grenades: pass };
+	// The grenade passes everyone but `standing`.
+	for (const other of server.players) {
+		if (other.id != walker.id && other.id != standing.id) walker.walksThrough.add(other);
+	}
 	// The one thrown before goes off first: the grenade found is this one.
 	for (let waited = 0; waited < 2000 && Entity.find({ classname: "grenade", owner: walker }) != null; waited += 100) await sleep(100);
 	await standAt(walker, standing, start, spot);
@@ -275,8 +282,7 @@ async function throwAt(walker: Player, standing: Player, start: Vector, spot: Ve
 	walker.switchWeapon("weapon_hegrenade");
 	// Drawn, the pin pulled, then let go: the game throws it as the pull ends.
 	await sleep(800);
-	// At his body: a grenade is a point, and at the height of the eyes it
-	// goes between a player's hitboxes by the game's own rules.
+	// At his body: at eye height a grenade passes between the hitboxes.
 	pitch = 20;
 	walker.viewAngle = [pitch, yaw, 0];
 	attacking = walker;
