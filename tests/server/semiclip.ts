@@ -1,7 +1,9 @@
 // Who walks through whom on a real server: two bots of the suite's own, one
 // walking straight at the other. Without a pair the other stops him; with
-// one he walks through, and the pair is both ways; dead, the other stops
-// nobody; leaving, a player takes his pairs with him. A bot is sent no
+// one he walks through, and the pair is both ways; put over his partner's
+// head he stands there, and a grenade he throws at him passes him, unless
+// the options say otherwise; dead, the other stops nobody; leaving, a
+// player takes his pairs with him. A bot is sent no
 // entities, so the state a partner is sent (not solid, the look by
 // distance) only shows with a real client; here the look is set and the
 // frames run with it.
@@ -20,6 +22,8 @@ const CLEAR = 256;
 const bots: Player[] = [];
 /** The one of them the frame walks toward `yaw`, while it is set. */
 let walking: Player | null = null;
+/** The one of them the frame holds the attack for, while it is set: a grenade's pin pulled. */
+let attacking: Player | null = null;
 let yaw = 0;
 
 // YaPB's bots play the round, and a spawn point taken kills who is on it:
@@ -27,7 +31,8 @@ let yaw = 0;
 server.addEventListener("frame", () => {
 	for (const bot of bots) {
 		if (bot.isAlive) bot.takeDamage = "no";
-		bot.move({ forward: bot.id == walking?.id ? 250 : 0, angles: [0, yaw, 0], msec: 10 });
+		const buttons: Button[] = bot.id == attacking?.id ? ["attack"] : [];
+		bot.move({ forward: bot.id == walking?.id ? 250 : 0, angles: [0, yaw, 0], buttons, msec: 10 });
 	}
 });
 
@@ -125,6 +130,36 @@ async function run() {
 	server.walkThroughLook = { hideDistance: 0 };
 	check.expect(`${drawnAim == standing.id} ${hiddenAim}`, `the name under his crosshair is not of a partner not drawn for him (named ${drawnAim}, then ${hiddenAim}; standing ${standing.id}, his line meets ${line})`).toBe("true 0");
 
+	// What else passes a partner: on by default, set a part at a time.
+	const options = server.walkThroughOptions;
+	check.expect(`${options.grenades} ${options.standOnHead}`, "a grenade passes and a partner holds one on his head by default").toBe("true true");
+	server.walkThroughOptions = { grenades: false };
+	check.expect(`${server.walkThroughOptions.grenades} ${server.walkThroughOptions.standOnHead}`, "the options read as set").toBe("false true");
+
+	// One wholly above a partner stands on his head; with standOnHead off he falls through.
+	const stood = await onHead(walker, standing, ahead, true);
+	check.expect(stood > 70, `he stands on his partner's head (${Math.round(stood)} units above him)`).toBe(true);
+	const fell = await onHead(walker, standing, ahead, false);
+	check.expect(fell < 36, `with standOnHead off he falls through (${Math.round(fell)} units above him)`).toBe(true);
+	server.walkThroughOptions = { standOnHead: true };
+
+	// A grenade he throws at his partner passes him; with grenades off it
+	// bounces off. First at one who is not his partner: a server that lets a
+	// grenade through him too - ReSemiclip beside amxts does - shows nothing
+	// of amxts's, and says so.
+	walker.walksThrough.delete(standing);
+	const solid = await throwAt(walker, standing, start, ahead, true);
+	walker.walksThrough.add(standing);
+	if (solid > -1000 && solid < AHEAD) {
+		const passed = await throwAt(walker, standing, start, ahead, true);
+		check.expect(passed > AHEAD + 32, `his grenade passes his partner (${Math.round(passed)} units on)`).toBe(true);
+		const bounced = await throwAt(walker, standing, start, ahead, false);
+		check.expect(bounced > -1000 && bounced < AHEAD, `with grenades off it bounces off him (${Math.round(bounced)} units on)`).toBe(true);
+	} else {
+		console.log(`[semiclip] a grenade passes a player who is no partner here (${Math.round(solid)} units on): the grenades' checks are left out`);
+	}
+	server.walkThroughOptions = { grenades: true };
+
 	standing.walksThrough.delete(walker);
 	check.expect(walker.walksThrough.has(standing), "deleted from either side, the pair is gone").toBe(false);
 	// A dead player passes everyone while a pair is set: the walker's with
@@ -208,6 +243,53 @@ async function walk(walker: Player, standing: Player, start: Vector, alive: bool
 		if (aside < 48 && standing.origin.distanceTo(ahead) < 8 && standing.isAlive == alive) return gone;
 	}
 	return gone;
+}
+
+/** Puts both alive, `standing` at `spot`, `walker` back where he starts: a new round may have moved them. */
+async function standAt(walker: Player, standing: Player, start: Vector, spot: Vector) {
+	if (!walker.isAlive) walker.respawn();
+	if (!standing.isAlive) standing.respawn();
+	await sleep(200);
+	walker.origin = start;
+	walker.velocity = [0, 0, 0];
+	standing.origin = spot;
+	standing.velocity = [0, 0, 0];
+}
+
+/** How far above `standing` `walker` is half a second after he is put a unit over his head, with standOnHead as given. */
+async function onHead(walker: Player, standing: Player, spot: Vector, stand: boolean) {
+	server.walkThroughOptions = { standOnHead: stand };
+	await standAt(walker, standing, spot.add([0, 0, 73]), spot);
+	await sleep(500);
+	return walker.origin.z - standing.origin.z;
+}
+
+/**
+ * How far along the way from `start` the grenade `walker` throws at
+ * `standing`, AHEAD of him, is a quarter of a second after it leaves his
+ * hand, with grenades as given; -1000 for none thrown.
+ */
+async function throwAt(walker: Player, standing: Player, start: Vector, spot: Vector, pass: boolean) {
+	server.walkThroughOptions = { grenades: pass };
+	// The one thrown before goes off first: the grenade found is this one.
+	for (let waited = 0; waited < 2000 && Entity.find({ classname: "grenade", owner: walker }) != null; waited += 100) await sleep(100);
+	await standAt(walker, standing, start, spot);
+	walker.give("weapon_hegrenade");
+	walker.switchWeapon("weapon_hegrenade");
+	// Drawn, the pin pulled, then let go: the game throws it as the pull ends.
+	await sleep(800);
+	attacking = walker;
+	await sleep(150);
+	attacking = null;
+	let grenade: Entity | null = null;
+	for (let waited = 0; waited < 1500 && grenade == null; waited += 50) {
+		await sleep(50);
+		grenade = Entity.find({ classname: "grenade", owner: walker });
+	}
+	if (grenade == null) return -1000;
+	await sleep(250);
+	const at = grenade.origin;
+	return (at.x - start.x) * Math.cos(yaw * Math.PI / 180) + (at.y - start.y) * Math.sin(yaw * Math.PI / 180);
 }
 
 /** Who the game names under the walker's crosshair once it names id, or 2 seconds on: it says so every 0.2 s, when it changes. */
