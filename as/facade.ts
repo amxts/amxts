@@ -2231,6 +2231,9 @@ export class Player extends PlayerFields implements Client {
 		}
 		_botCmd(this.id, `jointeam ${team == "TERRORIST" ? "1" : team == "CT" ? "2" : "6"}`);
 		if (team != "SPECTATOR") _botCmd(this.id, "joinclass 5");
+		// Picked before the game asked - a bot just added - he is still at its
+		// greeting: let in as the game lets in one who picks when asked.
+		if (team != "SPECTATOR" && this.team == team && this.joiningState != "joined") this.joiningState = "getIntoGame";
 		return this.team == team;
 	}
 

@@ -102,6 +102,8 @@ async function run() {
 	check.expect(walked > 16, `moved forward over the frames (${Math.round(walked)} units)`).toBe(true);
 	check.expect(command, "cmdStart reads the command bot.move sent").toBe("250 -100 use 10 30");
 	check.expect(kept, "an async listener reads the command after its await").toBe("250 -100 use 10 30");
+	// Its commands run the game's joining: after joinTeam it is in the game, not back at the team menu.
+	check.expect(bot.joiningState, "in the game after joinTeam and its commands").toBe("joined");
 
 	server.addEventListener("cmdStart", onCommand);
 	server.addEventListener("cmdStart", onCommandAfter);
