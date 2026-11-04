@@ -124,7 +124,6 @@ walk_through_get (i)i
 walk_look (iF)
 walk_look_get (i)F
 walk_option (ii)
-walk_option_get (i)i
 player_view (ii)
 player_view_get (i)i
 plugins_count ()i

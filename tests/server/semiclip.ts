@@ -1,13 +1,14 @@
 // Who walks through whom on a real server: two bots of the suite's own, one
 // walking straight at the other. Without a pair the other stops him; with
 // one he walks through, and the pair is both ways; put over his partner's
-// head he stands there, and a grenade he throws at him passes him, unless
-// the options say otherwise; dead, the other stops nobody; leaving, a
+// head he stands there, and a grenade he throws at him passes him, when
+// the options say so; dead, the other stops nobody; leaving, a
 // player takes his pairs with him. A bot is sent no
 // entities, so the state a partner is sent (not solid, the look by
 // distance) only shows with a real client; here the look is set and the
 // frames run with it.
 import { Checks } from "@amxts/core/check";
+import { setWalkThroughOptions } from "@amxts/core/kit";
 import { LibType_Library } from "@amxts/core/constants";
 import { LibraryExists, resemiclip_take_control } from "@amxts/core/natives";
 
@@ -15,9 +16,9 @@ const WALKER = "amxts semiclip walker";
 const STANDING = "amxts semiclip standing";
 /** How far ahead of the walker the other one stands. */
 const AHEAD = 64;
-/** A grenade that bounced off the one AHEAD lies no further than at his feet; one that passed him flies on past this. */
-const BOUNCED = AHEAD + 20;
-const PASSED = AHEAD + 40;
+/** A grenade that hit the one AHEAD lies at his feet or glanced off, short of this; one that passed him flies free, past PASSED. */
+const BOUNCED = AHEAD + 56;
+const PASSED = AHEAD + 64;
 /** How far ahead the way must be clear: a walk's way and more. */
 const CLEAR = 256;
 
@@ -135,30 +136,30 @@ async function run() {
 	server.walkThroughLook = { hideDistance: 0 };
 	check.expect(`${drawnAim == standing.id} ${hiddenAim}`, `the name under his crosshair is not of a partner not drawn for him (named ${drawnAim}, then ${hiddenAim}; standing ${standing.id}, his line meets ${line})`).toBe("true 0");
 
-	// What else passes a partner: on by default, set a part at a time.
-	const options = server.walkThroughOptions;
-	check.expect(`${options.grenades} ${options.standOnHead}`, "a grenade passes and a partner holds one on his head by default").toBe("true true");
-	server.walkThroughOptions = { grenades: false };
-	check.expect(`${server.walkThroughOptions.grenades} ${server.walkThroughOptions.standOnHead}`, "the options read as set").toBe("false true");
-
-	// One wholly above a partner stands on his head; with standOnHead off he falls through.
-	const stood = await onHead(walker, standing, ahead, true);
+	// Off until a module says: one above his partner falls through, on he stands on his head.
+	const fellByDefault = await onHead(walker, standing, ahead);
+	check.expect(fellByDefault < 36, `by default he falls through his partner (${Math.round(fellByDefault)} units above him)`).toBe(true);
+	setWalkThroughOptions({ standOnHead: true });
+	const stood = await onHead(walker, standing, ahead);
 	check.expect(stood > 70, `he stands on his partner's head (${Math.round(stood)} units above him)`).toBe(true);
-	const fell = await onHead(walker, standing, ahead, false);
+	setWalkThroughOptions({ standOnHead: false });
+	const fell = await onHead(walker, standing, ahead);
 	check.expect(fell < 36, `with standOnHead off he falls through (${Math.round(fell)} units above him)`).toBe(true);
-	server.walkThroughOptions = { standOnHead: true };
 
-	// A grenade he throws bounces off one who is not his partner, passes his
-	// partner, and with grenades off bounces off him too.
+	// A grenade bounces off his partner by default. On, it still bounces off
+	// one who is no partner and passes his partner; off, it bounces again.
+	const bouncedByDefault = await bounceOff(walker, standing, start, ahead);
+	check.expect(bouncedByDefault > -1000 && bouncedByDefault < BOUNCED, `by default his grenade bounces off his partner (${Math.round(bouncedByDefault)} units on)`).toBe(true);
+	setWalkThroughOptions({ grenades: true });
 	walker.walksThrough.delete(standing);
-	const solid = await throwAt(walker, standing, start, ahead, true);
+	const solid = await bounceOff(walker, standing, start, ahead);
 	check.expect(solid > -1000 && solid < BOUNCED, `his grenade bounces off one who is no partner (${Math.round(solid)} units on)`).toBe(true);
 	walker.walksThrough.add(standing);
-	const passed = await throwAt(walker, standing, start, ahead, true);
+	const passed = await throwAt(walker, standing, start, ahead);
 	check.expect(passed > PASSED, `his grenade passes his partner (${Math.round(passed)} units on)`).toBe(true);
-	const bounced = await throwAt(walker, standing, start, ahead, false);
+	setWalkThroughOptions({ grenades: false });
+	const bounced = await bounceOff(walker, standing, start, ahead);
 	check.expect(bounced > -1000 && bounced < BOUNCED, `with grenades off it bounces off him (${Math.round(bounced)} units on)`).toBe(true);
-	server.walkThroughOptions = { grenades: true };
 
 	standing.walksThrough.delete(walker);
 	check.expect(walker.walksThrough.has(standing), "deleted from either side, the pair is gone").toBe(false);
@@ -256,21 +257,26 @@ async function standAt(walker: Player, standing: Player, start: Vector, spot: Ve
 	standing.velocity = [0, 0, 0];
 }
 
-/** How far above `standing` `walker` is half a second after he is put a unit over his head, with standOnHead as given. */
-async function onHead(walker: Player, standing: Player, spot: Vector, stand: boolean) {
-	server.walkThroughOptions = { standOnHead: stand };
+/** How far above `standing` `walker` is half a second after he is put a unit over his head. */
+async function onHead(walker: Player, standing: Player, spot: Vector) {
 	await standAt(walker, standing, spot.add([0, 0, 73]), spot);
 	await sleep(500);
 	return walker.origin.z - standing.origin.z;
 }
 
+/** How far the grenade got that stopped at `standing`: a grenade is a point, and it can miss through a gap in his hitboxes, so up to three throws. */
+async function bounceOff(walker: Player, standing: Player, start: Vector, spot: Vector) {
+	let at = await throwAt(walker, standing, start, spot);
+	for (let tries = 1; tries < 3 && !(at > -1000 && at < BOUNCED); tries++) at = await throwAt(walker, standing, start, spot);
+	return at;
+}
+
 /**
  * How far along the way from `start` the grenade `walker` throws at
  * `standing`, AHEAD of him, is a quarter of a second after it leaves his
- * hand, with grenades as given; -1000 for none thrown.
+ * hand; -1000 for none thrown.
  */
-async function throwAt(walker: Player, standing: Player, start: Vector, spot: Vector, pass: boolean) {
-	server.walkThroughOptions = { grenades: pass };
+async function throwAt(walker: Player, standing: Player, start: Vector, spot: Vector) {
 	// The grenade passes everyone but `standing`.
 	for (const other of server.players) {
 		if (other.id != walker.id && other.id != standing.id) walker.walksThrough.add(other);

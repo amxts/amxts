@@ -1,6 +1,6 @@
 // Who walks through whom - player.walksThrough - how a player one walks
 // through looks to him close up - server.walkThroughLook - and what else
-// passes a partner - server.walkThroughOptions. A pair is one bit both ways,
+// passes a partner - the kit's setWalkThroughOptions. A pair is one bit both ways,
 // and everything for it is done here, with no call into a plugin: these run
 // for every pair every frame.
 //
@@ -45,10 +45,10 @@ static float g_shownAt[CLIENT_SLOTS][CLIENT_SLOTS];
 
 enum WalkLookField { LOOK_FADE = 0, LOOK_OPACITY = 1, LOOK_HIDE = 2 };
 
-// What else passes a partner, for every pair; both on until a plugin says.
+// What else passes a partner, for every pair; both off until a plugin says.
 enum WalkOption { WALK_GRENADES = 0, WALK_STAND_ON_HEAD = 1 };
-static bool g_walkGrenades = true;
-static bool g_standOnHead = true;
+static bool g_walkGrenades = false;
+static bool g_standOnHead = false;
 
 static void StatesAttach(bool on);
 static void GroupsClose();
@@ -162,17 +162,6 @@ static void w_walkOption(wasm_exec_env_t env, int32_t field, int32_t on)
 			break;
 		case WALK_STAND_ON_HEAD: g_standOnHead = on != 0; break;
 	}
-}
-
-/** walk_option_get(field) - whether it passes. */
-static int32_t w_walkOptionGet(wasm_exec_env_t env, int32_t field)
-{
-	(void)env;
-	switch (field) {
-		case WALK_GRENADES:      return g_walkGrenades;
-		case WALK_STAND_ON_HEAD: return g_standOnHead;
-	}
-	return 0;
 }
 
 /** Dead, dying or a spectator: solid to nobody. */

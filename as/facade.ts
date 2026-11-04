@@ -1660,8 +1660,6 @@ const LOOK_OPACITY: i32 = 1;
 const LOOK_HIDE: i32 = 2;
 // @ts-ignore: decorator
 @external("env", "walk_option") declare function _walkOption(field: i32, on: i32): void;
-// @ts-ignore: decorator
-@external("env", "walk_option_get") declare function _walkOptionGet(field: i32): i32;
 const WALK_GRENADES: i32 = 0;
 const WALK_STAND_ON_HEAD: i32 = 1;
 // @ts-ignore: decorator
@@ -3927,25 +3925,8 @@ export interface WalkThroughLookOptions {
 	hideDistance?: number;
 }
 
-/**
- * The server's switches of walking through, for every pair: a grenade
- * passing its thrower's partners, and a player standing on a partner's
- * head. Both are on by default. It is set as a whole, or a part of it:
- *
- * ```ts
- * server.walkThroughOptions = { grenades: false };   // a grenade bounces off a partner of its thrower
- * ```
- */
-export class WalkThroughOptions {
-	/** Whether a grenade in flight passes the players its thrower walks through. */
-	get grenades(): boolean { return _walkOptionGet(WALK_GRENADES) != 0; }
-
-	/** Whether a player wholly above one he walks through stands on him, instead of falling through. */
-	get standOnHead(): boolean { return _walkOptionGet(WALK_STAND_ON_HEAD) != 0; }
-}
-
-/** The options of `server.walkThroughOptions` to set: the fields given change, the others stay. */
-export interface WalkThroughOptionsInit {
+/** The options of `setWalkThroughOptions()`: the fields given change, the others stay. */
+export interface WalkThroughOptions {
 	/** Whether a grenade in flight passes the players its thrower walks through. */
 	grenades?: boolean;
 	/** Whether a player wholly above one he walks through stands on him, instead of falling through. */
@@ -5273,17 +5254,6 @@ export class Server {
 		if (value.fadeDistance !== undefined) _walkLook(LOOK_FADE, value.fadeDistance);
 		if (value.opacity !== undefined) _walkLook(LOOK_OPACITY, value.opacity);
 		if (value.hideDistance !== undefined) _walkLook(LOOK_HIDE, value.hideDistance);
-	}
-
-	/**
-	 * The server's switches of walking through: a grenade passing its
-	 * thrower's partners, and a player standing on a partner's head. Both on
-	 * by default: `server.walkThroughOptions = { grenades: false }`.
-	 */
-	get walkThroughOptions(): WalkThroughOptions { return new WalkThroughOptions(); }
-	set walkThroughOptions(value: WalkThroughOptionsInit) {
-		if (value.grenades !== undefined) _walkOption(WALK_GRENADES, value.grenades ? 1 : 0);
-		if (value.standOnHead !== undefined) _walkOption(WALK_STAND_ON_HEAD, value.standOnHead ? 1 : 0);
 	}
 
 	/**
@@ -7782,6 +7752,20 @@ export function callingPlugin(): number {
  */
 export function onPluginStop(listener: (plugin: number) => void): void {
 	stopListeners.push(listener);
+}
+
+/**
+ * Sets what else passes a partner, for every pair: a grenade passing its
+ * thrower's partners, and a player standing on a partner's head. Both are
+ * off until a module turns them on.
+ *
+ * ```ts
+ * setWalkThroughOptions({ grenades: true });   // a grenade passes the partners of its thrower
+ * ```
+ */
+export function setWalkThroughOptions(options: WalkThroughOptions): void {
+	if (options.grenades !== undefined) _walkOption(WALK_GRENADES, options.grenades ? 1 : 0);
+	if (options.standOnHead !== undefined) _walkOption(WALK_STAND_ON_HEAD, options.standOnHead ? 1 : 0);
 }
 
 /** @hidden as/remote.ts: a call of the run `from` starts; the run whose call ran before it, to give back. */

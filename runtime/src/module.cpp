@@ -4642,7 +4642,6 @@ static int32_t w_walkThroughGet(wasm_exec_env_t env, int32_t id);
 static void w_walkLook(wasm_exec_env_t env, int32_t field, double value);
 static double w_walkLookGet(wasm_exec_env_t env, int32_t field);
 static void w_walkOption(wasm_exec_env_t env, int32_t field, int32_t on);
-static int32_t w_walkOptionGet(wasm_exec_env_t env, int32_t field);
 static void ResetPartners(int id);
 static void GroupsOpen();
 static void GroupsClose();
@@ -4783,7 +4782,6 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "walk_look",      (void *)w_walkLook,      "(iF)", NULL },
 	{ "walk_look_get",  (void *)w_walkLookGet,   "(i)F", NULL },
 	{ "walk_option",    (void *)w_walkOption,    "(ii)", NULL },
-	{ "walk_option_get", (void *)w_walkOptionGet, "(i)i", NULL },
 	{ "player_view",    (void *)w_playerView,    "(ii)", NULL },
 	{ "player_view_get", (void *)w_playerViewGet, "(i)i", NULL },
 	{ "plugins_count",  (void *)w_pluginsCount,  "()i",   NULL },
