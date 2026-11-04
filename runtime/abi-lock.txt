@@ -3,7 +3,7 @@
 # of each variadic native (call <id> <name>). Within its line an import keeps
 # its shape and a native its id: a plugin built for this release loads on
 # every later patch.
-0.3.4
+0.3.5
 abort (iiii)
 stack_frames (ii)i
 stack_text (iiii)i
@@ -123,6 +123,8 @@ walk_through (iii)
 walk_through_get (i)i
 walk_look (iF)
 walk_look_get (i)F
+walk_option (ii)
+walk_option_get (i)i
 player_view (ii)
 player_view_get (i)i
 plugins_count ()i
