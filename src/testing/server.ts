@@ -3624,6 +3624,11 @@ export class FakeServer {
 			return this.messageIds.get(text)!;
 		},
 
+		// The size a game's message of that name is registered with: the fake game's are of any length.
+		msg_fixed_size(this: FakeServer, _plugin: PluginInstance, _name: number) {
+			return -1;
+		},
+
 		// A message of one or two numbers in one call: each written as its two bits of `kinds` say, 0 for none.
 		send_cells(this: FakeServer, plugin: PluginInstance, player: number, type: number, first: number, second: number, kinds: number) {
 			if (this.callNativeImpl(plugin, 'is_user_connected', [player]) === 0 || this.callNativeImpl(plugin, 'emessage_begin', [MSG_ONE, type, 0, player]) === 0) return;

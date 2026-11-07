@@ -6,9 +6,11 @@
 // a bot - so what is checked is what the hooks hear. A message longer than
 // the engine sends is not sent. And a plugin's mistake does not stop the
 // server: writes after a message_begin that failed, a write or an end with no
-// message begun, a begin with no player to send to.
+// message begun, a begin with no player to send to. A game's message of a
+// fixed size - BuyClose, of none - is sent at that size and refused at another.
 // @log UserMessage "AmxtsTooLongName": a message's name is 1 to 11 characters
 // @log UserMessage "AmxtsJump": 198 bytes, more than the 192 a message carries; not sent
+// @log UserMessage "BuyClose": the game sends it with 0 bytes, 1 written; not sent
 // @log message_end with no message begun
 // @log Run time error 10 (plugin "amxts_natives.amxx") (native "message_begin")
 // @log Run time error 10 (plugin "amxts_natives.amxx") (native "emessage_begin")
@@ -18,6 +20,13 @@ import { emessage_begin, ewrite_byte, emessage_end, get_user_msgid, message_begi
 import { Checks } from "@amxts/core/check";
 
 const jump = new UserMessage("AmxtsJump");
+const closeBuyMenu = new UserMessage("BuyClose");
+
+/** How many BuyClose messages went out. */
+let closed = 0;
+server.addMessageListener("closeBuyMenu", () => {
+	closed++;
+});
 
 /** What the Pawn plugin's hook heard last: the count of arguments, then each. */
 let heard = "";
@@ -72,6 +81,12 @@ function run() {
 	jump.byte(2).sendAll();
 	hear();
 	check.expect(heard, "what was written before it is not left for the next").toBe("1 2");
+
+	const wasClosed = closed;
+	closeBuyMenu.send(bot);
+	check.expect(closed - wasClosed, "a game's message of no bytes is sent with nothing written").toBe(1);
+	closeBuyMenu.byte(1).send(bot);
+	check.expect(closed - wasClosed, "and not with a byte written").toBe(1);
 
 	// The plugin's own natives take the id: AMX Mod X's message_begin knows it now.
 	check.expect(message_begin(MSG_ONE, id, [0, 0, 0], bot.id), "message_begin takes the message's id").toBe(1);

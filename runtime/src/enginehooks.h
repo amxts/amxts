@@ -564,6 +564,19 @@ static int32_t w_msgRegister(wasm_exec_env_t env, int32_t name)
 	return g_hookedEngine ? g_hookedEngine->pfnRegUserMsg(strdup(text.c_str()), -1) : 0;
 }
 
+/**
+ * msg_fixed_size(name): the size in bytes the game registered its message of
+ * that name with, `0` for one sent with nothing written (BuyClose); -1 for a
+ * message of any length or none of that name. The engine stops the server on
+ * a message of another size, so a UserMessage of it is sent only at that size.
+ */
+static int32_t w_msgFixedSize(wasm_exec_env_t env, int32_t name)
+{
+	int size = -1;
+	int id = GET_USER_MSG_ID(PLID, AsString(Inst(env), name).c_str(), &size);
+	return id > 0 ? size : -1;
+}
+
 // ---------------------------------------------------------------- the log
 
 // A log line's most arguments, and AMX Mod X's.
@@ -1300,4 +1313,5 @@ static void ForgetOtherPoints()
 	{ "send_end",       (void *)w_sendEnd,        "()",      NULL }, \
 	{ "send_cells",     (void *)w_sendCells,      "(iiiii)", NULL }, \
 	{ "msg_register",   (void *)w_msgRegister,    "(i)i",    NULL }, \
+	{ "msg_fixed_size", (void *)w_msgFixedSize,   "(i)i",    NULL }, \
 	{ "precache_count", (void *)w_precacheCount,  "(i)i",    NULL },

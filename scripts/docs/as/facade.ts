@@ -1956,6 +1956,7 @@ export default {
 			\`\`\`
 
 			A name is at most 11 characters, and a message carries at most 192 bytes.
+			A game's message of a fixed size (\`BuyClose\`, of none) is sent only at that size.
 
 			Pawn: \`engfunc(EngFunc_RegUserMsg, ...)\`
 		`,
@@ -1973,6 +1974,7 @@ export default {
 			\`\`\`
 
 			Имя — не длиннее 11 символов, сообщение несёт не больше 192 байт.
+			Сообщение игры фиксированного размера (\`BuyClose\`, без байт) отправляется только этого размера.
 
 			Pawn: \`engfunc(EngFunc_RegUserMsg, ...)\`
 		`,

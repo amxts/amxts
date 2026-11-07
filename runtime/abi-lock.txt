@@ -203,6 +203,7 @@ send_string (i)
 send_end ()
 send_cells (iiiii)
 msg_register (i)i
+msg_fixed_size (i)i
 precache_count (i)i
 amxts_serve (ii)
 amxts_owner (ii)i

@@ -4404,6 +4404,8 @@ const WRITE_ENTITY = 7;
 
 // @ts-ignore: decorator
 @external("env", "msg_register") declare function _msgRegister(name: string): i32;
+// @ts-ignore: decorator
+@external("env", "msg_fixed_size") declare function _msgFixedSize(name: string): i32;
 
 /**
  * A message of the plugin's own, for a client-side mod that reads it by its
@@ -4419,11 +4421,14 @@ const WRITE_ENTITY = 7;
  * ```
  *
  * A name is at most 11 characters, and a message carries at most 192 bytes.
+ * A game's message of a fixed size (`BuyClose`, of none) is sent only at that size.
  *
  * Pawn: `engfunc(EngFunc_RegUserMsg, ...)`
  */
 export class UserMessage {
 	private id: i32 = 0;
+	/** The size the game sends its message of this name with, `-1` for any. */
+	private fixedSize: i32 = -1;
 	private kinds: i32[] = [];
 	private numbers: f64[] = [];
 	private texts: string[] = [];
@@ -4506,13 +4511,16 @@ export class UserMessage {
 			return;
 		}
 
-		this.id = _msgRegister(this.name);
+		// A game's message of a fixed size is the game's: sent as it is, at that size.
+		this.fixedSize = _msgFixedSize(this.name);
+		this.id = this.fixedSize >= 0 ? get_user_msgid(this.name) : _msgRegister(this.name);
 		if (this.id == 0) console.error(`UserMessage "${this.name}": the engine did not register it (the server's console says why)`);
 	}
 
 	// Through the engine, as the game's messages go, so other plugins' message hooks hear it.
 	private flush(dest: i32, player: i32): void {
-		if (this.size > USER_MESSAGE_BYTES) console.error(`UserMessage "${this.name}": ${this.size} bytes, more than the ${USER_MESSAGE_BYTES} a message carries; not sent`);
+		if (this.fixedSize >= 0 && this.size != this.fixedSize) console.error(`UserMessage "${this.name}": the game sends it with ${this.fixedSize} bytes, ${this.size} written; not sent`);
+		else if (this.size > USER_MESSAGE_BYTES) console.error(`UserMessage "${this.name}": ${this.size} bytes, more than the ${USER_MESSAGE_BYTES} a message carries; not sent`);
 		else if (this.id > 0 && emessage_begin(dest, this.id, [0, 0, 0], player) != 0) this.writeAll();
 		this.kinds.length = 0;
 		this.numbers.length = 0;
