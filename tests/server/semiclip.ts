@@ -139,7 +139,7 @@ async function run() {
 	check.expect(fellByDefault < 36, `by default he falls through his partner (${Math.round(fellByDefault)} units above him)`).toBe(true);
 	setWalkThroughOptions({ standOnHead: true });
 	const stood = await onHead(walker, standing, ahead);
-	check.expect(stood > 70, `he stands on his partner's head (${Math.round(stood)} units above him)`).toBe(true);
+	check.expect(stood > 70, `he stands on his partner's head (${Math.round(stood)} units above him; every 100 ms: ${onHeadTrace})`).toBe(true);
 	setWalkThroughOptions({ standOnHead: false });
 	const fell = await onHead(walker, standing, ahead);
 	check.expect(fell < 36, `with standOnHead off he falls through (${Math.round(fell)} units above him)`).toBe(true);
@@ -255,10 +255,18 @@ async function standAt(walker: Player, standing: Player, start: Vector, spot: Ve
 	standing.velocity = [0, 0, 0];
 }
 
+/** What the last `onHead` saw every 100 ms: how far above, and each one's flags, for a failed check to say. */
+let onHeadTrace = "";
+
 /** How far above `standing` `walker` is half a second after he is put a unit over his head. */
 async function onHead(walker: Player, standing: Player, spot: Vector) {
 	await standAt(walker, standing, spot.add([0, 0, 73]), spot);
-	await sleep(500);
+	const seen: string[] = [];
+	for (let waited = 0; waited < 500; waited += 100) {
+		seen.push(`${Math.round(walker.origin.z - standing.origin.z)} [${walker.flags.join(" ")}] [${standing.flags.join(" ")}] ${walksThrough(walker).has(standing)} ${standing.isAlive}`);
+		await sleep(100);
+	}
+	onHeadTrace = seen.join("; ");
 	return walker.origin.z - standing.origin.z;
 }
 
