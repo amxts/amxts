@@ -1,6 +1,6 @@
-// Who walks through whom - player.walksThrough - how a player one walks
-// through looks to him close up - server.walkThroughLook - and what else
-// passes a partner - the kit's setWalkThroughOptions. A pair is one bit both ways,
+// Who walks through whom - the kit's walksThrough - and how a player one walks
+// through looks to him close up and what else passes him - the kit's
+// setWalkThroughOptions. A pair is one bit both ways,
 // and everything for it is done here, with no call into a plugin: these run
 // for every pair every frame.
 //

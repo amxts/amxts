@@ -8,7 +8,7 @@
 // distance) only shows with a real client; here the look is set and the
 // frames run with it.
 import { Checks } from "@amxts/core/check";
-import { setWalkThroughOptions } from "@amxts/core/kit";
+import { setWalkThroughOptions, walksThrough } from "@amxts/core/kit";
 import { LibType_Library } from "@amxts/core/constants";
 import { LibraryExists, resemiclip_take_control } from "@amxts/core/natives";
 
@@ -95,23 +95,21 @@ async function run() {
 	// YaPB's bots spawn at the same points and run about: the walker passes
 	// them, and only the world and the other one stand in his way.
 	const others = server.players.filter(player => player.id != walker.id && player.id != standing.id);
-	for (const other of others) walker.walksThrough.add(other);
+	for (const other of others) walksThrough(walker).add(other);
 
 	const blocked = await walk(walker, standing, start, true);
 	check.expect(blocked < AHEAD, `without a pair the other stops him (${Math.round(blocked)} units)`).toBe(true);
 
-	walker.walksThrough.add(standing);
-	check.expect(`${walker.walksThrough.has(standing)} ${standing.walksThrough.has(walker)}`, "a pair is both ways").toBe("true true");
+	walksThrough(walker).add(standing);
+	check.expect(`${walksThrough(walker).has(standing)} ${walksThrough(standing).has(walker)}`, "a pair is both ways").toBe("true true");
 	const through = await walk(walker, standing, start, true);
 	check.expect(through > AHEAD + 32, `with the pair he walks through (${Math.round(through)} units)`).toBe(true);
 
 	// The look is set, a part of it at a time, and the frames run with it.
-	server.walkThroughLook = { fadeDistance: 200, hideDistance: 40 };
-	server.walkThroughLook = { opacity: 0.3 };
-	const look = server.walkThroughLook;
-	check.expect(`${look.fadeDistance} ${look.opacity} ${look.hideDistance}`, "the look reads as set").toBe("200 0.3 40");
+	setWalkThroughOptions({ fadeDistance: 200, hideDistance: 40 });
+	setWalkThroughOptions({ opacity: 0.3 });
 	await walk(walker, standing, start, true);
-	server.walkThroughLook = { fadeDistance: 0, hideDistance: 0 };
+	setWalkThroughOptions({ fadeDistance: 0, hideDistance: 0 });
 
 	// A partner not drawn for him stops none of his lines: the game's own aim,
 	// which names the player under his crosshair, goes on through.
@@ -131,9 +129,9 @@ async function run() {
 		drawnAim = await aimed(standing.id);
 	}
 	const line = trace.line(walker.eyes, walker.eyes.add(Vector.fromAngles(walker.viewAngle).scale(2048)), { ignore: walker }).entity?.id ?? -1;
-	server.walkThroughLook = { hideDistance: AHEAD * 2 };
+	setWalkThroughOptions({ hideDistance: AHEAD * 2 });
 	const hiddenAim = await aimed(0);
-	server.walkThroughLook = { hideDistance: 0 };
+	setWalkThroughOptions({ hideDistance: 0 });
 	check.expect(`${drawnAim == standing.id} ${hiddenAim}`, `the name under his crosshair is not of a partner not drawn for him (named ${drawnAim}, then ${hiddenAim}; standing ${standing.id}, his line meets ${line})`).toBe("true 0");
 
 	// Off until a module says: one above his partner falls through, on he stands on his head.
@@ -151,34 +149,34 @@ async function run() {
 	const bouncedByDefault = await bounceOff(walker, standing, start, ahead);
 	check.expect(bouncedByDefault > -1000 && bouncedByDefault < BOUNCED, `by default his grenade bounces off his partner (${Math.round(bouncedByDefault)} units on)`).toBe(true);
 	setWalkThroughOptions({ grenades: true });
-	walker.walksThrough.delete(standing);
+	walksThrough(walker).delete(standing);
 	const solid = await bounceOff(walker, standing, start, ahead);
 	check.expect(solid > -1000 && solid < BOUNCED, `his grenade bounces off one who is no partner (${Math.round(solid)} units on)`).toBe(true);
-	walker.walksThrough.add(standing);
+	walksThrough(walker).add(standing);
 	const passed = await throwAt(walker, standing, start, ahead);
 	check.expect(passed > PASSED, `his grenade passes his partner (${Math.round(passed)} units on)`).toBe(true);
 	setWalkThroughOptions({ grenades: false });
 	const bounced = await bounceOff(walker, standing, start, ahead);
 	check.expect(bounced > -1000 && bounced < BOUNCED, `with grenades off it bounces off him (${Math.round(bounced)} units on)`).toBe(true);
 
-	standing.walksThrough.delete(walker);
-	check.expect(walker.walksThrough.has(standing), "deleted from either side, the pair is gone").toBe(false);
+	walksThrough(standing).delete(walker);
+	check.expect(walksThrough(walker).has(standing), "deleted from either side, the pair is gone").toBe(false);
 	// A dead player passes everyone while a pair is set: the walker's with
 	// the others keep it so.
 	const pastDead = await walk(walker, standing, start, false);
 	check.expect(standing.isAlive, `the other one is dead (${standing.health} health)`).toBe(false);
 	check.expect(pastDead > AHEAD + 32, `a dead player stops nobody (${Math.round(pastDead)} units, ${others.length} others)`).toBe(true);
 
-	for (const other of others) walker.walksThrough.delete(other);
-	walker.walksThrough.add(standing);
-	check.expect(walker.walksThrough.size, "the pair is counted").toBe(1);
+	for (const other of others) walksThrough(walker).delete(other);
+	walksThrough(walker).add(standing);
+	check.expect(walksThrough(walker).size, "the pair is counted").toBe(1);
 	const walked: number[] = [];
-	for (const other of walker.walksThrough) walked.push(other.id);
-	check.expect(`${walked} ${[...walker.walksThrough].length}`, "his partners are walked as a set's values").toBe(`${standing.id} 1`);
+	for (const other of walksThrough(walker)) walked.push(other.id);
+	check.expect(`${walked} ${[...walksThrough(walker)].length}`, "his partners are walked as a set's values").toBe(`${standing.id} 1`);
 	bots.length = 0;
 	server.command(`kick "${STANDING}"`);
 	await sleep(100);
-	check.expect(walker.walksThrough.size, "a player who left takes his pairs").toBe(0);
+	check.expect(walksThrough(walker).size, "a player who left takes his pairs").toBe(0);
 
 	server.command(`kick "${WALKER}"`);
 	if (resemiclip) resemiclip_take_control(false);
@@ -279,7 +277,7 @@ async function bounceOff(walker: Player, standing: Player, start: Vector, spot: 
 async function throwAt(walker: Player, standing: Player, start: Vector, spot: Vector) {
 	// The grenade passes everyone but `standing`.
 	for (const other of server.players) {
-		if (other.id != walker.id && other.id != standing.id) walker.walksThrough.add(other);
+		if (other.id != walker.id && other.id != standing.id) walksThrough(walker).add(other);
 	}
 	// The one thrown before goes off first: the grenade found is this one.
 	for (let waited = 0; waited < 2000 && Entity.find({ classname: "grenade", owner: walker }) != null; waited += 100) await sleep(100);

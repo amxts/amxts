@@ -1063,18 +1063,6 @@ export default {
 			не сменится карта или игрок не уйдёт.
 		`,
 	},
-	'Player.walksThrough': {
-		en: `
-			The players he walks through, who walk through him: a pair is both
-			ways. \`player.walksThrough.add(teammate)\`; a pair lasts until it is
-			deleted or one of the two leaves.
-		`,
-		ru: `
-			Игроки, сквозь которых он проходит и которые проходят сквозь него: пара
-			действует в обе стороны. \`player.walksThrough.add(teammate)\`; пара
-			держится, пока её не удалят или один из двоих не уйдёт.
-		`,
-	},
 	'Player.jumpSlowdown': {
 		en: `
 			The player's slowdown after a jump, in milliseconds left: the game sets
@@ -1214,36 +1202,37 @@ export default {
 		en: `Gives the player the server's movement variables again.`,
 		ru: `Возвращает игроку переменные движения сервера.`,
 	},
-	'WalksThrough': {
+	'walksThrough': {
 		en: `
 			The players a player walks through, as a set: a pair is both ways, so
-			\`a.walksThrough.add(b)\` is \`b.walksThrough.add(a)\`. The two pass through
-			each other, and their games predict it; a dead player or a spectator
-			passes everyone. How a partner looks close up is \`server.walkThroughLook\`.
+			\`walksThrough(a).add(b)\` is \`walksThrough(b).add(a)\`. The two pass through
+			each other, and their games predict it; while any pair is set, a dead
+			player or a spectator passes everyone. A pair lasts until it is deleted or
+			one of the two leaves.
 
 			\`\`\`ts
-			game.addEventListener("playerSpawn", ({ player }) => {
-			  for (const other of server.players) {
-			    if (other.team == player.team) player.walksThrough.add(other);
-			  }
-			}, { post: true });
+			for (const other of server.players) {
+			  if (other.team == player.team) walksThrough(player).add(other);
+			}
 			\`\`\`
 		`,
 		ru: `
 			Игроки, сквозь которых проходит игрок, как множество: пара действует в обе
-			стороны, так что \`a.walksThrough.add(b)\` — то же, что \`b.walksThrough.add(a)\`.
-			Двое проходят друг сквозь друга, и их игры это предсказывают; мёртвый игрок
-			и зритель проходят сквозь всех. Как партнёр выглядит вблизи —
-			\`server.walkThroughLook\`.
+			стороны, так что \`walksThrough(a).add(b)\` — то же, что \`walksThrough(b).add(a)\`.
+			Двое проходят друг сквозь друга, и их игры это предсказывают; пока задана
+			хоть одна пара, мёртвый игрок и зритель проходят сквозь всех. Пара держится,
+			пока её не удалят или один из двоих не уйдёт.
 
 			\`\`\`ts
-			game.addEventListener("playerSpawn", ({ player }) => {
-			  for (const other of server.players) {
-			    if (other.team == player.team) player.walksThrough.add(other);
-			  }
-			}, { post: true });
+			for (const other of server.players) {
+			  if (other.team == player.team) walksThrough(player).add(other);
+			}
 			\`\`\`
 		`,
+	},
+	'WalksThrough': {
+		en: `The players a player walks through, as \`walksThrough(player)\` gives them.`,
+		ru: `Игроки, сквозь которых проходит игрок, как их даёт \`walksThrough(player)\`.`,
 	},
 	'WalksThrough.size': {
 		en: `The number of players he walks through.`,
@@ -1273,73 +1262,37 @@ export default {
 		en: `Calls \`callback\` for each player he walks through.`,
 		ru: `Вызывает \`callback\` для каждого игрока, сквозь которого он проходит.`,
 	},
-	'WalkThroughLook': {
-		en: `
-			The look of a player one walks through, close up, for every player:
-			see-through below \`fadeDistance\`, not drawn at all below \`hideDistance\`.
-			Both are off, \`0\`, by default. It is set as a whole, or a part of it:
-
-			\`\`\`ts
-			server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 60 };
-			server.walkThroughLook = { hideDistance: 0 };
-			\`\`\`
-		`,
-		ru: `
-			Вид игрока, сквозь которого проходишь, вблизи, для каждого игрока:
-			полупрозрачным ближе \`fadeDistance\`, совсем не виден ближе \`hideDistance\`.
-			Оба по умолчанию выключены, \`0\`. Задаётся целиком или частью:
-
-			\`\`\`ts
-			server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 60 };
-			server.walkThroughLook = { hideDistance: 0 };
-			\`\`\`
-		`,
-	},
-	'WalkThroughLookOptions': {
-		en: `The look of \`server.walkThroughLook\` to set: the fields given change, the others stay.`,
-		ru: `Вид для \`server.walkThroughLook\`: названные поля меняются, остальные остаются.`,
-	},
-	'WalkThroughLookOptions.fadeDistance': {
+	'WalkThroughOptions.fadeDistance': {
 		en: `Closer than this, in units, a player he walks through is see-through to him; \`0\` is off.`,
 		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, для него полупрозрачен; \`0\` — выключено.`,
 	},
-	'WalkThroughLookOptions.opacity': {
+	'WalkThroughOptions.opacity': {
 		en: `The opacity of a partner at \`hideDistance\` (right up close without one), \`0\` to \`1\`: he grows to whole at \`fadeDistance\`.`,
 		ru: `Насколько он непрозрачен на \`hideDistance\` (без неё — вплотную), от \`0\` до \`1\`: к \`fadeDistance\` он становится целым.`,
 	},
-	'WalkThroughLookOptions.hideDistance': {
-		en: `Closer than this, in units, a player he walks through fades out for him in a tenth of a second and is not drawn at all, and his aim, shots and \`+use\` go through him; \`0\` is off.`,
-		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, за десятую долю секунды исчезает для него и совсем не рисуется, а его прицел, выстрелы и \`+use\` проходят сквозь этого игрока; \`0\` — выключено.`,
-	},
-	'WalkThroughLook.fadeDistance': {
-		en: `Closer than this, in units, a player he walks through is see-through to him; \`0\` is off.`,
-		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, для него полупрозрачен; \`0\` — выключено.`,
-	},
-	'WalkThroughLook.opacity': {
-		en: `The opacity of a partner at \`hideDistance\` (right up close without one), \`0\` to \`1\`: he grows to whole at \`fadeDistance\`. \`0\` by default.`,
-		ru: `Насколько он непрозрачен на \`hideDistance\` (без неё — вплотную), от \`0\` до \`1\`: к \`fadeDistance\` он становится целым. По умолчанию \`0\`.`,
-	},
-	'WalkThroughLook.hideDistance': {
+	'WalkThroughOptions.hideDistance': {
 		en: `Closer than this, in units, a player he walks through fades out for him in a tenth of a second and is not drawn at all, and his aim, shots and \`+use\` go through him; \`0\` is off.`,
 		ru: `Ближе этого расстояния, в юнитах, игрок, сквозь которого он проходит, за десятую долю секунды исчезает для него и совсем не рисуется, а его прицел, выстрелы и \`+use\` проходят сквозь этого игрока; \`0\` — выключено.`,
 	},
 	'setWalkThroughOptions': {
 		en: `
-			Sets what else passes a partner, for every pair: a grenade passing its
-			thrower's partners, and a player standing on a partner's head. Both are
-			off until a module turns them on.
+			Sets how partners pass and look, for every pair: a grenade passing its
+			thrower's partners, a player standing on a partner's head, and a partner
+			see-through or not drawn up close. All are off until a module turns them on.
 
 			\`\`\`ts
 			setWalkThroughOptions({ grenades: true });   // a grenade passes the partners of its thrower
+			setWalkThroughOptions({ fadeDistance: 250, opacity: 0.4, hideDistance: 60 });
 			\`\`\`
 		`,
 		ru: `
-			Задаёт, что ещё проходит сквозь партнёра, для всех пар: граната сквозь
-			партнёров бросившего и стояние на голове партнёра. Оба выключены, пока их
-			не включит модуль.
+			Задаёт, как партнёры проходят и выглядят, для всех пар: граната сквозь
+			партнёров бросившего, стояние на голове партнёра и партнёр вблизи
+			полупрозрачный или невидимый. Всё выключено, пока не включит модуль.
 
 			\`\`\`ts
 			setWalkThroughOptions({ grenades: true });   // граната пролетает сквозь партнёров бросившего
+			setWalkThroughOptions({ fadeDistance: 250, opacity: 0.4, hideDistance: 60 });
 			\`\`\`
 		`,
 	},
@@ -3796,18 +3749,6 @@ export default {
 			Папка игры, например \`"cstrike"\`, \`"czero"\`.
 
 			Pawn: \`get_modname\`
-		`,
-	},
-	'Server.walkThroughLook': {
-		en: `
-			The look of a player one walks through, close up:
-			\`server.walkThroughLook = { fadeDistance: 250 }\` makes him see-through
-			nearer than 250 units. Off by default.
-		`,
-		ru: `
-			Вид игрока, сквозь которого проходишь, вблизи:
-			\`server.walkThroughLook = { fadeDistance: 250 }\` делает его полупрозрачным
-			ближе 250 юнитов. По умолчанию выключено.
 		`,
 	},
 	'Server.versions': {

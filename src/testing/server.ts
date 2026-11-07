@@ -957,9 +957,9 @@ export class FakeServer {
 	readonly semiclipMasks = new Map<number, number>();
 	/** Whether a plugin took resemiclip's rules over (resemiclip_take_control). */
 	semiclipControlled = false;
-	/** The players each walks through (player.walksThrough), by player: bit N - player N+1. One pair sets both. @internal */
+	/** The players each walks through (the kit's walksThrough), by player: bit N - player N+1. One pair sets both. @internal */
 	readonly walkPartners = new Map<number, number>();
-	/** How a partner looks close up, as plugins set server.walkThroughLook. */
+	/** How a partner looks close up, as a module set it with setWalkThroughOptions. */
 	readonly walkThroughLook = { fadeDistance: 0, opacity: 0, hideDistance: 0 };
 	/** What else passes a partner, as a module set it with setWalkThroughOptions. */
 	readonly walkThroughOptions = { grenades: false, standOnHead: false };
@@ -1379,7 +1379,7 @@ export class FakeServer {
 
 	// ------------------------------------------------------------ what a test does
 
-	/** The ids of the players `id` walks through (player.walksThrough), in order. */
+	/** The ids of the players `id` walks through, in order. */
 	walksThrough(id: number): number[] {
 		const bits = this.walkPartners.get(id) ?? 0;
 		return Array.from({ length: 32 }, (_, at) => at + 1).filter(other => (bits >>> (other - 1)) & 1);

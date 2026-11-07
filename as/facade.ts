@@ -1653,8 +1653,6 @@ function sendServerName(id: number, name: string): void {
 @external("env", "walk_through_get") declare function _walkThroughGet(id: i32): i32;
 // @ts-ignore: decorator
 @external("env", "walk_look") declare function _walkLook(field: i32, value: f64): void;
-// @ts-ignore: decorator
-@external("env", "walk_look_get") declare function _walkLookGet(field: i32): f64;
 const LOOK_FADE: i32 = 0;
 const LOOK_OPACITY: i32 = 1;
 const LOOK_HIDE: i32 = 2;
@@ -2419,13 +2417,6 @@ export class Player extends PlayerFields implements Client {
 	 * changes or the player leaves.
 	 */
 	get movement(): Movement { return new Movement(this.id); }
-
-	/**
-	 * The players he walks through, who walk through him: a pair is both
-	 * ways. `player.walksThrough.add(teammate)`; a pair lasts until it is
-	 * deleted or one of the two leaves.
-	 */
-	get walksThrough(): WalksThrough { return new WalksThrough(this.id); }
 
 	/**
 	 * The player's slowdown after a jump, in milliseconds left: the game sets
@@ -3840,18 +3831,20 @@ export class Movement {
 
 /**
  * The players a player walks through, as a set: a pair is both ways, so
- * `a.walksThrough.add(b)` is `b.walksThrough.add(a)`. The two pass through
- * each other, and their games predict it; a dead player or a spectator
- * passes everyone. How a partner looks close up is `server.walkThroughLook`.
+ * `walksThrough(a).add(b)` is `walksThrough(b).add(a)`. The two pass through
+ * each other, and their games predict it; while any pair is set, a dead
+ * player or a spectator passes everyone. A pair lasts until it is deleted or
+ * one of the two leaves.
  *
  * ```ts
- * game.addEventListener("playerSpawn", ({ player }) => {
- *   for (const other of server.players) {
- *     if (other.team == player.team) player.walksThrough.add(other);
- *   }
- * }, { post: true });
+ * for (const other of server.players) {
+ *   if (other.team == player.team) walksThrough(player).add(other);
+ * }
  * ```
  */
+export function walksThrough(player: Player): WalksThrough { return new WalksThrough(player.id); }
+
+/** The players a player walks through, as `walksThrough(player)` gives them. */
 export class WalksThrough {
 	constructor(private id: i32) {}
 
@@ -3894,43 +3887,18 @@ export class WalksThrough {
 	}
 }
 
-/**
- * The look of a player one walks through, close up, for every player:
- * see-through below `fadeDistance`, not drawn at all below `hideDistance`.
- * Both are off, `0`, by default. It is set as a whole, or a part of it:
- *
- * ```ts
- * server.walkThroughLook = { fadeDistance: 250, opacity: 0.4, hideDistance: 60 };
- * server.walkThroughLook = { hideDistance: 0 };
- * ```
- */
-export class WalkThroughLook {
-	/** Closer than this, in units, a player he walks through is see-through to him; `0` is off. */
-	get fadeDistance(): number { return _walkLookGet(LOOK_FADE); }
-
-	/** The opacity of a partner at `hideDistance` (right up close without one), `0` to `1`: he grows to whole at `fadeDistance`. `0` by default. */
-	get opacity(): number { return _walkLookGet(LOOK_OPACITY); }
-
-	/** Closer than this, in units, a player he walks through fades out for him in a tenth of a second and is not drawn at all, and his aim, shots and `+use` go through him; `0` is off. */
-	get hideDistance(): number { return _walkLookGet(LOOK_HIDE); }
-}
-
-/** The look of `server.walkThroughLook` to set: the fields given change, the others stay. */
-export interface WalkThroughLookOptions {
-	/** Closer than this, in units, a player he walks through is see-through to him; `0` is off. */
-	fadeDistance?: number;
-	/** The opacity of a partner at `hideDistance` (right up close without one), `0` to `1`: he grows to whole at `fadeDistance`. */
-	opacity?: number;
-	/** Closer than this, in units, a player he walks through fades out for him in a tenth of a second and is not drawn at all, and his aim, shots and `+use` go through him; `0` is off. */
-	hideDistance?: number;
-}
-
 /** The options of `setWalkThroughOptions()`: the fields given change, the others stay. */
 export interface WalkThroughOptions {
 	/** Whether a grenade in flight passes the players its thrower walks through. */
 	grenades?: boolean;
 	/** Whether a player wholly above one he walks through stands on him, instead of falling through. */
 	standOnHead?: boolean;
+	/** Closer than this, in units, a player he walks through is see-through to him; `0` is off. */
+	fadeDistance?: number;
+	/** The opacity of a partner at `hideDistance` (right up close without one), `0` to `1`: he grows to whole at `fadeDistance`. */
+	opacity?: number;
+	/** Closer than this, in units, a player he walks through fades out for him in a tenth of a second and is not drawn at all, and his aim, shots and `+use` go through him; `0` is off. */
+	hideDistance?: number;
 }
 
 /**
@@ -5242,18 +5210,6 @@ export class Server {
 	 */
 	get game(): string {
 		return serverText(SERVER_GAME);
-	}
-
-	/**
-	 * The look of a player one walks through, close up:
-	 * `server.walkThroughLook = { fadeDistance: 250 }` makes him see-through
-	 * nearer than 250 units. Off by default.
-	 */
-	get walkThroughLook(): WalkThroughLook { return new WalkThroughLook(); }
-	set walkThroughLook(value: WalkThroughLookOptions) {
-		if (value.fadeDistance !== undefined) _walkLook(LOOK_FADE, value.fadeDistance);
-		if (value.opacity !== undefined) _walkLook(LOOK_OPACITY, value.opacity);
-		if (value.hideDistance !== undefined) _walkLook(LOOK_HIDE, value.hideDistance);
 	}
 
 	/**
@@ -7755,17 +7711,21 @@ export function onPluginStop(listener: (plugin: number) => void): void {
 }
 
 /**
- * Sets what else passes a partner, for every pair: a grenade passing its
- * thrower's partners, and a player standing on a partner's head. Both are
- * off until a module turns them on.
+ * Sets how partners pass and look, for every pair: a grenade passing its
+ * thrower's partners, a player standing on a partner's head, and a partner
+ * see-through or not drawn up close. All are off until a module turns them on.
  *
  * ```ts
  * setWalkThroughOptions({ grenades: true });   // a grenade passes the partners of its thrower
+ * setWalkThroughOptions({ fadeDistance: 250, opacity: 0.4, hideDistance: 60 });
  * ```
  */
 export function setWalkThroughOptions(options: WalkThroughOptions): void {
 	if (options.grenades !== undefined) _walkOption(WALK_GRENADES, options.grenades ? 1 : 0);
 	if (options.standOnHead !== undefined) _walkOption(WALK_STAND_ON_HEAD, options.standOnHead ? 1 : 0);
+	if (options.fadeDistance !== undefined) _walkLook(LOOK_FADE, options.fadeDistance);
+	if (options.opacity !== undefined) _walkLook(LOOK_OPACITY, options.opacity);
+	if (options.hideDistance !== undefined) _walkLook(LOOK_HIDE, options.hideDistance);
 }
 
 /** @hidden as/remote.ts: a call of the run `from` starts; the run whose call ran before it, to give back. */

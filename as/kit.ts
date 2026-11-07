@@ -8,8 +8,9 @@
 // for Pawn plugins: calling a Pawn plugin's public back, reading and filling
 // its `Array:`, a menu of any length. `request` is the server's network client as it is -
 // HTTP, FTP, FTPS and SFTP, files streamed to and from the disk - for a
-// module that speaks more than fetch. `setWalkThroughOptions` is for a module
-// that offers walking through as its own settings. They live in the facade - this file
+// module that speaks more than fetch. `walksThrough` and `setWalkThroughOptions`
+// are for a module that lets players walk through each other: the pairs, and
+// how partners pass and look. They live in the facade - this file
 // only gathers them - and a plugin never needs them: what a plugin does has
 // a facade object of its own.
 export {
@@ -34,5 +35,7 @@ export {
 	setWalkThroughOptions,
 	showMenu,
 	textCells,
+	walksThrough,
+	WalksThrough,
 	WalkThroughOptions,
 } from "./facade";
