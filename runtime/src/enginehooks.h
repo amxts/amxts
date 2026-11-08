@@ -938,6 +938,8 @@ static size_t g_clientSize = 0;
 static size_t g_infoAt = 0;
 static int g_userInfoChain = -1;
 static bool g_userInfoSought = false;
+// The two players' userinfo did not tell a client_t (KnowClients): the hook only passes calls on.
+static bool g_clientsUnknown = false;
 // The client resend() writes the userinfo for (ResendUserInfo), else 0.
 static int g_userInfoTo = 0;
 
@@ -1008,8 +1010,16 @@ static void SentInfo(const char *info, char *out)
 	out[n] = 0;
 }
 
+static bool KnowClients();
+
 static void FullClientUpdate_Hooked(unsigned char *cl, sizebuf_t *sb)
 {
+	if (!KnowClients()) {
+		HookOff(g_fullClientUpdate);
+		((FullClientUpdateFn)g_fullClientUpdate.at)(cl, sb);
+		HookOn(g_fullClientUpdate);
+		return;
+	}
 	unsigned char *clients = *g_svsClients;
 	int id = (int)((size_t)(cl - clients) / g_clientSize) + 1;
 	size_t into = (size_t)((unsigned char *)sb - clients);
@@ -1042,15 +1052,15 @@ static void FullClientUpdate_Hooked(unsigned char *cl, sizebuf_t *sb)
 	call.Post();
 }
 
-/** SV_FullClientUpdate and what tells a client_t, on plain HLDS once a map has edicts; false where they are not found. */
+/**
+ * SV_FullClientUpdate and where the engine keeps svs.clients, on plain HLDS:
+ * found as the first plugin hooks it or resends, before any map too; false
+ * where they are not found.
+ */
 static bool FindFullClientUpdate()
 {
 	if (g_userInfoSought || g_rehlds)
 		return g_fullClientUpdate.at != NULL;
-	edict_t *first = INDEXENT(1);
-	edict_t *second = INDEXENT(2);
-	if (!first || !second)
-		return false;
 	g_userInfoSought = true;
 
 	unsigned char *fn = NULL;
@@ -1069,20 +1079,42 @@ static bool FindFullClientUpdate()
 	unsigned char *svs = (unsigned char *)EngineSymbol("svs");
 	clients = svs ? (unsigned char **)(svs + sizeof(int)) : NULL;
 #endif
-	unsigned char *base = clients ? *clients : NULL;
-	unsigned char *one = (unsigned char *)GET_INFOKEYBUFFER(first);
-	unsigned char *two = (unsigned char *)GET_INFOKEYBUFFER(second);
 	g_userInfoChain = ChainOf(RH_WRITE_FULL_CLIENT_UPDATE);
-	// A client's userinfo lies inside its client_t, and the next client's a client_t further on.
-	if (!fn || !base || g_userInfoChain < 0 || two <= one || one < base || (size_t)(one - base) >= (size_t)(two - one)) {
+	if (!fn || !clients || g_userInfoChain < 0) {
 		MF_PrintSrvConsole("[amxts] SV_FullClientUpdate was not found (no ReHLDS, an HLDS build amxts does not know): sendUserInfo is not heard and resend() sends nothing\n");
 		return false;
 	}
 	g_svsClients = clients;
-	g_clientSize = (size_t)(two - one);
-	g_infoAt = (size_t)(one - base);
 	g_fullClientUpdate.at = fn;
 	g_fullClientUpdate.to = (void *)FullClientUpdate_Hooked;
+	return true;
+}
+
+/**
+ * A client_t's size and where its userinfo lies in it, read once from the
+ * first two players' userinfo - which needs a map's edicts, so it is asked
+ * as the engine first sends a userinfo, or as resend() does. False until
+ * then, and for good when the two do not tell a client_t.
+ */
+static bool KnowClients()
+{
+	if (g_clientSize)
+		return true;
+	edict_t *first = INDEXENT(1);
+	edict_t *second = INDEXENT(2);
+	unsigned char *base = *g_svsClients;
+	if (g_clientsUnknown || !first || !second || !base)
+		return false;
+	unsigned char *one = (unsigned char *)GET_INFOKEYBUFFER(first);
+	unsigned char *two = (unsigned char *)GET_INFOKEYBUFFER(second);
+	// A client's userinfo lies inside its client_t, and the next client's a client_t further on.
+	if (two <= one || one < base || (size_t)(one - base) >= (size_t)(two - one)) {
+		g_clientsUnknown = true;
+		MF_PrintSrvConsole("[amxts] SV_FullClientUpdate's clients do not match this HLDS build: sendUserInfo is not heard and resend() sends nothing\n");
+		return false;
+	}
+	g_clientSize = (size_t)(two - one);
+	g_infoAt = (size_t)(one - base);
 	return true;
 }
 
@@ -1107,7 +1139,7 @@ static void (*EngineAttach(int chain))(bool on)
  */
 static void ResendUserInfo(int id)
 {
-	if (!FindFullClientUpdate())
+	if (!FindFullClientUpdate() || !KnowClients())
 		return;
 	unsigned char *cl = *g_svsClients + (size_t)(id - 1) * g_clientSize;
 	for (int to = 1; to <= gpGlobals->maxClients && to < CLIENT_SLOTS; to++) {

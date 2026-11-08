@@ -3,9 +3,10 @@
 // the chat is told of no change of name; with ReHLDS the game reads his
 // userinfo anew (userInfoChange) and finds his own name there. A bot is sent
 // no userinfo, so the sendUserInfo listener that shows another name is only
-// added and taken off here, the server sending with the hook in place; what
-// a client is shown takes a real one. On plain HLDS the module hooks the
-// engine's SV_FullClientUpdate itself, and the game reads nothing again.
+// added here, as the plugin loads, the server sending with the hook in
+// place; what a client is shown takes a real one. On plain HLDS the module
+// hooks the engine's SV_FullClientUpdate itself, and the game reads nothing
+// again.
 import { __hooksOriginal } from "@amxts/core";
 import { Checks } from "@amxts/core/check";
 
@@ -24,9 +25,13 @@ server.addMessageListener("chat", (event) => {
 	if (event.text.includes("Name_Change")) heard.push(`renamed ${event.params.join(" ")}`);
 });
 
-function showAnother(event: SendUserInfoEvent) {
+// Added as the plugin loads, before the server's first map: a plugin's
+// listener usually is, and on plain HLDS the engine's function has to be
+// found then, with no map's players to tell its clients by yet.
+const heardAtLoad = server.versions.reHlds != null || __hooksOriginal("write_full_client_update");
+game.addEventListener("sendUserInfo", (event) => {
 	if (event.player == bot) event.info.set("name", SHOWN);
-}
+});
 
 server.addServerCommand("amxts_test_user_info", run);
 
@@ -44,8 +49,7 @@ async function run() {
 	const model = player.info.get("model");
 	heard.length = 0;
 
-	check.expect(server.versions.reHlds != null || __hooksOriginal("write_full_client_update"), "the server hears sendUserInfo").toBe(true);
-	game.addEventListener("sendUserInfo", showAnother);
+	check.expect(heardAtLoad, "the server hears sendUserInfo from a listener added as the plugin loads").toBe(true);
 	player.info.resend();
 	await sleep(200);
 	check.expect(player.name, "resend(): his name kept").toBe(NAME);
@@ -54,7 +58,6 @@ async function run() {
 	check.expect(heard.filter(line => line.startsWith("renamed")).join(" | "), "resend(): no change of name in the chat").toBe("");
 	const read = server.versions.reHlds != null ? `read ${NAME}` : "";
 	check.expect(heard.filter(line => line.startsWith("read")).join(" | "), "resend(): the game reads his userinfo again with ReHLDS, with his own name").toBe(read);
-	game.removeEventListener("sendUserInfo", showAnother);
 
 	bot = null;
 	player.kick();
