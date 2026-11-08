@@ -218,9 +218,11 @@ class Way {
 
 /**
  * A spot on the floor, where the walker stands or at a spawn point, with
- * CLEAR units of nothing ahead of a standing player's box along an axis and
- * floor under the spot AHEAD of it; null for none. Along an axis he meets the
- * other's box face on: at a slant he would slide along it and round him.
+ * CLEAR units of nothing ahead of a standing player's box along an axis,
+ * floor under the spot AHEAD of it and room over it for one player on
+ * another's head; null for none. Along an axis he meets the other's box face
+ * on: at a slant he would slide along it and round him. A box put in a low
+ * arch is stuck there: it moves no more, and stands where it was put.
  * Players are not counted: they move.
  */
 function clearWay(walker: Player): Way | null {
@@ -235,7 +237,9 @@ function clearWay(walker: Player): Way | null {
 			const way = new Vector(Math.cos(turn * Math.PI / 180), Math.sin(turn * Math.PI / 180), 0);
 			const ahead = start.add(way.scale(AHEAD));
 			if (trace.hull(start, start.add(way.scale(CLEAR)), "human", { monsters: false }).hit) continue;
-			if (trace.hull(ahead, ahead.subtract([0, 0, 8]), "human", { monsters: false }).hit) return new Way(start, turn);
+			if (!trace.hull(ahead, ahead.subtract([0, 0, 8]), "human", { monsters: false }).hit) continue;
+			const overHead = ahead.add([0, 0, 73]);
+			if (!trace.hull(overHead, overHead, "human", { monsters: false }).startSolid) return new Way(start, turn);
 		}
 	}
 	return null;
