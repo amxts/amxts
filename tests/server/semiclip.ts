@@ -50,6 +50,14 @@ server.addMessageListener("statusValue", (event) => {
 	if (event.player?.id == aimer && event.slot == 2) aimedAt = event.value;
 });
 
+/** The bot joining a side (joinSide), and what the game tells him meanwhile: why it refused him, if it did. */
+let joining: Player | null = null;
+const refusals: string[] = [];
+
+server.addMessageListener("text", (event) => {
+	if (joining != null && event.player?.id == joining.id) refusals.push(event.text);
+});
+
 server.addServerCommand("amxts_test_semiclip", run);
 
 async function run() {
@@ -64,8 +72,14 @@ async function run() {
 
 	// They enter the game a moment later, and a team before that is not theirs.
 	await sleep(300);
-	walker.joinTeam("CT");
-	standing.joinTeam("CT");
+	// One left without a side is carried from one intro camera to the next by
+	// Valve's game, which moves him wherever he stands.
+	const refused = [joinSide(walker), joinSide(standing)].filter(reason => reason.length > 0).join("; ");
+	check.expect(refused, "both join a side").toBe("");
+	if (refused.length > 0) {
+		check.done();
+		return;
+	}
 	// ReSemiclip beside amxts lets players through by its own config: for the
 	// suite it lets nobody through.
 	const resemiclip = LibraryExists("resemiclip", LibType_Library) != 0;
@@ -181,6 +195,20 @@ async function run() {
 	server.command(`kick "${WALKER}"`);
 	if (resemiclip) resemiclip_take_control(false);
 	check.done();
+}
+
+/**
+ * Joins `bot` to the side with fewer players: YaPB's bots fill the sides as
+ * they like, and without ReGameDLL the game refuses one that mp_limitteams
+ * would stack. "" when he joined, else the side and the game's reason.
+ */
+function joinSide(bot: Player): string {
+	const side: Team = game.ctCount <= game.terroristCount ? "CT" : "TERRORIST";
+	refusals.length = 0;
+	joining = bot;
+	const joined = bot.joinTeam(side);
+	joining = null;
+	return joined ? "" : `joinTeam("${side}") failed: ${refusals.length > 0 ? refusals.join(" ") : "refused"} (CT ${game.ctCount}, TERRORIST ${game.terroristCount})`;
 }
 
 /** Where a walk starts - a standing player's origin on the floor - and toward which yaw. */
