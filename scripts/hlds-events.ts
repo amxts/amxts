@@ -259,6 +259,15 @@ export const HEARD: Record<string, HeardEvent> = {
 		gaps: original(AT_START, null),
 		original: 'only',
 	},
+	sendUserInfo: {
+		class: 'B',
+		backend: 'the engine\'s SV_FullClientUpdate, taken over at its start',
+		gaps: {
+			en: 'heard as with ReHLDS on Linux, and on Windows with a build of HLDS amxts knows; elsewhere nothing hears it. `receiver` is `null` when the engine sends to every client at once',
+			ru: 'слышно, как с ReHLDS, на Linux, а на Windows — со сборкой HLDS, которую amxts знает; в остальных случаях его ничто не слышит. `receiver` — `null`, когда движок отправляет всем клиентам сразу',
+		},
+		original: 'only',
+	},
 	canPlayerHearPlayer: {
 		class: 'B',
 		backend: 'FM_Voice_SetClientListening',

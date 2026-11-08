@@ -907,6 +907,227 @@ static void CompareCvars()
 	}
 }
 
+// ---------------------------------------------------------------- the userinfo a client is sent
+
+/**
+ * Plain HLDS: SV_FullClientUpdate(client_t *cl, sizebuf_t *sb), which writes
+ * a player's userinfo for a client, taken over at its start - what ReHLDS
+ * raises as its SV_WriteFullClientUpdate chain. On Linux it is the engine's
+ * symbol; on Windows the start of it in the builds amxts knows, which also
+ * holds the address of svs.clients. The module does not know client_t's
+ * layout: a client's userinfo is GET_INFOKEYBUFFER of its player and a
+ * client_t the distance between two players' userinfo, so a client_t is told
+ * by its address, and a buffer the engine writes into for one client lies
+ * inside that client's.
+ */
+static EntryHook g_fullClientUpdate = { NULL, NULL, { 0 }, { 0 }, false };
+
+// reapi's number of ReHLDS's SV_WriteFullClientUpdate chain (as/constants.ts).
+#define RH_WRITE_FULL_CLIENT_UPDATE 4
+
+// The engine's room for a userinfo, MAX_INFO_STRING.
+#define INFO_ROOM 256
+
+// A sizebuf_t's flags: it may overflow, and it did - not an error then.
+#define SIZEBUF_ALLOW_OVERFLOW (1 << 0)
+#define SIZEBUF_OVERFLOWED     (1 << 1)
+
+// Where the engine keeps svs.clients, a client_t's size and where its userinfo lies in it.
+static unsigned char **g_svsClients = NULL;
+static size_t g_clientSize = 0;
+static size_t g_infoAt = 0;
+static int g_userInfoChain = -1;
+static bool g_userInfoSought = false;
+// The client resend() writes the userinfo for (ResendUserInfo), else 0.
+static int g_userInfoTo = 0;
+
+typedef void (*FullClientUpdateFn)(unsigned char *cl, sizebuf_t *sb);
+
+#ifdef _WIN32
+/** The start of an engine function: its bytes, 0x2A for any, and where the address of svs.clients is in them. */
+struct EngineStart {
+	const char *bytes;
+	int         length;
+	int         clientsAt;
+};
+
+static const EngineStart g_fullClientUpdateStarts[] = {
+	// The current build: SUB ECX,[svs.clients].
+	{ "\x55\x8B\xEC\x81\xEC\x2A\x2A\x2A\x2A\xA1\x2A\x2A\x2A\x2A\x33\xC5\x89\x45\xFC\x53\x8B\x5D\x0C\xB8\x2A\x2A\x2A\x2A\x56\x57\x8B\x7D\x08\x8B\xCF\x2B\x0D", 37, 37 },
+	// The legacy build (steam_legacy): MOV EAX,[svs.clients].
+	{ "\x55\x8B\xEC\x81\xEC\x2A\x2A\x2A\x2A\xA1\x2A\x2A\x2A\x2A\x53\x56\x57\x8B\x7D\x08\x68\xFF\x00\x00\x00\x8B\xCF\x2B\xC8\xB8", 30, 10 },
+};
+
+/** Where `start` begins in the engine's code; NULL when it is not there. */
+static unsigned char *FindInEngine(const EngineStart &start)
+{
+	HMODULE engine = NULL;
+	if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+	                        (LPCSTR)(void *)g_engfuncs.pfnPrecacheModel, &engine))
+		return NULL;
+	unsigned char *base = (unsigned char *)engine;
+	IMAGE_NT_HEADERS *headers = (IMAGE_NT_HEADERS *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+	IMAGE_SECTION_HEADER *section = IMAGE_FIRST_SECTION(headers);
+	for (int s = 0; s < headers->FileHeader.NumberOfSections; s++, section++) {
+		if (!(section->Characteristics & IMAGE_SCN_MEM_EXECUTE))
+			continue;
+		unsigned char *code = base + section->VirtualAddress;
+		size_t size = section->Misc.VirtualSize;
+		for (size_t i = 0; i + start.length <= size; i++) {
+			int k = 0;
+			while (k < start.length && ((unsigned char)start.bytes[k] == 0x2A || code[i + k] == (unsigned char)start.bytes[k]))
+				k++;
+			if (k == start.length)
+				return code + i;
+		}
+	}
+	return NULL;
+}
+#else
+static void *EngineSymbol(const char *name);
+#endif
+
+/** The userinfo as the engine sends it: without the keys it keeps to the server, those that start with `_`. */
+static void SentInfo(const char *info, char *out)
+{
+	size_t n = 0;
+	for (const char *p = info; *p == '\\';) {
+		const char *value = strchr(p + 1, '\\');
+		if (!value)
+			break;
+		const char *end = strchr(value + 1, '\\');
+		size_t length = end ? (size_t)(end - p) : strlen(p);
+		if (p[1] != '_' && n + length < INFO_ROOM) {
+			memcpy(out + n, p, length);
+			n += length;
+		}
+		if (!end)
+			break;
+		p = end;
+	}
+	out[n] = 0;
+}
+
+static void FullClientUpdate_Hooked(unsigned char *cl, sizebuf_t *sb)
+{
+	unsigned char *clients = *g_svsClients;
+	int id = (int)((size_t)(cl - clients) / g_clientSize) + 1;
+	size_t into = (size_t)((unsigned char *)sb - clients);
+	int receiver = g_userInfoTo ? g_userInfoTo : into < (size_t)gpGlobals->maxClients * g_clientSize ? (int)(into / g_clientSize) + 1 : -1;
+	char *info = (char *)cl + g_infoAt;
+	char sent[INFO_ROOM];
+	SentInfo(info, sent);
+
+	static const unsigned char roles[] = { ROLE_CLIENT, ROLE_TEXT, ROLE_CLIENT };
+	ChainCall call(g_chainPoints[g_userInfoChain], roles, 3);
+	call.cells[0] = id;
+	call.Text(1, sent);
+	call.cells[2] = receiver;
+	if (call.Pre()) {
+		// What a listener wrote goes out in place of the userinfo for this call alone.
+		const char *text = call.TextAt(1, sent);
+		char kept[INFO_ROOM];
+		bool shown = text != sent;
+		if (shown) {
+			memcpy(kept, info, INFO_ROOM);
+			strncpy(info, text, INFO_ROOM - 1);
+			info[INFO_ROOM - 1] = 0;
+		}
+		HookOff(g_fullClientUpdate);
+		((FullClientUpdateFn)g_fullClientUpdate.at)(cl, sb);
+		HookOn(g_fullClientUpdate);
+		if (shown)
+			memcpy(info, kept, INFO_ROOM);
+	}
+	call.Post();
+}
+
+/** SV_FullClientUpdate and what tells a client_t, on plain HLDS once a map has edicts; false where they are not found. */
+static bool FindFullClientUpdate()
+{
+	if (g_userInfoSought || g_rehlds)
+		return g_fullClientUpdate.at != NULL;
+	edict_t *first = INDEXENT(1);
+	edict_t *second = INDEXENT(2);
+	if (!first || !second)
+		return false;
+	g_userInfoSought = true;
+
+	unsigned char *fn = NULL;
+	unsigned char **clients = NULL;
+#ifdef _WIN32
+	for (const EngineStart &start : g_fullClientUpdateStarts) {
+		fn = FindInEngine(start);
+		if (fn) {
+			clients = *(unsigned char ***)(fn + start.clientsAt);
+			break;
+		}
+	}
+#else
+	fn = (unsigned char *)EngineSymbol("SV_FullClientUpdate");
+	// server_static_t: dll_initialized, then clients.
+	unsigned char *svs = (unsigned char *)EngineSymbol("svs");
+	clients = svs ? (unsigned char **)(svs + sizeof(int)) : NULL;
+#endif
+	unsigned char *base = clients ? *clients : NULL;
+	unsigned char *one = (unsigned char *)GET_INFOKEYBUFFER(first);
+	unsigned char *two = (unsigned char *)GET_INFOKEYBUFFER(second);
+	g_userInfoChain = ChainOf(RH_WRITE_FULL_CLIENT_UPDATE);
+	// A client's userinfo lies inside its client_t, and the next client's a client_t further on.
+	if (!fn || !base || g_userInfoChain < 0 || two <= one || one < base || (size_t)(one - base) >= (size_t)(two - one)) {
+		MF_PrintSrvConsole("[amxts] SV_FullClientUpdate was not found (no ReHLDS, an HLDS build amxts does not know): sendUserInfo is not heard and resend() sends nothing\n");
+		return false;
+	}
+	g_svsClients = clients;
+	g_clientSize = (size_t)(two - one);
+	g_infoAt = (size_t)(one - base);
+	g_fullClientUpdate.at = fn;
+	g_fullClientUpdate.to = (void *)FullClientUpdate_Hooked;
+	return true;
+}
+
+static void SettleFullClientUpdate(bool on)
+{
+	if (on)
+		HookOn(g_fullClientUpdate);
+	else
+		HookOff(g_fullClientUpdate);
+}
+
+static void (*EngineAttach(int chain))(bool on)
+{
+	return g_chainInfo[chain].id == RH_WRITE_FULL_CLIENT_UPDATE && FindFullClientUpdate() ? SettleFullClientUpdate : NULL;
+}
+
+/**
+ * resend() on plain HLDS: the player's userinfo written for each client into
+ * a buffer of the module's by the engine's own SV_FullClientUpdate - its
+ * sendUserInfo listeners hear it with that receiver - and sent him as the
+ * engine's message.
+ */
+static void ResendUserInfo(int id)
+{
+	if (!FindFullClientUpdate())
+		return;
+	unsigned char *cl = *g_svsClients + (size_t)(id - 1) * g_clientSize;
+	for (int to = 1; to <= gpGlobals->maxClients && to < CLIENT_SLOTS; to++) {
+		edict_t *e = INDEXENT(to);
+		if (!g_connected[to] || !e || (e->v.flags & FL_FAKECLIENT))
+			continue;
+		unsigned char data[2 * INFO_ROOM];
+		sizebuf_t message = { "amxts userinfo", SIZEBUF_ALLOW_OVERFLOW, data, (int)sizeof(data), 0 };
+		g_userInfoTo = to;
+		((FullClientUpdateFn)g_fullClientUpdate.at)(cl, &message);
+		g_userInfoTo = 0;
+		if (message.cursize < 2 || (message.flags & SIZEBUF_OVERFLOWED))
+			continue;
+		MESSAGE_BEGIN(MSG_ONE, data[0], NULL, e);
+		for (int k = 1; k < message.cursize; k++)
+			WRITE_BYTE(data[k]);
+		MESSAGE_END();
+	}
+}
+
 // ---------------------------------------------------------------- touches
 
 /** A touch's handlers: of an entity of class `touched` by one of class `toucher`, by their numbers (ClassNumber), 0 for any. */

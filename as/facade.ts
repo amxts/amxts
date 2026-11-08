@@ -91,6 +91,8 @@ const STAT_CONNECTED: i32 = 4;
 @external("env", "info_get")       declare function _userInfo(id: i32, key: string, out: usize, max: i32): i32;
 // @ts-ignore: decorator
 @external("env", "info_set")       declare function _setUserInfo(id: i32, key: string, value: string): void;
+// @ts-ignore: decorator
+@external("env", "info_resend")    declare function _resendUserInfo(id: i32): void;
 // An address's country from the GeoIP database: its ISO code (1) or English name (2); -1 for none.
 // @ts-ignore: decorator
 @external("env", "geo_country")    declare function _geoCountry(ip: string, what: i32, out: usize, max: i32): i32;
@@ -1469,7 +1471,58 @@ export class UserInfo {
 	set(key: string, value: string): void {
 		_setUserInfo(<i32>this.id, key, value);
 	}
+
+	/**
+	 * Sends his userinfo to every client now, as the engine does when it
+	 * changes: each client's `sendUserInfo` event hears it on its way.
+	 * Without ReHLDS it goes through the engine's own function where amxts
+	 * finds it - on Linux, and on Windows with a build of HLDS it knows -
+	 * and elsewhere nothing is sent.
+	 *
+	 * Pawn: `rh_update_user_info`
+	 */
+	resend(): void {
+		_resendUserInfo(<i32>this.id);
+	}
 }
+
+/**
+ * The userinfo a `sendUserInfo` event sends one client: a copy of the
+ * player's, keyed as `player.info` is. Writing a key changes what this client
+ * is sent and nothing else - not the player's own userinfo, not what the game
+ * knows of him.
+ */
+export class SentUserInfo {
+	/** A key's value in what is sent: `event.info.get("name")`; `""` for a key it has not. */
+	get(key: string): string {
+		// The engine's text: \key\value\key\value.
+		const parts = argText(1).split("\\");
+		for (let i = 1; i + 1 < parts.length; i += 2) if (parts[i] == key) return parts[i + 1];
+		return "";
+	}
+
+	/**
+	 * Writes a key in what is sent: `event.info.set("name", "Bob + Alice")`.
+	 * A key or a value with a backslash, which the text uses between them, is
+	 * not written.
+	 */
+	set(key: string, value: string): void {
+		if (key.length == 0 || key.includes("\\") || value.includes("\\")) return;
+		const parts = argText(1).split("\\");
+		let i = 1;
+		while (i + 1 < parts.length && parts[i] != key) i += 2;
+		if (i + 1 < parts.length) {
+			parts[i + 1] = value;
+		} else {
+			parts.push(key);
+			parts.push(value);
+		}
+		_chainSetText(1, parts.join("\\"));
+	}
+}
+
+/** @hidden What every `sendUserInfo` event's `info` is: it reads the call that runs. */
+export const __sentUserInfo = new SentUserInfo();
 
 const WEAPON_IDS = [
 	"", "weapon_p228", "", "weapon_scout", "weapon_hegrenade", "weapon_xm1014", "weapon_c4",

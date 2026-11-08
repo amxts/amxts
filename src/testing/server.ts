@@ -3033,6 +3033,17 @@ export class FakeServer {
 		info_set(this: FakeServer, plugin: PluginInstance, id: number, key: number, value: number) {
 			this.player(id)?.info.set(plugin.memory.string(key), plugin.memory.string(value));
 		},
+		// The userinfo to every client but a bot, each through its
+		// sendUserInfo, without the keys the engine keeps to the server
+		// ("_vgui_menus"): ReHLDS's SV_UpdateUserInfo, or SV_FullClientUpdate
+		// for each client on plain HLDS.
+		info_resend(this: FakeServer, _plugin: PluginInstance, id: number) {
+			const target = this.player(id);
+			if (!target) return;
+			const keys = new Map([['name', target.name], ...target.info]);
+			const text = [...keys].filter(([key]) => !key.startsWith('_')).map(([key, value]) => `\\${key}\\${value}`).join('');
+			for (const receiver of this.players.filter(each => !each.bot)) this.fireHook('sendUserInfo', [id, text, receiver.id]);
+		},
 		player_silent(this: FakeServer, plugin: PluginInstance, id: number, on: number) {
 			const target = this.player(id);
 			if (!target) return 0;
@@ -3462,9 +3473,11 @@ export class FakeServer {
 			return this.chains ? 3 : this.originalRules ? 4 : 0;
 		},
 
-		// Every chain, where the module hooks the original game's functions.
-		original_hook(this: FakeServer, _plugin: PluginInstance, _id: number) {
-			return this.originalRules ? 1 : 0;
+		// Every chain, where the module hooks the original game's functions; and
+		// the engine's SV_FullClientUpdate, ReHLDS's write_full_client_update, as
+		// on Linux, where the module finds it by its symbol.
+		original_hook(this: FakeServer, _plugin: PluginInstance, id: number) {
+			return this.originalRules || tables().hookNames.get(id) === 'write_full_client_update' ? 1 : 0;
 		},
 
 		// One phase of a chain's listeners for game.endRound's dispatch, as module.cpp's chain_dispatch.

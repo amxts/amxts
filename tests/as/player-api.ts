@@ -171,3 +171,13 @@ server.addCommand("pl_hud_line", ({ player }) => {
 	player.showHud("big", { large: true, y: 0.2 });
 	ticker.clearAll();
 });
+
+// What one client is sent of another's userinfo: Bob sees Alice as
+// "Alice + Bob", and Alice sees her own name.
+game.addEventListener("sendUserInfo", (event) => {
+	const receiver = event.receiver;
+	if (receiver == null || receiver == event.player) return;
+	event.info.set("name", `${event.info.get("name")} + ${receiver.name}`);
+	receiver.print(`${event.info.get("name")} ${event.info.get("model")} [${event.info.get("_vgui_menus")}]`, "console");
+});
+server.addCommand("pl_resend", ({ player }) => player.info.resend());

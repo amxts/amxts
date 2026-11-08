@@ -679,6 +679,27 @@ static void w_setUserInfo(wasm_exec_env_t env, int32_t id, int32_t key, int32_t 
 	SET_CLIENT_KEYVALUE(id, GET_INFOKEYBUFFER(e), (char *)name.c_str(), (char *)text.c_str());
 }
 
+/**
+ * info_resend(id) - sends the player's userinfo to every client now: with
+ * ReHLDS its SV_UpdateUserInfo, after which the game reads it again
+ * (ClientUserInfoChanged) and the engine writes it out
+ * (SV_WriteFullClientUpdate); on plain HLDS the engine's SV_FullClientUpdate
+ * for each client (ResendUserInfo).
+ */
+static void w_resendUserInfo(wasm_exec_env_t env, int32_t id)
+{
+	(void)env;
+	if (id < 1 || id >= CLIENT_SLOTS || !g_connected[id])
+		return;
+	if (!g_rehlds) {
+		ResendUserInfo(id);
+		return;
+	}
+	IGameClient *client = g_rehlds->GetServerStatic()->GetClient(id - 1);
+	if (client)
+		g_rehlds->GetFuncs()->SV_UpdateUserInfo(client);
+}
+
 // Players whose steps make no sound, kept so by the module each frame on a
 // server without ReGameDLL, which keeps its own member so itself.
 static bool g_silentSteps[CLIENT_SLOTS];

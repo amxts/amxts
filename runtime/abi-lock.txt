@@ -70,6 +70,7 @@ player_stat (ii)i
 info_get (iiii)i
 env_get (iii)i
 info_set (iii)
+info_resend (i)
 player_silent (ii)i
 geo_country (iiii)i
 player_switch_team (i)

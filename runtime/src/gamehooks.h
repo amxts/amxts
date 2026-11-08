@@ -602,16 +602,19 @@ static int RulesOf(int chain)
 }
 
 static void (*EntryAttach(int chain))(bool on);
+static void (*EngineAttach(int chain))(bool on);
 
 /**
- * How the module hooks ReGameDLL's chain g_chainInfo[chain] in Valve's game
- * itself, without ReGameDLL: a game rules' function in their table where it
- * can be, else one it takes over at its start (EntryAttach). NULL when it
- * cannot.
+ * How the module hooks the chain g_chainInfo[chain] without its API: one of
+ * ReGameDLL's in Valve's game itself - a game rules' function in their table
+ * where it can be, else one it takes over at its start (EntryAttach) - and
+ * one of ReHLDS's in the engine itself (EngineAttach). NULL when it cannot.
  */
 static void (*OriginalAttach(int chain))(bool on)
 {
-	if (g_chainInfo[chain].rehlds || g_regameChains)
+	if (g_chainInfo[chain].rehlds)
+		return g_rehldsChains ? NULL : EngineAttach(chain);
+	if (g_regameChains)
 		return NULL;
 	int rules = RulesOf(chain);
 	if (rules >= 0)

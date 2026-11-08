@@ -388,6 +388,12 @@ export const GAME: Record<string, GameDoc> = {
 			},
 		},
 	},
+	sendUserInfo: {
+		summary: {
+			en: `The engine sends a player's userinfo - his name, his model and the other keys - to a client: as he joins, as it changes, on \`player.info.resend()\`. Write \`event.info\` to show this client something else; the player keeps his own.`,
+			ru: `Движок отправляет клиенту userinfo игрока — его имя, модель и остальные ключи: когда он заходит, когда userinfo меняется, по \`player.info.resend()\`. Запишите \`event.info\`, чтобы показать этому клиенту другое; у самого игрока всё остаётся как было.`,
+		},
+	},
 	chatMessage: {
 		summary: {
 			en: `A player's chat message goes out to the players and to the server console. Assign \`event.text\` to change what they read, or call \`preventDefault()\` so nobody gets it.`,

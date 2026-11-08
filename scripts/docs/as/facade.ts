@@ -2970,6 +2970,56 @@ export default {
 			Pawn: \`set_user_info\`
 		`,
 	},
+	'UserInfo.resend': {
+		en: `
+			Sends his userinfo to every client now, as the engine does when it
+			changes: each client's \`sendUserInfo\` event hears it on its way.
+			Without ReHLDS it goes through the engine's own function where amxts
+			finds it - on Linux, and on Windows with a build of HLDS it knows -
+			and elsewhere nothing is sent.
+
+			Pawn: \`rh_update_user_info\`
+		`,
+		ru: `
+			Сразу отправляет его userinfo всем клиентам, как движок делает, когда
+			userinfo меняется: по пути его слышит событие \`sendUserInfo\` каждого
+			клиента. Без ReHLDS он уходит через собственную функцию движка там, где
+			amxts её находит, — на Linux, а на Windows в сборке HLDS, которую он
+			знает, — а в остальных случаях ничего не отправляется.
+
+			Pawn: \`rh_update_user_info\`
+		`,
+	},
+	'SentUserInfo': {
+		en: `
+			The userinfo a \`sendUserInfo\` event sends one client: a copy of the
+			player's, keyed as \`player.info\` is. Writing a key changes what this client
+			is sent and nothing else - not the player's own userinfo, not what the game
+			knows of him.
+		`,
+		ru: `
+			Userinfo, который событие \`sendUserInfo\` отправляет одному клиенту: копия
+			userinfo игрока, с ключами, как у \`player.info\`. Запись ключа меняет то,
+			что уходит этому клиенту, и больше ничего — ни userinfo самого игрока, ни
+			то, что о нём знает игра.
+		`,
+	},
+	'SentUserInfo.get': {
+		en: `A key's value in what is sent: \`event.info.get("name")\`; \`""\` for a key it has not.`,
+		ru: `Значение ключа в том, что уходит: \`event.info.get("name")\`; \`""\` для ключа, которого там нет.`,
+	},
+	'SentUserInfo.set': {
+		en: `
+			Writes a key in what is sent: \`event.info.set("name", "Bob + Alice")\`.
+			A key or a value with a backslash, which the text uses between them, is
+			not written.
+		`,
+		ru: `
+			Записывает ключ в то, что уходит: \`event.info.set("name", "Bob + Alice")\`.
+			Ключ или значение с обратной косой чертой, которой текст их разделяет, не
+			записывается.
+		`,
+	},
 	'Client.isHltv': {
 		en: `
 			\`true\` for an HLTV proxy: a spectator's relay, which \`server.players\`

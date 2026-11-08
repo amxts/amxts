@@ -309,3 +309,18 @@ test('a HUD line keeps its id for the module, which chooses the channel; a large
 	expect(server.hud).toEqual({ color: [200, 100, 0], x: -1, y: 0.2, hold: 12, channel: -1, line: 0, large: true });
 	expect(server.engineCalls).toContain('HudClear 0 1');
 });
+
+test.each([true, false])('info.resend sends his userinfo to each client through sendUserInfo, which changes only what that client is sent (ReHLDS: %s)', async (chains) => {
+	const server = await loadPlugin(PLUGIN, { chains });
+	const alice = server.join('Alice');
+	const bob = server.join('Bob');
+	alice.info.set('model', 'gign');
+
+	alice.command('pl_resend');
+	const sent = server.fireHook('sendUserInfo', [alice.id, '\\name\\Alice\\model\\gign\\_vgui_menus\\0', bob.id]);
+
+	expect(bob.console).toBe('Alice + Bob gign []\nAlice + Bob gign [0]');
+	expect(sent.args[1]).toBe('\\name\\Alice + Bob\\model\\gign\\_vgui_menus\\0');
+	expect(alice.name).toBe('Alice');
+	expect(alice.info.get('model')).toBe('gign');
+});

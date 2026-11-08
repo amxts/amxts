@@ -63,7 +63,6 @@ export const HIDDEN_EVENTS: Record<string, string> = {
 	objectCaps: 'RegisterHookChain(RG_CBasePlayer_ObjectCaps, ...) or RegisterHam(Ham_ObjectCaps, ...)',
 	getEntityInit: 'RegisterHookChain(RH_GetEntityInit, ...)',
 	allowPhysent: 'RegisterHookChain(RH_SV_AllowPhysent, ...)',
-	writeFullClientUpdate: 'RegisterHookChain(RH_SV_WriteFullClientUpdate, ...)',
 	sendResources: 'RegisterHookChain(RH_SV_SendResources, ...)',
 	reportAiState: 'RegisterHam(Ham_ReportAIState, ...)',
 	useDecrement: 'RegisterHam(Ham_Weapon_UseDecrement, ...)',

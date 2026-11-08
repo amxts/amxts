@@ -4584,6 +4584,7 @@ static void w_playerDrop(wasm_exec_env_t env, int32_t id, int32_t name);
 static int32_t w_playerStat(wasm_exec_env_t env, int32_t id, int32_t what);
 static int32_t w_userInfo(wasm_exec_env_t env, int32_t id, int32_t key, int32_t out, int32_t max);
 static void w_setUserInfo(wasm_exec_env_t env, int32_t id, int32_t key, int32_t value);
+static void w_resendUserInfo(wasm_exec_env_t env, int32_t id);
 static int32_t w_envGet(wasm_exec_env_t env, int32_t name, int32_t out, int32_t max);
 static int32_t w_playerSilent(wasm_exec_env_t env, int32_t id, int32_t on);
 static int32_t w_geoCountry(wasm_exec_env_t env, int32_t ip, int32_t what, int32_t out, int32_t max);
@@ -4728,6 +4729,7 @@ static NativeSymbol g_wasmNatives[] = {
 	{ "info_get",       (void *)w_userInfo,      "(iiii)i", NULL },
 	{ "env_get",        (void *)w_envGet,        "(iii)i", NULL },
 	{ "info_set",       (void *)w_setUserInfo,   "(iii)", NULL },
+	{ "info_resend",    (void *)w_resendUserInfo, "(i)", NULL },
 	{ "player_silent",  (void *)w_playerSilent,  "(ii)i", NULL },
 	{ "geo_country",    (void *)w_geoCountry,    "(iiii)i", NULL },
 	{ "player_switch_team", (void *)w_playerSwitchTeam, "(i)", NULL },
@@ -9732,6 +9734,7 @@ void OnAmxxDetach()
 	MF_UnregAuthFunc(OnAuthorized);
 	ForgetCstrike();
 	UnhookCvars();
+	HookOff(g_fullClientUpdate);
 	UnhookDrops();
 	FieldsDetach();
 	Teardown();
