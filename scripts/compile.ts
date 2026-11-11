@@ -411,14 +411,18 @@ function makeStackObjects(module: any, dataEnd: number) {
  * under. And how many `try` blocks run, which the module sets to none for
  * every listener it calls: one entered from inside a try - or an async
  * function, whose body runs as in one - is a call of its own, and its error
- * ends it with its message. Exported under the names the module looks up;
- * one the plugin has not got is not needed.
+ * ends it with its message. And the shadow stack's pointer, which the module
+ * puts back after a call that failed: a trap or an error nobody catches
+ * skips the ends of the functions it leaves, which give their frames back.
+ * Exported under the names the module looks up; one the plugin has not got
+ * is not needed.
  */
 const CALL_GLOBALS = [
 	['~lib/function/__env', '__env'],
 	['~argumentsLength', '__argumentsLength'],
 	['~lib/~/promise/__co_ambient_player', '__co_ambient_player'],
 	['~lib/error/__tryDepth', '__tryDepth'],
+	['~lib/memory/__stack_pointer', '__stack_pointer'],
 ];
 
 function exportCallGlobals(module: any) {

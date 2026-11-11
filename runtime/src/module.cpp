@@ -228,6 +228,9 @@ struct Plugin {
 	// How many try blocks its code is inside, which a handler is called with
 	// none of (Called). NULL for a plugin without a try, or built before.
 	int32_t             *tryDepth = NULL;
+	// Its shadow stack's pointer, put back after a call that failed
+	// (Called). NULL for a plugin without a shadow stack, or built before.
+	int32_t             *stackPointer = NULL;
 	// The plugins.ini line - "shop.aot" - or what amxts_load was given.
 	std::string          name;
 	// The .aot, in plugins/ beside the list.
@@ -4203,10 +4206,15 @@ static bool RunRequest(int target, int32_t from)
 	cell before = g_outcome;
 	g_outcomeSaid = false;
 
+	// Its shadow stack's pointer put back after a call that failed, as Called does.
+	int32_t *stack = p.stackPointer;
+	int32_t stackAt = stack ? *stack : 0;
 	p.depth++;
 	uint32_t argv[2] = { (uint32_t)g_rpcRequest.size(), (uint32_t)from };
 	bool called = wasm_runtime_call_wasm(p.env, fn, 2, argv);
 	p.depth--;
+	if (!called && stack && p.stackPointer == stack)
+		*stack = stackAt;
 	if (!called)
 		Failed(target, p.inst);
 	LeftMessage(target);
@@ -4969,6 +4977,12 @@ static ALWAYS_INLINE cell Called(int index, Plugin &p, cell fallback, Call call,
 	if (tries)
 		*depth = 0;
 
+	// A call that failed skipped the ends of the functions it left, which
+	// give their frames on the shadow stack back: the pointer is put back,
+	// or every call after it would start lower, until none had room.
+	int32_t *stack = p.stackPointer;
+	int32_t stackAt = stack ? *stack : 0;
+
 	// Its own time, the calls it made into plugins left out: the slow one is
 	// the plugin whose code held the frame. A call shorter than the clock's
 	// step - nearly every one - changes nothing.
@@ -4994,6 +5008,8 @@ static ALWAYS_INLINE cell Called(int index, Plugin &p, cell fallback, Call call,
 
 	if ((tries || !called) && depth && p.tryDepth == depth)
 		*depth = tries;
+	if (!called && stack && p.stackPointer == stack)
+		*stack = stackAt;
 
 	if (!called) {
 		Failed(index, p.inst);
@@ -5393,7 +5409,7 @@ static void ReleasePlugin(int index)
 	p.inst = NULL;
 	p.env = NULL;
 	p.hasTable = false;
-	p.closureEnv = p.argumentsLength = p.ambientPlayer = p.tryDepth = p.probe = p.probeAt = p.probeEnv = p.probeUs = NULL;
+	p.closureEnv = p.argumentsLength = p.ambientPlayer = p.tryDepth = p.stackPointer = p.probe = p.probeAt = p.probeEnv = p.probeUs = NULL;
 	p.playerSlots = 0;
 	p.playerNames = 0;
 	p.title = p.version = p.author = p.description = "";
@@ -6039,7 +6055,8 @@ static bool LoadPlugin(int index)
 	p.argumentsLength = ExportedGlobal(inst, "__argumentsLength");
 	p.ambientPlayer = ExportedGlobal(inst, "__co_ambient_player");
 	p.tryDepth = ExportedGlobal(inst, "__tryDepth");
-	p.probe = ExportedGlobal(inst, "__probe");
+	p.stackPointer = ExportedGlobal(inst, "__stack_pointer");
+	p.probe =ExportedGlobal(inst, "__probe");
 	p.probeAt = ExportedGlobal(inst, "__probeAt");
 	p.probeEnv = ExportedGlobal(inst, "__probeEnv");
 	p.probeUs = ExportedGlobal(inst, "__probeUs");
@@ -6089,7 +6106,11 @@ static void InitPlugin(int index)
 	g_currentPlugin = index;
 
 	p.depth++;
+	int32_t stackAt = p.stackPointer ? *p.stackPointer : 0;
 	if (!wasm_runtime_call_wasm(p.env, init, 0, NULL)) {
+		// Its shadow stack's pointer put back, as Called does.
+		if (p.stackPointer)
+			*p.stackPointer = stackAt;
 		Failed(index, p.inst);
 	} else {
 		MF_PrintSrvConsole("[amxts] loaded %s\n", p.name.c_str());
