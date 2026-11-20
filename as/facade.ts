@@ -357,6 +357,8 @@ export let __probeAt: i32 = 0;
 export let __probeEnv: i32 = 0;
 /** @hidden That listener's own time, in microseconds. */
 export let __probeUs: i32 = 0;
+/** @hidden The gap between the walk's time and the listeners' time, in microseconds. */
+export let __probeGap: i32 = 0;
 /** @hidden The timer handler's function in the table, set before it is called. */
 export let __timerFn: i32 = 0;
 /** @hidden That handler's closure variables. */
@@ -391,6 +393,9 @@ export class __Listeners<T> {
 	private timedFn: usize = 0;
 	private timedFrom: f64 = 0;
 	private timedBase: f64 = 0;
+	// The whole walk's start time and probeTotal at that time, for the gap.
+	private walkFrom: f64 = 0;
+	private walkBase: f64 = 0;
 	/** How many listeners there are. */
 	count: i32 = 0;
 
@@ -433,13 +438,25 @@ export class __Listeners<T> {
 
 	/** A dispatch begins: how many places it walks. */
 	@inline begin(): i32 {
+		if (__probe != 0 && this.depth == 0) {
+			this.walkFrom = performance.now();
+			this.walkBase = probeTotal;
+		}
 		this.depth++;
 		return this.items.length;
 	}
 
 	/** A dispatch ends; the outermost one closes the holes. */
 	@inline end(): void {
-		if (__probe != 0) this.time(-1, null);
+		if (__probe != 0) {
+			this.time(-1, null);
+			if (this.depth == 1 && this.walkFrom > 0) {
+				const wall = performance.now() - this.walkFrom;
+				const listened = probeTotal - this.walkBase;
+				__probeGap = <i32>((wall - listened) * 1000);
+				this.walkFrom = 0;
+			}
+		}
 		if (--this.depth == 0 && this.holes) this.close();
 	}
 

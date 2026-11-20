@@ -313,6 +313,8 @@ struct Plugin {
 	int32_t             *probeEnv = NULL;
 	// Its own time in that call, in microseconds (__probeUs).
 	int32_t             *probeUs = NULL;
+	// The gap between the walk's wall time and the listeners' time (__probeGap).
+	int32_t             *probeGap = NULL;
 	// The timer handler's function in the table (__timerFn) and its closure
 	// variables (__timerEnv), set by the facade before the handler is called.
 	int32_t             *timerFn = NULL;
@@ -5417,7 +5419,7 @@ static void ReleasePlugin(int index)
 	p.inst = NULL;
 	p.env = NULL;
 	p.hasTable = false;
-	p.closureEnv = p.argumentsLength = p.ambientPlayer = p.tryDepth = p.stackPointer = p.probe = p.probeAt = p.probeEnv = p.probeUs = p.timerFn = p.timerEnv = NULL;
+	p.closureEnv = p.argumentsLength = p.ambientPlayer = p.tryDepth = p.stackPointer = p.probe = p.probeAt = p.probeEnv = p.probeUs = p.probeGap = p.timerFn = p.timerEnv = NULL;
 	p.playerSlots = 0;
 	p.playerNames = 0;
 	p.title = p.version = p.author = p.description = "";
@@ -6068,6 +6070,7 @@ static bool LoadPlugin(int index)
 	p.probeAt = ExportedGlobal(inst, "__probeAt");
 	p.probeEnv = ExportedGlobal(inst, "__probeEnv");
 	p.probeUs = ExportedGlobal(inst, "__probeUs");
+	p.probeGap = ExportedGlobal(inst, "__probeGap");
 	p.timerFn = ExportedGlobal(inst, "__timerFn");
 	p.timerEnv = ExportedGlobal(inst, "__timerEnv");
 	// Reloaded after a walk of it held the frame: its lines go on (Plugin.slow),
@@ -9477,8 +9480,14 @@ static void Slow(int index, uint32_t ms, const char *named, const Handler *h)
 			else if (*place)
 				slowest = std::string("; the slowest, listener ") + place + own;
 		}
-		MF_PrintSrvConsole("[amxts] %s: %s held the frame %u ms (amxts_slow_ms %g)%s%s\n", p.name.c_str(), who.c_str(), ms, g_slowCvarSet->value, slowest.c_str(), more);
-		MF_Log("%s: %s held the frame %u ms (amxts_slow_ms %g)%s%s", p.name.c_str(), who.c_str(), ms, g_slowCvarSet->value, slowest.c_str(), more);
+		std::string gap;
+		if (walk && p.probeGap && *p.probeGap > 500) {
+			char buf[48];
+			snprintf(buf, sizeof(buf), "; of it %.1f ms the dispatch", *p.probeGap / 1000.0);
+			gap = buf;
+		}
+		MF_PrintSrvConsole("[amxts] %s: %s held the frame %u ms (amxts_slow_ms %g)%s%s%s\n", p.name.c_str(), who.c_str(), ms, g_slowCvarSet->value, slowest.c_str(), gap.c_str(), more);
+		MF_Log("%s: %s held the frame %u ms (amxts_slow_ms %g)%s%s%s", p.name.c_str(), who.c_str(), ms, g_slowCvarSet->value, slowest.c_str(), gap.c_str(), more);
 	}
 	// Timed from now on; the next call's slowest starts over.
 	if (p.probe && walk)
