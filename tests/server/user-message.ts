@@ -12,6 +12,8 @@
 // @log UserMessage "AmxtsJump": 198 bytes, more than the 192 a message carries; not sent
 // @log UserMessage "BuyClose": the game sends it with 0 bytes, 1 written; not sent
 // @log message_end with no message begun
+// @log the message id is 0 (the name is not registered)
+// @log the message id is not registered
 // @log Run time error 10 (plugin "amxts_natives.amxx") (native "message_begin")
 // @log Run time error 10 (plugin "amxts_natives.amxx") (native "emessage_begin")
 // @log Run time error 10 (plugin "amxts_natives.amxx") (native "message_end")
@@ -94,6 +96,10 @@ function run() {
 	message_end();
 
 	// A begin that fails: its writes and its end do not reach the engine.
+	check.expect(message_begin(MSG_ONE, 0, [0, 0, 0], bot.id), "message_begin with id 0 fails").toBe(0);
+	write_byte(1);
+	write_string("lost");
+	message_end();
 	check.expect(message_begin(MSG_ALL, 250, [0, 0, 0], 0), "message_begin of an id no message has fails").toBe(0);
 	write_byte(1);
 	write_string("lost");

@@ -1,6 +1,5 @@
 // A fixture for tests/user-message.test.ts: a message of the plugin's own,
 // each kind of value once, to one player and to everyone.
-
 const jump = new UserMessage("KzJump");
 const tooLong = new UserMessage("KzJumpTooLong");
 

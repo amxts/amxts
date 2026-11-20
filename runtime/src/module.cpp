@@ -8256,7 +8256,10 @@ static void TempRoom(int plugin)
 static cell PluginMessageBegin(AMX_NATIVE begin, bool engine, AMX *amx, cell *params)
 {
 	cell dest = params[1];
+	cell type = params[2];
 	const char *wrong = g_pluginMessage == MESSAGE_BEGUN ? "another message is begun and not ended"
+		: type <= 0 ? "the message id is 0 (the name is not registered)"
+		: type >= 64 && !GET_USER_MSG_NAME(PLID, type, NULL) ? "the message id is not registered"
 		: dest < MSG_BROADCAST || dest > MSG_SPEC || (engine && dest == MSG_INIT) ? "the engine does not send a message there"
 		: (dest == MSG_ONE || dest == MSG_ONE_UNRELIABLE) && (params[4] < 1 || params[4] > gpGlobals->maxClients) ? "no player has that id"
 		: NULL;
