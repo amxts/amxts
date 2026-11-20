@@ -8193,6 +8193,11 @@ static int  g_messageBytes = 0;
 // lets the module read the datagrams: to player `g_tempTo`, 0 for more.
 static bool g_tempEntity = false;
 static int  g_tempTo = 0;
+// Bytes each plugin wrote into temp entities this frame: for the warning
+// that names the plugin that wrote the most. Cleared in StartFrame_Post.
+static std::vector<int> g_tempBytes;
+static int g_tempMostPlugin = -1;
+static int g_tempMostBytes = 0;
 
 /**
  * A plugin's temp entity has gone into the datagrams: when one now holds more
@@ -8294,9 +8299,18 @@ static cell PluginMessageEnd(AMX_NATIVE end, AMX *amx, cell *params)
 	if (was == MESSAGE_BEGUN) {
 		bool temp = g_tempEntity;
 		g_tempEntity = false;
+		if (temp && g_currentPlugin >= 0) {
+			if ((size_t)g_currentPlugin >= g_tempBytes.size())
+				g_tempBytes.resize(g_currentPlugin + 1, 0);
+			g_tempBytes[g_currentPlugin] += g_messageBytes;
+			if (g_tempBytes[g_currentPlugin] > g_tempMostBytes) {
+				g_tempMostBytes = g_tempBytes[g_currentPlugin];
+				g_tempMostPlugin = g_currentPlugin;
+			}
+		}
 		cell ended = end(amx, params);
 		if (temp)
-			TempRoom(g_currentPlugin);
+			TempRoom(g_tempMostPlugin);
 		return ended;
 	}
 	if (was == MESSAGE_NONE)
@@ -9499,6 +9513,12 @@ static void Slow(int index, uint32_t ms, const char *named, const Handler *h)
 
 void StartFrame_Post()
 {
+	if (g_tempMostBytes > 0) {
+		for (size_t i = 0; i < g_tempBytes.size(); i++)
+			g_tempBytes[i] = 0;
+		g_tempMostPlugin = -1;
+		g_tempMostBytes = 0;
+	}
 	if (g_slowCvarSet)
 		g_slowMs = g_slowCvarSet->value > 0 ? (uint32_t)Whole(g_slowCvarSet->value) : UINT32_MAX;
 	RaiseAuthorized();
