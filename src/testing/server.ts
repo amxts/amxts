@@ -246,6 +246,8 @@ export interface ServerOptions {
 	 * game on Linux, or a build of it amxts knows on Windows. Not unless said.
 	 */
 	originalRules?: boolean;
+	/** Milliseconds between frames that `advance` fires: 10 (100 fps) unless said. */
+	frameTime?: number;
 }
 
 export type TeamName = 'UNASSIGNED' | 'TERRORIST' | 'CT' | 'SPECTATOR';
@@ -849,6 +851,8 @@ export class FakeServer {
 	readonly originalRules: boolean;
 	/** Milliseconds since the map started; advance() moves it. */
 	time = 0;
+	/** Milliseconds between frames that advance() fires; 10 (100 fps) unless set. */
+	frameTime: number;
 	/** Date.now() when the map started. */
 	readonly startedAt = Date.now();
 	/** The server's time zone; this machine's when undefined. */
@@ -1089,6 +1093,7 @@ export class FakeServer {
 		// The voice manager counts the server's slots, as the game sets it up.
 		this.rules.set(constant('m_nMaxPlayers'), this.maxPlayers);
 		this.entityIds = this.maxPlayers + 1;
+		this.frameTime = options.frameTime ?? 10;
 		this.timeZone = options.timeZone;
 		this.env = { ...options.env };
 		// AMX Mod X's own, which a test may set: the languages; and the game's
@@ -1455,18 +1460,35 @@ export class FakeServer {
 
 	/**
 	 * Moves the clock forward and runs every timer that comes due on the way,
-	 * in order - a repeating one as many times as it fits. As on the server,
-	 * a timer armed or repeated while timers fire waits for a later frame, a
-	 * millisecond on: `setTimeout(fn, 0)` from a handler never fires in the
-	 * same moment.
+	 * in order, with a frame event every `frameTime` milliseconds in between -
+	 * as the server fires timers and then `server_frame` each tick. A repeating
+	 * timer fires as many times as it fits. A timer armed or repeated while
+	 * timers fire waits for a later frame, a millisecond on: `setTimeout(fn, 0)`
+	 * from a handler never fires in the same moment.
 	 */
 	advance(ms: number): void {
 		const until = this.time + ms;
+		const step = this.frameTime;
+		let nextFrame = this.time + step;
 
 		for (;;) {
 			const due = this.tasks
 				.filter(t => t.due <= until)
 				.sort((a, b) => a.due - b.due || a.order - b.order)[0];
+			const timerTime = due ? due.due : Infinity;
+
+			// A frame that comes before the next timer
+			if (nextFrame <= until && nextFrame < timerTime) {
+				this.time = this.firingAt = nextFrame;
+				try {
+					this.fireFrame();
+				} finally {
+					this.firingAt = -1;
+				}
+				nextFrame += step;
+				continue;
+			}
+
 			if (!due) break;
 
 			this.time = this.firingAt = due.due;
@@ -1478,9 +1500,39 @@ export class FakeServer {
 			} finally {
 				this.firingAt = -1;
 			}
+
+			// A frame at the same time as a timer, fired after it
+			if (nextFrame <= until && nextFrame <= this.time) {
+				this.time = this.firingAt = nextFrame;
+				try {
+					this.fireFrame();
+				} finally {
+					this.firingAt = -1;
+				}
+				nextFrame += step;
+			}
+		}
+
+		// Remaining frames up to `until`
+		while (nextFrame <= until) {
+			this.time = this.firingAt = nextFrame;
+			try {
+				this.fireFrame();
+			} finally {
+				this.firingAt = -1;
+			}
+			nextFrame += step;
 		}
 
 		this.time = until;
+	}
+
+	// ponytail: skip fire() overhead when no plugin listens
+	private fireFrame(): void {
+		const handlers = this.events.get("server_frame");
+		const subs = this.subscriptions.get("server_frame");
+		if (!handlers?.length && !subs?.length) return;
+		this.fire("server_frame");
 	}
 
 	/**
