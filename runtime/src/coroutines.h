@@ -167,18 +167,18 @@ static void DrainJobs(int index)
 
 	Plugin &dp = g_plugins[index];
 	dp.jobFn = 0;
-	dp.jobUs = 0;
+	dp.jobMs = 0;
 	dp.jobAt = 0;
 	dp.jobCount = 0;
-	uint32_t mostUs = 0;
+	uint32_t drainStart = g_clock.load(std::memory_order_relaxed);
+	uint32_t resumeMs = 0;
+	uint32_t mostMs = 0;
 
 	for (;;) {
 		g_outcomeSaid = false;
 		bool ok = true;
-		uint32_t jobStart = g_clock.load(std::memory_order_relaxed);
 		int32_t id = (int32_t)CoCall(env, "__co_next", 0, 0, 0, 0, &ok);
 		if (!ok) {
-			// A .then callback trapped: it has been said, and the next job goes on.
 			dp.jobCount++;
 			CoCall(env, "__co_stack_set", 1, top);
 			continue;
@@ -188,18 +188,21 @@ static void DrainJobs(int index)
 
 		std::map<int32_t, Coroutine>::iterator co = dp.coroutines.find(id);
 		uint32_t coFn = (co != dp.coroutines.end()) ? co->second.fn : 0;
+		uint32_t coStart = g_clock.load(std::memory_order_relaxed);
 		int outcome = RunCoroutine(index, env, id, true);
 		CoCall(env, "__co_done", 1, (uint32_t)outcome);
 		dp.jobCount++;
 
-		uint32_t jobUs = g_clock.load(std::memory_order_relaxed) - jobStart;
-		if (jobUs > mostUs) {
-			mostUs = jobUs;
-			dp.jobUs = (int32_t)jobUs;
+		uint32_t coMs = g_clock.load(std::memory_order_relaxed) - coStart;
+		resumeMs += coMs;
+		if (coMs > mostMs) {
+			mostMs = coMs;
+			dp.jobMs = (int32_t)coMs;
 			dp.jobAt = dp.jobCount;
 			dp.jobFn = (int32_t)coFn;
 		}
 	}
+	dp.jobGapMs = (int32_t)(g_clock.load(std::memory_order_relaxed) - drainStart) - (int32_t)resumeMs;
 
 	g_plugins[index].depth--;
 	LeftMessage(index);

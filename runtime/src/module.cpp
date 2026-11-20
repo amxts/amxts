@@ -323,9 +323,10 @@ struct Plugin {
 	// own time in microseconds, and its place (low 16) of the total (high 16).
 	// Written by DrainJobs, read by TimedJobs → Slow. Reset each DrainJobs.
 	int32_t              jobFn = 0;
-	int32_t              jobUs = 0;
+	int32_t              jobMs = 0;
 	int32_t              jobAt = 0;
 	int32_t              jobCount = 0;
+	int32_t              jobGapMs = 0;
 };
 
 /**
@@ -9460,23 +9461,30 @@ static void Slow(int index, uint32_t ms, const char *named, const Handler *h)
 		char more[96] = "";
 		if (unsaid > 0)
 			snprintf(more, sizeof(more), " - and %d more such call(s) in the last %d s", unsaid, Whole(since));
-		std::string who = what, slowest;
+		std::string who = what, slowest, gap;
 		if (!named && g_firing == FIRING_TIMER && p.timerFn && *p.timerFn > 0) {
 			std::string name = FunctionName(p, *p.timerFn, p.timerEnv ? *p.timerEnv : 0);
 			if (!name.empty())
 				who = name + " (a timer)";
 		}
-		else if (named && p.jobFn > 0 && p.jobCount > 0) {
-			std::string name = FunctionName(p, p.jobFn, 0);
-			char place[32] = "", own[32] = "";
-			if (p.jobCount > 1)
-				snprintf(place, sizeof(place), "%d of %d", p.jobAt, p.jobCount);
-			if (p.jobUs)
-				snprintf(own, sizeof(own), ", %.1f ms", p.jobUs / 1000.0);
-			if (!name.empty())
-				slowest = "; the slowest, " + name + (*place ? std::string(" (") + place + ")" : "") + own;
-			else if (*place)
-				slowest = std::string("; the slowest, job ") + place + own;
+		else if (named && p.jobCount > 0) {
+			if (p.jobFn > 0) {
+				std::string name = FunctionName(p, p.jobFn, 0);
+				char place[32] = "", own[32] = "";
+				if (p.jobCount > 1)
+					snprintf(place, sizeof(place), "%d of %d", p.jobAt, p.jobCount);
+				if (p.jobMs)
+					snprintf(own, sizeof(own), ", %d ms", p.jobMs);
+				if (!name.empty())
+					slowest = "; the slowest, " + name + (*place ? std::string(" (") + place + ")" : "") + own;
+				else if (*place)
+					slowest = std::string("; the slowest, job ") + place + own;
+			}
+			if (p.jobGapMs > 0) {
+				char buf[48];
+				snprintf(buf, sizeof(buf), "; of it %d ms the reactions", p.jobGapMs);
+				gap = buf;
+			}
 		}
 		else if (listeners && !walk) {
 			std::string name = FunctionName(p, h->viaFn, h->viaEnv);
@@ -9497,12 +9505,13 @@ static void Slow(int index, uint32_t ms, const char *named, const Handler *h)
 			else if (*place)
 				slowest = std::string("; the slowest, listener ") + place + own;
 		}
-		std::string gap;
 		if (walk && p.probeGap && *p.probeGap > 500) {
 			char buf[48];
 			snprintf(buf, sizeof(buf), "; of it %.1f ms the dispatch", *p.probeGap / 1000.0);
 			gap = buf;
 		}
+		if (walk && p.probe && *p.probe == 0 && slowest.empty())
+			slowest = " (first observation, the next line names what)";
 		MF_PrintSrvConsole("[amxts] %s: %s held the frame %u ms (amxts_slow_ms %g)%s%s%s\n", p.name.c_str(), who.c_str(), ms, g_slowCvarSet->value, slowest.c_str(), gap.c_str(), more);
 		MF_Log("%s: %s held the frame %u ms (amxts_slow_ms %g)%s%s%s", p.name.c_str(), who.c_str(), ms, g_slowCvarSet->value, slowest.c_str(), gap.c_str(), more);
 	}
