@@ -165,20 +165,40 @@ static void DrainJobs(int index)
 	else
 		top = CoCall(env, "__co_stack");
 
+	Plugin &dp = g_plugins[index];
+	dp.jobFn = 0;
+	dp.jobUs = 0;
+	dp.jobAt = 0;
+	dp.jobCount = 0;
+	uint32_t mostUs = 0;
+
 	for (;;) {
 		g_outcomeSaid = false;
 		bool ok = true;
+		uint32_t jobStart = g_clock.load(std::memory_order_relaxed);
 		int32_t id = (int32_t)CoCall(env, "__co_next", 0, 0, 0, 0, &ok);
 		if (!ok) {
 			// A .then callback trapped: it has been said, and the next job goes on.
+			dp.jobCount++;
 			CoCall(env, "__co_stack_set", 1, top);
 			continue;
 		}
 		if (id == 0)
 			break;
 
+		std::map<int32_t, Coroutine>::iterator co = dp.coroutines.find(id);
+		uint32_t coFn = (co != dp.coroutines.end()) ? co->second.fn : 0;
 		int outcome = RunCoroutine(index, env, id, true);
 		CoCall(env, "__co_done", 1, (uint32_t)outcome);
+		dp.jobCount++;
+
+		uint32_t jobUs = g_clock.load(std::memory_order_relaxed) - jobStart;
+		if (jobUs > mostUs) {
+			mostUs = jobUs;
+			dp.jobUs = (int32_t)jobUs;
+			dp.jobAt = dp.jobCount;
+			dp.jobFn = (int32_t)coFn;
+		}
 	}
 
 	g_plugins[index].depth--;

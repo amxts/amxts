@@ -357,6 +357,10 @@ export let __probeAt: i32 = 0;
 export let __probeEnv: i32 = 0;
 /** @hidden That listener's own time, in microseconds. */
 export let __probeUs: i32 = 0;
+/** @hidden The timer handler's function in the table, set before it is called. */
+export let __timerFn: i32 = 0;
+/** @hidden That handler's closure variables. */
+export let __timerEnv: i32 = 0;
 // How long that listener took, in milliseconds.
 let probeMost: f64 = 0;
 // What the listeners timed so far took in all: a listener's own time leaves
@@ -6916,15 +6920,20 @@ const TIMER_SLOTS: f64 = 1 << 24;
 // Past it a handle would lose its slot to the f64's precision: the count starts again.
 const TIMER_HANDLES_END: f64 = 4503599627370496; // 2^52
 
+function timerFnOf(handler: TimerHandler): void {
+	__timerFn = load<i32>(changetype<usize>(handler));
+	__timerEnv = load<i32>(changetype<usize>(handler), 4);
+}
+
 function timeoutFired(slot: i32): void {
 	const handler = unchecked(timers[slot]);
 	unchecked(timers[slot] = null);
-	if (handler) handler();
+	if (handler) { timerFnOf(handler); handler(); }
 }
 
 function intervalFired(slot: i32): void {
 	const handler = unchecked(timers[slot]);
-	if (handler) handler();
+	if (handler) { timerFnOf(handler); handler(); }
 }
 
 function armTimer(handler: TimerHandler, ms: number, repeat: bool): number {

@@ -313,6 +313,17 @@ struct Plugin {
 	int32_t             *probeEnv = NULL;
 	// Its own time in that call, in microseconds (__probeUs).
 	int32_t             *probeUs = NULL;
+	// The timer handler's function in the table (__timerFn) and its closure
+	// variables (__timerEnv), set by the facade before the handler is called.
+	int32_t             *timerFn = NULL;
+	int32_t             *timerEnv = NULL;
+	// The slowest coroutine DrainJobs timed: its function in the table, its
+	// own time in microseconds, and its place (low 16) of the total (high 16).
+	// Written by DrainJobs, read by TimedJobs → Slow. Reset each DrainJobs.
+	int32_t              jobFn = 0;
+	int32_t              jobUs = 0;
+	int32_t              jobAt = 0;
+	int32_t              jobCount = 0;
 };
 
 /**
@@ -4058,6 +4069,10 @@ static void GrowFailed(uint32_t, uint64_t size, uint32_t, enlarge_memory_error_r
 
 // ---------------------------------------------------------------- coroutines
 
+// The milliseconds since the module attached: a clock thread (Ticker) below
+// keeps it about every millisecond. Here so that DrainJobs can time each job.
+static std::atomic<uint32_t> g_clock(0);
+
 // async functions: co_spawn, co_suspend and the rest, and DrainJobs.
 #include "coroutines.h"
 
@@ -4912,13 +4927,6 @@ static bool FireSlow(const Handler &h, Plugin &p, const uint32_t *call, int n)
  * says whether it ended without a trap. Written into its callers: Fire, and
  * RaiseDirect, which has no frame of its own between a hook and a listener.
  */
-/**
- * The milliseconds since the module attached, kept by the clock thread
- * (Ticker) about every millisecond. A call into a plugin reads it before
- * and after (Called): two loads, where asking the system twice a call is a
- * measurable part of an event's cost.
- */
-static std::atomic<uint32_t> g_clock(0);
 static std::atomic<bool>     g_ticking(false);
 static std::thread           g_ticker;
 // The module has let go of everything (OnAmxxDetach, AtExit).
@@ -5409,7 +5417,7 @@ static void ReleasePlugin(int index)
 	p.inst = NULL;
 	p.env = NULL;
 	p.hasTable = false;
-	p.closureEnv = p.argumentsLength = p.ambientPlayer = p.tryDepth = p.stackPointer = p.probe = p.probeAt = p.probeEnv = p.probeUs = NULL;
+	p.closureEnv = p.argumentsLength = p.ambientPlayer = p.tryDepth = p.stackPointer = p.probe = p.probeAt = p.probeEnv = p.probeUs = p.timerFn = p.timerEnv = NULL;
 	p.playerSlots = 0;
 	p.playerNames = 0;
 	p.title = p.version = p.author = p.description = "";
@@ -6060,6 +6068,8 @@ static bool LoadPlugin(int index)
 	p.probeAt = ExportedGlobal(inst, "__probeAt");
 	p.probeEnv = ExportedGlobal(inst, "__probeEnv");
 	p.probeUs = ExportedGlobal(inst, "__probeUs");
+	p.timerFn = ExportedGlobal(inst, "__timerFn");
+	p.timerEnv = ExportedGlobal(inst, "__timerEnv");
 	// Reloaded after a walk of it held the frame: its lines go on (Plugin.slow),
 	// so the next one names the slowest as the one before would have.
 	for (const auto &said : p.slow)
@@ -9431,7 +9441,24 @@ static void Slow(int index, uint32_t ms, const char *named, const Handler *h)
 		if (unsaid > 0)
 			snprintf(more, sizeof(more), " - and %d more such call(s) in the last %d s", unsaid, Whole(since));
 		std::string who = what, slowest;
-		if (listeners && !walk) {
+		if (!named && g_firing == FIRING_TIMER && p.timerFn && *p.timerFn > 0) {
+			std::string name = FunctionName(p, *p.timerFn, p.timerEnv ? *p.timerEnv : 0);
+			if (!name.empty())
+				who = name + " (a timer)";
+		}
+		else if (named && p.jobFn > 0 && p.jobCount > 0) {
+			std::string name = FunctionName(p, p.jobFn, 0);
+			char place[32] = "", own[32] = "";
+			if (p.jobCount > 1)
+				snprintf(place, sizeof(place), "%d of %d", p.jobAt, p.jobCount);
+			if (p.jobUs)
+				snprintf(own, sizeof(own), ", %.1f ms", p.jobUs / 1000.0);
+			if (!name.empty())
+				slowest = "; the slowest, " + name + (*place ? std::string(" (") + place + ")" : "") + own;
+			else if (*place)
+				slowest = std::string("; the slowest, job ") + place + own;
+		}
+		else if (listeners && !walk) {
 			std::string name = FunctionName(p, h->viaFn, h->viaEnv);
 			if (!name.empty())
 				who = name + " (" + what + ")";
