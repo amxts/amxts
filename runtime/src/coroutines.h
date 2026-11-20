@@ -196,7 +196,8 @@ static void DrainJobs(int index)
 
 		double coMs = MillisecondsSince(coStart);
 		resumeMs += coMs;
-		uint32_t coMsWhole = (uint32_t)(coMs + 0.5);
+		double coRounded = coMs + 0.5;
+		uint32_t coMsWhole = (uint32_t)Whole(coRounded);
 		if (coMsWhole > mostMs) {
 			mostMs = coMsWhole;
 			dp.jobMs = (int32_t)coMsWhole;
@@ -205,7 +206,8 @@ static void DrainJobs(int index)
 		}
 	}
 	double totalMs = MillisecondsSince(drainStart);
-	int32_t gapMs = (int32_t)(totalMs - resumeMs + 0.5);
+	double gapRounded = totalMs - resumeMs + 0.5;
+	int32_t gapMs = Whole(gapRounded);
 	if (gapMs > 0)
 		dp.jobGapMs = gapMs;
 
