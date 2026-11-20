@@ -170,8 +170,9 @@ static void DrainJobs(int index)
 	dp.jobMs = 0;
 	dp.jobAt = 0;
 	dp.jobCount = 0;
-	uint32_t drainStart = g_clock.load(std::memory_order_relaxed);
-	uint32_t resumeMs = 0;
+	dp.jobGapMs = 0;
+	int64_t drainStart = Now();
+	double resumeMs = 0;
 	uint32_t mostMs = 0;
 
 	for (;;) {
@@ -188,21 +189,25 @@ static void DrainJobs(int index)
 
 		std::map<int32_t, Coroutine>::iterator co = dp.coroutines.find(id);
 		uint32_t coFn = (co != dp.coroutines.end()) ? co->second.fn : 0;
-		uint32_t coStart = g_clock.load(std::memory_order_relaxed);
+		int64_t coStart = Now();
 		int outcome = RunCoroutine(index, env, id, true);
 		CoCall(env, "__co_done", 1, (uint32_t)outcome);
 		dp.jobCount++;
 
-		uint32_t coMs = g_clock.load(std::memory_order_relaxed) - coStart;
+		double coMs = MillisecondsSince(coStart);
 		resumeMs += coMs;
-		if (coMs > mostMs) {
-			mostMs = coMs;
-			dp.jobMs = (int32_t)coMs;
+		uint32_t coMsWhole = (uint32_t)(coMs + 0.5);
+		if (coMsWhole > mostMs) {
+			mostMs = coMsWhole;
+			dp.jobMs = (int32_t)coMsWhole;
 			dp.jobAt = dp.jobCount;
 			dp.jobFn = (int32_t)coFn;
 		}
 	}
-	dp.jobGapMs = (int32_t)(g_clock.load(std::memory_order_relaxed) - drainStart) - (int32_t)resumeMs;
+	double totalMs = MillisecondsSince(drainStart);
+	int32_t gapMs = (int32_t)(totalMs - resumeMs + 0.5);
+	if (gapMs > 0)
+		dp.jobGapMs = gapMs;
 
 	g_plugins[index].depth--;
 	LeftMessage(index);
