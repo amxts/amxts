@@ -1527,12 +1527,12 @@ export class FakeServer {
 		this.time = until;
 	}
 
-	// ponytail: skip fire() overhead when no plugin listens
+	/** A frame's server_frame, skipped while nothing listens: advance() runs one every frame time. */
 	private fireFrame(): void {
-		const handlers = this.events.get("server_frame");
-		const subs = this.subscriptions.get("server_frame");
+		const handlers = this.events.get('server_frame');
+		const subs = this.subscriptions.get('server_frame');
 		if (!handlers?.length && !subs?.length) return;
-		this.fire("server_frame");
+		this.fire('server_frame');
 	}
 
 	/**
