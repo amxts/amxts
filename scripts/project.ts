@@ -991,9 +991,11 @@ export class Sources {
 	 * than its path - `./hooks`, `~/hooks`, `~/api/duel` - as that file's place,
 	 * `~/hooks~`, `~/modules/duel`; any import of an own file from a file
 	 * moved so, since its relative paths no longer hold; null for any other import.
+	 * A test's plugin outside the plugins folder reaches them by `~/` the same way.
 	 */
 	private ownMoved(real: string, spec: string): string | null {
-		if (!this.isOwn(real)) return null;
+		const outside = spec.startsWith('~/') && !inside(CORE_PLUGINS, real) && !this.packageOf(real);
+		if (!this.isOwn(real) && !outside) return null;
 		const base = spec.startsWith('~/') ? join(this.project.pluginsDir, spec.slice(2)) : spec.startsWith('.') ? resolve(dirname(real), spec) : null;
 		const file = base && [base.endsWith('.ts') ? base : `${base}.ts`, join(base, 'index.ts')].find(each => existsSync(each) && !this.stale.has(each));
 		if (!file || !inside(this.project.pluginsDir, file)) return null;

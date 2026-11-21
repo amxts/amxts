@@ -1,5 +1,4 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { setup } from '@amxts/core/test-utils';
 // Plugins in folders the config names (scripts/project.ts): a folder's prefix
@@ -12,7 +11,9 @@ import { moduleVersions } from '../scripts/shared-modules';
 
 vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
 
-const root = mkdtempSync(join(tmpdir(), 'amxts-folders-'));
+// On the core's drive: a test's plugin outside the plugins folder is placed by its path from the core.
+mkdirSync('dist', { recursive: true });
+const root = mkdtempSync(join(process.cwd(), 'dist', 'folders-'));
 afterAll(() => {
 	setProjectDir(process.cwd());
 	rmSync(root, { recursive: true, force: true });
@@ -36,6 +37,7 @@ write({
 	'plugins/modules/duel.ts': 'import "~/api/duel";\nimport { arena } from "./duel/arena";\n\nexport function test_arena() {\n\treturn arena();\n}\n',
 	'plugins/modules/duel/arena.ts': 'export function arena(): string {\n\treturn "dust";\n}\n',
 	'plugins/games/hns.ts': 'import "~/api/hns";\nimport * as duel from "../api/duel";\n\nexport function test_win() {\n\treturn duel.win();\n}\n',
+	'fixtures/outside.ts': 'import * as duel from "~/api/duel";\n\nexport function test_outside_win() {\n\treturn duel.win();\n}\n',
 });
 
 describe('plugins in folders', () => {
@@ -58,6 +60,14 @@ describe('plugins in folders', () => {
 		// api/hns.ts runs in games/hns.ts, minigame_hns on the server.
 		expect(server.native('test_rounds')).toBe(6);
 		expect(server.log).not.toContain('error');
+	});
+
+	test('a test\'s plugin outside the plugins folder calls a module in dir.api, not a copy of it', async () => {
+		const server = await setup({ rootDir: root, start: false });
+		await server.load(join(root, 'fixtures/outside.ts'));
+		server.start();
+		expect(server.native('test_win')).toBe(1);
+		expect(server.native('test_outside_win')).toBe(2);
 	});
 
 	test('a change to a module\'s API is a new version for every plugin that calls it', async () => {
