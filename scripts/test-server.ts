@@ -664,7 +664,11 @@ async function build(plugins: string[], pawn: string[]): Promise<string[] | null
 
 	// What an earlier run compiled from the same files is taken as it is.
 	const cache = pluginCache(project.dir);
-	const fresh = all.filter(plugin => !cache.reuse(plugin));
+	// One after another: a module a plugin calls may be analysed first, and asc runs one compile at a time.
+	const fresh: Plugin[] = [];
+	for (const plugin of all) {
+		if (!await cache.reuse(plugin)) fresh.push(plugin);
+	}
 	const compiled = await compileAll(fresh, { dir: project.dir, includes: [], here: (plugin, natives) => cache.compile(plugin, natives), low: true });
 	const failed = compiled.findIndex(each => each?.problem);
 	if (failed >= 0) {
