@@ -1,5 +1,136 @@
 # Changelog
 
+## v0.3.5
+
+> v0.3.5 is a patch release of the 0.3 line, with one break: walking through each other is now the semiclip module's alone, so a plugin that set pairs or the look itself needs a change (below). Plugins built with 0.3.0 to 0.3.4 load on its module as they are; the new semiclip needs the 0.3.5 module, which `npx amxts upgrade` puts on your server.
+
+### 👀 Highlights
+
+#### 🔁 `entries()`, `keys()`, `values()`
+
+`for...of` over an array's `entries()` now compiles as plain TypeScript, and typed arrays have `entries()`, `keys()` and `values()` too:
+
+```ts
+for (const [i, name] of names.entries()) console.log(`${i}: ${name}`);
+
+const bytes = new Uint8Array(4);
+for (const i of bytes.keys()) bytes[i] = i;
+```
+
+#### 🪪 What each client is sent of a player
+
+The new `sendUserInfo` game event hears a player's userinfo on its way to each client. Writing a key of `event.info` changes only what that client sees of the player, such as the name in the scoreboard and the kill notices. The player, the game and the other clients keep the real one, so nobody is renamed and the chat says nothing. `player.info.resend()` sends a player's userinfo to every client now. Both work with ReHLDS and on plain HLDS, on Linux and Windows.
+
+```ts
+let shown: Player | null = null;
+let shownName = "";
+
+game.addEventListener("sendUserInfo", (event) => {
+	if (event.player == shown) event.info.set("name", shownName);
+});
+
+// "Killer + Assister" in the kill notice
+shown = killer;
+shownName = `${killer.name} + ${assister.name}`;
+killer.info.resend();
+```
+
+#### 🧰 For modules: walking through each other
+
+The pairs and how partners pass and look are now the kit's, for a module that lets players walk through each other: `walksThrough(player)` is the players he walks through, as a `Set`, and `setWalkThroughOptions` sets the look up close, grenades passing a thrower's partners and standing on a partner's head - all off until a module turns them on. [semiclip](https://github.com/amxts/semiclip) 0.2.2 is the module that offers them to a project.
+
+```ts
+import { setWalkThroughOptions, walksThrough } from "@amxts/core/kit";
+
+walksThrough(player).add(teammate);
+setWalkThroughOptions({ fadeDistance: 250, opacity: 0.4, hideDistance: 60, grenades: true, standOnHead: true });
+```
+
+### 🛠️ And more
+
+- In tests, `server.advance(ms)` runs the frames in between, so a `server_frame` listener is heard without a separate frame call. `frameTime` sets the frame's length ([76bc6ed](https://github.com/amxts/amxts/commit/76bc6ed)).
+
+### 🩹 Important fixes
+
+- A `UserMessage` of a message the game registers with a fixed size, such as `BuyClose`, was not sent, and the console said the engine had not registered it. It is now the game's message, sent when exactly its size is written: `new UserMessage("BuyClose").send(player)` closes the player's buy menu ([111f5c2](https://github.com/amxts/amxts/commit/111f5c2)).
+- On Valve's game, a bot that joined a side with `joinTeam` stayed in the game's joining state: its next commands opened the team menu and put it at the intro cameras. It is now in the game ([1fc50fe](https://github.com/amxts/amxts/commit/1fc50fe)).
+- A plugin that wrote into a message whose `message_begin` the engine refused, such as a message of its own with an id the server never registered, crashed the server ("PF_WriteString_I: called with no active message"). The begin is now refused with an error in the plugin, and the writes after it go nowhere ([8d999e5](https://github.com/amxts/amxts/commit/8d999e5)).
+- Too many temporary entities to one player in a frame, such as beams, made the engine drop everything he was sent that frame, and nothing said why. The console now names the plugin that wrote the most ([6b6a5ce](https://github.com/amxts/amxts/commit/6b6a5ce)).
+- "A timer held the frame" and "its async functions held the frame" now name the slowest function by file and line, as the listeners' lines do. A listeners' line also says how much of the time went to none of them ([0ddbb09](https://github.com/amxts/amxts/commit/0ddbb09), [367ea41](https://github.com/amxts/amxts/commit/367ea41), [0f2875a](https://github.com/amxts/amxts/commit/0f2875a)).
+- A plugin that threw many errors, say a frame listener failing every frame, stopped working until the map changed: every later call failed, and the console printed only empty lines. Each failed call left a little of the plugin's stack taken. Now a plugin goes on after any number of errors. Rebuild your plugins with 0.3.5 to get it ([f89b9db](https://github.com/amxts/amxts/commit/f89b9db)).
+
+### ⚠️ Breaking changes
+
+`player.walksThrough` and `server.walkThroughLook` are gone from the plugin API: who walks through whom is the semiclip module's, so a server has one owner of it. I took them out in a patch rather than wait for 0.4, so this update can break a plugin that used them:
+
+| 0.3.4 | 0.3.5 |
+| --- | --- |
+| `player.walksThrough.add(other)` in a plugin | `semiclip.rule = (player, target) => ...` of `@amxts/semiclip` |
+| `server.walkThroughLook = { fadeDistance, opacity, hideDistance }` in a plugin | `semiclip: { fadeDistance, opacity, hideDistance }` in `amxts.config.ts` |
+| a module of your own with `player.walksThrough` | `walksThrough(player)` from `@amxts/core/kit` |
+
+`npx amxts upgrade` does not rewrite these lines: the build names each one it cannot compile.
+
+### ⚠️ What changes on your server
+
+With ReGameDLL, a flash's light used to pass a partner. It now stops at him as at anyone, as it does in the game and on every other server.
+
+### ✅ Upgrading
+
+```sh
+npm install -D @amxts/cli@latest   # pnpm add -D, yarn add -D, bun add -d
+npx amxts upgrade
+```
+
+It moves `@amxts/core` to 0.3.5 and `@amxts/semiclip` to 0.2.2, and puts the 0.3.5 module on the server in `AMXTS_SERVER`.
+
+### 👉 Changelog
+
+[compare changes](https://github.com/amxts/amxts/compare/v0.3.4...v0.3.5)
+
+### 🚀 Enhancements
+
+- **compiler:** `for...of` over an array's entries() ([5abe3ce](https://github.com/amxts/amxts/commit/5abe3ce))
+- **semiclip:** Grenades and standing on a partner's head ([4326d99](https://github.com/amxts/amxts/commit/4326d99))
+- **compiler:** Entries(), keys(), values() on typed arrays ([532a838](https://github.com/amxts/amxts/commit/532a838))
+- **semiclip:** A partner fades to opacity, then out in a tenth ([811e41e](https://github.com/amxts/amxts/commit/811e41e))
+- **kit:** `setWalkThroughOptions` for a module ([a4fcb99](https://github.com/amxts/amxts/commit/a4fcb99))
+- **kit:** ⚠️  Walking through each other for modules only ([1a99bd6](https://github.com/amxts/amxts/commit/1a99bd6))
+- **hooks:** `sendUserInfo` event and `player.info.resend` ([3d8d405](https://github.com/amxts/amxts/commit/3d8d405))
+- **testing:** Advance() fires frame events ([76bc6ed](https://github.com/amxts/amxts/commit/76bc6ed))
+
+### 🩹 Fixes
+
+- **semiclip:** A grenade's groups off with empty slots on Valve's HLDS ([0ae7a70](https://github.com/amxts/amxts/commit/0ae7a70))
+- **semiclip:** A partner one stands on is drawn whole ([726107e](https://github.com/amxts/amxts/commit/726107e))
+- **players:** A bot that joins a side on Valve's game is in it ([1fc50fe](https://github.com/amxts/amxts/commit/1fc50fe))
+- **messages:** A UserMessage of a game's fixed-size message ([111f5c2](https://github.com/amxts/amxts/commit/111f5c2))
+- **hooks:** `sendUserInfo` on plain HLDS from the first map ([06cd532](https://github.com/amxts/amxts/commit/06cd532))
+- **runtime:** A plugin goes on after many errors ([f89b9db](https://github.com/amxts/amxts/commit/f89b9db))
+- **runtime:** Slow-frame lines name the timer or coroutine ([0ddbb09](https://github.com/amxts/amxts/commit/0ddbb09))
+- **runtime:** Slow walk line names the dispatch gap ([367ea41](https://github.com/amxts/amxts/commit/367ea41))
+- **runtime:** Refuse `message_begin` with an invalid id ([8d999e5](https://github.com/amxts/amxts/commit/8d999e5))
+- **runtime:** Temp-entity overflow names the plugin that wrote the most ([6b6a5ce](https://github.com/amxts/amxts/commit/6b6a5ce))
+- **runtime:** Async slow line times the coroutine, not the reaction ([be12c9d](https://github.com/amxts/amxts/commit/be12c9d))
+- **runtime:** Time async reactions with the hi-res clock ([4d6466a](https://github.com/amxts/amxts/commit/4d6466a))
+- **runtime:** Round the async timings through Whole() ([f36fead](https://github.com/amxts/amxts/commit/f36fead))
+- **runtime:** Slow lines name timers and reactions on a server ([0f2875a](https://github.com/amxts/amxts/commit/0f2875a))
+
+### 📖 Documentation
+
+- **semiclip:** The look's examples hide a partner at 48 ([387afe4](https://github.com/amxts/amxts/commit/387afe4))
+- **semiclip:** The look's examples hide a partner at 60 ([4de681f](https://github.com/amxts/amxts/commit/4de681f))
+- **players:** `sendUserInfo` arrives in `0.3.5` ([2922714](https://github.com/amxts/amxts/commit/2922714))
+- A `message_begin` with an unregistered id is refused ([0200614](https://github.com/amxts/amxts/commit/0200614))
+
+#### ⚠️ Breaking Changes
+
+- **kit:** ⚠️  Walking through each other for modules only ([1a99bd6](https://github.com/amxts/amxts/commit/1a99bd6))
+
+### ❤️ Contributors
+
+- Ernest Manukyan ([@kukson777](https://github.com/kukson777))
+
 ## v0.3.4
 
 > v0.3.4 is a patch release of the 0.3 line. Plugins built with 0.3.0 to 0.3.3 load on its module as they are.
