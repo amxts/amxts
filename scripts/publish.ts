@@ -564,11 +564,34 @@ function copyEarlierReleases(packs: Pack[], extra: string[]) {
 	}
 }
 
+/**
+ * The dependencies of a release on the registry that name a folder on the
+ * machine it was published from: a plain `npm publish` in a checkout leaves
+ * them, and nobody can install the release.
+ */
+function localDependencies(name: string, version: string, registry: string): string[] {
+	const viewed = run('npm', ['view', `${name}@${version}`, '--json', '--registry', registry], { quiet: true, allowFail: true });
+	if (!viewed.ok) return [];
+	const manifest = JSON.parse(viewed.stdout);
+	return ['dependencies', 'peerDependencies', 'optionalDependencies'].flatMap(field => Object.entries<string>(manifest[field] ?? {})
+		.filter(([, spec]) => /^(?:file|link):/.test(spec))
+		.map(([dependency, spec]) => `${dependency}: ${spec}`));
+}
+
 /** Publishes the packs in order; stops at the first failure and says what went out. */
 function publishAll(packs: Pack[], registry: string, extra: string[]) {
 	const published: string[] = [];
 	for (const pack of packs) {
 		if (has(pack.name, registry, pack.version)) {
+			// Published some other way: it may be one nobody can install.
+			const local = localDependencies(pack.name, pack.version, registry);
+			if (local.length) {
+				throw new PublishError([
+					`${pack.name}@${pack.version} in ${registry} was not published by this script: it depends on local folders (${local.join(', ')}) and cannot be installed.`,
+					`npm takes no version twice: deprecate it (npm deprecate ${pack.name}@${pack.version} "...") and release the next one.`,
+					published.length ? `Published: ${published.join(', ')}` : 'Nothing was published.',
+				].join('\n'));
+			}
 			console.log(`${pack.name}@${pack.version} is in ${registry} already - skipped`);
 			continue;
 		}
