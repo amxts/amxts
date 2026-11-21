@@ -44,22 +44,22 @@ describe.skipIf(!existsSync(plugin.wamrc))('the plugins a build keeps', () => {
 	test('one nothing changed for is put in place as it was compiled; an edit to its import compiles it again', async () => {
 		const cache = pluginCache(dir);
 		greet('hello');
-		expect(cache.reuse(plugin)).toBeNull();
+		expect(await cache.reuse(plugin)).toBeNull();
 		expect(await cache.compile(plugin, [])).toBeNull();
 		const compiled = readFileSync(plugin.output);
 		expect(readFileSync(join(dir, 'dist', 'plugin.inc'), 'utf8')).toContain('cache_greeting');
 
 		// Gone from the build folder, as after a clean: it comes back from the cache, with its include.
 		rmSync(join(dir, 'dist'), { recursive: true });
-		expect(cache.reuse(plugin)?.map(native => native.name)).toEqual(['cache_greeting']);
+		expect((await cache.reuse(plugin))?.map(native => native.name)).toEqual(['cache_greeting']);
 		expect(readFileSync(plugin.output).equals(compiled)).toBe(true);
 		expect(existsSync(join(dir, 'dist', 'plugin.inc'))).toBe(true);
 
 		// A full build is kept apart from a quick one.
-		expect(cache.reuse({ ...plugin, quick: false })).toBeNull();
+		expect(await cache.reuse({ ...plugin, quick: false })).toBeNull();
 
 		greet('bye');
-		expect(cache.reuse(plugin)).toBeNull();
+		expect(await cache.reuse(plugin)).toBeNull();
 		expect(cache.counts).toEqual({ hits: 1, misses: 1 });
 	});
 

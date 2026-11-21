@@ -12,7 +12,7 @@ import { nativesBeside, nativesTransform, setNativesBeside } from '../../scripts
 import { ascPath, CONFIG_FILE, currentProjectDir, sourcesFor } from '../../scripts/project';
 import { targetTransforms } from '../../scripts/reapi-events';
 import { envBuild } from '../../scripts/server-env';
-import { sharedModulesBuild } from '../../scripts/shared-modules';
+import { moduleVersions, sharedModulesBuild } from '../../scripts/shared-modules';
 import { existsSync, hashOf } from '../../scripts/tracked-fs';
 import { cached } from './compile-cache';
 import { PLUGINS_ROOT } from './tables';
@@ -105,7 +105,9 @@ function lasting(built: Built): boolean {
  * when an earlier run compiled it from the same files.
  */
 async function build(path: string): Promise<Compiled> {
-	const built = await cached<Built>(['plugin', process.cwd(), path, PLUGINS_ROOT, GC_STRESS], async () => {
+	// The version of each module it calls, whichever file of the module changed (scripts/plugin-cache.ts).
+	const modules = await moduleVersions(PLUGINS_ROOT, sourcesFor(PLUGINS_ROOT).entry(path)).catch(() => null);
+	const built = await cached<Built>(['plugin', process.cwd(), path, PLUGINS_ROOT, GC_STRESS, modules], async () => {
 		try {
 			const fresh = await buildWith(path, BASE_EXPORTS);
 			return { ...fresh, beside: nativesBeside(fresh.natives) };

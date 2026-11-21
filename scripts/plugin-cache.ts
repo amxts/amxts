@@ -15,6 +15,8 @@ import { fileURLToPath } from 'node:url';
 import { compilePlugin, writeInclude } from './compile';
 import { codeIdentity, diskCache } from './compile-cache';
 import { nativesBeside, setNativesBeside } from './plugin-natives';
+import { sourcesFor } from './project';
+import { moduleVersions } from './shared-modules';
 import { HOST_SYSTEM } from './system';
 import { hashOf } from './tracked-fs';
 
@@ -39,7 +41,9 @@ export function pluginCache(dir: string | null, ownIncludes: string[] = []) {
 		if (!tools.has(file)) tools.set(file, hashOf(readFileSync(file)));
 		return tools.get(file);
 	};
-	const partsOf = (plugin: Plugin) => [
+	// The version of each module it calls: a module's owner and its callers
+	// must agree on it on the server, whichever file of the module changed.
+	const partsOf = async (plugin: Plugin) => [
 		'aot',
 		resolve(plugin.source),
 		resolve(plugin.root),
@@ -48,14 +52,16 @@ export function pluginCache(dir: string | null, ownIncludes: string[] = []) {
 		Boolean(plugin.quick),
 		hashed(plugin.wamrc),
 		hashed(plugin.signatures),
+		// A module that does not compile: the compile says why.
+		await moduleVersions(plugin.root, sourcesFor(plugin.root).entry(plugin.source)).catch(() => null),
 	];
 
 	return {
 		counts: cache.counts,
 
 		/** The plugin as an earlier build kept it, put in place; its natives. Null when there is none to take. */
-		reuse(plugin: Plugin): PluginNative[] | null {
-			const kept = cache.find<Kept>(partsOf(plugin));
+		async reuse(plugin: Plugin): Promise<PluginNative[] | null> {
+			const kept = cache.find<Kept>(await partsOf(plugin));
 			return kept && take(plugin, kept);
 		},
 
@@ -63,7 +69,7 @@ export function pluginCache(dir: string | null, ownIncludes: string[] = []) {
 
 		/** compilePlugin, and what it made kept: what went wrong, or null. `natives` gets the plugin's natives. */
 		async compile(plugin: Plugin, natives: PluginNative[]): Promise<string | null> {
-			const made = await cache.make<Kept | { problem: string }>(partsOf(plugin), async () => {
+			const made = await cache.make<Kept | { problem: string }>(await partsOf(plugin), async () => {
 				const problem = await compilePlugin(plugin, natives);
 				return problem === null ? { aot: new Uint8Array(readFileSync(plugin.output)), natives, beside: nativesBeside(natives) } : { problem };
 			}, made => !('problem' in made));
