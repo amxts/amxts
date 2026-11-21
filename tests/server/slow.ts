@@ -5,7 +5,7 @@
 // after the first adds the slowest and its own time - by its own name when it
 // is given as a function value that takes no event, which the compiler wraps
 // in an adapter - and the lines come further apart while it stays slow.
-// @log [amxts] slow.aot: a timer held the frame
+// @log (a timer) held the frame
 // @log [amxts] slow.aot: the command amxts_slow_busy held the frame
 // @log [amxts] slow.aot: its async functions and promise reactions held the frame
 // @log [amxts] slow.aot: the listeners of server_frame held the frame
