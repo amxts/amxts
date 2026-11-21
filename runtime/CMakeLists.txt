@@ -106,6 +106,11 @@ if(MSVC)
 	# constructor the older runtimes have.
 	target_compile_definitions(amxts_amxx PRIVATE _CRT_SECURE_NO_WARNINGS HAVE_STDINT_H _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
 	target_compile_options(amxts_amxx PRIVATE /wd4996)
+	# WAMR's table of the functions a plugin's code calls holds fmin, floor
+	# and the like by address. With the DLL runtime, Visual Studio 2026 19.52
+	# declares them imported, and C takes no imported address in a static table.
+	# Declared plain, they link to the import library's stubs: the same functions.
+	set_source_files_properties("${WAMR_ROOT_DIR}/core/iwasm/aot/arch/aot_reloc_x86_32.c" PROPERTIES COMPILE_DEFINITIONS "_ACRTIMP=")
 endif()
 
 # A module of the server suites' own, never shipped: it raises forwards
