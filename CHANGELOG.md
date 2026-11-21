@@ -14,7 +14,7 @@
 
 #### 🗂️ Plugins in folders
 
-The top of `plugins/` holds the plugins and every subfolder holds code. Now `amxts.config.ts` can name more folders of plugins, the way Nuxt names its component folders. A folder can also give its plugins a name prefix on the server:
+The top of `plugins/` holds the plugins and every subfolder holds code. Now `amxts.config.ts` can name more folders of plugins. A folder can also give its plugins a name prefix on the server:
 
 ```ts
 export default defineConfig({
