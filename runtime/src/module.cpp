@@ -9467,8 +9467,9 @@ static void Slow(int index, uint32_t ms, const char *named, const Handler *h)
 			if (!name.empty())
 				who = name + " (a timer)";
 		}
-		else if (named && p.jobCount > 0) {
-			if (p.jobFn > 0) {
+		else if (named) {
+			// .then reactions run with no coroutine resumed: their time stands without a job.
+			if (p.jobCount > 0 && p.jobFn > 0) {
 				std::string name = FunctionName(p, p.jobFn, 0);
 				char place[32] = "", own[32] = "";
 				if (p.jobCount > 1)
