@@ -1,5 +1,79 @@
 # Changelog
 
+## v0.3.6
+
+> v0.3.6 is the next patch release.
+
+### 📣 Some news
+
+#### 📦 0.3.5 is fixed on npm
+
+`@amxts/core@0.3.5` reached npm with dependencies that point at folders on my machine, and npm cannot install it: a new project stopped at `npm install`. npm never takes a version twice, so 0.3.5 is deprecated, and 0.3.6 is the same core with what is below. If your project installed 0.3.5 from npm, it did not install: move to 0.3.6.
+
+**👉 Only the release script publishes now: a plain `npm publish` in a checkout refuses to run.**
+
+### 👀 Highlights
+
+#### 🗂️ Plugins in folders
+
+The top of `plugins/` holds the plugins and every subfolder holds code. Now `amxts.config.ts` can name more folders of plugins, the way Nuxt names its component folders. A folder can also give its plugins a name prefix on the server:
+
+```ts
+export default defineConfig({
+	plugins: ["modules", { path: "games", prefix: "minigame_" }],
+	dir: { api: "api" },
+});
+```
+
+```
+plugins/
+├── core.ts              core.aot
+├── core/                code core.ts imports
+├── games/
+│   └── hns.ts           minigame_hns.aot
+├── modules/
+│   └── duel.ts          duel.aot
+└── api/
+    └── duel.ts          ~/api/duel, served by duel.aot
+```
+
+`dir.api` keeps the modules your plugins share in a folder of your choice, `modules/` by default. A module's plugin can sit in any folder of plugins, a prefixed one too, and the other plugins' calls find it there. Two files that come to one `.aot` name stop the build. A project without these keys builds as before.
+
+### 🩹 Important fixes
+
+- A plugin that calls a module of your project is built again when that module's API changes. Before, the build could take it from its cache, and on the server every call answered 0 with "built from another version of it - build both again" ([a304b5a](https://github.com/amxts/amxts/commit/a304b5a)).
+- `player.kill()` works in your tests: on the fake server the player stayed alive, since it did not run fakemeta's `set_pev` and the game's death ([7d7b835](https://github.com/amxts/amxts/commit/7d7b835)).
+
+### ✅ Upgrading
+
+Update the CLI with your project's own package manager, then:
+
+```sh
+npx amxts upgrade
+```
+
+### 👉 Changelog
+
+[compare changes](https://github.com/amxts/amxts/compare/v0.3.5...v0.3.6)
+
+### 🚀 Enhancements
+
+- **project:** Plugins in folders the config names ([a3d78eb](https://github.com/amxts/amxts/commit/a3d78eb))
+
+### 🩹 Fixes
+
+- **build:** Rebuild a module's callers when its API changes ([a304b5a](https://github.com/amxts/amxts/commit/a304b5a))
+- **testing:** `player.kill()` on the fake server ([7d7b835](https://github.com/amxts/amxts/commit/7d7b835))
+
+### 📖 Documentation
+
+- The `v0.3.5` changelog's userinfo heading ([061bb65](https://github.com/amxts/amxts/commit/061bb65))
+- What `0.3.5` changed for a plugin author ([b61102d](https://github.com/amxts/amxts/commit/b61102d))
+
+### ❤️ Contributors
+
+- Ernest Manukyan ([@kukson777](https://github.com/kukson777))
+
 ## v0.3.5
 
 > v0.3.5 is a patch release of the 0.3 line, with one break: walking through each other is now the semiclip module's alone, so a plugin that set pairs or the look itself needs a change (below). Plugins built with 0.3.0 to 0.3.4 load on its module as they are; the new semiclip needs the 0.3.5 module, which `npx amxts upgrade` puts on your server.
