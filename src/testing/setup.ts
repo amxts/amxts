@@ -24,7 +24,7 @@ export interface SetupOptions extends ServerOptions {
 	rootDir?: string;
 	/**
 	 * Which of the project's plugins load, by file name - `["welcome.ts"]`,
-	 * `["welcome"]` - in this order; all of them when left out, none for `[]`.
+	 * `["welcome"]`, `["games/hns"]` - in this order; all of them when left out, none for `[]`.
 	 */
 	plugins?: string[];
 	/** Starts the map - plugin_init, plugin_cfg, then OnConfigsExecuted - once everything is loaded. True when left out. */
@@ -56,7 +56,7 @@ function chosen(found: string[], names: string[] | undefined): string[] {
 	if (!names) return found;
 	return names.map((name) => {
 		const file = name.endsWith('.ts') ? name : `${name}.ts`;
-		const match = found.find(path => basename(path) === file);
+		const match = found.find(path => path.replace(/\\/g, '/').endsWith(`/${file}`));
 		if (!match) throw new Error(`setup: no plugin ${file} in the project's plugins (${found.map(path => basename(path)).join(', ') || 'it has none'})`);
 		return match;
 	});

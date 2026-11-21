@@ -60,12 +60,35 @@ declare global {
 		autoImport?: boolean;
 	}
 
+	/** A folder of plugins in `plugins` of `amxts.config.ts`. */
+	interface AmxtsPluginFolder {
+		/** The folder, inside the plugins folder, e.g. `"games"`. */
+		path: string;
+		/** The start of its plugins' names on the server, e.g. `"minigame_"`: `games/hns.ts` is then `minigame_hns.aot`. */
+		prefix?: string;
+	}
+
+	/** `dir` in `amxts.config.ts`: folders inside the plugins folder that have a role. */
+	interface AmxtsDirs {
+		/** The modules the project's plugins share (`~/api/duel`, served by the plugin `duel`); `"modules"` by default. */
+		api?: string;
+	}
+
 	/** The project's settings, exported by `amxts.config.ts`: the modules it uses and their options. */
 	interface AmxtsConfig extends ModuleOptions {
 		/** The project's module packages, by name, e.g. `"@amxts/menu-core"`. The build loads each after the ones it requires. */
 		modules?: string[];
 		/** The folder with the project's plugins; `"plugins"` by default. */
 		pluginsDir?: string;
+		/**
+		 * Folders inside the plugins folder whose `.ts` files are plugins too, beside
+		 * its top: `["games"]`, or `[{ path: "games", prefix: "minigame_" }]` -
+		 * `games/hns.ts` is then `minigame_hns.aot`. Any other folder holds code
+		 * the plugins import.
+		 */
+		plugins?: (string | AmxtsPluginFolder)[];
+		/** Folders inside the plugins folder that have a role. */
+		dir?: AmxtsDirs;
 		/** The folder the build writes the `.aot` files and `plugins.ini` to; `"dist"` by default. */
 		outDir?: string;
 		/**

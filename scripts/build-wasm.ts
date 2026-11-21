@@ -47,7 +47,7 @@ import { serverIncludes } from './includes';
 import { pluginCache } from './plugin-cache';
 import { includeName } from './plugin-natives';
 import { fromRegistry, prebuiltOf, prebuiltSurface } from './prebuilt';
-import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, projectPlugins, sourcesFor, staleCopies } from './project';
+import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, pluginName, projectPlugins, sourcesFor, staleCopies } from './project';
 import { aotSection, ENV_SECTION, envProblems, parseDotenv } from './server-env';
 import { sharedModulesBuild } from './shared-modules';
 import { describeSystem, serverFolder, serverSystem, SYSTEM_NAME, WAMRC_PACKAGE, wamrcPath } from './system';
@@ -175,18 +175,26 @@ interface Target {
 	pkg?: ModulePackage;
 }
 
-/** The project's own plugins: the .ts files at the top of its plugins folder. */
+/** The project's own plugins: the .ts files at the top of its plugins folder and of the config's `plugins`. */
 function ownPlugins(): Target[] {
-	return projectPlugins(project).map(source => ({ source, name: basename(source).replace(/\.ts$/, '') }));
+	return projectPlugins(project).map(source => ({ source, name: pluginName(project, source) }));
 }
 
 for (const copy of staleCopies(project)) {
 	log.warn(`${shown(copy)} is a copy of amxts's own API from an older version, not a plugin: delete it (npx amxts upgrade does)`);
 }
 
+// One .aot each: the server knows a plugin by its name.
+const named = new Map<string, string>();
 for (const plugin of ownPlugins()) {
+	const other = named.get(plugin.name);
+	named.set(plugin.name, plugin.source);
 	if (project.modules.some(pkg => pkg.short === plugin.name)) {
 		fail(`${shown(plugin.source)}: a module in amxts.config.ts is called ${plugin.name} too`, 'Rename the plugin.');
+		process.exit(1);
+	}
+	if (other) {
+		fail(`${shown(other)} and ${shown(plugin.source)} are both ${plugin.name}.aot`, 'Rename one, or give its folder another prefix in amxts.config.ts.');
 		process.exit(1);
 	}
 }
@@ -268,7 +276,9 @@ async function compile(plugins: Target[], first: boolean, sources: Sources): Pro
 		said.add(why);
 		log.info(`${why} - ${instead}`);
 	};
-	const planned = plugins.map((each) => {
+	// One after another: a module a plugin calls may be analysed first, and asc runs one compile at a time.
+	const planned = [];
+	for (const each of plugins) {
 		const plugin: Plugin = {
 			source: each.source,
 			output: join(outDir, `${each.name}.aot`),
@@ -282,9 +292,10 @@ async function compile(plugins: Target[], first: boolean, sources: Sources): Pro
 		};
 		const prebuilt = each.pkg ? prebuiltOf(each.pkg, target.system, sources) : null;
 		if (prebuilt && 'why' in prebuilt) say(prebuilt.why, 'compiling it here');
-		if (prebuilt && 'aot' in prebuilt) return { ...each, plugin, how: 'prebuilt', natives: cache.take(plugin, prebuilt) };
-		return { ...each, plugin, how: 'unchanged', natives: cache.reuse(plugin) };
-	});
+		planned.push(prebuilt && 'aot' in prebuilt
+			? { ...each, plugin, how: 'prebuilt', natives: cache.take(plugin, prebuilt) }
+			: { ...each, plugin, how: 'unchanged', natives: await cache.reuse(plugin) });
+	}
 	// The surface a plugin compiles a module's proxy from (scripts/shared-modules.ts) comes with it too.
 	for (const each of first ? plugins : []) {
 		const shipped = each.pkg ? prebuiltSurface(each.pkg, sources) : null;

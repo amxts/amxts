@@ -95,6 +95,44 @@ export default {
 		en: `The folder with the project's plugins; \`"plugins"\` by default.`,
 		ru: `Папка с плагинами проекта; по умолчанию \`"plugins"\`.`,
 	},
+	'AmxtsConfig.plugins': {
+		en: `
+			Folders inside the plugins folder whose \`.ts\` files are plugins too, beside
+			its top: \`["games"]\`, or \`[{ path: "games", prefix: "minigame_" }]\` -
+			\`games/hns.ts\` is then \`minigame_hns.aot\`. Any other folder holds code
+			the plugins import.
+		`,
+		ru: `
+			Папки внутри папки плагинов, \`.ts\`-файлы которых — тоже плагины, кроме её
+			верхнего уровня: \`["games"]\` или \`[{ path: "games", prefix: "minigame_" }]\` —
+			тогда \`games/hns.ts\` — это \`minigame_hns.aot\`. Остальные папки — код,
+			который плагины импортируют.
+		`,
+	},
+	'AmxtsConfig.dir': {
+		en: `Folders inside the plugins folder that have a role.`,
+		ru: `Папки внутри папки плагинов, у которых есть роль.`,
+	},
+	'AmxtsPluginFolder': {
+		en: `A folder of plugins in \`plugins\` of \`amxts.config.ts\`.`,
+		ru: `Папка плагинов в \`plugins\` файла \`amxts.config.ts\`.`,
+	},
+	'AmxtsPluginFolder.path': {
+		en: `The folder, inside the plugins folder, e.g. \`"games"\`.`,
+		ru: `Папка внутри папки плагинов, например \`"games"\`.`,
+	},
+	'AmxtsPluginFolder.prefix': {
+		en: `The start of its plugins' names on the server, e.g. \`"minigame_"\`: \`games/hns.ts\` is then \`minigame_hns.aot\`.`,
+		ru: `Начало имён её плагинов на сервере, например \`"minigame_"\`: тогда \`games/hns.ts\` — это \`minigame_hns.aot\`.`,
+	},
+	'AmxtsDirs': {
+		en: `\`dir\` in \`amxts.config.ts\`: folders inside the plugins folder that have a role.`,
+		ru: `\`dir\` в \`amxts.config.ts\`: папки внутри папки плагинов, у которых есть роль.`,
+	},
+	'AmxtsDirs.api': {
+		en: `The modules the project's plugins share (\`~/api/duel\`, served by the plugin \`duel\`); \`"modules"\` by default.`,
+		ru: `Модули, общие для плагинов проекта (\`~/api/duel\` обслуживает плагин \`duel\`); по умолчанию \`"modules"\`.`,
+	},
 	'AmxtsConfig.outDir': {
 		en: `The folder the build writes the \`.aot\` files and \`plugins.ini\` to; \`"dist"\` by default.`,
 		ru: `Папка, куда сборка пишет файлы \`.aot\` и \`plugins.ini\`; по умолчанию \`"dist"\`.`,

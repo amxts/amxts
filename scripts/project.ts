@@ -52,6 +52,12 @@
 //   ~/<name>.ts                 the module's owner: its natives file, or one
 //                               generated for a module without natives
 //
+// The modules the project's plugins share are its plugins folder's modules/,
+// or the folder `dir.api` names: that folder is ~/modules/ (plugins/api/duel.ts
+// is ~/modules/duel.ts), and a folder modules/ beside it is ~/modules~/. Its
+// owner is the plugin of its name at the top of the plugins folder or of a
+// folder `plugins` names, and the module's calls go by that plugin's .aot.
+//
 // Imports are rewritten on the way in: "@amxts/core" is the facade,
 // "@amxts/core/<x>" is ~/<x>, a module package's name is ~/modules/<name>,
 // and a relative import inside a package is the same file by its place in
@@ -106,6 +112,10 @@ export interface AmxtsConfig {
 	modules?: string[];
 	/** Where the project's plugins are, from the project's folder: "plugins". */
 	pluginsDir?: string;
+	/** Folders inside the plugins folder whose .ts files are plugins too: "games", or `{ path: "games", prefix: "minigame_" }`. */
+	plugins?: (string | { path: string; prefix?: string })[];
+	/** Folders inside the plugins folder that have a role: `api`, the modules plugins share ("modules"). */
+	dir?: { api?: string };
 	/** Where the build writes the .aot files and plugins.ini: "dist". */
 	outDir?: string;
 	/** The server the project is for, "rehlds" or "hlds": which includes the amxts command fetches without a server. */
@@ -172,10 +182,20 @@ export interface ModulePackage {
 	definition: ModuleDefinition;
 }
 
+/** A folder of plugins: its path inside the plugins folder, with forward slashes, and the start of its .aot names. */
+export interface PluginFolder {
+	path: string;
+	prefix: string;
+}
+
 export interface Project {
 	dir: string;
 	config: AmxtsConfig | null;
 	pluginsDir: string;
+	/** The folders whose .ts files are plugins: the plugins folder's top (`path` ""), then the config's `plugins`. */
+	pluginFolders: PluginFolder[];
+	/** The folder of the modules the project's plugins share, inside the plugins folder: "modules", or the config's `dir.api`. */
+	apiDir: string;
 	outDir: string;
 	/** Every module package found: the project itself, modules/*, node_modules. */
 	packages: ModulePackage[];
@@ -592,10 +612,13 @@ export function loadProject(dir = process.cwd()): Project {
 
 	const pluginsDir = resolve(at, config?.pluginsDir ?? 'plugins');
 	const modules = ordered(listed, problems);
+	const apiDir = folderPath(config?.dir?.api ?? 'modules', 'dir.api', problems);
 	const project: Project = {
 		dir: at,
 		config,
 		pluginsDir: existsSync(pluginsDir) ? pluginsDir : CORE_PLUGINS,
+		pluginFolders: pluginFolders(config?.plugins, apiDir, problems),
+		apiDir,
 		outDir: resolve(at, config?.outDir ?? 'dist'),
 		packages,
 		modules,
@@ -609,10 +632,35 @@ export function loadProject(dir = process.cwd()): Project {
 	return project;
 }
 
+/** A folder the config names inside the plugins folder, with forward slashes and no `./` or trailing slash. */
+function folderPath(given: unknown, key: string, problems: string[]): string {
+	const path = typeof given === 'string' ? posix(given).replace(/^\.\/+/, '').replace(/\/+$/, '') : '';
+	if (!path || path === '.' || path.split('/').includes('..') || isAbsolute(path)) {
+		problems.push(`${CONFIG_FILE}: ${key} is a folder inside the plugins folder, such as "games" - not ${JSON.stringify(given)}`);
+	}
+	return path;
+}
+
+/** The plugins folder's top, then the config's `plugins`: each once, none the shared modules' folder. */
+function pluginFolders(given: AmxtsConfig['plugins'], apiDir: string, problems: string[]): PluginFolder[] {
+	const folders: PluginFolder[] = [{ path: '', prefix: '' }];
+	if (given !== undefined && !Array.isArray(given)) problems.push(`${CONFIG_FILE}: plugins is a list of folders - ["games"], or [{ path: "games", prefix: "minigame_" }]`);
+	for (const entry of Array.isArray(given) ? given : []) {
+		const object = typeof entry === 'object' && entry !== null;
+		const path = folderPath(object ? entry.path : entry, 'plugins', problems);
+		const prefix = object ? entry.prefix ?? '' : '';
+		if (typeof prefix !== 'string' || !/^[\w-]*$/.test(prefix)) problems.push(`${CONFIG_FILE}: plugins: the prefix of ${path} is letters, digits, _ and - only`);
+		else if (path === apiDir) problems.push(`${CONFIG_FILE}: plugins: ${path} is dir.api, the modules plugins share - its files are not plugins`);
+		else if (folders.some(folder => folder.path === path)) problems.push(`${CONFIG_FILE}: plugins names ${path} twice`);
+		else if (path) folders.push({ path, prefix });
+	}
+	return folders;
+}
+
 /** Keys under a module's configKey that it has no default for: a typo, or an option it does not have. */
 function checkOptionKeys(project: Project, problems: string[]) {
 	// A key no listed module takes would be dropped without a word.
-	const keys = new Set(['modules', 'pluginsDir', 'outDir', 'target', 'imports', 'pawn', ...project.modules.map(pkg => pkg.definition.configKey).filter(Boolean)]);
+	const keys = new Set(['modules', 'pluginsDir', 'plugins', 'dir', 'outDir', 'target', 'imports', 'pawn', ...project.modules.map(pkg => pkg.definition.configKey).filter(Boolean)]);
 	for (const key of Object.keys(project.config!)) {
 		if (!keys.has(key)) problems.push(`${CONFIG_FILE}: ${key} - no module in modules takes it (its defineModule has no configKey "${key}")`);
 	}
@@ -689,18 +737,34 @@ export function coreEntryOf(place: string): string {
 }
 
 /**
- * The project's own plugins: the .ts files at the top of its plugins folder.
- * A module's own folder, without a plugins folder, has none - only the core's
- * repository builds the core's as/.
+ * The project's own plugins: the .ts files at the top of its plugins folder
+ * and of each folder the config's `plugins` names. A module's own folder,
+ * without a plugins folder, has none - only the core's repository builds the
+ * core's as/.
  */
 export function projectPlugins(project: Project): string[] {
 	const core = resolve(project.pluginsDir) === resolve(CORE_PLUGINS);
 	if (core && resolve(project.dir) !== resolve(CORE_DIR)) return [];
 	const stale = new Set(staleCopies(project));
-	return readdirSync(project.pluginsDir)
-		.filter(f => f.endsWith('.ts') && !f.endsWith('.d.ts') && !(core && NOT_PLUGINS.has(f)))
-		.map(f => join(project.pluginsDir, f))
-		.filter(f => !stale.has(f));
+	return project.pluginFolders.flatMap(({ path }) => {
+		const folder = join(project.pluginsDir, path);
+		if (path && !existsSync(folder)) return [];
+		return readdirSync(folder)
+			.filter(f => f.endsWith('.ts') && !f.endsWith('.d.ts') && !(core && NOT_PLUGINS.has(f)))
+			.map(f => join(folder, f))
+			.filter(f => !stale.has(f));
+	});
+}
+
+/** The folder of plugins a file is at the top of, or null. */
+export function pluginFolderOf(project: Project, source: string): PluginFolder | null {
+	const at = posix(relative(project.pluginsDir, dirname(resolve(source))));
+	return project.pluginFolders.find(folder => folder.path === at) ?? null;
+}
+
+/** A plugin's name on the server, its .aot's: its file's, after its folder's prefix - games/hns.ts is minigame_hns. */
+export function pluginName(project: Project, source: string): string {
+	return `${pluginFolderOf(project, source)?.prefix ?? ''}${basename(source).replace(/\.ts$/, '')}`;
 }
 
 /** A server's addons/amxts: the module's files, written over on every start. */
@@ -840,7 +904,7 @@ export class Sources {
 	 */
 	private isPlugin(real: string): boolean {
 		const own = resolve(this.project.pluginsDir) !== resolve(CORE_PLUGINS);
-		if (own && inside(this.project.pluginsDir, real)) return !posix(relative(this.project.pluginsDir, real)).startsWith('modules/');
+		if (own && inside(this.project.pluginsDir, real)) return !posix(relative(this.project.pluginsDir, real)).startsWith(`${this.project.apiDir}/`);
 		if (inside(CORE_PLUGINS, real) || this.packageOf(real)) return false;
 		// On a server the plugins folder holds the core's as/ and the modules too.
 		const place = this.rel(this.place(real));
@@ -888,8 +952,28 @@ export class Sources {
 		const moved = /^(.+)~\.ts$/.exec(place)?.[1];
 		const file = moved && this.coreHas(`${moved}.ts`) ? `${moved}.ts` : place;
 		if (file === place && this.coreHas(place)) return null;
-		const own = join(this.project.pluginsDir, file);
+		const own = join(this.project.pluginsDir, this.diskPath(file));
 		return existsSync(own) && !this.stale.has(own) ? own : null;
+	}
+
+	/**
+	 * A path inside the plugins folder as the tree has it. The modules the
+	 * plugins share are at modules/ wherever `dir.api` keeps them; a folder
+	 * called modules beside them is at modules~/.
+	 */
+	private treePath(path: string): string {
+		const api = this.project.apiDir;
+		if (api === 'modules') return path;
+		if (path.startsWith(`${api}/`)) return `modules/${path.slice(api.length + 1)}`;
+		return path.startsWith('modules/') ? `modules~/${path.slice('modules/'.length)}` : path;
+	}
+
+	/** treePath backwards: where a place in the tree is inside the plugins folder. */
+	private diskPath(place: string): string {
+		const api = this.project.apiDir;
+		if (api === 'modules') return place;
+		if (place.startsWith('modules/')) return `${api}/${place.slice('modules/'.length)}`;
+		return place.startsWith('modules~/') ? `modules/${place.slice('modules~/'.length)}` : place;
 	}
 
 	/** Whether a file on disk is the project's own, in its plugins folder over the core's as/. */
@@ -897,18 +981,24 @@ export class Sources {
 		return resolve(this.project.pluginsDir) !== resolve(this.root) && inside(this.project.pluginsDir, real) && !this.packageOf(real);
 	}
 
+	/** Whether an own file's place in the tree is not its path in the plugins folder: hooks.ts is ~/hooks~.ts, api/x.ts ~/modules/x.ts. */
+	private movedInTree(file: string): boolean {
+		return this.rel(this.place(file)) !== posix(relative(this.project.pluginsDir, file));
+	}
+
 	/**
-	 * An own file's import of the project's file at a place the core has -
-	 * `./hooks`, `~/hooks` - as that file's place, `~/hooks~`; null for any
-	 * other import.
+	 * An own file's import of the project's file at another place in the tree
+	 * than its path - `./hooks`, `~/hooks`, `~/api/duel` - as that file's place,
+	 * `~/hooks~`, `~/modules/duel`; any import of an own file from a file
+	 * moved so, since its relative paths no longer hold; null for any other import.
 	 */
 	private ownMoved(real: string, spec: string): string | null {
 		if (!this.isOwn(real)) return null;
 		const base = spec.startsWith('~/') ? join(this.project.pluginsDir, spec.slice(2)) : spec.startsWith('.') ? resolve(dirname(real), spec) : null;
 		const file = base && [base.endsWith('.ts') ? base : `${base}.ts`, join(base, 'index.ts')].find(each => existsSync(each) && !this.stale.has(each));
 		if (!file || !inside(this.project.pluginsDir, file)) return null;
-		const place = posix(relative(this.project.pluginsDir, file));
-		return this.coreHas(place) ? `~/${place.replace(/\.ts$/, '~')}` : null;
+		if (!this.movedInTree(file) && !(spec.startsWith('.') && this.movedInTree(real))) return null;
+		return `~/${this.rel(this.place(file)).replace(/\.ts$/, '')}`;
 	}
 
 	/** The file on disk at this place in the tree, or null. */
@@ -955,6 +1045,20 @@ export class Sources {
 		return this.real(path) !== null || this.generated(path) !== null;
 	}
 
+	/**
+	 * The plugin that owns ~/modules/<name>: the one of that name at the top
+	 * of the plugins folder - a package's natives or generated owner among
+	 * them - or else of a folder the config's `plugins` names. Its place in the
+	 * tree, and its name on the server, which the module's calls go by.
+	 */
+	ownerOf(name: string): { place: string; service: string } | null {
+		for (const folder of this.project.pluginFolders) {
+			const place = join(this.root, folder.path ? this.treePath(`${folder.path}/${name}.ts`) : `${name}.ts`);
+			if (this.exists(place)) return { place, service: `${folder.prefix}${name}` };
+		}
+		return null;
+	}
+
 	/** What the build compiles as a module's owner: its natives file, or the generated one's place. */
 	ownerSource(pkg: ModulePackage): string {
 		return pkg.natives ?? join(this.root, `${pkg.short}.ts`);
@@ -969,7 +1073,7 @@ export class Sources {
 			if (ofPackage(pkg, path)) return join(this.root, 'modules', pkg.short, relative(pkg.dir, path));
 		}
 		if (this.project.pluginsDir !== resolve(this.root) && inside(this.project.pluginsDir, path)) {
-			const place = relative(this.project.pluginsDir, path);
+			const place = this.treePath(posix(relative(this.project.pluginsDir, path)));
 			return join(this.root, this.coreHas(place) ? place.replace(/\.ts$/, '~.ts') : place);
 		}
 		return path;
