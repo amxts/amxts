@@ -183,6 +183,19 @@ test('joinTeam: the side, with reapi and without it; no side to join is false', 
 	}
 });
 
+test('kill: a suicide that costs a frag, or none with keepFrags; on the fake server too', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice');
+	const bob = server.join('Bob');
+
+	alice.command('pl_kill');
+	bob.command('pl_kill keep');
+
+	expect(alice.console).toBe('false 0 -1');
+	expect(bob.console).toBe('false 0 0');
+	expect([alice.alive, alice.deaths, bob.alive, bob.deaths]).toEqual([false, 1, false, 1]);
+});
+
 test('playSound: SendAudio to the player alone, at the normal pitch', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');

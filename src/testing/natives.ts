@@ -260,8 +260,19 @@ function executeHam(call: NativeCall, fn: number, id: number, tail: number[], ho
 	const shape = [...tables().hooks.values()].find(one => one.ham === fn);
 	const args = tail.map((at, i) => shape?.floats.has(i + 1) ? call.memory.float(at) : call.memory.cell(at));
 	call.server.hamCalls.push({ fn, entity: id, args, hooks });
-	if (!hooks || !shape) return 0;
-	return Number(call.server.runHam(shape, id, args).result) | 0;
+	const result = hooks && shape ? Number(call.server.runHam(shape, id, args).result) | 0 : 0;
+	if (fn === tables().constants.get('Ham_Killed')) killedAsTheGame(call, id, args[0]);
+	return result;
+}
+
+/** The game's Killed on a living player: he dies; his own death costs him a frag, another player's gives the killer one. */
+function killedAsTheGame(call: NativeCall, id: number, attacker: number): void {
+	const victim = player(call, id);
+	if (!victim?.alive) return;
+	const suicide = attacker === id;
+	kill(victim, !suicide);
+	const killer = suicide ? undefined : player(call, attacker);
+	if (killer) killer.frags += 1;
 }
 
 /** A vector given by address: its three numbers. */
@@ -689,6 +700,9 @@ export const NATIVES: Record<string, Native> = {
 
 	get_entvar: (c, [id, field, ...tail]) => readField(c, entity(c, id), field, tail),
 	set_entvar: (c, [id, field, at]) => writeField(c, entity(c, id), field, at),
+	// fakemeta's: pev_health is var_health, and the value comes the same way.
+	pev: (c, [id, key, ...tail]) => readField(c, entity(c, id), entvarOf('pev_', key), tail),
+	set_pev: (c, [id, key, at]) => writeField(c, entity(c, id), entvarOf('pev_', key), at),
 	get_member: (c, [id, field, ...tail]) => {
 		const element = tables().arrayFields.has(field) ? (tail[0] ? c.memory.cell(tail[0]) : 0) : undefined;
 		return readField(c, entity(c, id), field, element === undefined ? tail : tail.slice(1), element);

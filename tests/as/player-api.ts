@@ -50,6 +50,10 @@ server.addCommand("pl_lang", ({ player }) => language(player));
 server.addCommand("pl_auth", ({ player }) => player.print(`${player.authType} ${player.protocol} ${player.authKey}`, "console"));
 server.addCommand("pl_voice [routes]", ({ player, routes }) => voice(player, (routes ?? "").split(" ")));
 server.addCommand<JoinArgs>("pl_join <team>", ({ player, team }) => join(player, team));
+server.addCommand("pl_kill [keep]", ({ player, keep }) => {
+	player.kill({ keepFrags: keep == "keep" });
+	player.print(`${player.isAlive} ${player.health} ${player.frags}`, "console");
+});
 server.addCommand("pl_sound", ({ player }) => sound(player));
 server.addCommand("pl_cvar <name>", ({ player, name }) => askCvar(player, name));
 server.addCommand("pl_cvar_left", ({ player }) => askUntilLeft(player));
