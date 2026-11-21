@@ -6,11 +6,9 @@
 
 ### 📣 Some news
 
-#### 📦 0.3.5 is fixed on npm
+#### 📦 Installing from npm works again
 
-`@amxts/core@0.3.5` reached npm with dependencies that point at folders on my machine, and npm cannot install it: a new project stopped at `npm install`. npm never takes a version twice, so 0.3.5 is deprecated, and 0.3.6 is the same core with what is below. If your project installed 0.3.5 from npm, it did not install: move to 0.3.6.
-
-**👉 Only the release script publishes now: a plain `npm publish` in a checkout refuses to run.**
+`@amxts/core@0.3.5` was published broken: `npm install` failed on it. It is deprecated now, and 0.3.6 replaces it.
 
 ### 👀 Highlights
 
