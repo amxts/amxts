@@ -25,14 +25,14 @@ export default defineConfig({
 
 ```
 plugins/
-├── core.ts              core.aot
-├── core/                code core.ts imports
+├── core.ts        # plugin → core.aot
+├── core/          # core.ts's code, not plugins
 ├── games/
-│   └── hns.ts           minigame_hns.aot
+│   └── hns.ts     # plugin → minigame_hns.aot
 ├── modules/
-│   └── duel.ts          duel.aot
+│   └── duel.ts    # plugin → duel.aot, runs api/duel.ts
 └── api/
-    └── duel.ts          ~/api/duel, served by duel.aot
+    └── duel.ts    # shared with every plugin: import * as duel from "~/api/duel"
 ```
 
 `dir.api` keeps the modules your plugins share in a folder of your choice, `modules/` by default. A module's plugin can sit in any folder of plugins, a prefixed one too, and the other plugins' calls find it there. Two files that come to one `.aot` name stop the build. A project without these keys builds as before.
