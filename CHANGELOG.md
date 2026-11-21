@@ -17,7 +17,7 @@ const bytes = new Uint8Array(4);
 for (const i of bytes.keys()) bytes[i] = i;
 ```
 
-#### 🪪 What each client is sent of a player
+#### 👤 What each client is sent of a player
 
 The new `sendUserInfo` game event hears a player's userinfo on its way to each client. Writing a key of `event.info` changes only what that client sees of the player, such as the name in the scoreboard and the kill notices. The player, the game and the other clients keep the real one, so nobody is renamed and the chat says nothing. `player.info.resend()` sends a player's userinfo to every client now. Both work with ReHLDS and on plain HLDS, on Linux and Windows.
 
