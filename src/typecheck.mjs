@@ -1,5 +1,6 @@
-// `amxts typecheck`: TypeScript over the project (.amxts/tsconfig.json, which
-// `prepare` writes), and what TypeScript allows and the build does not:
+// The first half of `amxts typecheck` (scripts/typecheck.ts): TypeScript over
+// the project (.amxts/tsconfig.json, which `prepare` writes), and what
+// TypeScript allows and the build reads otherwise:
 //
 // - an event or a message named by a variable. A parameter typed
 //   `K extends keyof M` (server.addEventListener, addMessageListener, ...)
@@ -11,11 +12,8 @@
 //   (scripts/server-env.ts);
 // - `const rows = []`: TypeScript reads the element type off the later
 //   pushes, the build needs it written.
-//
-//   node src/typecheck.mjs              in the project's folder; exits 1 on any error
 import { resolve, sep } from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 /**
@@ -49,6 +47,10 @@ export function buildProblems(program, root = process.cwd()) {
 		if (ts.isVariableDeclaration(node) && !node.type && node.initializer && ts.isArrayLiteralExpression(node.initializer) && node.initializer.elements.length === 0) {
 			found.push({ node, message: `the build does not read an empty array's element type off its later use - write it: const ${node.name.getText()}: Row[] = []` });
 		}
+		if (ts.isPropertyDeclaration(node) && !node.type && node.initializer && !saysItsType(node.initializer)) {
+			const type = checker.typeToString(checker.getTypeAtLocation(node), node, ts.TypeFormatFlags.NoTruncation);
+			found.push({ node, message: `the build reads a field's type off a literal, a \`new\` or an arrow alone - write it: ${node.name.getText()}: ${type} = ${node.initializer.getText()}` });
+		}
 		ts.forEachChild(node, visit);
 	};
 
@@ -57,6 +59,17 @@ export function buildProblems(program, root = process.cwd()) {
 		if (!file.isDeclarationFile && path.startsWith(inside) && !/[\\/](?:node_modules|\.amxts)[\\/]/.test(path)) visit(file);
 	}
 	return found;
+}
+
+/**
+ * Whether a field's initializer says its type to the build as it is: true or
+ * false, a number, `-` a number, text, a `new`, an arrow (which the build
+ * reads further, and asc's check after this one judges).
+ */
+function saysItsType(node) {
+	if (ts.isParenthesizedExpression(node)) return saysItsType(node.expression);
+	if (ts.isPrefixUnaryExpression(node)) return (node.operator === ts.SyntaxKind.MinusToken || node.operator === ts.SyntaxKind.PlusToken) && saysItsType(node.operand);
+	return node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword || ts.isNumericLiteral(node) || ts.isStringLiteralLike(node) || ts.isTemplateExpression(node) || ts.isNewExpression(node) || ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 }
 
 /** Whether a call's function is the facade's env(). */
@@ -85,11 +98,17 @@ function described({ node, message }) {
 	return `${file.fileName}(${line + 1},${character + 1}): error amxts: ${message}`;
 }
 
-function main() {
+/**
+ * TypeScript over the project in the current folder, and what the build reads
+ * otherwise, printed as tsc prints its errors.
+ *
+ * @returns {number} how many errors
+ */
+export function typescriptErrors() {
 	const config = ts.getParsedCommandLineOfConfigFile('.amxts/tsconfig.json', { noEmit: true }, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} });
 	if (!config) {
 		process.stdout.write('error: .amxts/tsconfig.json cannot be read - run npx amxts prepare\n');
-		process.exit(1);
+		return 1;
 	}
 
 	const program = ts.createProgram({ rootNames: config.fileNames, options: config.options });
@@ -103,8 +122,5 @@ function main() {
 
 	const problems = buildProblems(program);
 	for (const problem of problems) process.stdout.write(`${described(problem)}\n`);
-	const errors = diagnostics.filter(each => each.category === ts.DiagnosticCategory.Error).length + problems.length;
-	process.exit(errors > 0 ? 1 : 0);
+	return diagnostics.filter(each => each.category === ts.DiagnosticCategory.Error).length + problems.length;
 }
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

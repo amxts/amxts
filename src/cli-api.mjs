@@ -71,6 +71,7 @@ const SCRIPTS = {
 	build: 'build-wasm.ts',
 	check: 'check.ts',
 	upgrade: 'upgrade.ts',
+	typecheck: 'typecheck.ts',
 };
 
 /**
@@ -91,8 +92,10 @@ const SCRIPTS = {
  * - `upgrade` rewrites the project's code to this core's API, listing each change;
  *   `--dry-run` writes nothing, `--report <file>` writes `{ changes, left }` there as JSON
  *   and leaves what is left to do by hand to the caller to print;
- * - `typecheck` runs TypeScript over the project, after `prepare`, and says
- *   what TypeScript allows and the build does not (src/typecheck.mjs).
+ * - `typecheck` runs TypeScript over the project, after `prepare`, says what
+ *   TypeScript allows and the build does not (src/typecheck.mjs), then runs
+ *   AssemblyScript's compiler over each plugin as the build would, without
+ *   making the binaries (scripts/typecheck.ts).
  *
  * A failure is printed by the task itself and ends it with a non-zero code.
  *
@@ -101,9 +104,6 @@ const SCRIPTS = {
  * @returns {Task} what runs it, and its arguments
  */
 export function task(name, args = []) {
-	if (name === 'typecheck') {
-		return { runtime: 'node', args: [join(coreDir, 'src', 'typecheck.mjs'), ...args] };
-	}
 	const script = SCRIPTS[name];
 	if (!script) throw new Error(`@amxts/core ${version} has no task "${name}"`);
 	// On Node, with the hook that loads the core's TypeScript and the

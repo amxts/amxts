@@ -68,3 +68,32 @@ test('env() with a name or a default that is not written out is reported', () =>
 
 	expect(buildProblems(program).map(({ node }: { node: ts.Node }) => node.getText())).toEqual(['env(name)', 'env("F", limit)']);
 });
+
+const FIELDS = `
+declare function flags(): boolean[];
+declare const LIMIT: number;
+class Vote {
+	voted = flags();
+	limit = LIMIT;
+	typed: boolean[] = flags();
+	count = 0;
+	below = -1;
+	name = "vote";
+	open = false;
+	list = new Array<string>();
+	reset = () => {};
+}
+`;
+
+test('a field whose type the build would read off a call or a constant is reported, with the type to write', () => {
+	const options = { noEmit: true, strict: true, target: ts.ScriptTarget.ES2022, noLib: true };
+	const host = ts.createCompilerHost(options);
+	const read = host.getSourceFile;
+	host.getSourceFile = (name, version) => name === 'vote.ts' ? ts.createSourceFile(name, FIELDS, version, true) : read(name, version);
+	const program = ts.createProgram(['vote.ts'], options, host);
+
+	expect(buildProblems(program).map(({ message }: { message: string }) => message.replace(/^.* - /, ''))).toEqual([
+		'write it: voted: boolean[] = flags()',
+		'write it: limit: number = LIMIT',
+	]);
+});

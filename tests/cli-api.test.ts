@@ -25,16 +25,12 @@ test('the cli-api: the core\'s version, the contract\'s, where the core is', asy
 
 test('the tasks: every one with Node', async () => {
 	const api = await cliApi();
-	for (const [name, script] of [['prepare', 'prepare.ts'], ['build', 'build-wasm.ts'], ['check', 'check.ts'], ['upgrade', 'upgrade.ts']]) {
+	for (const [name, script] of [['prepare', 'prepare.ts'], ['build', 'build-wasm.ts'], ['check', 'check.ts'], ['upgrade', 'upgrade.ts'], ['typecheck', 'typecheck.ts']]) {
 		const task = api.task(name, ['--deploy']);
 		expect(task.runtime).toBe('node');
 		expect(task.args).toEqual(['--env-file-if-exists=.env', '--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(CORE, 'scripts', 'node-ts.mjs')).href, join(CORE, 'scripts', 'run.ts'), script, '--deploy']);
 		expect(existsSync(join(CORE, 'scripts', script))).toBe(true);
 	}
-	const typecheck = api.task('typecheck');
-	expect(typecheck.runtime).toBe('node');
-	expect(existsSync(typecheck.args[0])).toBe(true);
-	expect(typecheck.args).toEqual([join(CORE, 'src', 'typecheck.mjs')]);
 	expect(() => api.task('deploy')).toThrow('has no task "deploy"');
 });
 

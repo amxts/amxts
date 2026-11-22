@@ -309,12 +309,30 @@ export async function compileToWasm(
 	// A quick build compiles every plugin with the scheduler's exports, once,
 	// and one that never waits loses them (finishing).
 	const made = await compileWasm(plugin, plugin.quick ? ASYNC_EXPORTS : BASE_EXPORTS, flags, level, natives);
-	if (typeof made === 'string') return made;
+	if (typeof made === 'string' || !made) return made;
 	mkdirSync(dirname(resolve(wasm)), { recursive: true });
 	// The modules' section even when empty: a .aot without it is of an older core, whose versions are unknown.
 	const sections = withSection(withSection(withSection(made.binary, MAP_SECTION, mapText(made.map)), ABI_SECTION, pluginAbi(importsOf(made.binary))), MODULES_SECTION, made.modules.join('\n'));
 	writeFileSync(wasm, made.env.length ? withSection(sections, ENV_SECTION, made.env.join('\n')) : sections);
 	return null;
+}
+
+/**
+ * What a check's last transform throws once asc compiled the plugin without
+ * an error: asc's optimiser and the output - most of a compile's time - do
+ * not run.
+ */
+const CHECKED = new Error('the plugin compiles');
+
+/**
+ * What asc says of a plugin, as a build would compile it - the same files,
+ * auto-imports, proxies, natives and settings - without making the binary:
+ * `amxts typecheck`'s second half. What went wrong, or null.
+ */
+export async function checkPlugin(plugin: Pick<Plugin, 'source' | 'root'>): Promise<string | null> {
+	// With the scheduler's exports from the start: a plugin that makes a promise is not compiled twice.
+	const made = await compileWasm(plugin, ASYNC_EXPORTS, [], null, [], true);
+	return typeof made === 'string' ? made : null;
 }
 
 /**
@@ -472,7 +490,8 @@ async function compileWasm(
 	flags: string[],
 	level: number | null,
 	natives?: PluginNative[],
-): Promise<Compiled | string> {
+	check = false,
+): Promise<Compiled | string | null> {
 	// --exportTable is not optional: a handler reaches the module as its index
 	// in the function table, and without this asc emits no table at all, so
 	// every index points at nothing.
@@ -541,7 +560,7 @@ async function compileWasm(
 				shared.transform,
 				// A project for plain HLDS listens for no event reapi alone delivers.
 				...targetTransforms(sources.project.config?.target),
-				finishing(hoodExports, level, (first, names) => (functions = { first, names })),
+				check ? { afterCompile: () => { throw CHECKED; } } : finishing(hoodExports, level, (first, names) => (functions = { first, names })),
 			],
 		},
 	);
@@ -550,6 +569,7 @@ async function compileWasm(
 	// "not found" after it is only the consequence.
 	if (sources.problems.length) return [...sources.problems, stderr.toString()].join('\n').trim();
 	if (env.problems.length) return env.problems.join('\n');
+	if (error === CHECKED) return null;
 	if (error === MAKES_PROMISE) {
 		if (natives) natives.length = 0;
 		return compileWasm(plugin, ASYNC_EXPORTS, flags, level, natives);
