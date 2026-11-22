@@ -1540,6 +1540,15 @@ export class SentUserInfo {
 		}
 		_chainSetText(1, parts.join("\\"));
 	}
+
+	/**
+	 * Empties what is sent, which is what the engine sends of a player who
+	 * left: this client forgets the player - he is gone from its scoreboard -
+	 * until his userinfo is sent to it again.
+	 */
+	clear(): void {
+		_chainSetText(1, "");
+	}
 }
 
 /** @hidden What every `sendUserInfo` event's `info` is: it reads the call that runs. */

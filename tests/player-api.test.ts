@@ -387,3 +387,19 @@ test.each([true, false])('info.resend sends his userinfo to each client through 
 	expect(alice.name).toBe('Alice');
 	expect(alice.info.get('model')).toBe('gign');
 });
+
+test.each([true, false])('info.clear() sends a client an empty userinfo, as of a player who left, and a key set after it is all that goes (ReHLDS: %s)', async (chains) => {
+	const server = await loadPlugin(PLUGIN, { chains });
+	const alice = server.join('Alice');
+	const bob = server.join('Bob');
+	const carol = server.join('Carol');
+
+	alice.command('pl_hide');
+	const toBob = server.fireHook('sendUserInfo', [alice.id, '\\name\\Alice\\model\\gign', bob.id]);
+	const toCarol = server.fireHook('sendUserInfo', [alice.id, '\\name\\Alice\\model\\gign', carol.id]);
+
+	expect(bob.console).toBe('cleared []\ncleared []');
+	expect(toBob.args[1]).toBe('');
+	expect(toCarol.args[1]).toBe('\\name\\nobody');
+	expect(alice.name).toBe('Alice');
+});

@@ -3020,6 +3020,18 @@ export default {
 			записывается.
 		`,
 	},
+	'SentUserInfo.clear': {
+		en: `
+			Empties what is sent, which is what the engine sends of a player who
+			left: this client forgets the player - he is gone from its scoreboard -
+			until his userinfo is sent to it again.
+		`,
+		ru: `
+			Опустошает то, что уходит, — это же движок отправляет об игроке, который
+			вышел: этот клиент забывает игрока — тот пропадает из его таблицы
+			счёта, — пока его userinfo не отправят ему снова.
+		`,
+	},
 	'Client.isHltv': {
 		en: `
 			\`true\` for an HLTV proxy: a spectator's relay, which \`server.players\`

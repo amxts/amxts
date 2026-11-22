@@ -201,10 +201,25 @@ server.addCommand("pl_hud_line", ({ player }) => {
 
 // What one client is sent of another's userinfo: Bob sees Alice as
 // "Alice + Bob", and Alice sees her own name.
+// A hidden player is sent empty, as one who left, and a key written after
+// that is all the client is sent.
+let hidden: Player | null = null;
 game.addEventListener("sendUserInfo", (event) => {
 	const receiver = event.receiver;
 	if (receiver == null || receiver == event.player) return;
+
+	if (event.player == hidden) {
+		event.info.clear();
+		receiver.print(`cleared [${event.info.get("name")}]`, "console");
+		if (receiver.name == "Carol") event.info.set("name", "nobody");
+		return;
+	}
+
 	event.info.set("name", `${event.info.get("name")} + ${receiver.name}`);
 	receiver.print(`${event.info.get("name")} ${event.info.get("model")} [${event.info.get("_vgui_menus")}]`, "console");
 });
 server.addCommand("pl_resend", ({ player }) => player.info.resend());
+server.addCommand("pl_hide", ({ player }) => {
+	hidden = player;
+	player.info.resend();
+});
