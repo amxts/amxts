@@ -36,7 +36,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { MESSAGE_NAMES } from './client-messages';
-import { CORE_ENTRIES, CORE_PLUGINS, loadProject, SERVER_FOLDER, serverDir, staleCopies } from './project';
+import { CORE_ENTRIES, CORE_PLUGINS, loadProject, RENAMED_PACKAGES, SERVER_FOLDER, serverDir, staleCopies } from './project';
 import { apiFiles } from './system';
 import { parseUsage } from './typed-commands';
 import { c, log } from './ui';
@@ -57,9 +57,6 @@ export interface Change {
 
 /** The facade's own files, whose exports it gives as its own. */
 const FACADE_PARTS = ['entities', 'events', 'flags', 'hooks', 'vector', 'effects', 'fetch'];
-
-/** The official modules that took another name: the old one, the new one. */
-const RENAMED_PACKAGES: Renames = new Map([['@amxts/resemiclip', '@amxts/semiclip']]);
 
 /**
  * What `~/<place>` meant and is now written: the core's entries, the files

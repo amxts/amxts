@@ -143,6 +143,12 @@ describe('amxts.config.ts', () => {
 		]);
 	});
 
+	test('an official module listed by the name it had says the name it has', () => {
+		const dir = project({ 'amxts.config.ts': 'export default defineConfig({ modules: ["@amxts/resemiclip"] });\n' });
+
+		expect(loadProject(dir).problems).toEqual(['amxts.config.ts: module "@amxts/resemiclip" is @amxts/semiclip now - npx amxts upgrade writes the new name into package.json and amxts.config.ts']);
+	});
+
 	test('target is the project\'s own key: "rehlds" or "hlds"', () => {
 		const dir = project({ 'amxts.config.ts': 'export default defineConfig({ modules: [], target: "hlds" });\n' });
 		expect(loadProject(dir).problems).toEqual([]);

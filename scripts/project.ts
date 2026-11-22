@@ -85,6 +85,9 @@ export const CORE_PLUGINS = join(CORE_DIR, 'as');
 
 export const CONFIG_FILE = 'amxts.config.ts';
 
+/** The official modules that took another name: the old one, the new one. */
+export const RENAMED_PACKAGES = new Map([['@amxts/resemiclip', '@amxts/semiclip']]);
+
 /**
  * The facade a compile reads, whose exports plugins use without an import:
  * the core's - or, on a server, where the plugins folder holds the core's
@@ -592,7 +595,8 @@ export function loadProject(dir = process.cwd()): Project {
 		listed = [];
 		for (const name of config.modules ?? []) {
 			const pkg = byName.get(name);
-			if (!pkg) problems.push(`${CONFIG_FILE}: module "${name}" is not installed - no package of that name with an "amxts" field in modules/ or node_modules`);
+			if (!pkg && RENAMED_PACKAGES.has(name)) problems.push(`${CONFIG_FILE}: module "${name}" is ${RENAMED_PACKAGES.get(name)} now - npx amxts upgrade writes the new name into package.json and ${CONFIG_FILE}`);
+			else if (!pkg) problems.push(`${CONFIG_FILE}: module "${name}" is not installed - no package of that name with an "amxts" field in modules/ or node_modules`);
 			else if (!listed.includes(pkg)) listed.push(pkg);
 		}
 		// What a listed module requires comes along: `modules:
