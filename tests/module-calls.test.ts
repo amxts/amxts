@@ -1,11 +1,16 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setup } from '@amxts/core/test-utils';
 // Calls of a project module from other plugins (scripts/shared-modules.ts)
 // that once answered zeros without a word: an owner that never imports its
-// module, and an exported function whose parameters have defaults.
+// module, an exported function whose parameters have defaults, and a plugin
+// built against another version of a module than its owner serves.
 import { afterAll, describe, expect, test, vi } from 'vitest';
-import { setProjectDir } from '../scripts/project';
+import { MODULES_SECTION } from '../scripts/compile';
+import { CORE_PLUGINS, setProjectDir } from '../scripts/project';
+import { pluginVersions, wrongVersions } from '../scripts/shared-modules';
+import { readSection } from '../scripts/source-map';
+import { compileWasmFile } from '../src/testing/compile';
 
 vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
 
@@ -79,5 +84,26 @@ describe('a project module called from another plugin', () => {
 		expect(server.native('test_given', alice.id)).toBe('Alice 2 1 full true');
 		expect(server.native('test_mode')).toBe(7);
 		expect(server.log).not.toContain('error');
+	});
+
+	test('the versions it serves and calls are in each plugin, and a call of another version is named', async () => {
+		setProjectDir(root);
+		const versions = async (plugin: string) => {
+			const wasm = join(root, 'out', `${plugin}.wasm`);
+			expect(await compileWasmFile({ source: join(root, 'plugins', `${plugin}.ts`), root: CORE_PLUGINS }, wasm)).toBeNull();
+			return pluginVersions(plugin, readSection(new Uint8Array(readFileSync(wasm)), MODULES_SECTION));
+		};
+		const lonely = await versions('lonely');
+		const caller = await versions('caller');
+		expect(lonely.lines).toEqual([['serves', 'lonely', expect.stringMatching(/^-?\d+$/)]]);
+		expect(caller.lines!.map(([kind, name]) => `${kind} ${name}`).sort()).toEqual(['calls grenades', 'calls lonely']);
+		expect(caller.lines!.find(([, name]) => name === 'lonely')![2]).toBe(lonely.lines![0][2]);
+
+		const dist = { where: 'dist', plugins: [lonely, caller] };
+		expect(wrongVersions([lonely, caller], [dist])).toEqual([]);
+		// The owner on the server is of another version; one an older core built says nothing.
+		const server = { where: 'server', plugins: [pluginVersions('lonely', 'serves lonely 1')] };
+		expect(wrongVersions([caller], [dist, server])).toEqual(['caller calls lonely of another version than server/lonely.aot serves']);
+		expect(wrongVersions([caller], [{ where: 'server', plugins: [pluginVersions('lonely', null)] }])).toEqual([]);
 	});
 });

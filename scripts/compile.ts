@@ -180,11 +180,20 @@ const QUICK_LEVELS = [['--opt-level=0'], ['--opt-level=0', '--mllvm=-optimize-re
 const quickLevels = new Map<string, number>();
 
 /**
+ * The .aot's section of the modules' versions it serves and calls, a line
+ * each - `serves minigame_hns 1234`, `calls duel -5678` - which a build checks
+ * across dist/, and against a server's plugins folder (scripts/shared-modules.ts).
+ */
+export const MODULES_SECTION = 'amxts.modules';
+
+/**
  * The map goes into the .aot either way, and so do the ABI the plugin is
  * compiled against and the variables it requires, which the module checks
- * before it loads it (scripts/build-identity.ts, scripts/server-env.ts).
+ * before it loads it (scripts/build-identity.ts, scripts/server-env.ts), and
+ * the versions of the modules it serves and calls, which a build checks
+ * (scripts/shared-modules.ts).
  */
-const SECTIONS = `--emit-custom-sections=${MAP_SECTION},${ABI_SECTION},${ENV_SECTION}`;
+const SECTIONS = `--emit-custom-sections=${MAP_SECTION},${ABI_SECTION},${ENV_SECTION},${MODULES_SECTION}`;
 
 /**
  * The CPU the machine code is for: a Pentium 4's, SSE2. LLVM's i386 left
@@ -302,7 +311,8 @@ export async function compileToWasm(
 	const made = await compileWasm(plugin, plugin.quick ? ASYNC_EXPORTS : BASE_EXPORTS, flags, level, natives);
 	if (typeof made === 'string') return made;
 	mkdirSync(dirname(resolve(wasm)), { recursive: true });
-	const sections = withSection(withSection(made.binary, MAP_SECTION, mapText(made.map)), ABI_SECTION, pluginAbi(importsOf(made.binary)));
+	// The modules' section even when empty: a .aot without it is of an older core, whose versions are unknown.
+	const sections = withSection(withSection(withSection(made.binary, MAP_SECTION, mapText(made.map)), ABI_SECTION, pluginAbi(importsOf(made.binary))), MODULES_SECTION, made.modules.join('\n'));
 	writeFileSync(wasm, made.env.length ? withSection(sections, ENV_SECTION, made.env.join('\n')) : sections);
 	return null;
 }
@@ -444,6 +454,8 @@ interface Compiled {
 	map: PluginMap;
 	/** Its env() calls as the section amxts.env writes them, a line a name (scripts/server-env.ts). */
 	env: string[];
+	/** The modules it serves and calls, as MODULES_SECTION's lines. */
+	modules: string[];
 }
 
 /**
@@ -550,7 +562,7 @@ async function compileWasm(
 	// folder, where the module finds the sources to show a failed line. A
 	// build to ship names none - the machine's folders are not the server's.
 	const root = level === null ? '' : sources.project.dir;
-	return { binary, env: env.entries(), map: pluginMap(sourceMap, file => fileName(sources, plugin.root, file), functions.first, functions.names.map(displayName), bodiesOf(binary), root) };
+	return { binary, env: env.entries(), modules: shared.versions, map: pluginMap(sourceMap, file => fileName(sources, plugin.root, file), functions.first, functions.names.map(displayName), bodiesOf(binary), root) };
 }
 
 /**

@@ -66,6 +66,30 @@ const SERVE_FILE = '__amxts_serve.ts';
 /** The entry that exports __amxts_rpc from ~/remote. */
 const EXPORT_FILE = '__amxts_remote.ts';
 const EXPORT_SOURCE = 'export { __amxts_rpc } from "~/remote";\n';
+/** A .aot as its modules' section tells (compile.ts's MODULES_SECTION): `[serves|calls, module, hash]` a line; null when an older core built it. */
+export interface PluginVersions {
+	name: string;
+	lines: string[][] | null;
+}
+
+export function pluginVersions(name: string, section: string | null): PluginVersions {
+	return { name, lines: section === null ? null : section.split('\n').filter(Boolean).map(line => line.split(' ')) };
+}
+
+/**
+ * The calls in `built` of another version of a module than its owner in one
+ * of `folders` serves - a line each. On the server such a call answers
+ * nothing, so a build stops on it.
+ */
+export function wrongVersions(built: PluginVersions[], folders: { where: string; plugins: PluginVersions[] }[]): string[] {
+	const owners = folders.map(({ where, plugins }) => ({
+		where,
+		served: new Map(plugins.flatMap(plugin => (plugin.lines ?? []).filter(([kind]) => kind === 'serves').map(([, name, hash]) => [name, hash]))),
+	}));
+	return built.flatMap(plugin => (plugin.lines ?? []).filter(([kind]) => kind === 'calls').flatMap(([, name, hash]) => owners
+		.filter(owner => (owner.served.get(name) ?? hash) !== hash)
+		.map(owner => `${plugin.name} calls ${name} of another version than ${owner.where}/${name}.aot serves`)));
+}
 
 // ---------------------------------------------------------------- ownership
 
@@ -982,6 +1006,7 @@ export async function moduleVersions(root: string, entry: string): Promise<strin
 export async function sharedModulesBuild(root: string, entry: string) {
 	const owned = ownedModule(root, entry);
 	const proxies = new Map<string, string>();
+	const versions: string[] = [];
 	let serve: string | null = null;
 	let callbacks = false;
 
@@ -992,9 +1017,13 @@ export async function sharedModulesBuild(root: string, entry: string) {
 		if (surface.callbacks) callbacks = true;
 		if (name === owned) serve = surface.serve;
 		else proxies.set(resolve(path), surface.proxy);
+		versions.push(`${name === owned ? 'serves' : 'calls'} ${serviceOf(root, name)} ${surfaceHash(surface)}`);
 	}
 
 	return {
+		/** The modules it serves and calls, the lines of compile.ts's MODULES_SECTION. */
+		versions,
+
 		/** The proxy in place of a module this plugin does not own. */
 		read(path: string, text: string): string {
 			return proxies.get(resolve(path)) ?? text;

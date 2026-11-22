@@ -1,5 +1,6 @@
 import type { Plugin } from './compile';
 import type { ModulePackage, Sources } from './project';
+import type { PluginVersions } from './shared-modules';
 import { createSocket } from 'node:dgram';
 // Builds a project's plugins into .aot files the server can load, and
 // optionally copies them there. The project is the current folder: its
@@ -16,6 +17,7 @@ import { createSocket } from 'node:dgram';
 //                                 with its console's amxts lines (npx amxts dev --docker)
 //   --os windows|linux         the server's system, when AMXTS_SERVER does not say
 //   --against <module file>    and whether that module loads them, before a deploy
+//   --against <plugins folder> and whether they call the modules its owners serve in their version
 //
 // Every module the plugins use is built too, as its owner plugin - <name>.aot,
 // the module's one instance on the server; one from npm that comes compiled
@@ -39,7 +41,7 @@ import { createSocket } from 'node:dgram';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { ABI_LOCK, ABI_SECTION, moduleAbi, refusal, unlockedImports } from './build-identity';
-import { includePath, readable } from './compile';
+import { includePath, MODULES_SECTION, readable } from './compile';
 import { compileAll } from './compile-pool';
 import { followConsoles, projectContainers, runCommand } from './docker-server';
 import { FileContents, sourceIn, sourcesIn } from './file-contents';
@@ -49,7 +51,7 @@ import { includeName } from './plugin-natives';
 import { fromRegistry, prebuiltOf, prebuiltSurface } from './prebuilt';
 import { CORE_DIR, CORE_PLUGINS, loadProject, modulesInUse, pluginList, pluginName, projectPlugins, sourcesFor, staleCopies } from './project';
 import { aotSection, ENV_SECTION, envProblems, parseDotenv } from './server-env';
-import { sharedModulesBuild } from './shared-modules';
+import { pluginVersions, sharedModulesBuild, wrongVersions } from './shared-modules';
 import { describeSystem, serverFolder, serverSystem, SYSTEM_NAME, WAMRC_PACKAGE, wamrcPath } from './system';
 import { c, live, log, progress, since } from './ui';
 
@@ -128,12 +130,16 @@ const lockFile = join(CORE_DIR, ABI_LOCK);
 const lock = existsSync(lockFile) ? readFileSync(lockFile, 'utf8') : '';
 
 // --against <file>: a server's module, amxts_amxx_i386.so or .dll, which the
-// built plugins are checked against before anything is deployed.
+// built plugins are checked against before anything is deployed. --against
+// <folder>: a server's plugins folder, whose modules' owners - another
+// project's build, on a server several share - the plugins must call in
+// their version.
 const againstAt = process.argv.indexOf('--against');
 const against = againstAt < 0 ? '' : process.argv[againstAt + 1] ?? '';
-const againstAbi = against ? moduleAbi(against) : null;
-if (againstAt >= 0 && !againstAbi) {
-	fail(against ? `--against ${against}: ${existsSync(against) ? 'it is no amxts module' : 'there is no such file'}` : '--against takes a module file: amxts_amxx_i386.so or amxts_amxx.dll');
+const againstDir = against && existsSync(against) && statSync(against).isDirectory() ? against : '';
+const againstAbi = against && !againstDir ? moduleAbi(against) : null;
+if (againstAt >= 0 && !againstAbi && !againstDir) {
+	fail(against ? `--against ${against}: ${existsSync(against) ? 'it is no amxts module' : 'there is no such file'}` : '--against takes a module file - amxts_amxx_i386.so or amxts_amxx.dll - or a server\'s addons/amxts/plugins folder');
 	process.exit(1);
 }
 
@@ -547,7 +553,29 @@ function checkBuilt(built: string[]): boolean {
 	}
 	if (refused.length) fail(`${shown(against)} (amxts ${againstAbi!.abi}) would not load ${refused.length} of them:\n${refused.join('\n')}`);
 	else if (againstAbi) log.info(`${shown(against)} (amxts ${againstAbi.abi}) loads them all`);
-	return refused.length === 0;
+	return refused.length === 0 && checkVersions();
+}
+
+/** The .aot in `dir`, with the versions of the modules each serves and calls. */
+function versionsIn(dir: string): PluginVersions[] {
+	return readdirSync(dir).filter(file => file.endsWith('.aot')).map(file => pluginVersions(file.replace(/\.aot$/, ''), aotSection(readFileSync(join(dir, file)), MODULES_SECTION)));
+}
+
+/**
+ * Whether every plugin in dist/ calls each module in the version its owner
+ * in dist/ serves - and, with --against a folder, its owner there. A call of
+ * another version answers nothing on the server, so the build stops.
+ */
+function checkVersions(): boolean {
+	const built = versionsIn(outDir);
+	const folders = [{ where: shown(outDir), plugins: built }, ...(againstDir ? [{ where: shown(againstDir), plugins: versionsIn(againstDir) }] : [])];
+	for (const { where, plugins } of folders) {
+		const older = plugins.filter(plugin => plugin.lines === null).map(plugin => plugin.name);
+		if (older.length) log.info(c.dim(`${where}: ${older.join(', ')} - built by an older core, the versions of the modules they serve and call are not checked`));
+	}
+	const wrong = wrongVersions(built, folders);
+	if (wrong.length) fail(`${wrong.length === 1 ? 'a call' : `${wrong.length} calls`} of a module would answer nothing on the server:\n${wrong.map(line => `  ${line}`).join('\n')}`, 'build the plugin and the module\'s owner from one version of the module');
+	return wrong.length === 0;
 }
 
 /**
