@@ -12,6 +12,7 @@ import { spawnSync } from 'node:child_process';
 // than AssemblyScript's and lives in the readFile hook below.
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 // The Binaryen asc itself runs on - the same copy - for the one pass asc
 // does not run: Asyncify.
 // @ts-ignore - shipped as JavaScript, with types beside it we do not need here
@@ -592,7 +593,8 @@ async function compileWasm(
  * passed through as it came.
  */
 export function readable(problem: string): string {
-	const errors = [...problem.matchAll(/ERROR (\w+): (.*)\r?\n[ \t]*:\r?\n([\s\S]*?)\r?\n[ \t]*└─ in (.+?)\((\d+),(\d+)\)/g)];
+	// asc colours its errors where the environment asks for colour (FORCE_COLOR, as CI sets)
+	const errors = [...stripVTControlCharacters(problem).matchAll(/ERROR (\w+): (.*)\r?\n[ \t]*:\r?\n([\s\S]*?)\r?\n[ \t]*└─ in (.+?)\((\d+),(\d+)\)/g)];
 	if (errors.length === 0) return problem.trim();
 
 	const sources = sourcesFor(CORE_PLUGINS);
