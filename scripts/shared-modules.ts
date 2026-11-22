@@ -952,10 +952,22 @@ export function serveSource(analysis: ModuleAnalysis, service = analysis.name): 
 
 // ---------------------------------------------------------------- one compile
 
+/**
+ * The files a plugin's compile reads: what it imports, and the module it owns
+ * - which its dispatcher imports, so the owner runs its module whether or not
+ * it imports it itself.
+ */
+function reachOf(root: string, entry: string): Set<string> {
+	const sources = sourcesFor(root);
+	const reached = sources.reach(join(root, entry));
+	const owned = ownedModule(root, entry);
+	return owned ? sources.reach(join(root, 'modules', `${owned}.ts`), reached) : reached;
+}
+
 /** The modules with an owner a plugin reaches, as `<name>:<hash>`: a kept compile of it holds while these do. */
 export async function moduleVersions(root: string, entry: string): Promise<string[]> {
 	const versions: string[] = [];
-	for (const path of sourcesFor(root).reach(join(root, entry))) {
+	for (const path of reachOf(root, entry)) {
 		const name = moduleName(root, path);
 		if (name && hasOwner(root, name)) versions.push(`${name}:${surfaceHash(await moduleSurface(root, name))}`);
 	}
@@ -973,7 +985,7 @@ export async function sharedModulesBuild(root: string, entry: string) {
 	let serve: string | null = null;
 	let callbacks = false;
 
-	for (const path of sourcesFor(root).reach(join(root, entry))) {
+	for (const path of reachOf(root, entry)) {
 		const name = moduleName(root, path);
 		if (!name || !hasOwner(root, name)) continue;
 		const surface = await moduleSurface(root, name);
