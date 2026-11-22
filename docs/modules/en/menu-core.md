@@ -62,6 +62,13 @@ Every function of a menu gets one object, the menu's context:
   players; in a menu of items, the target's `id`, `0` without one;
 - `menu` — the menu.
 
+A function written apart names the context by its type in the module:
+`function wounded({ player }: menus.MenuContext)`, and `menus.NamedContext`
+for an action or a placeholder registered by name. The `MenuContext` a plugin
+has without an import is another type - the context of the
+[quick menu](../../en/2.core/01.plugin.md#a-quick-menu-in-code), `new Menu(...)`,
+with `data` in place of `target` and `row`.
+
 Text — the title, an item, the `message` of a greyed-out item — is the text
 itself, or a function that gives it for the context. It is read each time the
 menu is drawn. A plain string that is a lang key is translated for the

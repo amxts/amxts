@@ -3097,7 +3097,7 @@ export interface CommandOptions {
 	access?: Access;
 	/** The command's description, for `server.commands` - what a `/help` prints. */
 	description?: string;
-	/** The chat a chat command is heard in, one of: `"say"` the common chat, `"team"` the team's, `"both"` either (the default). */
+	/** The chat a chat command is heard in, one of: `"say"` the common chat, `"team"` the team's, `"both"` either (the default). It is about the names with `/`: a name without one, as `"cp"` in `["/cp", "cp"]`, is a console command whatever this says. */
 	chat?: "say" | "team" | "both";
 }
 

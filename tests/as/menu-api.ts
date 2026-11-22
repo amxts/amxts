@@ -16,9 +16,15 @@ shop.addItem({
 	message: ({ player }) => `healthy: ${player.health}`,
 	onSelect: ({ player }) => heal(player),
 });
-shop.addItem({ title: "Wounded only", visible: ({ player }) => player.health < 100 });
+shop.addItem({ title: "Wounded only", visible: wounded });
 shop.addItem({ title: "Choose", action: "PICK" });
 shop.addItem({ title: "Leave", action: "CLOSE_MENU", spaceBefore: 1 });
+
+// A function written apart names the context by the module's type: the
+// global MenuContext is the context of the core's own Menu.
+function wounded({ player }: menus.MenuContext) {
+	return player.health < 100;
+}
 
 function heal(player: Player) {
 	player.health = 100;

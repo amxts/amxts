@@ -1537,8 +1537,8 @@ export default {
 		ru: `Параметры команды: кому она доступна, её описание в списке, чат, в котором её слышно.`,
 	},
 	'CommandOptions.chat': {
-		en: `The chat a chat command is heard in, one of: \`"say"\` the common chat, \`"team"\` the team's, \`"both"\` either (the default).`,
-		ru: `Чат, в котором слышно команду чата, одно из: \`"say"\` — общий, \`"team"\` — командный, \`"both"\` — любой (по умолчанию).`,
+		en: `The chat a chat command is heard in, one of: \`"say"\` the common chat, \`"team"\` the team's, \`"both"\` either (the default). It is about the names with \`/\`: a name without one, as \`"cp"\` in \`["/cp", "cp"]\`, is a console command whatever this says.`,
+		ru: `Чат, в котором слышно команду чата, одно из: \`"say"\` — общий, \`"team"\` — командный, \`"both"\` — любой (по умолчанию). Относится к именам со \`/\`: имя без него, как \`"cp"\` в \`["/cp", "cp"]\`, — команда консоли, что бы здесь ни стояло.`,
 	},
 	'CommandOptions.access': {
 		en: `The admin right a player needs to use the command; left out, everyone may.`,
