@@ -1,5 +1,116 @@
 # Changelog
 
+## v0.3.7
+
+> v0.3.7 is the next patch release.
+
+### 👀 Highlights
+
+#### 🔎 The typecheck finds what the build refuses
+
+When TypeScript finds nothing, `npx amxts typecheck` now compiles each plugin the way `npx amxts build` does, without writing the `.aot` files. Code that passed the typecheck and then failed the build fails the typecheck, with the build's own message:
+
+```
+✖ stats does not compile:
+plugins/stats.ts:1:11 - TS2304 Cannot find name 'any'.
+ 1 │ let last: any = 0;
+   │           ~~~
+```
+
+Two such cases now just build: a ternary `on ? true : "default"` for a `true | false | "default"` field, and `override` as a field name. A project's own modules (`api/`, `modules/`) get the project's auto-imports, as its plugins do.
+
+#### 🧩 Module versions checked before the server sees them
+
+A plugin works only with the module version it was built with: on a server with another version, its calls to the module get no answer. The build now checks every plugin in `dist/` against its modules. With `--against` it checks them against a server's plugins folder too:
+
+```sh
+npx amxts build --against ../server/cstrike/addons/amxts/plugins
+```
+
+```
+a call of a module would answer nothing on the server:
+  myplugin calls menu-core of another version than ../server/cstrike/addons/amxts/plugins/menu-core.aot serves
+```
+
+#### 🕵️ A player gone from someone's scoreboard
+
+`event.info.clear()` in `sendUserInfo` sends an empty userinfo: that client forgets the player until his userinfo is sent again.
+
+```ts
+game.addEventListener("sendUserInfo", (event) => {
+	if (hiding.has(event.player.id) && event.receiver != event.player) event.info.clear();
+});
+```
+
+#### 🧪 Tests closer to the game
+
+On the fake server a kill sends the kill notice and the death cry, `give()` into empty hands draws the weapon, `respawn()` puts the player at the next spawn point, `game.endRound` is in `server.roundEnds`, and `entity_count` and `global_get` answer. `alice.chatLines` has the chat one line at a time:
+
+```ts
+expect(alice.chatLines.at(-1)).toContain("Round over");
+```
+
+#### 🛠️ And more
+
+- `npx amxts upgrade --no-build` rewrites the project and leaves the build to you; `--dry-run` says it would build.
+- A module the config still names by its old name (`@amxts/resemiclip`) says its new one.
+
+### 🩹 Important fixes
+
+- A project module whose plugin does not import it answered every call with 0. Its plugin runs it now ([2e3c112](https://github.com/amxts/amxts/commit/2e3c112)).
+- `new Cvar("x")` with no default, made before the plugin that creates `x`, never found it. It looks again until it does ([d6bd277](https://github.com/amxts/amxts/commit/d6bd277)).
+- A test's plugin outside `plugins/` that calls a module in `dir.api` ran its own copy of it instead of the module's plugin ([3f6c975](https://github.com/amxts/amxts/commit/3f6c975)).
+- `amxts upgrade` renamed a hook in the plugins but not in a test's `server.fireHook()` ([90b79b6](https://github.com/amxts/amxts/commit/90b79b6)).
+
+### ✅ Upgrading
+
+Update the CLI with your project's own package manager, then:
+
+```sh
+npx amxts upgrade
+```
+
+### 👉 Changelog
+
+[compare changes](https://github.com/amxts/amxts/compare/v0.3.6...v0.3.7)
+
+### 🚀 Enhancements
+
+- **modules:** A module's plugin runs it without an import ([2e3c112](https://github.com/amxts/amxts/commit/2e3c112))
+- **build:** Module versions checked across dist/ ([25694e3](https://github.com/amxts/amxts/commit/25694e3))
+- **compiler:** Override as a field, ?: of true and text ([975f671](https://github.com/amxts/amxts/commit/975f671))
+- **typecheck:** Asc checks every plugin as the build does ([ddfc7dc](https://github.com/amxts/amxts/commit/ddfc7dc))
+- **modules:** A project's modules have its auto-imports ([91b7cc3](https://github.com/amxts/amxts/commit/91b7cc3))
+- **testing:** The fake server does what the game does ([695ab50](https://github.com/amxts/amxts/commit/695ab50))
+- **project:** A renamed module says its new name ([b94a5fa](https://github.com/amxts/amxts/commit/b94a5fa))
+- **players:** `event.info.clear`() sends an empty userinfo ([ba260bf](https://github.com/amxts/amxts/commit/ba260bf))
+
+### 🩹 Fixes
+
+- **testing:** A test's plugin calls `dir.api` modules ([3f6c975](https://github.com/amxts/amxts/commit/3f6c975))
+- **api:** A Cvar finds a cvar made after it ([d6bd277](https://github.com/amxts/amxts/commit/d6bd277))
+- **build:** Asc errors read with colour on ([2e201bb](https://github.com/amxts/amxts/commit/2e201bb))
+- **upgrade:** A test's `fireHook` by the hook's new name ([90b79b6](https://github.com/amxts/amxts/commit/90b79b6))
+
+### 💅 Refactors
+
+- **build:** Asc errors read in `compile.ts` ([cb4cd83](https://github.com/amxts/amxts/commit/cb4cd83))
+
+### 📖 Documentation
+
+- The `v0.3.6` changelog's npm note, shorter ([d7f4a7b](https://github.com/amxts/amxts/commit/d7f4a7b))
+- The plugin folders tree with comments ([e8384f2](https://github.com/amxts/amxts/commit/e8384f2))
+- The `v0.3.6` changelog on its own terms ([a162701](https://github.com/amxts/amxts/commit/a162701))
+- **cli:** Upgrade `--no-build`, test flags, lint in a copy ([193823b](https://github.com/amxts/amxts/commit/193823b))
+- **modules:** Config-core `setComment`, menu-core's screen ([44350f6](https://github.com/amxts/amxts/commit/44350f6))
+- **forwards:** A forward raised inside a listener ([d46c909](https://github.com/amxts/amxts/commit/d46c909))
+- Chat's console names, Storage's extra fields, `menus.MenuContext` ([8980310](https://github.com/amxts/amxts/commit/8980310))
+- **modules:** Menu-core's "message" event ([f390a45](https://github.com/amxts/amxts/commit/f390a45))
+
+### ❤️ Contributors
+
+- Ernest Manukyan ([@kukson777](https://github.com/kukson777))
+
 ## v0.3.6
 
 > v0.3.6 is the next patch release.
