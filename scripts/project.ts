@@ -896,15 +896,15 @@ export class Sources {
 	}
 
 	/**
-	 * Whether a file is a plugin's code, which auto-imports reach: the
-	 * project's plugins folder but its modules/, or a plugin outside every
-	 * package (a test's). The core's as/ and a module - a package, or a file
-	 * under modules/ - import what they use: a module is compiled in projects
-	 * and on servers whose settings it does not know.
+	 * Whether a file is the project's code, which auto-imports reach: its
+	 * plugins folder - its own modules too, which only it builds - or a
+	 * plugin outside every package (a test's). The core's as/ and a module
+	 * package import what they use: a package is compiled in projects and on
+	 * servers whose settings it does not know.
 	 */
 	private isPlugin(real: string): boolean {
 		const own = resolve(this.project.pluginsDir) !== resolve(CORE_PLUGINS);
-		if (own && inside(this.project.pluginsDir, real)) return !posix(relative(this.project.pluginsDir, real)).startsWith(`${this.project.apiDir}/`);
+		if (own && inside(this.project.pluginsDir, real)) return true;
 		if (inside(CORE_PLUGINS, real) || this.packageOf(real)) return false;
 		// On a server the plugins folder holds the core's as/ and the modules too.
 		const place = this.rel(this.place(real));

@@ -4,8 +4,10 @@ import { setup } from '@amxts/core/test-utils';
 // Plugins in folders the config names (scripts/project.ts): a folder's prefix
 // starts its plugins' .aot names, the modules the plugins share are kept in
 // dir.api, and a module's owner may be in any folder of plugins - its calls
-// go by the owner's .aot name.
+// go by the owner's .aot name. The project's modules have its auto-imports,
+// and `amxts typecheck` compiles a plugin as the build does.
 import { afterAll, describe, expect, test, vi } from 'vitest';
+import { checkPlugin, readable } from '../scripts/compile';
 import { CORE_PLUGINS, loadProject, pluginName, projectPlugins, setProjectDir } from '../scripts/project';
 import { moduleVersions } from '../scripts/shared-modules';
 
@@ -33,10 +35,13 @@ write({
 	'plugins/core/math.ts': 'export function twice(value: number): number {\n\treturn value * 2;\n}\n',
 	'plugins/api/duel.ts': 'import { bonus } from "./duel/bonus";\n\nlet wins = 0;\n\nexport function win(): number {\n\twins += bonus();\n\treturn wins;\n}\n',
 	'plugins/api/duel/bonus.ts': 'export function bonus(): number {\n\treturn 1;\n}\n',
-	'plugins/api/hns.ts': 'export function rounds(): number {\n\treturn 3;\n}\n',
+	// server is an auto-import, in a module of the project too
+	'plugins/api/hns.ts': 'export function rounds(): number {\n\treturn server.players.length + 3;\n}\n',
 	'plugins/modules/duel.ts': 'import "~/api/duel";\nimport { arena } from "./duel/arena";\n\nexport function test_arena() {\n\treturn arena();\n}\n',
 	'plugins/modules/duel/arena.ts': 'export function arena(): string {\n\treturn "dust";\n}\n',
 	'plugins/games/hns.ts': 'import "~/api/hns";\nimport * as duel from "../api/duel";\n\nexport function test_win() {\n\treturn duel.win();\n}\n',
+	// TypeScript takes `any`, the build does not
+	'fixtures/any.ts': 'import * as duel from "~/api/duel";\n\nlet last: any = duel.win();\n\nexport function test_any() {\n\treturn last;\n}\n',
 	'fixtures/outside.ts': 'import * as duel from "~/api/duel";\n\nexport function test_outside_win() {\n\treturn duel.win();\n}\n',
 });
 
@@ -79,6 +84,13 @@ describe('plugins in folders', () => {
 		const after = await moduleVersions(CORE_PLUGINS, 'games/hns.ts');
 		expect(after[0]).not.toBe(before[0]);
 		expect(after[1]).toBe(before[1]);
+	});
+
+	test('a check compiles a plugin as the build does and says what asc refuses, where', async () => {
+		setProjectDir(root);
+		expect(await checkPlugin({ source: join(root, 'plugins/games/hns.ts'), root: CORE_PLUGINS })).toBeNull();
+		const problem = await checkPlugin({ source: join(root, 'fixtures/any.ts'), root: CORE_PLUGINS });
+		expect(readable(problem!)).toMatch(/fixtures\/any\.ts:3:\d+ - TS\d+ /);
 	});
 
 	test('the shared modules\' folder is no folder of plugins, and a folder is named once', () => {
