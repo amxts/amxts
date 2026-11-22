@@ -194,3 +194,14 @@ export const data = new Forward<number[]>("probe_on_data");
 `, FORWARDS);
 	expect(error).toContain('argument 1 is data[] in the include, without a tag: Pawn passes it as text, and a number[] would arrive empty');
 });
+
+test('a forward raised inside a listener reaches its subscribers at once, before the event\'s later listeners; one raised in a timer comes after them', async () => {
+	const server = await loadPlugin(['tests/as/forward-in-hook-raiser.ts', 'tests/as/forward-in-hook-listener.ts']);
+	const alice = server.join('Alice');
+
+	server.fireHook('playerSpawn', [alice.id]);
+	server.advance(100);
+
+	const lines = server.log.split('\n').filter(line => /raiser: |listener: /.test(line)).map(line => line.replace(/^.*?(raiser|listener): /, '$1: '));
+	expect(lines).toEqual(['raiser: playerSpawn', 'listener: forward', 'raiser: emitted', 'listener: playerSpawn', 'listener: forward later']);
+});
