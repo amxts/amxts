@@ -108,9 +108,13 @@ server.addCommand("/shop", ({ player }) => shop.show(player));
 - `menu.refresh()`, `menu.close()` — у всех, кто его смотрит;
   `menu.setTimer(seconds)`, `menu.cancelTimer()` — общий отсчёт;
   `menu.clearItems()`.
-- `menu.addEventListener("open" | "close" | "show", listener)` — события
-  этого меню; `"show"` приходит до открытия, и `event.preventDefault()` его
-  останавливает.
+- `menu.addEventListener("open" | "close" | "show" | "message", listener)` —
+  события этого меню; `"show"` приходит до открытия, и
+  `event.preventDefault()` его останавливает. `"message"` :since{v="0.3.3"}
+  приходит до того, как Menu Core что-то скажет игроку в чат, — например,
+  сообщение `FILTER` пустого списка, — с `event.text`;
+  `event.preventDefault()` убирает его из чата, и плагин может показать его
+  по-своему.
 - Поля: `name`, `kind`, `title`, `time`, `hideBack`, `hideExit`, `locked`,
   `sharedTimer`, `countdown` и имена из menu.ini `activeOn` и `onTimeout`.
 

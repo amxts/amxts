@@ -110,9 +110,12 @@ menu.
 - `menu.refresh()`, `menu.close()` — for whoever looks at it;
   `menu.setTimer(seconds)`, `menu.cancelTimer()` — the shared countdown;
   `menu.clearItems()`.
-- `menu.addEventListener("open" | "close" | "show", listener)` — this menu's
-  events; `"show"` comes before it opens, and `event.preventDefault()` stops
-  it.
+- `menu.addEventListener("open" | "close" | "show" | "message", listener)` —
+  this menu's events; `"show"` comes before it opens, and
+  `event.preventDefault()` stops it. `"message"` :since{v="0.3.3"} comes
+  before Menu Core tells the player something in the chat - an empty list's
+  `FILTER` message - with `event.text`; `event.preventDefault()` keeps it out
+  of the chat, so the plugin can show it its own way.
 - Fields: `name`, `kind`, `title`, `time`, `hideBack`, `hideExit`, `locked`,
   `sharedTimer`, `countdown`, and the menu.ini names `activeOn` and
   `onTimeout`.
