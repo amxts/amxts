@@ -330,7 +330,7 @@ VIEW = {
 | YAML, JSON | INI | Что это |
 | --- | --- | --- |
 | `chatPrefix` | `[MAIN]` `PREFIX` | Префикс сообщений Menu Core в чате. `[Основное]` из Pawn-модуля menu_core читается как `[MAIN]` :since{v="0.3"}. |
-| `labels`: `exit`, `back`, `next`, `number`, `disabled`, `page`, `time` | `[MAIN]` `KEY = { ... }` | Слова кнопок, страницы и отсчёта. |
+| `labels`: `exit`, `back`, `next`, `number`, `disabled`, `page`, `time` | `[MAIN]` `KEY = { ... }` | Слова кнопок, страницы и отсчёта. Ключ перевода, которого нет ни в одном словаре, даёт слово самого Menu Core: `Exit`, `Back`, `Next`. |
 | `menus`: `{ NAME: меню }` | `[NAME]` | Меню; имя на `LIST_` — меню-список. |
 | `title` | `TITLE` | Заголовок; он у меню обязателен. |
 | `activeOn` | `ACTIVE_ON` | Условия, при которых меню открывается. |
@@ -523,3 +523,12 @@ menus.screen(player)?.text;                                  // что он ви
 menus.press(player, 1);
 menus.translate({ MYPLUGIN_MENU_EXIT: "Выход" });
 ```
+
+`screen(player).text` — меню таким, каким его видит игрок: текст, отданный
+`show_menu`, вместе с кодами цветов (`\y`, `\r`), каждый ключ перевода — на
+языке игрока, из словарей, которые загрузил сервер, и `menus.translate()`.
+Ключ кнопки, которого нет ни в одном словаре, показывает слово самого Menu
+Core — `Next` для `NEXT = MYPLUGIN_MENU_NEXT`, строки для которого у теста
+нет, как и на сервере, — а ключ пункта показывается как есть. Чтобы увидеть
+в тесте слово из файла, дайте его ключу строку:
+`menus.translate({ MYPLUGIN_MENU_NEXT: "Дальше" })`.

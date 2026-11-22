@@ -207,6 +207,9 @@ maps.save();
   item `[0]`) on the path, and return false
   where it goes through text or a number. `parse(text, format)` reads a text
   the same way.
+- `setComment(path, text)` :since{v="0.2.1"} writes a comment on the lines
+  before a value — one the plugin made, too — each line after the format's
+  mark (`;`, `#`, `//`); `""` removes it.
 
 The base folder can also be the project's, in `amxts.config.ts`:
 
