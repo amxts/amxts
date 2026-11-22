@@ -4957,6 +4957,16 @@ export class Cvar {
 		if (this.listeners.count > 0) this.hook();
 	}
 
+	/**
+	 * Whether the server has the cvar now: one with no default may be made by
+	 * a plugin that loads later, so a Cvar not found yet looks again.
+	 */
+	private found(): bool {
+		if (!cvarsReady) return false;
+		this.attach();
+		return this.pointer != 0;
+	}
+
 	private hook(): void {
 		if (this.hooked || this.pointer == 0) return;
 		this.hooked = true;
@@ -4965,13 +4975,13 @@ export class Cvar {
 	}
 
 	/** `true` when the server has this cvar. */
-	get exists(): bool { return this.pointer != 0; }
+	get exists(): bool { return this.pointer != 0 || this.found(); }
 
 	/** The cvar's value as text, e.g. `"250"`. */
 	get value(): string {
 		const kept = this.__text;
 		if (changetype<usize>(kept) != 0) return changetype<string>(kept);
-		if (this.pointer == 0) return "";
+		if (this.pointer == 0 && !this.found()) return "";
 		const text = get_pcvar_string(this.pointer);
 		// Kept from here on, and let go when the cvar changes.
 		if (cvarsExact < 0) cvarsExact = _cvarExact();
@@ -4982,24 +4992,24 @@ export class Cvar {
 		return text;
 	}
 	set value(text: string) {
-		if (this.pointer == 0) return;
+		if (this.pointer == 0 && !this.found()) return;
 		this.__text = null;
 		set_pcvar_string(this.pointer, text);
 	}
 
 	/** The cvar's value as a number. A whole number is written without a fraction: `"5"`, not `"5.000000"`. */
-	get number(): number { return this.pointer != 0 ? get_pcvar_float(this.pointer) : 0; }
+	get number(): number { return this.pointer != 0 || this.found() ? get_pcvar_float(this.pointer) : 0; }
 	set number(value: number) {
-		if (this.pointer == 0) return;
+		if (this.pointer == 0 && !this.found()) return;
 		this.__text = null;
 		if (value == Math.floor(value)) set_pcvar_num(this.pointer, <i32>value);
 		else set_pcvar_float(this.pointer, value);
 	}
 
 	/** The cvar as an on/off switch: `true` for anything but `0`. Writing `true` sets `1`, `false` sets `0`. */
-	get boolean(): bool { return this.pointer != 0 && get_pcvar_num(this.pointer) != 0; }
+	get boolean(): bool { return (this.pointer != 0 || this.found()) && get_pcvar_num(this.pointer) != 0; }
 	set boolean(on: bool) {
-		if (this.pointer == 0) return;
+		if (this.pointer == 0 && !this.found()) return;
 		this.__text = null;
 		set_pcvar_num(this.pointer, on ? 1 : 0);
 	}
