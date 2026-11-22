@@ -39,7 +39,7 @@ import { createSocket } from 'node:dgram';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { ABI_LOCK, ABI_SECTION, moduleAbi, refusal, unlockedImports } from './build-identity';
-import { includePath } from './compile';
+import { includePath, readable } from './compile';
 import { compileAll } from './compile-pool';
 import { followConsoles, projectContainers, runCommand } from './docker-server';
 import { FileContents, sourceIn, sourcesIn } from './file-contents';
@@ -219,26 +219,6 @@ function affected(files: string[], sources: Sources): Target[] {
 		const reached = [...sources.reach(join(CORE_PLUGINS, sources.entry(plugin.source)))].map(place => sources.real(place) ?? place);
 		return changed.some(file => reached.includes(file));
 	});
-}
-
-/**
- * asc's errors, one per block, as `as/file.ts:line:col - message` over the
- * line it points at. Anything else - wamrc's - is passed through as it came.
- */
-function readable(problem: string): string {
-	const errors = [...problem.matchAll(/ERROR (\w+): (.*)\r?\n[ \t]*:\r?\n([\s\S]*?)\r?\n[ \t]*└─ in (.+?)\((\d+),(\d+)\)/g)];
-	if (errors.length === 0) return problem.trim();
-
-	const sources = sourcesFor(CORE_PLUGINS);
-	// A file reached through `~/` is named `~lib/~/myplugin/bits.ts`; a module's
-	// is the file in its package.
-	const where = (file: string) => {
-		const place = join(CORE_PLUGINS, file.replace(/^~lib\/~\//, ''));
-		return relative(process.cwd(), sources.real(place) ?? place).replace(/\\/g, '/');
-	};
-	return errors
-		.map(([, code, message, snippet, file, line, col]) => `${where(file)}:${line}:${col} - ${code} ${message}\n${snippet}`)
-		.join('\n\n');
 }
 
 /** The include each built plugin wrote, by .aot: a contract's keeps its own name. */

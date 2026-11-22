@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 // same way everywhere. In particular the `~/` alias, which is ours rather
 // than AssemblyScript's and lives in the readFile hook below.
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 // The Binaryen asc itself runs on - the same copy - for the one pass asc
 // does not run: Asyncify.
 // @ts-ignore - shipped as JavaScript, with types beside it we do not need here
@@ -23,7 +23,7 @@ import { ABI_SECTION, nativesFile, pluginAbi } from './build-identity';
 import { LEAF_NATIVES } from './leaf-natives';
 import { playerFieldsBuild } from './player-fields';
 import { includeName, nativeContract, nativesTransform, pawnInclude } from './plugin-natives';
-import { ascPath, sourcesFor } from './project';
+import { ascPath, CORE_PLUGINS, sourcesFor } from './project';
 import { targetTransforms } from './reapi-events';
 import { ENV_SECTION, envBuild } from './server-env';
 import { sharedModulesBuild } from './shared-modules';
@@ -551,6 +551,28 @@ async function compileWasm(
 	// build to ship names none - the machine's folders are not the server's.
 	const root = level === null ? '' : sources.project.dir;
 	return { binary, env: env.entries(), map: pluginMap(sourceMap, file => fileName(sources, plugin.root, file), functions.first, functions.names.map(displayName), bodiesOf(binary), root) };
+}
+
+/**
+ * A compile's problem as the build and the typecheck print it: asc's errors,
+ * one per block, as `as/file.ts:line:col - message` over the line it points
+ * at, each file named from the current folder. Anything else - wamrc's - is
+ * passed through as it came.
+ */
+export function readable(problem: string): string {
+	const errors = [...problem.matchAll(/ERROR (\w+): (.*)\r?\n[ \t]*:\r?\n([\s\S]*?)\r?\n[ \t]*└─ in (.+?)\((\d+),(\d+)\)/g)];
+	if (errors.length === 0) return problem.trim();
+
+	const sources = sourcesFor(CORE_PLUGINS);
+	// A file reached through `~/` is named `~lib/~/myplugin/bits.ts`; a module's
+	// is the file in its package.
+	const where = (file: string) => {
+		const place = join(CORE_PLUGINS, file.replace(/^~lib\/~\//, ''));
+		return relative(process.cwd(), sources.real(place) ?? place).replace(/\\/g, '/');
+	};
+	return errors
+		.map(([, code, message, snippet, file, line, col]) => `${where(file)}:${line}:${col} - ${code} ${message}\n${snippet}`)
+		.join('\n\n');
 }
 
 /**
