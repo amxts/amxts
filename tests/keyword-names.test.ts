@@ -36,3 +36,23 @@ export function run(): number {
 	expect(error).toBe('');
 	expect(exports.run()).toBe(14);
 });
+
+test('override is a field\'s name, read and written, beside a method that overrides', async () => {
+	const { error, exports } = await probe({ 'probe.ts': `
+class Base { size(): i32 { return 1; } }
+class Row extends Base {
+	override: bool = false;
+	default = 2;
+	override size(): i32 { return this.override ? 10 : this.default; }
+}
+
+export function run(): i32 {
+	const row = new Row();
+	const before = row.size();
+	row.override = true;
+	return before * 100 + row.size();
+}
+` });
+	expect(error).toBe('');
+	expect(exports.run()).toBe(210);
+});

@@ -150,3 +150,19 @@ export function run(): i32 {
 	expect(error).toBe('');
 	expect(run()).toBe(0);
 });
+
+test('a ?: of a boolean and a string literal goes into the union', async () => {
+	const { error, run } = await compile(`${GLOW}
+function pick(on: boolean, sure: boolean): Enabled { return sure ? on : "default"; }
+export function run(): i32 {
+	const glow = new Glow();
+	glow.enabled = true ? false : "default";
+	let seen = code(glow.enabled) * 1000;
+	glow.enabled = glow.enabled == false ? "default" : true;
+	seen += code(glow.enabled) * 100;
+	return seen + code(pick(true, true)) * 10 + code(pick(true, false));
+}
+`);
+	expect(error).toBe('');
+	expect(run()).toBe(212);
+});

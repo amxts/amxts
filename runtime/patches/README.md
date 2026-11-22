@@ -39,7 +39,9 @@ comparator whose number orders by its sign (`(a, b) => a - b` on fractions), a h
 array's element, a DataView's byte, what `>>>` gives - read as a number
 (`bytes[i] << 8` is not cut to 8 bits) and stored back wrapped, as a typed
 array stores it, a literal past 32 bits in a bitwise operator taken as its
-low 32 bits (`0xEDB88320 ^ crc`).
+low 32 bits (`0xEDB88320 ^ crc`), `override` as a member's name
+(`override = false`), and a `?:` of a boolean and text where
+`true | false | "..."` goes (`on ? true : "default"`).
 
 It also tunes the runtime (`std/assembly/rt/`) for a plugin, which makes
 many small objects over a small live heap: a small block freed (up to 124
