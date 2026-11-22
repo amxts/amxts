@@ -331,6 +331,26 @@ test('Player.all is server.players and a filter; a player\'s account is his mone
 	expect(upgradeNames('plugins/a.ts', text).changes).toEqual([]);
 });
 
+test('a test fires and asks for a game event\'s hook by its new name', () => {
+	const source = [
+		'server.fireHook("restartRound");',
+		'server.fireHook("addAccount", [player.id, 300]);',
+		'server.fireHam("takeHealth", player.id, [10, 0]);',
+		'expect(server.hooked("onRoundFreezeEnd")).toBe(true);',
+		'',
+	].join('\n');
+	const { text, changes } = upgradeNames('test/round.test.ts', source);
+
+	expect(text.split('\n')).toEqual([
+		'server.fireHook("newRound");',
+		'server.fireHook("addMoney", [player.id, 300]);',
+		'server.fireHam("heal", player.id, [10, 0]);',
+		'expect(server.hooked("roundStart")).toBe(true);',
+		'',
+	]);
+	expect(changes).toHaveLength(4);
+});
+
 test('Player.all\'s filter takes a name that hides none the code has: player, other, p', () => {
 	const source = [
 		'const alive = Player.all({ alive: true });',

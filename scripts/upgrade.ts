@@ -22,9 +22,9 @@ import type { Kind } from './upgrade-names';
 // `Player.all(options)` is `server.players` and a `filter`; a field, a method
 // or a game event named in the engine's words has the player's
 // (scripts/upgrade-names.ts: `player.account` is `player.money`, the event
-// `restartRound` is `newRound`), and one left out of the API is listed, to be
-// read with the natives. A flag's name is lowerCamelCase where the code
-// says it is one: `player.buttons.includes("Jump")` is `includes("jump")`.
+// `restartRound` is `newRound`, in a test's `server.fireHook` too), and one
+// left out of the API is listed, to be read with the natives. A flag's name
+// is lowerCamelCase where the code says it is one: `player.buttons.includes("Jump")` is `includes("jump")`.
 // A game message is heard through its own method, by
 // its name in the player's words: `server.addEventListener("message:DeathMsg",
 // ...)` is `server.addMessageListener("death", ...)`. A menu-core menu's
@@ -441,7 +441,7 @@ export function upgradeNames(file: string, text: string): { text: string; change
 		if (where.length) leave(node, `${name} is ${where.map(each => `\`${RENAMED[each][name]}\` on ${each === 'Game' ? 'the game' : `a ${each}`}`).join(', ')}: if this is one, write that`);
 	};
 
-	/** A game event's name in `addEventListener`: the new one, or a line for one out of the API. */
+	/** A game event's name in `addEventListener`, or a test's `fireHook`, `fireHam`, `hooked`: the new one, or a line for one out of the API. */
 	const upgradeListener = (call: ts.CallExpression) => {
 		const name = call.arguments[0];
 		if (!name || !ts.isStringLiteralLike(name)) return;
@@ -493,7 +493,7 @@ export function upgradeNames(file: string, text: string): { text: string; change
 		}
 
 		if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return;
-		if (/^(?:add|remove)EventListener$/.test(node.expression.name.text)) upgradeListener(node);
+		if (/^(?:(?:add|remove)EventListener|fireHook|fireHam|hooked)$/.test(node.expression.name.text)) upgradeListener(node);
 		else if (node.expression.name.text === 'join') upgradeJoin(node);
 	};
 	visit(source);
