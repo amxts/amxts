@@ -1,10 +1,11 @@
 // A fixture for tests/field-natives.test.ts: reapi's field natives read and
 // write each field as what it holds, and a server event carries every one of
 // its arguments.
-import { get_entvar, get_member, set_entvar, set_member } from "@amxts/core/natives";
-import { m_rgAmmo, m_szTeamName, var_classname, var_gravity, var_origin } from "@amxts/core/constants";
+import { entity_count, get_entvar, get_member, global_get, set_entvar, set_member } from "@amxts/core/natives";
+import { glb_maxClients, glb_maxEntities, m_rgAmmo, m_szTeamName, var_classname, var_gravity, var_origin } from "@amxts/core/constants";
 
 server.addCommand("fields", ({ player }) => readAndWrite(player));
+server.addCommand("globals", () => console.log(`entities ${entity_count()} of ${global_get(glb_maxEntities)}, ${global_get(glb_maxClients)} slots`));
 
 server.addEventListener("playbackEvent", (event) => {
 	console.log(`played ${event.eventIndex} at ${event.origin.x},${event.origin.y},${event.origin.z} delay ${event.delay} last ${event.bparam2}`);

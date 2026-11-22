@@ -172,11 +172,27 @@ function entvarOf(prefix: string, key: number): number {
 	return field;
 }
 
-function kill(target: FakePlayer, keepFrags: boolean): void {
-	target.alive = false;
-	target.health = 0;
-	target.deaths += 1;
-	if (!keepFrags) target.frags -= 1;
+/**
+ * The spawn point the game picks (EntSelectSpawnPoint): the next of his
+ * side's - `info_player_start` for a CT, `info_player_deathmatch` for a
+ * terrorist - after the one it gave that side last, passing one at the
+ * map's origin or with another living player within 64 units, and the
+ * first of them when all are taken; with none, or no side, the first
+ * `info_player_deathmatch`; with that none either, the world's origin.
+ */
+function spawnSpot(server: FakeServer, target: FakePlayer): FakeEntity | undefined {
+	const entities = [...server.entities.values()];
+	const classname = { CT: 'info_player_start', TERRORIST: 'info_player_deathmatch' }[target.team as string];
+	const spots = entities.filter(one => one.classname === classname);
+	if (!spots.length) return entities.find(one => one.classname === 'info_player_deathmatch');
+
+	const after = spots.findIndex(one => one.id === server.lastSpawns.get(target.team)) + 1;
+	const order = [...spots.slice(after), ...spots.slice(0, after)];
+	const free = (spot: FakeEntity) => spot.origin.some(v => v !== 0)
+		&& !server.players.some(one => one !== target && one.alive && Math.hypot(...one.origin.map((v, k) => v - spot.origin[k])) <= 64);
+	const spot = order.find(free) ?? order[0];
+	server.lastSpawns.set(target.team, spot.id);
+	return spot;
 }
 
 /** get_players' own filtering, flag letter by flag letter. */
@@ -265,14 +281,64 @@ function executeHam(call: NativeCall, fn: number, id: number, tail: number[], ho
 	return result;
 }
 
-/** The game's Killed on a living player: he dies; his own death costs him a frag, another player's gives the killer one. */
+/**
+ * The game's Killed on a living player (CBasePlayer::Killed): the kill
+ * notice (DeathNotice), his death, the frags - his own death costs him one,
+ * an enemy's gives the killer one, a teammate's costs the killer one, the
+ * world's none - and his death cry.
+ */
 function killedAsTheGame(call: NativeCall, id: number, attacker: number): void {
 	const victim = player(call, id);
 	if (!victim?.alive) return;
-	const suicide = attacker === id;
-	kill(victim, !suicide);
-	const killer = suicide ? undefined : player(call, attacker);
-	if (killer) killer.frags += 1;
+	const killer = player(call, attacker);
+	deathNotice(call, victim, attacker, killer);
+	victim.alive = false;
+	victim.health = 0;
+	victim.deaths += 1;
+	if (killer === victim) victim.frags -= 1;
+	else if (killer) killer.frags += killer.team === victim.team ? -1 : 1;
+	deathSound(call, victim);
+}
+
+/**
+ * DeathNotice's SendDeathMessage: its listeners, then DeathMsg to everyone -
+ * the killer (0 for no player), the victim, a headshot, and the weapon: the
+ * killer's in hand without its `weapon_`, `world` for no player or his own
+ * death.
+ */
+function deathNotice(call: NativeCall, victim: FakePlayer, attacker: number, killer: FakePlayer | undefined): void {
+	const held = killer && killer !== victim ? killer.activeItem?.kind.replace(/^weapon_/, '') : undefined;
+	// ReGameDLL's KILLRARITY_HEADSHOT is the rarity's bit 1.
+	const headshot = victim.get('m_LastHitGroup') === constant('HITGROUP_HEAD') ? 1 : 0;
+	// ponytail: no assister, no flags, the inflictor is the attacker - DeathMsg's first four only.
+	const notice = call.server.fireHook('sendDeathMessage', [killer?.id ?? attacker, victim.id, 0, attacker, held ?? 'world', 0, headshot]);
+	if (notice.prevented) return;
+	const [, , , , weapon, , rarity] = notice.args;
+	gameMessage(call, 'DeathMsg', [killer?.id ?? 0, victim.id, Number(rarity) & 1, String(weapon)]);
+}
+
+/** DeathSound: one of the game's four cries, picked at random as the game picks it, from the victim. */
+function deathSound(call: NativeCall, victim: FakePlayer): void {
+	if (call.server.fireHook('deathSound', [victim.id]).prevented) return;
+	const cries = ['player/die1.wav', 'player/die2.wav', 'player/die3.wav', 'player/death6.wav'];
+	gameSound(call, victim.id, constant('CHAN_AUTO'), cries[Math.floor(Math.random() * cries.length)]);
+}
+
+/** A message the game sends to everyone: every plugin's message hooks hear it, then it goes out (server.userMessages). */
+function gameMessage(call: NativeCall, name: string, args: (number | string)[]): void {
+	call.server.writing = { name, player: 0, args };
+	NATIVES.emessage_end(call, []);
+}
+
+/**
+ * A sound the game plays from an entity (EMIT_SOUND) at the full volume and
+ * the normal attenuation: fakemeta's EmitSound, then ReHLDS's startSound
+ * hear it, then it plays (server.sounds).
+ */
+function gameSound(call: NativeCall, entity: number, channel: number, sample: string): void {
+	if (call.server.fireForward('FM_EmitSound', [entity, channel, sample, 1.0, 0.8, 0, 100]).superseded) return;
+	const sound = call.server.fireHook('startSound', [0, entity, channel, sample, 255, 0.8, 0, 100]);
+	if (!sound.prevented) call.server.sounds.push({ entity, sample: String(sound.args[3]) });
 }
 
 /** A vector given by address: its three numbers. */
@@ -321,6 +387,8 @@ function beginMessage(call: NativeCall, dest: number, type: number, player: numb
 
 function sendText(call: NativeCall, id: number, variant: 'chat' | 'center' | 'console' | 'notify' | 'hud', text: string): void {
 	for (const target of id > 0 ? [player(call, id)] : call.server.players) target?.show(variant, text);
+	const ending = call.server.roundEnding;
+	if (ending && id === 0 && variant === 'center') ending.message = text;
 }
 
 const PRINT_VARIANTS = ['', 'notify', 'console', 'chat', 'center'] as const;
@@ -647,15 +715,23 @@ export const NATIVES: Record<string, Native> = {
 		found.forEach((p, i) => c.memory.setCell(list + i * 4, p.id));
 		c.memory.setCell(count, found.length);
 	},
+	// The game's ClientKill, his own Killed; with the flag his frag given back.
 	user_kill: (c, [id, keepFrags]) => {
 		const target = player(c, id);
-		if (target?.alive) kill(target, keepFrags !== 0);
+		if (!target?.alive) return;
+		killedAsTheGame(c, id, id);
+		if (keepFrags) target.frags += 1;
 	},
+	// CBasePlayer::RoundRespawn, as far as a test sees it: alive with 100 HP, at a spawn point a unit up, facing as it faces.
 	rg_round_respawn: (c, [id]) => {
 		const target = player(c, id);
 		if (!target) return;
 		target.alive = true;
 		target.health = 100;
+		const spot = spawnSpot(c.server, target);
+		const [x, y, z] = spot?.origin ?? [0, 0, 0];
+		target.origin = [x, y, z + 1];
+		target.set('var_angles', spot?.get('var_angles') || [0, 0, 0]);
 	},
 	get_speak: (c, [id]) => player(c, id)?.speak ?? 0,
 	set_speak: (c, [id, flags]) => {
@@ -1025,6 +1101,10 @@ export const NATIVES: Record<string, Native> = {
 		c.server.userMessages.push(message);
 		// SendAudio's byte is the player it plays to, its string the sound.
 		if (message.name === 'SendAudio') c.server.sounds.push({ entity: Number(message.args[0]), sample: String(message.args[1]) });
+		// The round's end game.endRound tells everyone: its message, and its radio phrase by its name.
+		const ending = message.player ? null : c.server.roundEnding;
+		if (ending && message.name === 'TextMsg' && message.args[0] === PRINT_VARIANTS.indexOf('center')) ending.message = String(message.args[1]);
+		if (ending && message.name === 'SendAudio') ending.sound = String(message.args[1]).replace(/^%!MRAD_/, '');
 		for (const listener of c.server.messageListeners) listener(message);
 		return 1;
 	},
@@ -1079,7 +1159,10 @@ export const NATIVES: Record<string, Native> = {
 	read_logargv: (c, [index, buffer, length]) => c.memory.setText(buffer, length, c.server.logArgs[index] ?? ''),
 	// A line logged through the engine, where the logevents hear it.
 	elog_message: (c, [format, ...tail]) => {
-		c.server.gameLog(formatPawn(c, c.memory.text(format), tail));
+		const line = formatPawn(c, c.memory.text(format), tail);
+		// The round's end game.endRound logs, as the game does, when it tells the round's listeners.
+		if (c.server.roundEnding && line === 'World triggered "Round_End"') c.server.roundEnding.trigger = true;
+		c.server.gameLog(line);
 		return 1;
 	},
 	// register_event(event[], function[], flags[], cond[], ...): server.sendMessage() calls it once the message is sent.
@@ -1144,10 +1227,19 @@ export const NATIVES: Record<string, Native> = {
 		if (type === constant('usercmd_viewangles')) c.memory.setVector(out, command.slice(6));
 		return 1;
 	},
+	// The engine's globals: a whole one returned, a float written where the second argument points.
 	global_get: (c, [field, ...tail]) => {
-		if (field === constant('glb_frametime') && tail[0]) c.memory.setFloat(tail[0], 0.01);
-		return 0;
+		const server = c.server;
+		// ReHLDS's COM_EntsForPlayerSlots: 900 edicts and 15 more a slot past the first.
+		const whole = new Map([[constant('glb_maxClients'), server.maxPlayers], [constant('glb_maxEntities'), 900 + 15 * (server.maxPlayers - 1)]]);
+		const float = new Map([[constant('glb_time'), server.time / 1000], [constant('glb_frametime'), server.frameTime / 1000]]);
+		if (whole.has(field)) return whole.get(field);
+		if (!tail[0]) return 0;
+		c.memory.setFloat(tail[0], float.get(field) ?? 0);
+		return 1;
 	},
+	// ReHLDS's PF_NumberOfEntities: the edicts in use past the world's - every player slot's, and each entity's.
+	entity_count: c => c.server.maxPlayers + [...c.server.entities.keys()].filter(id => id > c.server.maxPlayers).length,
 	get_ent_data: (c, [id, _class, member, element]) => fieldCell(entity(c, id) ?? player(c, id), constant(c.memory.text(member)), element),
 	cs_get_user_money: (c, [id]) => fieldCell(player(c, id), constant('m_iAccount')),
 	find_ent_by_model: (c, [start, classname, model]) => {

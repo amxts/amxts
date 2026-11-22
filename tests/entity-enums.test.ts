@@ -1,4 +1,4 @@
-import { loadPlugin } from '@amxts/core/test-utils';
+import { constant, loadPlugin } from '@amxts/core/test-utils';
 // Entity fields that hold one value of an engine enum take and give names
 // (scripts/generate-entities.ts, ENUM_FIELDS); on the fake server the field
 // keeps the number the engine would, so both ends are checked.
@@ -21,7 +21,7 @@ test('a name is written as the engine number, and read back as the name', async 
 	expect(alice.get('var_solid')).toBe(1);
 	expect(alice.get('var_deadflag')).toBe(3);
 	// DAMAGE_AIM is 2.0: pev->takedamage is a float.
-	expect(alice.get('var_takedamage')).toBe(2);
+	expect(alice.get('var_takedamage')).toBe(constant('DAMAGE_AIM'));
 	// CONTENTS_LAVA, ARMOR_VESTHELM, OBS_IN_EYE in iuser1, OBS_CHASE_FREE, DONT_BLEED, Menu_BuyRifle.
 	expect(alice.get('var_watertype')).toBe(-5);
 	expect(alice.get('m_iKevlar')).toBe(2);

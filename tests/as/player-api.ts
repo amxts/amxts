@@ -54,6 +54,29 @@ server.addCommand("pl_kill [keep]", ({ player, keep }) => {
 	player.kill({ keepFrags: keep == "keep" });
 	player.print(`${player.isAlive} ${player.health} ${player.frags}`, "console");
 });
+server.addCommand("pl_killed_by_other", ({ player }) => {
+	const other = server.players.find(one => one.id != player.id);
+	if (other != null) player.killed(other, 0);
+});
+server.addCommand("pl_regive", ({ player }) => {
+	player.removeAllItems();
+	player.give("weapon_knife");
+	player.give("weapon_usp");
+	player.print(player.activeItem?.classname ?? "none", "console");
+});
+server.addCommand("pl_respawn", ({ player }) => {
+	player.respawn();
+	const at = player.origin;
+	player.print(`${player.isAlive} ${at.x} ${at.y} ${at.z}`, "console");
+});
+
+// A player named Quiet dies without a kill notice or a death cry.
+game.addEventListener("sendDeathMessage", (event) => {
+	if (event.victim.name == "Quiet") event.preventDefault();
+});
+game.addEventListener("deathSound", (event) => {
+	if (event.player.name == "Quiet") event.preventDefault();
+});
 server.addCommand("pl_sound", ({ player }) => sound(player));
 server.addCommand("pl_cvar <name>", ({ player, name }) => askCvar(player, name));
 server.addCommand("pl_cvar_left", ({ player }) => askUntilLeft(player));

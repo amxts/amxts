@@ -5776,12 +5776,12 @@ export class Game extends GameFields {
 	private finishRound(status: i32, delay: f64, options: EndRoundOptions, dispatch: bool): void {
 		const message = options.message ?? "default";
 		const sound = options.sound ?? "default";
-		// What the game's TerminateRound does: the winner, the moment the next round starts, and the
-		// round marked as ending, so the game does not end it again meanwhile;
-		// then the message and the sound.
+		// What the game's TerminateRound does, in its order: the winner, the
+		// moment the next round starts, and the round marked as ending, so the
+		// game does not end it again meanwhile; then the message and the sound.
 		this.roundWinner = WINNER_NAMES[status];
-		this.roundEnding = true;
 		this.newRoundTime = this.time + delay;
+		this.roundEnding = true;
 		const text = message == "default" ? ROUND_MESSAGES[status] : message;
 		const radio = sound == "default" ? ROUND_SOUNDS[status] : sound;
 		if (!dispatch) {

@@ -128,6 +128,18 @@ test('without reapi game.endRound with dispatch tells the roundEnd listeners, as
 	expect(server.logLines.filter(line => line.startsWith('round '))).toEqual(['round CT ctsWin 4', 'round CT ctsWin 4']);
 });
 
+test('game.endRound is in server.roundEnds as it ended the round, with reapi and without; told, it is a trigger', async () => {
+	for (const options of [{}, PLAIN]) {
+		const server = await loadPlugin(PLUGIN, options);
+		server.serverCommand('end');
+		server.serverCommand('end_told');
+		expect(server.roundEnds).toEqual([
+			{ status: 2, event: constant('ROUND_TERRORISTS_WIN'), delay: 3, message: '#Terrorists_Win', sound: 'terwin', trigger: false },
+			{ status: 1, event: constant('ROUND_CTS_WIN'), delay: 4, message: '#CTs_Win', sound: 'ctwin', trigger: true },
+		]);
+	}
+});
+
 test('without reapi money is the Money message, by how much it moved', async () => {
 	const server = await loadPlugin(PLUGIN, PLAIN);
 	// He comes with none, and the game gives him the starting money.
@@ -200,7 +212,6 @@ test('without reapi a round ends as the game ends it: the winner, the round endi
 	const alice = server.join('Alice');
 	server.serverCommand('end');
 	expect(server.log).toContain('ended TERRORIST true');
-	expect(server.roundEnds).toEqual([]);
 	expect(server.rules.get(constant('m_iRoundWinStatus'))).toBe(2);
 	expect(alice.center).toContain('#Terrorists_Win');
 	expect(server.sounds).toContainEqual({ entity: 0, sample: '%!MRAD_terwin' });

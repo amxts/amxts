@@ -196,6 +196,54 @@ test('kill: a suicide that costs a frag, or none with keepFrags; on the fake ser
 	expect([alice.alive, alice.deaths, bob.alive, bob.deaths]).toEqual([false, 1, false, 1]);
 });
 
+test('a kill on the fake server sends the game\'s kill notice and death cry, which listeners can stop', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice', { team: 'CT', weapons: ['weapon_knife', 'weapon_ak47'] });
+	const bob = server.join('Bob', { team: 'TERRORIST' });
+	const quiet = server.join('Quiet', { team: 'TERRORIST' });
+
+	alice.command('pl_kill');
+	bob.command('pl_killed_by_other');
+	quiet.command('pl_kill');
+
+	const notices = server.userMessages.filter(message => message.name === 'DeathMsg').map(message => message.args);
+	expect(notices).toEqual([[alice.id, alice.id, 0, 'world'], [alice.id, bob.id, 0, 'knife']]);
+	const cries = server.sounds.filter(sound => /^player\/(?:die[123]|death6)\.wav$/.test(sound.sample)).map(sound => sound.entity);
+	expect(cries).toEqual([alice.id, bob.id]);
+	expect([alice.frags, bob.frags, quiet.alive]).toEqual([0, 0, false]);
+});
+
+test('give into empty hands draws the weapon, as the game does; the next stays in the slots', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const alice = server.join('Alice', { weapons: ['weapon_knife', 'weapon_usp'] });
+
+	expect(alice.activeItem?.kind).toBe('weapon_knife');
+	alice.command('pl_regive');
+
+	expect(alice.console).toBe('weapon_knife');
+});
+
+test('respawn puts the player at the next spawn point of his side a unit up, past one taken; with none, at the origin', async () => {
+	const server = await loadPlugin(PLUGIN);
+	const [first] = [[100, 0, 0], [200, 0, 0]].map((origin) => {
+		const spot = server.createEntity('info_player_start');
+		spot.origin = origin;
+		return spot;
+	});
+	const alice = server.join('Alice', { team: 'CT', alive: false });
+	server.join('Bob', { team: 'CT', origin: [210, 0, 0] });
+	const carol = server.join('Carol', { team: 'TERRORIST', alive: false });
+
+	alice.command('pl_respawn');
+	alice.alive = false;
+	alice.command('pl_respawn');
+	carol.command('pl_respawn');
+
+	expect(alice.console.split('\n')).toEqual(['true 100 0 1', 'true 100 0 1']);
+	expect(first.origin).toEqual([100, 0, 0]);
+	expect(carol.console).toBe('true 0 0 1');
+});
+
 test('playSound: SendAudio to the player alone, at the normal pitch', async () => {
 	const server = await loadPlugin(PLUGIN);
 	const alice = server.join('Alice');
@@ -298,6 +346,8 @@ test('a line printed again, after another, is the same line', async () => {
 	alice.command('pl_colors_again');
 
 	expect(alice.chatRaw.split('\n')).toEqual(['\x04GG', '\x03not Alice', '\x04GG', '\x04GG']);
+	expect(alice.chatLines).toEqual(['GG', 'not Alice', 'GG', 'GG']);
+	expect(alice.chat).toBe(alice.chatLines.join('\n'));
 });
 
 test('give takes any name and says once the one the game has not', async () => {

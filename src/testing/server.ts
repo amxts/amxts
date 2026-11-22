@@ -154,6 +154,16 @@ export interface HookResult {
 export type HookArg = Value | number[];
 
 /** A user message a plugin sent: ScreenFade, StatusIcon, ... */
+/** A round a plugin ended: `server.roundEnds`. */
+export interface RoundEnd {
+	status: number;
+	event: number;
+	delay: number;
+	message: string;
+	sound: string;
+	trigger: boolean;
+}
+
 export interface UserMessage {
 	name: string;
 	/** The player it went to; 0 for everyone. */
@@ -523,8 +533,6 @@ export class FakePlayer extends FakeEntity {
 		this.origin = options.origin ?? [0, 0, 0];
 
 		for (const weapon of options.weapons ?? ['weapon_knife']) this.give(weapon);
-		const first = this.items[0];
-		if (first) this.set('m_pActiveItem', first.id);
 	}
 
 	get health(): number { return Number(this.get('var_health')); }
@@ -544,8 +552,10 @@ export class FakePlayer extends FakeEntity {
 
 	get muted(): boolean { return (this.speak & constant('SPEAK_MUTED')) !== 0; }
 
-	/** The chat lines he was shown, one a line, colour bytes taken out. */
+	/** The chat lines he was shown, one a line, colour bytes taken out: one text. */
 	get chat(): string { return this.lines('chat'); }
+	/** The same lines one by one: `chatLines.at(-1)` is the last. */
+	get chatLines(): string[] { return this.messages.filter(m => m.variant === 'chat').map(m => m.text); }
 	/**
 	 * The chat lines as the client got them, colour codes `\x01`-`\x04` kept:
 	 * the client draws no colour in a line that does not start with one.
@@ -595,7 +605,10 @@ export class FakePlayer extends FakeEntity {
 		return weapon instanceof FakeWeapon ? weapon : null;
 	}
 
-	/** Hands him a weapon, at the end of its slot's chain. */
+	/**
+	 * Hands him a weapon, at the end of its slot's chain; with empty hands he
+	 * draws it, as the game's FShouldSwitchWeapon has it.
+	 */
 	give(kind: string): FakeWeapon {
 		const weapon = new FakeWeapon(this.server, this.server.nextEntityId(), kind, this.id);
 		this.server.entities.set(weapon.id, weapon);
@@ -609,6 +622,8 @@ export class FakePlayer extends FakeEntity {
 			while (Number(last.get('m_pNext')) > 0) last = this.server.entities.get(Number(last.get('m_pNext')))!;
 			last.set('m_pNext', weapon.id);
 		}
+		// ponytail: a weapon heavier than the one in hand is not drawn (the game's iWeight), add when a test needs it.
+		if (!this.activeItem) this.set('m_pActiveItem', weapon.id);
 		return weapon;
 	}
 
@@ -934,8 +949,17 @@ export class FakeServer {
 	playback: { blocked: boolean; recipients: number[] | null } = { blocked: false, recipients: null };
 	/** The map's light, as `server.lightStyle` last set it: `"m"` the map's own. */
 	lightStyle = 'm';
-	/** Rounds a plugin ended with rg_round_end, in order. */
-	readonly roundEnds: { status: number; event: number; delay: number; message: string; sound: string; trigger: boolean }[] = [];
+	/** The spawn point the game gave each side last, by team: the next respawn takes the one after it. @internal */
+	readonly lastSpawns = new Map<TeamName, number>();
+	/**
+	 * Rounds a plugin ended, in order: with rg_round_end, its arguments; with
+	 * game.endRound, the winner and the delay it wrote in the game rules, the
+	 * message and the sound it told everyone (`""` none), and `trigger` when it
+	 * told the round's listeners too (`dispatch`).
+	 */
+	readonly roundEnds: RoundEnd[] = [];
+	/** The round game.endRound is ending, while the call that ends it runs: what it tells everyone fills it in. @internal */
+	roundEnding: RoundEnd | null = null;
 	/** Sounds played: from an entity (emit_sound, rh_emit_sound2, `to` the one player who hears it), or to a player alone (SendAudio, rg_send_audio). */
 	readonly sounds: { entity: number; sample: string; to?: number }[] = [];
 	/** The players startSound's listeners chose (`recipients`) in the last hook fireHook ran, `null` for all it reaches. */
@@ -1037,6 +1061,17 @@ export class FakeServer {
 	readonly shownMenus = new Map<number, Handler & { keys: number }>();
 	private menuIds = 0;
 	private userids = 1;
+
+	/** A round game.endRound ended, from the game rules it wrote: its winner, why (rg_round_end's event for it), the delay. */
+	private endRound(): void {
+		const status = this.rules.get(constant('m_iRoundWinStatus')) ?? 0;
+		const reasons = ['ROUND_NONE', 'ROUND_CTS_WIN', 'ROUND_TERRORISTS_WIN', 'ROUND_END_DRAW'];
+		const restart = bitsFloat(this.rules.get(constant('m_flRestartRoundTime')) ?? 0);
+		// To the millisecond: the moment is a Float, whose rounding is not the delay's.
+		const delay = Math.round((restart - this.time / 1000) * 1000) / 1000;
+		this.roundEnding = { status, event: constant(reasons[status] ?? 'ROUND_NONE'), delay, message: '', sound: '', trigger: false };
+		this.roundEnds.push(this.roundEnding);
+	}
 
 	/** A userid for a player who comes: one more than the last. @internal */
 	nextUserid(): number {
@@ -2113,6 +2148,7 @@ export class FakeServer {
 	within<T>(plugin: PluginInstance, body: () => T): T {
 		const previous = this.current;
 		this.current = plugin;
+		if (!previous) this.roundEnding = null;
 		const coroutines = plugin.coroutines;
 		if (coroutines) coroutines.depth++;
 		try {
@@ -3765,8 +3801,10 @@ export class FakeServer {
 
 		member_set(this: FakeServer, plugin: PluginInstance, id: number, slot: number, element: number, cell: number) {
 			const field = this.memberSlots[slot];
-			if (id === -1) this.rules.set(field, cell);
-			else setFieldCell(this.entities.get(id), field, cell, element);
+			if (id !== -1) return setFieldCell(this.entities.get(id), field, cell, element);
+			this.rules.set(field, cell);
+			// The last write of the game's TerminateRound, which game.endRound writes as the game does.
+			if (field === constant('m_bRoundTerminating') && cell) this.endRound();
 		},
 
 		member_text(this: FakeServer, plugin: PluginInstance, id: number, slot: number, out: number, max: number) {

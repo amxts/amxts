@@ -43,7 +43,7 @@ export interface HookShape {
 }
 
 export interface Tables {
-	/** Every `export const X: i32 = N` in as/constants.ts, and the gamedata's members reapi does not list. */
+	/** Every `export const X: i32 = N` in as/constants.ts, hlsdk_const.inc's DAMAGE_*, and the gamedata's members reapi does not list. */
 	constants: Map<string, number>;
 	/** The dispatcher's native ids (`NATIVE_x`) to names. */
 	dispatched: Map<number, string>;
@@ -102,6 +102,9 @@ export function tables(): Tables {
 	for (const [, name, value] of constantsSource.matchAll(/^export const (\w+): i32 = (-?(?:0x[0-9a-fA-F]+|\d+));/gm)) {
 		constants.set(name, Number(value));
 	}
+	// hlsdk_const.inc's DAMAGE_* are Float #defines, which as/constants.ts does
+	// not carry: what pev->takedamage holds, `player.get("takedamage")`.
+	for (const [name, value] of [['DAMAGE_NO', 0], ['DAMAGE_YES', 1], ['DAMAGE_AIM', 2]] as const) constants.set(name, value);
 
 	const dispatched = new Map<number, string>();
 	for (const [, name, id] of generated('natives.ts').matchAll(/^export const NATIVE_(\w+): i32 = (\d+);/gm)) {

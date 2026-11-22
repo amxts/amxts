@@ -39,6 +39,16 @@ test('a field native reads and writes a field as what it holds', async () => {
 	expect(alice.get('m_szTeamName')).toBe('CT');
 });
 
+test('the engine counts its entities as ReHLDS does: every player slot, and each entity past them', async () => {
+	const server = await loadPlugin(FIXTURE, { maxPlayers: 10 });
+	const alice = server.join('Alice');
+	server.createEntity('info_target');
+	alice.command('globals');
+
+	// The ten slots, Alice's knife and the target; 900 edicts and 15 for each slot past the first.
+	expect(server.log).toContain('entities 12 of 1035, 10 slots');
+});
+
 test('a server event hands its listener every argument, all twelve of pfn_playbackevent', async () => {
 	// The module raises it from the engine's PlaybackEvent: the image has no public for it.
 	expect(image).not.toContain('pfn_playbackevent(');
